@@ -1,0 +1,27 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "LiteAPI",
+  "outputfilename": "LiteAPI",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "info": {
+    "protocols": [
+      {
+        "scheme": "liteapi",
+        "description": "LiteAPI OAuth2 callback",
+        "role": "Editor"
+      },
+      {
+        "scheme": "bruno",
+        "description": "Bruno-compatible OAuth2 callback",
+        "role": "Editor"
+      }
+    ]
+  },
+  "author": {
+    "name": "",
+    "email": ""
+  }
+}
