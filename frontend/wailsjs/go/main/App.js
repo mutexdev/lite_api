@@ -6,6 +6,10 @@ export function AddCookieFromHeader(arg1, arg2) {
   return window['go']['main']['App']['AddCookieFromHeader'](arg1, arg2);
 }
 
+export function ApplyCollectionImport(arg1) {
+  return window['go']['main']['App']['ApplyCollectionImport'](arg1);
+}
+
 export function ApplyOpenAPILocalDrift(arg1, arg2) {
   return window['go']['main']['App']['ApplyOpenAPILocalDrift'](arg1, arg2);
 }
@@ -14,8 +18,16 @@ export function ApplyOpenAPISync(arg1, arg2) {
   return window['go']['main']['App']['ApplyOpenAPISync'](arg1, arg2);
 }
 
+export function CancelCollectionRun(arg1) {
+  return window['go']['main']['App']['CancelCollectionRun'](arg1);
+}
+
 export function CancelGRPCStream(arg1, arg2) {
   return window['go']['main']['App']['CancelGRPCStream'](arg1, arg2);
+}
+
+export function CancelRequest(arg1, arg2) {
+  return window['go']['main']['App']['CancelRequest'](arg1, arg2);
 }
 
 export function CheckOpenAPILocalDrift(arg1) {
@@ -28,6 +40,18 @@ export function CheckOpenAPISync(arg1, arg2) {
 
 export function CheckOpenAPIUpdates(arg1) {
   return window['go']['main']['App']['CheckOpenAPIUpdates'](arg1);
+}
+
+export function CheckoutCollectionGitBranch(arg1, arg2) {
+  return window['go']['main']['App']['CheckoutCollectionGitBranch'](arg1, arg2);
+}
+
+export function ChooseCollectionImportFiles() {
+  return window['go']['main']['App']['ChooseCollectionImportFiles']();
+}
+
+export function ChooseCollectionImportFolder() {
+  return window['go']['main']['App']['ChooseCollectionImportFolder']();
 }
 
 export function ClearCookies() {
@@ -78,6 +102,10 @@ export function CloseTab(arg1) {
   return window['go']['main']['App']['CloseTab'](arg1);
 }
 
+export function CommitCollectionGit(arg1, arg2) {
+  return window['go']['main']['App']['CommitCollectionGit'](arg1, arg2);
+}
+
 export function CompleteOAuth2Callback(arg1) {
   return window['go']['main']['App']['CompleteOAuth2Callback'](arg1);
 }
@@ -116,6 +144,10 @@ export function CopyGlobalEnvironmentAs(arg1, arg2, arg3) {
 
 export function CreateCollection(arg1, arg2, arg3) {
   return window['go']['main']['App']['CreateCollection'](arg1, arg2, arg3);
+}
+
+export function CreateCollectionGitBranch(arg1, arg2, arg3) {
+  return window['go']['main']['App']['CreateCollectionGitBranch'](arg1, arg2, arg3);
 }
 
 export function CreateEnvironment(arg1, arg2) {
@@ -158,6 +190,10 @@ export function DeleteFolder(arg1, arg2) {
   return window['go']['main']['App']['DeleteFolder'](arg1, arg2);
 }
 
+export function DeleteFolderRecoverable(arg1, arg2) {
+  return window['go']['main']['App']['DeleteFolderRecoverable'](arg1, arg2);
+}
+
 export function DeleteGlobalEnvironment(arg1, arg2) {
   return window['go']['main']['App']['DeleteGlobalEnvironment'](arg1, arg2);
 }
@@ -166,8 +202,24 @@ export function DeleteRequest(arg1, arg2) {
   return window['go']['main']['App']['DeleteRequest'](arg1, arg2);
 }
 
+export function DeleteRequestRecoverable(arg1, arg2) {
+  return window['go']['main']['App']['DeleteRequestRecoverable'](arg1, arg2);
+}
+
 export function DeleteResponseExample(arg1, arg2, arg3) {
   return window['go']['main']['App']['DeleteResponseExample'](arg1, arg2, arg3);
+}
+
+export function DiscardRecoveryEntry(arg1) {
+  return window['go']['main']['App']['DiscardRecoveryEntry'](arg1);
+}
+
+export function DiscardRequestDraft(arg1, arg2) {
+  return window['go']['main']['App']['DiscardRequestDraft'](arg1, arg2);
+}
+
+export function DiscardUnsavedDrafts(arg1) {
+  return window['go']['main']['App']['DiscardUnsavedDrafts'](arg1);
 }
 
 export function DisconnectCollectionGitRemote(arg1) {
@@ -202,6 +254,10 @@ export function ExportGlobalEnvironments(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExportGlobalEnvironments'](arg1, arg2, arg3);
 }
 
+export function FetchCollectionGit(arg1, arg2) {
+  return window['go']['main']['App']['FetchCollectionGit'](arg1, arg2);
+}
+
 export function GenerateCollectionDocs(arg1, arg2) {
   return window['go']['main']['App']['GenerateCollectionDocs'](arg1, arg2);
 }
@@ -220,6 +276,14 @@ export function GenerateRequestCode(arg1, arg2, arg3, arg4) {
 
 export function GenerateResponseExampleCode(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GenerateResponseExampleCode'](arg1, arg2, arg3, arg4);
+}
+
+export function GetCollectionGitDiff(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetCollectionGitDiff'](arg1, arg2, arg3);
+}
+
+export function GetCollectionGitStatus(arg1) {
+  return window['go']['main']['App']['GetCollectionGitStatus'](arg1);
 }
 
 export function GetDevToolsSnapshot() {
@@ -246,6 +310,10 @@ export function GetTerminalSession(arg1) {
   return window['go']['main']['App']['GetTerminalSession'](arg1);
 }
 
+export function GetWebStorageScope() {
+  return window['go']['main']['App']['GetWebStorageScope']();
+}
+
 export function GitVersion() {
   return window['go']['main']['App']['GitVersion']();
 }
@@ -256,6 +324,10 @@ export function ImportCollection(arg1, arg2) {
 
 export function ImportGlobalEnvironment(arg1, arg2) {
   return window['go']['main']['App']['ImportGlobalEnvironment'](arg1, arg2);
+}
+
+export function InitializeCollectionGit(arg1) {
+  return window['go']['main']['App']['InitializeCollectionGit'](arg1);
 }
 
 export function KillTerminalSession(arg1) {
@@ -270,8 +342,20 @@ export function ListGRPCMethods(arg1, arg2, arg3) {
   return window['go']['main']['App']['ListGRPCMethods'](arg1, arg2, arg3);
 }
 
+export function ListRecoveryEntries() {
+  return window['go']['main']['App']['ListRecoveryEntries']();
+}
+
 export function ListTerminalSessions() {
   return window['go']['main']['App']['ListTerminalSessions']();
+}
+
+export function ListUnsavedDrafts() {
+  return window['go']['main']['App']['ListUnsavedDrafts']();
+}
+
+export function ListWorkspaceWindowTargets() {
+  return window['go']['main']['App']['ListWorkspaceWindowTargets']();
 }
 
 export function MarkAllNotificationsRead() {
@@ -294,6 +378,10 @@ export function OpenGitCollections(arg1, arg2, arg3) {
   return window['go']['main']['App']['OpenGitCollections'](arg1, arg2, arg3);
 }
 
+export function OpenNewWindow() {
+  return window['go']['main']['App']['OpenNewWindow']();
+}
+
 export function OpenRequestTab(arg1, arg2) {
   return window['go']['main']['App']['OpenRequestTab'](arg1, arg2);
 }
@@ -302,8 +390,24 @@ export function OpenResponseExampleTab(arg1, arg2, arg3) {
   return window['go']['main']['App']['OpenResponseExampleTab'](arg1, arg2, arg3);
 }
 
+export function OpenWorkspaceInNewWindow(arg1) {
+  return window['go']['main']['App']['OpenWorkspaceInNewWindow'](arg1);
+}
+
 export function ParseBru(arg1) {
   return window['go']['main']['App']['ParseBru'](arg1);
+}
+
+export function PreviewCollectionImport(arg1) {
+  return window['go']['main']['App']['PreviewCollectionImport'](arg1);
+}
+
+export function PullCollectionGit(arg1, arg2, arg3) {
+  return window['go']['main']['App']['PullCollectionGit'](arg1, arg2, arg3);
+}
+
+export function PushCollectionGit(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['PushCollectionGit'](arg1, arg2, arg3, arg4);
 }
 
 export function RefreshChangedCollections() {
@@ -316,6 +420,10 @@ export function RefreshCollection(arg1) {
 
 export function RemoveCollection(arg1) {
   return window['go']['main']['App']['RemoveCollection'](arg1);
+}
+
+export function RemoveCollectionRecoverable(arg1) {
+  return window['go']['main']['App']['RemoveCollectionRecoverable'](arg1);
 }
 
 export function RenameCollection(arg1, arg2) {
@@ -352,6 +460,10 @@ export function ResolveCollectionFolderPath(arg1, arg2) {
 
 export function ResolveProcessEnvValues(arg1, arg2) {
   return window['go']['main']['App']['ResolveProcessEnvValues'](arg1, arg2);
+}
+
+export function RestoreRecoveryEntry(arg1) {
+  return window['go']['main']['App']['RestoreRecoveryEntry'](arg1);
 }
 
 export function RevealCollectionFolderInFolder(arg1, arg2) {
@@ -398,8 +510,20 @@ export function SaveRequest(arg1, arg2) {
   return window['go']['main']['App']['SaveRequest'](arg1, arg2);
 }
 
+export function SaveResponseBody(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SaveResponseBody'](arg1, arg2, arg3);
+}
+
 export function SaveResponseExample(arg1, arg2, arg3) {
   return window['go']['main']['App']['SaveResponseExample'](arg1, arg2, arg3);
+}
+
+export function SaveResponseTimeline(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SaveResponseTimeline'](arg1, arg2, arg3);
+}
+
+export function SaveUnsavedDrafts(arg1) {
+  return window['go']['main']['App']['SaveUnsavedDrafts'](arg1);
 }
 
 export function ScanGitCollections(arg1) {
@@ -446,8 +570,24 @@ export function SetActiveTab(arg1) {
   return window['go']['main']['App']['SetActiveTab'](arg1);
 }
 
+export function SetActiveWorkspace(arg1) {
+  return window['go']['main']['App']['SetActiveWorkspace'](arg1);
+}
+
+export function SetCollectionGitRemote(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetCollectionGitRemote'](arg1, arg2, arg3);
+}
+
+export function StageCollectionGitPaths(arg1, arg2) {
+  return window['go']['main']['App']['StageCollectionGitPaths'](arg1, arg2);
+}
+
 export function StringifyBru(arg1) {
   return window['go']['main']['App']['StringifyBru'](arg1);
+}
+
+export function UnstageCollectionGitPaths(arg1, arg2) {
+  return window['go']['main']['App']['UnstageCollectionGitPaths'](arg1, arg2);
 }
 
 export function UpdateCollectionAuth(arg1, arg2) {

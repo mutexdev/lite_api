@@ -1,0 +1,1 @@
+curl --request POST 'http://127.0.0.1:18487/json' --header 'Content-Type: application/json' --header 'X-Fixture: curl' --data-raw '{"source":"curl fixture"}'

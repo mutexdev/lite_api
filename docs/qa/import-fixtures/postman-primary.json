@@ -1,0 +1,39 @@
+{
+  "info": {
+    "name": "Picker Primary"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:18487"
+    }
+  ],
+  "item": [
+    {
+      "name": "Nested",
+      "item": [
+        {
+          "name": "Fixture XML",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/xml",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/xml"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Fixture JSON",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/json",
+        "header": []
+      }
+    }
+  ]
+}

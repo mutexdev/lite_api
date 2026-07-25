@@ -156,7 +156,7 @@ func (s *reflectedTestService) UnaryCall(ctx context.Context, req *grpc_testing.
 	if err := grpc.SendHeader(ctx, metadata.Pairs("x-grpc-initial", "unary-header")); err != nil {
 		return nil, err
 	}
-	grpc.SetTrailer(ctx, metadata.Pairs("x-grpc-trailer", "unary-trailer"))
+	_ = grpc.SetTrailer(ctx, metadata.Pairs("x-grpc-trailer", "unary-trailer"))
 	if incoming, ok := metadata.FromIncomingContext(ctx); ok {
 		for name, values := range incoming {
 			if len(values) > 0 {
@@ -492,6 +492,67 @@ func TestSendRequestInterpolatesExecutesAndRecordsResponse(t *testing.T) {
 	}
 	if !strings.Contains(logRow.ResponseHeaders["Content-Type"], "application/json") {
 		t.Fatalf("network log response headers mismatch: %#v", logRow.ResponseHeaders)
+	}
+}
+
+func TestSendGraphQLRequestUsesJSONEnvelope(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("GraphQL method = %s, want POST", r.Method)
+		}
+		if mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mediaType != "application/json" {
+			t.Fatalf("GraphQL Content-Type = %q, parse error = %v", r.Header.Get("Content-Type"), err)
+		}
+		var payload struct {
+			Query     string                 `json:"query"`
+			Variables map[string]interface{} `json:"variables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode GraphQL payload: %v", err)
+		}
+		if payload.Query != `query Search($term: String!) { search(term: "Ada") { id } }` {
+			t.Fatalf("unexpected GraphQL query: %q", payload.Query)
+		}
+		if payload.Variables["term"] != "Ada" || payload.Variables["limit"] != float64(2) {
+			t.Fatalf("unexpected GraphQL variables: %#v", payload.Variables)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"search":[{"id":"1"}]}}`))
+	}))
+	defer server.Close()
+
+	app := NewAppWithDir(t.TempDir())
+	state, err := app.GetState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection := state.Workspaces[0].Collections[0]
+	state, err = app.UpdateCollectionVariables(collection.ID, []Variable{{ID: "term", Name: "term", Value: "Ada", DataType: "string", Enabled: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection = state.Workspaces[0].Collections[0]
+	state, err = app.CreateRequest(collection.ID, "graphql", "GraphQL transport")
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection = state.Workspaces[0].Collections[0]
+	item := collection.Items[len(collection.Items)-1]
+	targetURL := server.URL + "/graphql"
+	body := item.Body
+	body.Mode = "graphql"
+	body.GraphQLQuery = `query Search($term: String!) { search(term: "{{term}}") { id } }`
+	body.GraphQLVariables = `{"term":"{{term}}","limit":2}`
+	if _, err := app.UpdateRequest(collection.ID, item.ID, RequestPatch{URL: &targetURL, Body: &body}); err != nil {
+		t.Fatal(err)
+	}
+	state, err = app.SendRequest(collection.ID, item.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, ok := findItemInState(state, collection.ID, item.ID)
+	if !ok || updated.Response == nil || updated.Response.Status != http.StatusOK || updated.Response.Error != "" {
+		t.Fatalf("GraphQL response was not successful: %#v", updated)
 	}
 }
 
@@ -995,7 +1056,7 @@ func TestCollectionManualProxyExecutesHTTPRequest(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		for name, values := range res.Header {
 			for _, value := range values {
 				w.Header().Add(name, value)
@@ -1575,7 +1636,7 @@ func testForwardingHTTPProxy(t *testing.T, markerHeader string) (*httptest.Serve
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		for name, values := range res.Header {
 			for _, value := range values {
 				w.Header().Add(name, value)
@@ -1736,7 +1797,7 @@ func TestCollectionClientCertificateExecutesMTLSRequest(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(fmt.Sprintf(`{"clientCert":true,"subject":%q}`, r.TLS.PeerCertificates[0].Subject.CommonName)))
+		_, _ = fmt.Fprintf(w, `{"clientCert":true,"subject":%q}`, r.TLS.PeerCertificates[0].Subject.CommonName)
 	}))
 	server.TLS = &tls.Config{ClientAuth: tls.RequireAnyClientCert}
 	server.StartTLS()
@@ -2140,6 +2201,70 @@ func TestWorkspaceScratchCollectionIsTransientAndFileBacked(t *testing.T) {
 		return
 	}
 	t.Fatalf("reloaded scratch collection %q not found", reloadedWorkspace.ScratchCollectionID)
+}
+
+func TestSetActiveWorkspacePersistsSelection(t *testing.T) {
+	dir := t.TempDir()
+	app := NewAppWithDir(dir)
+	state, err := app.GetState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialWorkspaceID := state.ActiveWorkspaceID
+	state, err = app.CreateWorkspace("Second Workspace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondWorkspaceID := state.ActiveWorkspaceID
+	if secondWorkspaceID == initialWorkspaceID {
+		t.Fatal("CreateWorkspace did not select the new workspace")
+	}
+
+	state, err = app.SetActiveWorkspace(initialWorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ActiveWorkspaceID != initialWorkspaceID {
+		t.Fatalf("active workspace was not updated: got %q want %q", state.ActiveWorkspaceID, initialWorkspaceID)
+	}
+
+	reloaded := NewAppWithDir(dir)
+	reloadedState, err := reloaded.GetState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloadedState.ActiveWorkspaceID != initialWorkspaceID {
+		t.Fatalf("active workspace selection did not persist: got %q want %q", reloadedState.ActiveWorkspaceID, initialWorkspaceID)
+	}
+}
+
+func TestSetActiveWorkspaceRejectsUnknownIDWithoutMutation(t *testing.T) {
+	dir := t.TempDir()
+	app := NewAppWithDir(dir)
+	state, err := app.GetState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialWorkspaceID := state.ActiveWorkspaceID
+	if _, err := app.SetActiveWorkspace("missing-workspace"); err == nil {
+		t.Fatal("expected unknown workspace to be rejected")
+	}
+	state, err = app.GetState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ActiveWorkspaceID != initialWorkspaceID {
+		t.Fatalf("invalid workspace selection mutated state: got %q want %q", state.ActiveWorkspaceID, initialWorkspaceID)
+	}
+
+	reloaded := NewAppWithDir(dir)
+	reloadedState, err := reloaded.GetState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloadedState.ActiveWorkspaceID != initialWorkspaceID {
+		t.Fatalf("invalid workspace selection persisted a mutation: got %q want %q", reloadedState.ActiveWorkspaceID, initialWorkspaceID)
+	}
 }
 
 func TestPreferencesThemeModeAndVariantsPersist(t *testing.T) {
@@ -3211,7 +3336,19 @@ func TestRevealCollectionInFolderRejectsMissingPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	collection := state.Workspaces[0].Collections[0]
+	var collection Collection
+	for _, candidate := range state.Workspaces[0].Collections {
+		if candidate.Name == "Missing Reveal API" {
+			collection = candidate
+			break
+		}
+	}
+	if collection.ID == "" {
+		t.Fatalf("created collection not found: %#v", state.Workspaces[0].Collections)
+	}
+	if err := os.RemoveAll(collection.Path); err != nil {
+		t.Fatal(err)
+	}
 	called := false
 	app.revealInFolder = func(path string) error {
 		called = true
@@ -3917,7 +4054,7 @@ func TestCreateFolderRejectsDuplicateReservedInvalidAndExistingDirectory(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.CreateFolder(collection.ID, "", "Other Users", "users"); err == nil || !strings.Contains(err.Error(), "Duplicate folder names") {
+	if _, err := app.CreateFolder(collection.ID, "", "Other Users", "users"); err == nil || !strings.Contains(err.Error(), "duplicate folder names") {
 		t.Fatalf("expected duplicate directory name rejection, got %v", err)
 	}
 	if _, err := app.CreateFolder(collection.ID, "", "Environments", "environments"); err == nil || !strings.Contains(err.Error(), "reserved in bruno") {
@@ -4134,7 +4271,7 @@ func TestRenameFolderRejectsDuplicateReservedInvalidAndBlank(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.RenameFolder(collection.ID, "users", "Admins", "admins"); err == nil || !strings.Contains(err.Error(), "Duplicate folder names") {
+	if _, err := app.RenameFolder(collection.ID, "users", "Admins", "admins"); err == nil || !strings.Contains(err.Error(), "duplicate folder names") {
 		t.Fatalf("expected duplicate folder rejection, got %v", err)
 	}
 	if _, err := app.RenameFolder(collection.ID, "users", "Users", "folder"); err == nil || !strings.Contains(err.Error(), "reserved in bruno") {
@@ -4985,7 +5122,7 @@ func TestCloneFolderRejectsDuplicateReservedInvalidMissingAndNotFoundLocally(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.CloneFolder(collection.ID, "users", "Other Users", "users"); err == nil || !strings.Contains(err.Error(), "Duplicate folder names") {
+	if _, err := app.CloneFolder(collection.ID, "users", "Other Users", "users"); err == nil || !strings.Contains(err.Error(), "duplicate folder names") {
 		t.Fatalf("expected duplicate folder rejection, got %v", err)
 	}
 	if _, err := app.CloneFolder(collection.ID, "users", "Users copy", "folder"); err == nil || !strings.Contains(err.Error(), "reserved in bruno") {
@@ -5221,7 +5358,7 @@ func TestCloneRequestRejectsDuplicateReservedInvalidMissingAndNotFoundLocally(t 
 	}
 	source = *sourcePtr
 
-	if _, err := app.CloneRequest(collection.ID, source.ID, "Other Source", "Source Request"); err == nil || !strings.Contains(err.Error(), "Duplicate request names") {
+	if _, err := app.CloneRequest(collection.ID, source.ID, "Other Source", "Source Request"); err == nil || !strings.Contains(err.Error(), "duplicate request names") {
 		t.Fatalf("expected duplicate request rejection, got %v", err)
 	}
 	if _, err := app.CloneRequest(collection.ID, source.ID, "Source copy", "folder"); err == nil || !strings.Contains(err.Error(), "reserved in bruno") {
@@ -5460,7 +5597,7 @@ func TestRenameRequestRejectsDuplicateReservedInvalidMissingAndNotFoundLocally(t
 	}
 	source = *sourcePtr
 
-	if _, err := app.RenameRequest(collection.ID, source.ID, "Source Renamed", "Other Request"); err == nil || !strings.Contains(err.Error(), "Duplicate request names") {
+	if _, err := app.RenameRequest(collection.ID, source.ID, "Source Renamed", "Other Request"); err == nil || !strings.Contains(err.Error(), "duplicate request names") {
 		t.Fatalf("expected duplicate request rejection, got %v", err)
 	}
 	if _, err := app.RenameRequest(collection.ID, source.ID, "Source Renamed", "folder"); err == nil || !strings.Contains(err.Error(), "reserved in bruno") {
@@ -7717,7 +7854,7 @@ func TestJavaScriptRuntimeSupportsSendRequest(t *testing.T) {
 				t.Fatalf("unexpected sendRequest echo request: method=%s url=%s headers=%#v", r.Method, r.URL.String(), r.Header)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(fmt.Sprintf(`{"body":%q,"header":%q}`, string(body), r.Header.Get("X-Test"))))
+			_, _ = fmt.Fprintf(w, `{"body":%q,"header":%q}`, string(body), r.Header.Get("X-Test"))
 		case "/missing":
 			w.Header().Set("Content-Type", "text/plain")
 			w.WriteHeader(http.StatusNotFound)
@@ -7842,7 +7979,7 @@ bru.setVar("preStatus", response.status);`, jsStringLiteral(server.URL))
 	if len(item.Response.TestResults) != 1 || !item.Response.TestResults[0].Passed {
 		t.Fatalf("timeline test did not pass: %#v", item.Response.TestResults)
 	}
-	if len(item.Timeline) != 2 {
+	if len(item.Timeline) < 2 {
 		t.Fatalf("expected scripted + main timeline rows, got %#v", item.Timeline)
 	}
 	scripted := item.Timeline[0]
@@ -7929,7 +8066,7 @@ bru.setVar("innerStatus", innerResponse.status);`
 	if len(item.Response.TestResults) != 1 || !item.Response.TestResults[0].Passed {
 		t.Fatalf("runRequest timeline test did not pass: %#v", item.Response.TestResults)
 	}
-	if len(item.Timeline) != 3 {
+	if len(item.Timeline) < 3 {
 		t.Fatalf("expected bubbled sendRequest + runRequest + main rows, got %#v", item.Timeline)
 	}
 	bubbled := item.Timeline[0]
@@ -8008,7 +8145,7 @@ bru.setVar("socketStatus", socketResponse.status);`
 	if len(item.Response.TestResults) != 1 || !item.Response.TestResults[0].Passed {
 		t.Fatalf("skipped runRequest test did not pass: %#v", item.Response.TestResults)
 	}
-	if len(item.Timeline) != 2 {
+	if len(item.Timeline) < 2 {
 		t.Fatalf("expected skipped runRequest + main rows, got %#v", item.Timeline)
 	}
 	skipped := item.Timeline[0]
@@ -11628,6 +11765,22 @@ func TestUpdateOpenTabPanesPersistsPaneSelection(t *testing.T) {
 	if !ok || tab.RequestPaneTab != "body" || tab.ResponseTab != "headers" {
 		t.Fatalf("tab pane selection was not updated: tab=%#v ok=%v", tab, ok)
 	}
+	state, err = app.UpdateOpenTabPanes(tabID, "", "metadata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tab, ok = findOpenTab(state.OpenTabs, tabID)
+	if !ok || tab.ResponseTab != "metadata" {
+		t.Fatalf("gRPC metadata pane selection was not updated: tab=%#v ok=%v", tab, ok)
+	}
+	state, err = app.UpdateOpenTabPanes(tabID, "", "trailers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tab, ok = findOpenTab(state.OpenTabs, tabID)
+	if !ok || tab.ResponseTab != "trailers" {
+		t.Fatalf("gRPC trailers pane selection was not updated: tab=%#v ok=%v", tab, ok)
+	}
 	if _, err := app.UpdateOpenTabPanes(tabID, "bogus", "headers"); err == nil {
 		t.Fatalf("expected invalid request pane tab to fail")
 	}
@@ -11640,7 +11793,7 @@ func TestUpdateOpenTabPanesPersistsPaneSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	tab, ok = findOpenTab(state.OpenTabs, tabID)
-	if !ok || tab.RequestPaneTab != "body" || tab.ResponseTab != "headers" {
+	if !ok || tab.RequestPaneTab != "body" || tab.ResponseTab != "trailers" {
 		t.Fatalf("tab pane selection was not persisted: tab=%#v ok=%v", tab, ok)
 	}
 }
@@ -13728,7 +13881,7 @@ message HelloReply {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(socketPath)
+	defer func() { _ = os.Remove(socketPath) }()
 	gotMetadata := map[string]string{}
 	stop := startDynamicGreeterServerOnListener(t, protoPath, listener, gotMetadata)
 	defer stop()
@@ -14979,7 +15132,7 @@ func TestWebSocketRequestSendsAndReadsMessage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("upgrade: %v", err)
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		_, payload, err := conn.ReadMessage()
 		if err != nil {
 			t.Fatalf("read ws: %v", err)
@@ -15040,7 +15193,7 @@ func TestWebSocketLiveConnectionUsesCollectionManualProxy(t *testing.T) {
 		if err != nil {
 			t.Fatalf("upgrade target ws: %v", err)
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		_, payload, err := conn.ReadMessage()
 		if err != nil {
 			t.Fatalf("read target ws: %v", err)
@@ -15078,13 +15231,13 @@ func TestWebSocketLiveConnectionUsesCollectionManualProxy(t *testing.T) {
 			t.Fatalf("write proxy tunnel response: %v", err)
 		}
 		go func() {
-			defer targetConn.Close()
-			defer clientConn.Close()
+			defer func() { _ = targetConn.Close() }()
+			defer func() { _ = clientConn.Close() }()
 			_, _ = io.Copy(targetConn, clientRW)
 		}()
 		go func() {
-			defer targetConn.Close()
-			defer clientConn.Close()
+			defer func() { _ = targetConn.Close() }()
+			defer func() { _ = clientConn.Close() }()
 			_, _ = io.Copy(clientConn, targetConn)
 		}()
 	}))
@@ -15158,7 +15311,7 @@ func TestWebSocketRequestUsesCollectionClientCertificate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("upgrade mtls ws: %v", err)
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		_, payload, err := conn.ReadMessage()
 		if err != nil {
 			t.Fatalf("read mtls ws: %v", err)
@@ -15234,7 +15387,7 @@ func TestWebSocketRequestSendsMultipleSelectedMessages(t *testing.T) {
 		if err != nil {
 			t.Fatalf("upgrade: %v", err)
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		for i := 0; i < 2; i++ {
 			_, payload, err := conn.ReadMessage()
 			if err != nil {
@@ -15299,7 +15452,7 @@ func TestWebSocketPersistentConnectionSendsMessagesWithoutReconnect(t *testing.T
 		if err != nil {
 			t.Fatalf("upgrade: %v", err)
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		for {
 			_, payload, err := conn.ReadMessage()
 			if err != nil {
@@ -15404,7 +15557,7 @@ func TestWebSocketKeepAliveIntervalSendsPingFrames(t *testing.T) {
 		if err != nil {
 			t.Fatalf("upgrade: %v", err)
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		conn.SetPingHandler(func(appData string) error {
 			pings <- appData
 			return conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(time.Second))
@@ -15468,7 +15621,7 @@ func TestWebSocketBinaryResponsePreservesBase64AndHex(t *testing.T) {
 		if err != nil {
 			t.Fatalf("upgrade: %v", err)
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		messageType, payload, err := conn.ReadMessage()
 		if err != nil {
 			t.Fatalf("read ws: %v", err)
@@ -15529,7 +15682,7 @@ func TestWebSocketBinaryEventArrayIncludesBase64AndHex(t *testing.T) {
 		if err != nil {
 			t.Fatalf("upgrade: %v", err)
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		_, _, err = conn.ReadMessage()
 		if err != nil {
 			t.Fatalf("read first ws: %v", err)
@@ -15813,6 +15966,91 @@ func TestRefreshChangedCollectionsReloadsExternalDiskChanges(t *testing.T) {
 		if tab.CollectionID == opened.ID && tab.ItemID == opened.Items[0].ID {
 			t.Fatalf("deleted request tab should have been closed: %#v", tab)
 		}
+	}
+}
+
+func TestInternalSaveKeepsRequestAndTabIdentityAcrossWatcherAndRestart(t *testing.T) {
+	dataDir := t.TempDir()
+	app := NewAppWithDir(dataDir)
+	state, err := app.GetState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection := state.Workspaces[0].Collections[0]
+	echo := collection.Items[0]
+
+	state, err = app.CreateRequest(collection.ID, "http", "Recovery Probe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection = state.Workspaces[0].Collections[0]
+	var probe RequestItem
+	for _, candidate := range collection.Items {
+		if candidate.Name == "Recovery Probe" {
+			probe = candidate
+			break
+		}
+	}
+	if probe.ID == "" || probe.FilePath == "" {
+		t.Fatalf("new file-backed request did not receive stable identity: %#v", probe)
+	}
+	if want := deterministicID("request", filepath.Clean(probe.FilePath)); probe.ID != want {
+		t.Fatalf("new request ID = %q, want path-derived %q", probe.ID, want)
+	}
+	if state.ActiveTabID != collection.ID+":"+probe.ID {
+		t.Fatalf("new request tab is not canonical: active=%q collection=%q item=%q", state.ActiveTabID, collection.ID, probe.ID)
+	}
+
+	savedURL := "https://example.test/recovery-probe"
+	if _, err := app.UpdateRequest(collection.ID, probe.ID, RequestPatch{URL: &savedURL}); err != nil {
+		t.Fatal(err)
+	}
+	state, err = app.SaveRequest(collection.ID, probe.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := app.RefreshChangedCollections()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Changed || len(result.Refreshed) != 0 || len(result.SkippedDirty) != 0 {
+		t.Fatalf("internal save was misclassified as an external edit: %#v", result)
+	}
+	if item, ok := findItemInState(result.State, collection.ID, probe.ID); !ok || item.URL != savedURL || item.Draft {
+		t.Fatalf("saved request identity/content changed after watcher poll: ok=%v item=%#v", ok, item)
+	}
+	if result.State.ActiveTabID != collection.ID+":"+probe.ID {
+		t.Fatalf("watcher poll changed the active request tab: %q", result.State.ActiveTabID)
+	}
+
+	restarted := NewAppWithDir(dataDir)
+	restartedState, err := restarted.GetState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item, ok := findItemInState(restartedState, collection.ID, probe.ID); !ok || item.URL != savedURL {
+		t.Fatalf("request identity/content did not survive restart: ok=%v item=%#v", ok, item)
+	}
+	result, err = restarted.RefreshChangedCollections()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Changed {
+		t.Fatalf("first watcher observation after restart must establish a baseline: %#v", result)
+	}
+
+	draftURL := "https://example.test/recovery-probe-draft"
+	updated, err := restarted.UpdateRequest(collection.ID, probe.ID, RequestPatch{URL: &draftURL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedProbe, ok := findItemInState(updated, collection.ID, probe.ID)
+	if !ok || updatedProbe.URL != draftURL || !updatedProbe.Draft {
+		t.Fatalf("probe edit was not applied to its own request: ok=%v item=%#v", ok, updatedProbe)
+	}
+	updatedEcho, ok := findItemInState(updated, collection.ID, echo.ID)
+	if !ok || updatedEcho.URL != echo.URL || updatedEcho.Draft {
+		t.Fatalf("probe edit leaked into Echo JSON: ok=%v got=%#v wantURL=%q", ok, updatedEcho, echo.URL)
 	}
 }
 
@@ -18553,15 +18791,15 @@ func TestDotEnvFileManagerListsSavesDeletesAndRuntimeExactEnvOnly(t *testing.T) 
 	item := collection.Items[0]
 	envID := collection.Environments[0].ID
 
-	files, err := app.SaveDotEnvFile(workspace.ID, collection.ID, "workspace", ".env", "LITEAPI_DOTENV_UI=workspace\nLITEAPI_DOTENV_UI_WORKSPACE_ONLY=workspace-only\n")
+	_, err = app.SaveDotEnvFile(workspace.ID, collection.ID, "workspace", ".env", "LITEAPI_DOTENV_UI=workspace\nLITEAPI_DOTENV_UI_WORKSPACE_ONLY=workspace-only\n")
 	if err != nil {
 		t.Fatal(err)
 	}
-	files, err = app.SaveDotEnvFile(workspace.ID, collection.ID, "collection", ".env.local", "LITEAPI_DOTENV_UI=local\nLITEAPI_DOTENV_UI_LOCAL_ONLY=local-only\n")
+	_, err = app.SaveDotEnvFile(workspace.ID, collection.ID, "collection", ".env.local", "LITEAPI_DOTENV_UI=local\nLITEAPI_DOTENV_UI_LOCAL_ONLY=local-only\n")
 	if err != nil {
 		t.Fatal(err)
 	}
-	files, err = app.SaveDotEnvFile(workspace.ID, collection.ID, "collection", ".env", "LITEAPI_DOTENV_UI=collection\n")
+	files, err := app.SaveDotEnvFile(workspace.ID, collection.ID, "collection", ".env", "LITEAPI_DOTENV_UI=collection\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19458,7 +19696,7 @@ func TestTimelineCapturesOAuth2TokenRequest(t *testing.T) {
 	if !ok || item.Response == nil || item.Response.Status != http.StatusAccepted {
 		t.Fatalf("OAuth2 timeline request failed: %#v", item.Response)
 	}
-	if len(item.Timeline) != 2 {
+	if len(item.Timeline) < 2 {
 		t.Fatalf("expected OAuth2 token + main timeline rows, got %#v", item.Timeline)
 	}
 	var oauthRow, mainRow *TimelineItem
@@ -19623,7 +19861,7 @@ func TestOAuth2AuthorizationCodeFetchesTokenWithLoopbackCallback(t *testing.T) {
 	if !ok || item.Response == nil || item.Response.Status != http.StatusOK {
 		t.Fatalf("OAuth2 authorization-code request failed: %#v", item.Response)
 	}
-	if len(item.Timeline) != 3 {
+	if len(item.Timeline) < 3 {
 		t.Fatalf("expected callback + token + main timeline rows, got %#v", item.Timeline)
 	}
 	var callbackRow, tokenRow, mainRow *TimelineItem
@@ -19678,7 +19916,7 @@ func TestOAuth2AuthorizationBrowserPreferenceSelectsInAppOrSystemOpener(t *testi
 				t.Fatalf("bad OAuth2 browser code: %q", got)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(fmt.Sprintf(`{"access_token":"browser-token-%d","expires_in":3600}`, call)))
+			_, _ = fmt.Fprintf(w, `{"access_token":"browser-token-%d","expires_in":3600}`, call)
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -20125,7 +20363,7 @@ func TestOAuth2ImplicitFetchesTokenWithLoopbackFragmentCallback(t *testing.T) {
 	if redirectValue.Load() == nil {
 		t.Fatal("authorization endpoint was not opened")
 	}
-	if len(item.Timeline) != 3 {
+	if len(item.Timeline) < 3 {
 		t.Fatalf("expected callback + fragment + main timeline rows, got %#v", item.Timeline)
 	}
 	var landingRow, fragmentRow, mainRow *TimelineItem

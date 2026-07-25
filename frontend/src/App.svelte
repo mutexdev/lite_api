@@ -5,15 +5,34 @@
 	  import MultipartTable from './lib/MultipartTable.svelte'
 	  import OAuth2AdditionalParams from './lib/OAuth2AdditionalParams.svelte'
   import VariableTextOverlay from './lib/VariableTextOverlay.svelte'
+  import RequestCommandStrip from './lib/workbench/RequestCommandStrip.svelte'
+  import ResponseInspector from './lib/workbench/ResponseInspector.svelte'
+  import CodeEditor from './lib/workbench/CodeEditor.svelte'
+  import RequestSettingsPanel from './lib/workbench/RequestSettingsPanel.svelte'
+  import ProtocolRequestLine from './lib/workbench/ProtocolRequestLine.svelte'
+  import WorkspaceCommandBar from './lib/workbench/WorkspaceCommandBar.svelte'
+  import WorkspaceWindowPicker from './lib/workbench/WorkspaceWindowPicker.svelte'
+  import { hasReplaceImportSelection, selectedImportRows } from './lib/importPlanning'
+  import { canPushGitBranch, canStageGitSelection, canSwitchGitBranch, canUnstageGitSelection, reconcileGitRemoteBranch, reconcileGitSelection } from './lib/gitWorkbench'
+  import type { RequestCommandState } from './lib/workbench/types'
+  import {
+    commandPaletteCommandIDs,
+    workbenchCommandMetadata,
+    type WorkbenchCommandID
+  } from './lib/workbench/workbenchCommands'
+  import { planUnsavedClose, requestDeletionAction, type LifecycleOpenTab, type LifecycleRequest, type UnsavedRequestTab } from './lib/workbench/tabLifecycle'
   import {
     AddCookieFromHeader,
+    CancelCollectionRun,
     CancelGRPCStream,
+    CancelRequest,
     ClearFileCache,
     ClearSSLSessionCache,
     ClearCookies,
     ClearDomainCookies,
     CloseAllTabs,
     CloseTab,
+		CheckoutCollectionGitBranch,
     ClearNotifications,
     CloneGitRepository,
     CloneCollection,
@@ -31,7 +50,8 @@
     ConnectGRPCStream,
     ConnectGRPCStreamWithPromptValues,
 	    ConnectWebSocket,
-	    ConnectWebSocketWithPromptValues,
+    ConnectWebSocketWithPromptValues,
+		CommitCollectionGit,
     CreateCollection,
     CreateEnvironment,
     CreateFolder,
@@ -39,14 +59,18 @@
     CreateTerminalSession,
     CreateResponseExample,
     CreateRequest,
+    CreateWorkspace,
+		CreateCollectionGitBranch,
     CopyGlobalEnvironment,
     CopyGlobalEnvironmentAs,
     DeleteCookie,
     DeleteDotEnvFile,
-    DeleteFolder,
+    DeleteFolderRecoverable,
     DeleteGlobalEnvironment,
-    DeleteRequest,
+    DeleteRequestRecoverable,
     DeleteResponseExample,
+    DiscardRecoveryEntry,
+    DiscardRequestDraft,
     DisconnectCollectionGitRemote,
     DisconnectOpenAPISync,
 	    DisconnectWebSocket,
@@ -62,27 +86,41 @@
 	    GetOpenAPISyncSpec,
 	    GetOpenAPISyncSpecDiff,
 	    GetDevToolsSnapshot,
-	    GetFileCacheSize,
-	    GetState,
+		GetCollectionGitDiff,
+		GetCollectionGitStatus,
+    GetFileCacheSize,
+    GetState,
+	    GetWebStorageScope,
     GetTerminalSession,
     GitVersion,
+		InitializeCollectionGit,
     ImportCollection,
+	    ApplyCollectionImport,
+	    ChooseCollectionImportFiles,
+	    ChooseCollectionImportFolder,
+	    PreviewCollectionImport,
     ImportGlobalEnvironment,
     ListDotEnvFiles,
     ListGRPCMethods,
+    ListRecoveryEntries,
     ListTerminalSessions,
+    ListWorkspaceWindowTargets,
     MarkAllNotificationsRead,
     MarkNotificationRead,
     MoveOpenTab,
     OpenCollection,
     OpenGitCollections,
+    OpenNewWindow,
     OpenResponseExampleTab,
     OpenRequestTab,
+    OpenWorkspaceInNewWindow,
+		PullCollectionGit,
+		PushCollectionGit,
     ReopenLastClosedTab,
     RevealCollectionInFolder,
     RevealCollectionFolderInFolder,
     RevealRequestInFolder,
-    RemoveCollection,
+    RemoveCollectionRecoverable,
     ResolveCollectionFolderPath,
     ResetDemoData,
     RefreshChangedCollections,
@@ -92,14 +130,21 @@
     RenameRequest,
     RenameResponseExample,
     ResolveProcessEnvValues,
+    RestoreRecoveryEntry,
     ResizeTerminalSession,
     RunCollectionWithOptions,
     SaveResponseExample,
+		SetCollectionGitRemote,
     SaveAllTabs,
     SaveCookie,
     SaveDotEnvFile,
+		StageCollectionGitPaths,
+		UnstageCollectionGitPaths,
+		FetchCollectionGit,
     SaveGlobalEnvironmentExport,
     SaveRequest,
+    SaveResponseBody,
+    SaveResponseTimeline,
     SelectCustomCaCertificate,
     SelectDefaultLocation,
     SendGRPCStreamMessage,
@@ -110,6 +155,7 @@
 	    SendWebSocketMessageWithPromptValues,
     SetActiveGlobalEnvironment,
     SetActiveTab,
+    SetActiveWorkspace,
     KillTerminalSession,
     ScanGitCollections,
     UpdateCollectionAuth,
@@ -134,21 +180,29 @@
     UpdateResponseExample
   } from '../wailsjs/go/main/App'
   import type { main } from '../wailsjs/go/models'
-  import { BrowserOpenURL, EventsOn, Quit } from '../wailsjs/runtime/runtime'
+  import { BrowserOpenURL, EventsOn, OnFileDrop, OnFileDropOff, Quit } from '../wailsjs/runtime/runtime'
 
-  type View = 'request' | 'collection' | 'runner' | 'environments' | 'import' | 'features' | 'network' | 'cookies' | 'preferences' | 'devtools'
+  type View = 'request' | 'collection' | 'git' | 'runner' | 'environments' | 'import' | 'features' | 'network' | 'cookies' | 'preferences' | 'devtools'
   type ResponsePaneOrientation = 'horizontal' | 'vertical'
-  type GoldenEditionPricingOption = 'individuals' | 'organizations'
   type DevToolsTab = 'console' | 'network' | 'performance' | 'terminal'
   type DevToolsNetworkSortKey = 'method' | 'status' | 'domain' | 'path' | 'time' | 'duration' | 'size'
   type DevToolsNetworkSortDirection = '' | 'asc' | 'desc'
   type DevToolsNetworkDetailTab = 'request' | 'response' | 'network'
   type RequestPaneTab = 'params' | 'body' | 'headers' | 'auth' | 'vars' | 'script' | 'assert' | 'tests' | 'docs' | 'app' | 'settings'
   type ResponseTab = 'response' | 'headers' | 'metadata' | 'trailers' | 'timeline' | 'console' | 'tests' | 'examples'
-  type TimelineKind = 'all' | 'main' | 'pre' | 'post' | 'oauth'
   type CollectionTab = 'overview' | 'folders' | 'headers' | 'vars' | 'auth' | 'presets' | 'proxy' | 'clientCert' | 'protobuf' | 'script' | 'tests'
   type FolderSettingsTab = 'headers' | 'vars' | 'auth' | 'script' | 'tests' | 'docs'
   type EnvironmentVariableTab = 'variables' | 'secrets'
+	  type ImportSourceMode = 'files' | 'url' | 'paste' | 'git'
+	  type ImportDecision = {
+	    selected: boolean
+	    environments: string[]
+	    folders: string[]
+	    requests: string[]
+	    outputName: string
+	    kindOverride: string
+	    conflictAction: string
+	  }
   type OAuth2ParamBucket = 'authorizationAdditionalParams' | 'tokenAdditionalParams' | 'refreshAdditionalParams'
   type OAuth2ParamField = 'name' | 'value' | 'enabled'
   type OAuth2ParamSendIn = 'headers' | 'queryparams' | 'body'
@@ -156,6 +210,13 @@
   type NotificationTab = 'all' | 'unread'
   type ThemeMode = 'system' | 'light' | 'dark'
   type JSSandboxMode = 'safe' | 'developer'
+  type TabLifecycleAction = 'close-active' | 'close-all' | 'quit'
+  type TabLifecycleDialog = {
+    action: TabLifecycleAction
+    affected: UnsavedRequestTab[]
+    targetTabIDs: string[]
+    returnFocus: HTMLElement | null
+  }
   type CollectionItemInfoTarget =
     | { kind: 'folder'; collection: main.Collection; folder: main.FolderConfig }
     | { kind: 'request'; collection: main.Collection; request: main.RequestItem }
@@ -164,17 +225,6 @@
     itemId: string
     environmentId: string
   }
-  type WebSocketResponseEvent = {
-    direction?: string
-    name?: string
-    type?: string
-    data?: string
-    dataBase64?: string
-    dataHex?: string
-    error?: string
-    at?: string
-  }
-  type GrpcStreamEvent = WebSocketResponseEvent
   type ThemeVariant = {
     id: string
     name: string
@@ -248,7 +298,7 @@
 	    }
   type GlobalSearchResult = {
     id: string
-    type: 'collection' | 'folder' | 'request' | 'documentation'
+    type: 'collection' | 'folder' | 'request'
     collectionId: string
     itemId?: string
     name: string
@@ -306,13 +356,36 @@
   let requestPaneTab: RequestPaneTab = 'params'
   let responseTab: ResponseTab = 'response'
   let responsePaneOrientation: ResponsePaneOrientation = 'horizontal'
+  let compactWorkbench = false
+  let compactWorkbenchMedia: MediaQueryList | undefined
+  let removeCompactWorkbenchListener: (() => void) | undefined
   let collectionTab: CollectionTab = 'overview'
   let responseView: 'pretty' | 'raw' | 'base64' | 'hex' = 'pretty'
+  let tabLifecycleDialog: TabLifecycleDialog | null = null
+  let tabLifecycleDecisionBusy = false
+  let tabLifecycleCancelButton: HTMLButtonElement | null = null
+  let recoveryEntries: main.RecoveryEntry[] = []
+  let recoveryBusyEntryID = ''
+  let workspaceWindowTargets: main.WorkspaceWindowTarget[] = []
+  let workspaceWindowPickerOpen = false
+  let workspaceWindowPickerBusy = false
+  let workspaceWindowPickerBusyAction: 'loading' | 'opening' | 'creating' | '' = ''
+  let workspaceWindowPickerError = ''
+  let nativeWindowBusy = false
+  let nativeWindowError = ''
   let hydratedActiveTabID = ''
   let selectedEnvironmentId = ''
   let loading = true
+  let loadingStatus = 'Opening workspace'
   let busy = ''
+  let activeActions = new Map<number, string>()
+  let nextActionID = 0
   let error = ''
+  let activeHTTPTransport: { collectionId: string; requestId: string } | undefined
+  let httpCancellationRequested = false
+  let activeCollectionRun: { collectionId: string; collectionName: string } | undefined
+  let collectionRunCancellationRequested = false
+  let lastCollectionRunCancelled = false
   let collectionName = 'New Collection'
   let requestName = 'New Request'
   let requestType = 'http'
@@ -344,11 +417,24 @@
   let systemThemeQuery: MediaQueryList | undefined
   let removeSystemThemeListener: (() => void) | undefined
   let exportText = ''
-  let importKind = 'postman'
-  let importName = 'Imported API'
-  let importGroupBy = 'tag'
-  let importSourceURL = ''
-  let importOpenAPISync = false
+	  let importSourceMode: ImportSourceMode = 'files'
+	  let importSources: main.CollectionImportSource[] = []
+	  let importPreview: main.CollectionImportPreview | undefined
+	  let importDecisions: Record<string, ImportDecision> = {}
+	  let importExpanded: Record<string, boolean> = {}
+	  let importApplyResult: main.CollectionImportApplyResult | undefined
+	  let importDestinationRoot = ''
+	  let importDestinationWorkspaceID = ''
+	  let importURL = ''
+	  let importPasteName = 'Pasted import'
+	  let importStatus = ''
+	  let importPickerButton: HTMLButtonElement | null = null
+	  let importReadyRows: main.CollectionImportPreviewRow[] = []
+	  let importApplyButton: HTMLButtonElement | null = null
+	  let importReplaceConfirmationOpen = false
+	  let importReplaceConfirmationCancelButton: HTMLButtonElement | null = null
+	  let importReplaceConfirmationReturnFocus: HTMLElement | null = null
+	  let importApplyInFlight = false
   let openAPISyncCollectionId = ''
   let openAPISyncSourceURL = ''
   let openAPISyncGroupBy = 'tag'
@@ -373,7 +459,18 @@
 			  let openAPISpecDiffActiveChangeIndex = 0
 			  let requestSearch = ''
   let requestSearchInput: HTMLInputElement | undefined
+  let requestURLInput: HTMLInputElement | undefined
   let sidebarCollapsed = false
+  let sidebarWidth = 312
+  let responseSplit = 0.52
+	let workbenchStorageScope = ''
+  let creationOpen = false
+  let creationReturnFocus: HTMLElement | null = null
+  let commandPaletteOpen = false
+  let commandPaletteQuery = ''
+  let commandPaletteInput: HTMLInputElement | null = null
+  let commandPaletteReturnFocus: HTMLElement | null = null
+  let commandPaletteActiveIndex = 0
   let runnerConfigCollectionId = ''
   let runnerSelectedItemIds: string[] = []
   let runnerConfigItems: main.RequestItem[] = []
@@ -458,9 +555,26 @@
   let generateDocsRequestCount = 0
   let gitCloneProgress: GitCloneProgress[] = []
   let gitNotFoundMessage = ''
+	let gitWorkbenchSnapshot: main.CollectionGitSnapshot | undefined
+	let gitWorkbenchCollectionID = ''
+	let gitWorkbenchLoading = false
+	let gitWorkbenchBusy = ''
+	let gitWorkbenchStatus = ''
+	let gitWorkbenchError = ''
+	let gitWorkbenchSelectedPaths: string[] = []
+	let gitWorkbenchDiff: main.CollectionGitDiff | undefined
+	let gitWorkbenchBranch = ''
+	let gitWorkbenchNewBranch = ''
+	let gitWorkbenchCheckoutNewBranch = true
+	let gitWorkbenchCommitMessage = ''
+	let gitWorkbenchRemoteName = 'origin'
+	let gitWorkbenchRemoteURL = ''
+	let gitWorkbenchRemoteBranch = ''
+	let gitWorkbenchSetUpstream = false
+	let gitWorkbenchHeading: HTMLHeadingElement | null = null
   let gitCandidates: main.GitCollectionCandidate[] = []
   let selectedGitCollectionPaths: string[] = []
-  let openCollectionPath = '/Users/mou/Documents/bruno/Sample API Collection'
+  let openCollectionPath = '/Users/mou/Documents/LiteAPI/Sample API Collection'
   let grpcMethods: main.GRPCMethodInfo[] = []
   let grpcMethodsRequestId = ''
   let grpcMethodMessage = ''
@@ -504,11 +618,6 @@
   let notificationTab: NotificationTab = 'all'
   let selectedNotificationID = ''
   let pinnedUnreadNotificationIDs: Set<string> | null = null
-  let timelineActiveFilter: TimelineKind = 'all'
-  let expandedTimelineEntryID = ''
-  let supportOpen = false
-  let goldenEditionOpen = false
-  let goldenPricingOption: GoldenEditionPricingOption = 'individuals'
   let devToolsOpen = false
   let devToolsTab: DevToolsTab = 'console'
   let devToolsSnapshot: main.DevToolsSnapshot | null = null
@@ -539,7 +648,7 @@
   let terminalBusy = false
   let terminalPollTimer: number | undefined
   let revealCollectionMessage = ''
-  let importContent = '{\n  "info": { "name": "Imported API" },\n  "item": [\n    {\n      "name": "Postman Echo",\n      "request": {\n        "method": "GET",\n        "url": "https://httpbin.org/get",\n        "header": []\n      }\n    }\n  ]\n}'
+	  let importContent = ''
 
   const requestTabs: { id: RequestPaneTab; label: string }[] = [
     { id: 'params', label: 'Params' },
@@ -694,31 +803,6 @@
     { id: 'nord', name: 'Nord', mode: 'dark', preview: { background: '#2e3440', sidebar: '#242933', accent: '#88c0d0' } },
     { id: 'vscode-dark', name: 'VS Code Dark', mode: 'dark', preview: { background: '#1e1e1e', sidebar: '#252526', accent: '#3794ff' } }
   ]
-  const supportLinks = [
-    { label: 'Documentation', url: 'https://docs.usebruno.com', glyph: 'Book' },
-    { label: 'Report Issues', url: 'https://github.com/usebruno/bruno/issues', glyph: 'Megaphone' },
-    { label: 'Discord', url: 'https://discord.com/invite/KgcZUncpjq', glyph: 'Chat' },
-    { label: 'GitHub', url: 'https://github.com/usebruno/bruno', glyph: 'Git' },
-    { label: 'Twitter', url: 'https://twitter.com/use_bruno', glyph: 'X' }
-  ]
-  const goldenEditionIndividuals = [
-    'Inbuilt Bru File Explorer',
-    'Visual Git (Like Gitlens for Vscode)',
-    'GRPC, Websocket, SocketIO, MQTT',
-    'Load Data from File for Collection Run',
-    'Developer Tools',
-    'OpenAPI Designer',
-    'Performance/Load Testing',
-    'Inbuilt Terminal',
-    'Custom Themes'
-  ]
-  const goldenEditionOrganizations = [
-    'Centralized License Management',
-    'Integration with Secret Managers',
-    'Private Collection Registry',
-    'Request Forms',
-    'Priority Support'
-	  ]
 	  const keyBindingSeparator = '+bind+'
 	  const zoomDefaultPercentage = 100
 	  const openAPISyncCheckIntervals = [5, 15, 30, 60]
@@ -806,7 +890,7 @@
       heading: 'Others',
       bindings: {
         openPreferences: { mac: 'command+bind+,', windows: 'ctrl+bind+,', name: 'Open Preferences' },
-        closeBruno: { mac: 'command+bind+q', windows: 'ctrl+bind+shift+bind+q', name: 'Close Bruno' }
+        closeBruno: { mac: 'command+bind+q', windows: 'ctrl+bind+shift+bind+q', name: 'Close LiteAPI' }
       }
     }
   ]
@@ -882,6 +966,13 @@
   }
   $: selectedCollection = activeWorkspace?.collections?.find((collection) => collection.id === selectedCollectionId)
   $: activeCollection = selectedCollection ?? activeWorkspace?.collections?.find((collection) => collection.id === activeTab?.collectionId) ?? activeWorkspace?.collections?.[0]
+	$: if (activeView === 'git' && activeCollection?.id && gitWorkbenchCollectionID !== activeCollection.id && !gitWorkbenchLoading) {
+		gitWorkbenchSnapshot = undefined
+		gitWorkbenchSelectedPaths = []
+		gitWorkbenchDiff = undefined
+		gitWorkbenchRemoteURL = ''
+		void refreshGitWorkbench()
+	}
   $: activeRequest = activeCollection?.items?.find((item) => item.id === activeTab?.itemId) ?? activeCollection?.items?.[0]
   $: shareCollectionUnsupportedTypes = collectionShareUnsupportedTypes(activeCollection)
   $: if ((activeCollection?.id ?? '') !== openAPISyncCollectionId) {
@@ -948,24 +1039,41 @@
   $: doneFeatures = state?.featureLedger?.filter((feature) => feature.status === 'done').length ?? 0
   $: partialFeatures = state?.featureLedger?.filter((feature) => feature.status === 'partial').length ?? 0
   $: totalFeatures = state?.featureLedger?.length ?? 0
-  $: responseBody = activeRequest?.response?.body ?? ''
-  $: formattedResponse = formatResponse(responseBody, activeRequest?.response?.headers ?? {})
-  $: displayedResponse = responseForView(activeRequest?.response, responseView, formattedResponse)
-  $: websocketResponseEvents = parseWebSocketResponseEvents(activeRequest?.response)
   $: websocketConnected = activeRequest?.type === 'websocket' && responseHeaderValue(activeRequest.response, 'x-websocket-connected') === 'true'
   $: websocketEventCount = responseHeaderValue(activeRequest?.response, 'x-websocket-events')
-  $: grpcStreamEvents = parseGrpcStreamEvents(activeRequest?.response)
   $: grpcStreamConnected = activeRequest?.type === 'grpc' && responseHeaderValue(activeRequest.response, 'x-grpc-stream-connected') === 'true'
   $: grpcStreamEnded = activeRequest?.type === 'grpc' && responseHeaderValue(activeRequest.response, 'x-grpc-stream-ended') === 'true'
   $: grpcStreamEventCount = responseHeaderValue(activeRequest?.response, 'x-grpc-stream-events')
   $: grpcStreamingRequest = activeRequest?.type === 'grpc' && ['client-streaming', 'server-streaming', 'bidi-streaming'].includes(activeRequest.grpcMethodType ?? '')
   $: grpcClientStreamingRequest = activeRequest?.type === 'grpc' && ['client-streaming', 'bidi-streaming'].includes(activeRequest.grpcMethodType ?? '')
+  $: httpTransportInFlight = Boolean(
+    activeHTTPTransport
+      && activeHTTPTransport.collectionId === activeCollection?.id
+      && activeHTTPTransport.requestId === activeRequest?.id
+  )
+  $: hasActiveHTTPTransport = Boolean(activeHTTPTransport)
+  $: backgroundHTTPTransport = activeHTTPTransport && !httpTransportInFlight
+    ? {
+      requestName: requestNameForTransport(activeHTTPTransport),
+      pending: httpCancellationRequested
+    }
+    : undefined
+  $: runnerCancelledCount = runnerCancellationCount(state?.runner)
+  $: runnerCompletedCancelled = runnerCancelledCount > 0 || lastCollectionRunCancelled
+  $: requestCommand = requestCommandState(
+    activeRequest,
+    activeCollection,
+    selectedEnvironment?.name,
+    busy,
+    websocketConnected,
+    grpcStreamConnected,
+    state?.preferences,
+    httpTransportInFlight,
+    httpTransportInFlight && httpCancellationRequested,
+    backgroundHTTPTransport
+  )
   $: activeScriptLogs = responseScriptLogs(activeRequest?.response)
   $: activeTimelineEntries = sortedTimelineEntries(activeRequest?.timeline ?? [])
-  $: timelineFilterCounts = timelineCounts(activeTimelineEntries)
-  $: visibleTimelineFilters = timelineVisibleFilters(timelineFilterCounts)
-  $: if (timelineActiveFilter !== 'all' && !visibleTimelineFilters.some((filter) => filter.id === timelineActiveFilter)) timelineActiveFilter = 'all'
-  $: filteredTimelineEntries = timelineFilteredEntries(activeTimelineEntries, timelineActiveFilter)
   $: devToolsConsoleRows = devToolsConsoleLogs(activeWorkspace)
   $: rawDevToolsNetworkRows = state?.networkLog ?? []
   $: if (state && devToolsNetworkPreferencesKeyFor(state.preferences?.devTools?.network) !== devToolsNetworkPreferencesKey) {
@@ -1076,8 +1184,17 @@
 
 	  let stopGitCloneProgress: (() => void) | undefined
 	  let stopOAuth2Authorize: (() => void) | undefined
+	  let stopNativeMenuCommands: (() => void) | undefined
 
 	  onMount(() => {
+	    compactWorkbenchMedia = window.matchMedia('(max-width: 960px)')
+	    const updateCompactWorkbench = () => {
+	      compactWorkbench = compactWorkbenchMedia?.matches ?? false
+	      if (compactWorkbench) sidebarCollapsed = true
+	    }
+	    updateCompactWorkbench()
+	    compactWorkbenchMedia.addEventListener('change', updateCompactWorkbench)
+	    removeCompactWorkbenchListener = () => compactWorkbenchMedia?.removeEventListener('change', updateCompactWorkbench)
 	    stopGitCloneProgress = EventsOn('git:clone:progress', (event: GitCloneProgress) => {
 	      gitCloneProgress = [...gitCloneProgress, event].slice(-24)
 	    })
@@ -1087,6 +1204,14 @@
 	      oauth2CallbackMessage = ''
 	      oauth2FrameKey += 1
 	    })
+	    stopNativeMenuCommands = EventsOn('liteapi:menu-command', (command: string) => {
+	      void handleNativeMenuCommand(command)
+	    })
+	    OnFileDrop((_x, _y, paths) => {
+	      if (activeView === 'import' && importSourceMode === 'files' && paths.length > 0) {
+	        void previewImportPaths(paths)
+	      }
+	    }, true)
 	    systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)')
     const updateSystemTheme = () => {
       systemThemeMode = systemThemeQuery?.matches ? 'dark' : 'light'
@@ -1103,8 +1228,11 @@
 	    stopTerminalPolling()
 	    stopCollectionWatchPolling()
 	    stopOpenAPISyncPolling()
+	    removeCompactWorkbenchListener?.()
 	    stopGitCloneProgress?.()
 	    stopOAuth2Authorize?.()
+	    stopNativeMenuCommands?.()
+	    OnFileDropOff()
 	    removeSystemThemeListener?.()
     clearAutoSaveTimer()
     for (const timer of Object.values(copiedVariableTooltipTimers)) {
@@ -1709,8 +1837,15 @@
   function closeVariableTooltipOnOutside(event: MouseEvent) {
     const target = event.target as HTMLElement | null
     if (!target) return
+    if (!target.closest('.request-actions')) closeRequestActionMenus()
     if (target.closest('.variable-chip-wrapper, .url-variable-token-wrapper, .inline-variable-token-wrapper, .CodeMirror-brunoVarInfo, .variable-tooltip')) return
     activeVariableTooltip = ''
+  }
+
+  function closeRequestActionMenus() {
+    document.querySelectorAll<HTMLDetailsElement>('details.request-actions[open]').forEach((menu) => {
+      menu.open = false
+    })
   }
 
   function patchURLField(event: Event) {
@@ -1813,9 +1948,16 @@
 
   async function load() {
     loading = true
+    loadingStatus = 'Opening workspace'
     await runAction('load', async () => {
       state = await GetState()
+	    workbenchStorageScope = await GetWebStorageScope()
+	    restoreWorkbenchLayout()
+      loadingStatus = 'Checking recovery'
+      recoveryEntries = (await ListRecoveryEntries()) ?? []
+      loadingStatus = 'Measuring local cache'
       await refreshFileCacheSize()
+      loadingStatus = 'Preparing workbench'
       applyDevToolsShellPreferences(state.preferences?.devTools)
       if (devToolsOpen) await refreshDevToolsSnapshot()
       selectedEnvironmentId = activeCollection?.environments?.[0]?.id ?? ''
@@ -1823,7 +1965,42 @@
     loading = false
   }
 
+  async function refreshRecoveryEntries() {
+    recoveryEntries = (await ListRecoveryEntries()) ?? []
+  }
+
+  function recoveryExpiryLabel(entry: main.RecoveryEntry) {
+    const value = new Date(entry.expiresAt)
+    return Number.isNaN(value.getTime()) ? 'expiry unavailable' : `expires ${value.toLocaleString()}`
+  }
+
+  async function restoreRecoveryEntry(entry: main.RecoveryEntry) {
+    if (recoveryBusyEntryID) return
+    recoveryBusyEntryID = entry.id
+    let restored = false
+    await runAction('restore recovery entry', async () => {
+      state = await RestoreRecoveryEntry(entry.id)
+      restored = true
+      await refreshRecoveryEntries()
+    })
+    if (!restored) await refreshRecoveryEntries().catch(() => undefined)
+    recoveryBusyEntryID = ''
+  }
+
+  async function discardRecoveryEntry(entry: main.RecoveryEntry) {
+    if (recoveryBusyEntryID) return
+    recoveryBusyEntryID = entry.id
+    await runAction('discard recovery entry', async () => {
+      const discarded = await DiscardRecoveryEntry(entry.id)
+      if (!discarded) throw new Error('Recovery entry was not removed')
+      await refreshRecoveryEntries()
+    })
+    recoveryBusyEntryID = ''
+  }
+
   async function runAction(label: string, action: () => Promise<void>) {
+    const actionID = ++nextActionID
+    activeActions.set(actionID, label)
     busy = label
     error = ''
     try {
@@ -1831,7 +2008,8 @@
     } catch (err) {
       error = err instanceof Error ? err.message : String(err)
     } finally {
-      busy = ''
+      activeActions.delete(actionID)
+      busy = Array.from(activeActions.values()).at(-1) ?? ''
     }
   }
 
@@ -2076,6 +2254,36 @@
       return responseExampleForTab(tab)?.name || tab.exampleName || 'Example'
     }
     return item?.name ?? (tab.transient ? 'Scratch request' : 'Request')
+  }
+
+  function methodLabel(method: string) {
+    const upper = (method || '').toUpperCase()
+    if (upper === 'DELETE') return 'DEL'
+    if (upper === 'OPTIONS') return 'OPT'
+    return upper
+  }
+
+  function tabMethod(tab: main.OpenTab) {
+    if (tab.kind === 'response-example') return ''
+    const collection = activeWorkspace?.collections?.find((candidate) => candidate.id === tab.collectionId)
+    const item = collection?.items?.find((candidate) => candidate.id === tab.itemId)
+    return item?.method ?? ''
+  }
+
+  let collapsedSidebarCollections: Record<string, boolean> = {}
+  let collapsedSidebarFolders: Record<string, boolean> = {}
+
+  function sidebarFolderKey(collectionId: string, folder: string) {
+    return `${collectionId}\u0000${folder}`
+  }
+
+  function toggleSidebarCollection(collectionId: string) {
+    collapsedSidebarCollections = { ...collapsedSidebarCollections, [collectionId]: !collapsedSidebarCollections[collectionId] }
+  }
+
+  function toggleSidebarFolder(collectionId: string, folder: string) {
+    const key = sidebarFolderKey(collectionId, folder)
+    collapsedSidebarFolders = { ...collapsedSidebarFolders, [key]: !collapsedSidebarFolders[key] }
   }
 
   function collectionIsScratch(collection: main.Collection | undefined) {
@@ -2854,16 +3062,78 @@
       await sendWSMessage(selectedWSMessageIndex(activeRequest))
       return
     }
-    const promptNames = collectPromptNames(activeCollection, activeRequest, selectedEnvironmentId)
+    const collection = activeCollection
+    const request = activeRequest
+    const environmentId = selectedEnvironmentId
+    const tabId = activeTab?.id
+    const cancellableTransport = request.type === 'http' || request.type === 'graphql'
+    if (cancellableTransport && (busy !== '' || activeHTTPTransport)) return
+    const promptNames = collectPromptNames(collection, request, environmentId)
     const promptValues = promptNames.length > 0 ? await promptForVariables(promptNames) : null
     if (promptNames.length > 0 && promptValues === null) return
+    if (cancellableTransport && activeHTTPTransport) return
+    const collectionId = collection.id
+    const requestId = request.id
     await runAction('send request', async () => {
-      state = promptValues
-        ? await SendRequestWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, promptValues)
-        : await SendRequest(activeCollection.id, activeRequest.id, selectedEnvironmentId)
-      activeView = 'request'
-      responseTab = 'response'
+      if (cancellableTransport) {
+        activeHTTPTransport = { collectionId, requestId }
+        httpCancellationRequested = false
+      }
+      try {
+        state = promptValues
+          ? await SendRequestWithPromptValues(collectionId, requestId, environmentId, promptValues)
+          : await SendRequest(collectionId, requestId, environmentId)
+        if (state.activeTabId === tabId) {
+          activeView = 'request'
+          responseTab = 'response'
+        }
+      } finally {
+        if (activeHTTPTransport?.collectionId === collectionId && activeHTTPTransport.requestId === requestId) {
+          activeHTTPTransport = undefined
+          httpCancellationRequested = false
+        }
+      }
     })
+  }
+
+  async function cancelActiveRequest() {
+    if (httpTransportInFlight) {
+      await cancelHTTPTransport()
+      return
+    }
+    if (activeHTTPTransport) {
+      await cancelHTTPTransport()
+      return
+    }
+    if (activeCollectionRun) {
+      await cancelCollectionRun()
+      return
+    }
+    if (activeRequest?.type === 'websocket' && websocketConnected) {
+      await disconnectActiveWebSocket()
+      return
+    }
+    if (activeRequest?.type === 'grpc' && grpcStreamConnected) {
+      await cancelActiveGrpcStream()
+      return
+    }
+  }
+
+  async function cancelHTTPTransport() {
+    const target = activeHTTPTransport
+    if (!target || httpCancellationRequested) return
+    httpCancellationRequested = true
+    try {
+      const accepted = await CancelRequest(target.collectionId, target.requestId)
+      if (!accepted && activeHTTPTransport?.collectionId === target.collectionId && activeHTTPTransport.requestId === target.requestId) {
+        httpCancellationRequested = false
+      }
+    } catch (err) {
+      if (activeHTTPTransport?.collectionId === target.collectionId && activeHTTPTransport.requestId === target.requestId) {
+        httpCancellationRequested = false
+      }
+      error = err instanceof Error ? err.message : String(err)
+    }
   }
 
   function runnerItemIsRunnable(item: main.RequestItem) {
@@ -2909,16 +3179,49 @@
   }
 
   async function runCollection() {
-    if (!activeCollection) return
+    if (!activeCollection || activeCollectionRun || busy !== '') return
+    const collection = activeCollection
     const selectedItemIds = runnerSelectedItemIds.filter((id) => runnerConfigItems.some((item) => item.id === id))
     if (selectedItemIds.length === 0) return
+    const environmentId = selectedEnvironmentId
+    const viewAtStart = activeView
     await runAction('run collection', async () => {
-      state = await RunCollectionWithOptions(activeCollection.id, selectedEnvironmentId, {
-        selectedItemIds,
-        delayMs: normalizedRunnerDelayMs(runnerDelayMs)
-      } as main.RunnerOptions)
-      activeView = 'runner'
+      let completedRunState: main.AppState | undefined
+      activeCollectionRun = { collectionId: collection.id, collectionName: collection.name || 'collection' }
+      collectionRunCancellationRequested = false
+      lastCollectionRunCancelled = false
+      try {
+        completedRunState = await RunCollectionWithOptions(collection.id, environmentId, {
+          selectedItemIds,
+          delayMs: normalizedRunnerDelayMs(runnerDelayMs)
+        } as main.RunnerOptions)
+        state = completedRunState
+        if (activeView === viewAtStart && activeCollection?.id === collection.id) activeView = 'runner'
+      } finally {
+        if (activeCollectionRun?.collectionId === collection.id) {
+          lastCollectionRunCancelled = collectionRunCancellationRequested || runnerCancellationCount(completedRunState?.runner) > 0
+          activeCollectionRun = undefined
+          collectionRunCancellationRequested = false
+        }
+      }
     })
+  }
+
+  async function cancelCollectionRun() {
+    const target = activeCollectionRun
+    if (!target || collectionRunCancellationRequested) return
+    collectionRunCancellationRequested = true
+    try {
+      const accepted = await CancelCollectionRun(target.collectionId)
+      if (!accepted && activeCollectionRun?.collectionId === target.collectionId) {
+        collectionRunCancellationRequested = false
+      }
+    } catch (err) {
+      if (activeCollectionRun?.collectionId === target.collectionId) {
+        collectionRunCancellationRequested = false
+      }
+      error = err instanceof Error ? err.message : String(err)
+    }
   }
 
   async function createEnvironment() {
@@ -2943,6 +3246,112 @@
   async function setActiveGlobalEnvironment(environmentId: string) {
     if (!activeWorkspace) return
     state = await SetActiveGlobalEnvironment(activeWorkspace.id, environmentId)
+  }
+
+  async function setActiveWorkspace(workspaceId: string) {
+    if (!state || !workspaceId || workspaceId === state.activeWorkspaceId) return
+    await runAction('switch workspace', async () => {
+      const nextState = await SetActiveWorkspace(workspaceId)
+      const workspace = nextState.workspaces?.find((candidate) => candidate.id === workspaceId)
+      state = nextState
+      selectedCollectionId = workspace?.collections?.[0]?.id ?? ''
+      selectedEnvironmentId = workspace?.collections?.[0]?.environments?.[0]?.id ?? ''
+    })
+  }
+
+  function nativeWindowErrorMessage(prefix: string, err: unknown) {
+    const detail = err instanceof Error ? err.message : String(err)
+    return detail && detail !== '[object Object]' ? `${prefix}: ${detail}` : prefix
+  }
+
+  async function openNativeNewWindow() {
+    if (nativeWindowBusy) return
+    nativeWindowBusy = true
+    nativeWindowError = ''
+    try {
+      await OpenNewWindow()
+    } catch (err) {
+      nativeWindowError = nativeWindowErrorMessage('Couldn’t open a new window', err)
+    } finally {
+      nativeWindowBusy = false
+    }
+  }
+
+  async function showWorkspaceWindowPicker() {
+    if (workspaceWindowPickerBusy) return
+    workspaceWindowPickerOpen = true
+    workspaceWindowPickerBusy = true
+    workspaceWindowPickerBusyAction = 'loading'
+    workspaceWindowPickerError = ''
+    workspaceWindowTargets = []
+    try {
+      workspaceWindowTargets = await ListWorkspaceWindowTargets()
+    } catch (err) {
+      workspaceWindowPickerError = nativeWindowErrorMessage('Couldn’t load available workspaces', err)
+    } finally {
+      workspaceWindowPickerBusy = false
+      workspaceWindowPickerBusyAction = ''
+    }
+  }
+
+  function closeWorkspaceWindowPicker() {
+    workspaceWindowPickerOpen = false
+    workspaceWindowPickerError = ''
+  }
+
+  async function openSelectedWorkspaceInNewWindow(target: main.WorkspaceWindowTarget) {
+    if (workspaceWindowPickerBusy || target.id === state?.activeWorkspaceId) return
+    workspaceWindowPickerBusy = true
+    workspaceWindowPickerBusyAction = 'opening'
+    workspaceWindowPickerError = ''
+    try {
+      await OpenWorkspaceInNewWindow(target.id)
+      workspaceWindowPickerOpen = false
+    } catch (err) {
+      workspaceWindowPickerError = nativeWindowErrorMessage(`Couldn’t open ${target.name || 'the workspace'}`, err)
+    } finally {
+      workspaceWindowPickerBusy = false
+      workspaceWindowPickerBusyAction = ''
+    }
+  }
+
+  async function createWorkspaceForNewWindow(name: string) {
+    const trimmedName = name.trim()
+    if (!trimmedName || workspaceWindowPickerBusy) return
+    if (workspaceWindowTargets.some((target) => target.name.trim().toLocaleLowerCase() === trimmedName.toLocaleLowerCase())) {
+      workspaceWindowPickerError = `A workspace named “${trimmedName}” already exists.`
+      return
+    }
+
+    const existingTargetIds = new Set(workspaceWindowTargets.map((target) => target.id))
+    let workspaceCreated = false
+    workspaceWindowPickerBusy = true
+    workspaceWindowPickerBusyAction = 'creating'
+    workspaceWindowPickerError = ''
+    try {
+      await CreateWorkspace(trimmedName)
+      workspaceCreated = true
+      const refreshedTargets = await ListWorkspaceWindowTargets()
+      workspaceWindowTargets = refreshedTargets
+      const newlyRegistered = refreshedTargets.filter((target) => !existingTargetIds.has(target.id))
+      const normalizedName = trimmedName.toLocaleLowerCase()
+      const createdTarget = newlyRegistered.find((target) => target.name.trim().toLocaleLowerCase() === normalizedName)
+        ?? (newlyRegistered.length === 1 ? newlyRegistered[0] : undefined)
+        ?? refreshedTargets.find((target) => target.id !== state?.activeWorkspaceId && target.name.trim().toLocaleLowerCase() === normalizedName)
+      if (!createdTarget) {
+        workspaceWindowPickerError = 'The workspace was created, but it isn’t available in the window list yet. Close and reopen the picker to refresh.'
+        return
+      }
+      return createdTarget
+    } catch (err) {
+      workspaceWindowPickerError = nativeWindowErrorMessage(
+        workspaceCreated ? 'The workspace was created, but the window list couldn’t be refreshed' : 'Couldn’t create the workspace',
+        err
+      )
+    } finally {
+      workspaceWindowPickerBusy = false
+      workspaceWindowPickerBusyAction = ''
+    }
   }
 
   async function updateGlobalEnvironmentMetadata(field: 'name' | 'color', value: string) {
@@ -3067,18 +3476,232 @@
     })
   }
 
-  async function importCollection() {
-    if (!activeWorkspace) return
-    await runAction('import collection', async () => {
-      state = await ImportCollection(activeWorkspace.id, {
-        kind: importKind,
-        name: importName,
-        content: importContent,
-        groupBy: importGroupBy,
-        sourceUrl: importSourceURL,
-        openapiSync: importOpenAPISync
-      } as main.ImportPayload)
+  function importDecisionFor(row: main.CollectionImportPreviewRow): ImportDecision {
+    const current = importDecisions[row.candidateId]
+    return current ?? {
+      selected: row.defaultSelect && !row.error,
+      environments: (row.environments ?? []).map((entry) => entry.selectionId),
+      folders: (row.folders ?? []).map((entry) => entry.selectionId),
+      requests: (row.requests ?? []).map((entry) => entry.selectionId),
+      outputName: row.collectionName ?? '',
+      kindOverride: '',
+      conflictAction: row.conflict === 'exists' || row.conflict === 'already-open' ? 'rename' : ''
+    }
+  }
+
+  function updateImportDecision(candidateID: string, update: Partial<ImportDecision>) {
+    const row = importPreview?.rows?.find((entry) => entry.candidateId === candidateID)
+    if (!row) return
+    importDecisions = { ...importDecisions, [candidateID]: { ...importDecisionFor(row), ...update } }
+  }
+
+	  $: if (activeView === 'import' && !importDestinationWorkspaceID && activeWorkspace) importDestinationWorkspaceID = activeWorkspace.id
+
+	  function selectImportSourceMode(mode: ImportSourceMode) {
+	    importSourceMode = mode
+	    importSources = []
+	    importPreview = undefined
+	    importDecisions = {}
+	    importExpanded = {}
+	    clearImportAttemptResults()
+	  }
+
+	  function clearImportAttemptResults() {
+	    importApplyResult = undefined
+	    importStatus = ''
+	  }
+
+	  async function previewImportSources(sources: main.CollectionImportSource[], focusFirst = false, resetDecisions = false) {
+	    if (!importDestinationWorkspaceID || sources.length === 0) return
+	    const priorDecisions = importDecisions
+	    importSources = []
+	    importPreview = undefined
+	    importDecisions = {}
+	    importExpanded = {}
+	    clearImportAttemptResults()
+	    let previewSucceeded = false
+	    await runAction('preview import', async () => {
+	      const preview = await PreviewCollectionImport({ workspaceId: importDestinationWorkspaceID, destinationRoot: importDestinationRoot, sources } as main.CollectionImportPreviewRequest)
+      importSources = sources
+      importPreview = preview
+      const next: Record<string, ImportDecision> = {}
+      for (const row of preview.rows ?? []) {
+	        const source = sources.find((entry) => entry.id === row.sourceId)
+	        const kindOverride = source?.kindOverride ?? ''
+	        const prior = resetDecisions ? undefined : priorDecisions[row.candidateId]
+	        const compatible = prior && !row.error && prior.kindOverride === kindOverride
+	        next[row.candidateId] = compatible ? {
+	          ...prior,
+	          selected: prior.selected && row.conflict !== 'unavailable',
+	          environments: prior.environments.filter((id) => (row.environments ?? []).some((entry) => entry.selectionId === id)),
+	          folders: prior.folders.filter((id) => (row.folders ?? []).some((entry) => entry.selectionId === id)),
+	          requests: prior.requests.filter((id) => (row.requests ?? []).some((entry) => entry.selectionId === id))
+	        } : {
+	          selected: row.defaultSelect && !row.error && row.conflict !== 'unavailable',
+          environments: (row.environments ?? []).map((entry) => entry.selectionId),
+          folders: (row.folders ?? []).map((entry) => entry.selectionId),
+          requests: (row.requests ?? []).map((entry) => entry.selectionId),
+          outputName: row.collectionName ?? '',
+	          kindOverride,
+          conflictAction: row.conflict === 'exists' || row.conflict === 'already-open' ? 'rename' : ''
+        }
+      }
+      importDecisions = next
+      importStatus = `${(preview.rows ?? []).length} source${(preview.rows ?? []).length === 1 ? '' : 's'} previewed`
+	      previewSucceeded = true
+      if (focusFirst) await tick().then(() => document.querySelector<HTMLElement>('[data-import-preview-row]')?.focus())
     })
+	    if (!previewSucceeded) importStatus = 'Import preview could not be prepared. Check the source and try again.'
+  }
+
+  async function previewImportPaths(paths: string[], focusFirst = true) {
+    const sources = paths.map((path, index) => ({ id: `path-${Date.now()}-${index}`, path } as main.CollectionImportSource))
+    await previewImportSources(sources, focusFirst)
+  }
+
+  async function chooseImportFiles() {
+    const returnFocus = document.activeElement as HTMLElement | null
+    let result: main.CollectionImportPickerResult | undefined
+    await runAction('choose import files', async () => { result = await ChooseCollectionImportFiles() })
+    if (!result) {
+      importStatus = 'File picker could not be opened. Try again.'
+      returnFocus?.focus({ preventScroll: true })
+      return
+    }
+    if (result.cancelled) {
+      importStatus = 'File selection cancelled'
+      returnFocus?.focus({ preventScroll: true })
+      return
+    }
+    await previewImportPaths(result.paths ?? [])
+  }
+
+  async function chooseImportFolder() {
+    const returnFocus = document.activeElement as HTMLElement | null
+    let result: main.CollectionImportPickerResult | undefined
+    await runAction('choose import folder', async () => { result = await ChooseCollectionImportFolder() })
+    if (!result) {
+      importStatus = 'Folder picker could not be opened. Try again.'
+      returnFocus?.focus({ preventScroll: true })
+      return
+    }
+    if (result.cancelled) {
+      importStatus = 'Folder selection cancelled'
+      returnFocus?.focus({ preventScroll: true })
+      return
+    }
+    await previewImportPaths(result.paths ?? [])
+  }
+
+  async function previewURLImport() {
+    if (!importURL.trim()) return
+    await previewImportSources([{ id: `url-${Date.now()}`, url: importURL.trim() } as main.CollectionImportSource], true)
+  }
+
+  async function previewPasteImport() {
+    if (!importContent.trim()) return
+    await previewImportSources([{ id: `paste-${Date.now()}`, name: importPasteName.trim() || 'Pasted import', content: importContent } as main.CollectionImportSource], true)
+  }
+
+  async function updateImportOverride(row: main.CollectionImportPreviewRow, kindOverride: string) {
+    const source = importSources.find((entry) => entry.id === row.sourceId)
+    if (!source) return
+    const nextSources = importSources.map((entry) => entry.id === row.sourceId ? { ...entry, kindOverride } as main.CollectionImportSource : entry)
+    await previewImportSources(nextSources, false, true)
+  }
+
+  function selectedImportIDs(row: main.CollectionImportPreviewRow, kind: 'environments' | 'folders' | 'requests') {
+    return importDecisionFor(row)[kind]
+  }
+
+  function toggleImportChild(row: main.CollectionImportPreviewRow, kind: 'environments' | 'folders' | 'requests', id: string, checked: boolean) {
+    const current = selectedImportIDs(row, kind)
+    updateImportDecision(row.candidateId, { [kind]: checked ? [...new Set([...current, id])] : current.filter((entry) => entry !== id) } as Partial<ImportDecision>)
+  }
+
+  function importSelectionFor(row: main.CollectionImportPreviewRow): main.CollectionImportSelection {
+    const decision = importDecisionFor(row)
+    const all = (kind: 'environments' | 'folders' | 'requests', entries: { selectionId: string }[] | undefined) => (entries ?? []).map((entry) => entry.selectionId)
+    const filtered = (kind: 'environments' | 'folders' | 'requests', entries: { selectionId: string }[] | undefined) => decision[kind].length !== all(kind, entries).length
+    return {
+      sourceId: row.sourceId,
+      candidateId: row.candidateId,
+      expectedContentHash: row.contentHash,
+      environmentIds: decision.environments,
+      folderIds: decision.folders,
+      requestIds: decision.requests,
+      outputName: decision.outputName,
+      kindOverride: decision.kindOverride,
+      conflictAction: decision.conflictAction,
+      filterEnvironments: filtered('environments', row.environments),
+      filterFolders: filtered('folders', row.folders),
+      filterRequests: filtered('requests', row.requests)
+    } as main.CollectionImportSelection
+  }
+
+  // Keep both dependencies visible to Svelte: changes to a row checkbox must
+  // immediately update the footer count and the selections passed to Apply.
+  $: importReadyRows = selectedImportRows(importPreview?.rows ?? [], importDecisions)
+
+  function requestPlannedImport() {
+    if (importApplyInFlight || !importDestinationWorkspaceID || importReadyRows.length === 0) return
+    if (hasReplaceImportSelection(importPreview?.rows ?? [], importDecisions)) {
+      importReplaceConfirmationReturnFocus = importApplyButton ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
+      importReplaceConfirmationOpen = true
+      void tick().then(() => importReplaceConfirmationCancelButton?.focus({ preventScroll: true }))
+      return
+    }
+    void applyPlannedImport()
+  }
+
+  async function cancelImportReplaceConfirmation() {
+    if (!importReplaceConfirmationOpen) return
+    const returnFocus = importReplaceConfirmationReturnFocus
+    importReplaceConfirmationOpen = false
+    importReplaceConfirmationReturnFocus = null
+    await tick()
+    if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true })
+  }
+
+  async function confirmImportReplace() {
+    if (!importReplaceConfirmationOpen || importApplyInFlight) return
+    const returnFocus = importReplaceConfirmationReturnFocus
+    importReplaceConfirmationOpen = false
+    importReplaceConfirmationReturnFocus = null
+    await tick()
+    if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true })
+    await applyPlannedImport()
+  }
+
+  function handleImportReplaceConfirmationKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      void cancelImportReplaceConfirmation()
+      return
+    }
+    containModalTab(event)
+  }
+
+	  async function applyPlannedImport() {
+	    if (importApplyInFlight || !importDestinationWorkspaceID || importReadyRows.length === 0) return
+	  importApplyInFlight = true
+	  clearImportAttemptResults()
+	  let applySucceeded = false
+    try {
+      await runAction('apply import', async () => {
+	        const result = await ApplyCollectionImport({ workspaceId: importDestinationWorkspaceID, destinationRoot: importDestinationRoot, sources: importSources, selections: importReadyRows.map(importSelectionFor) } as main.CollectionImportApplyRequest)
+        importApplyResult = result
+	        state = result.state
+        const completed = new Set([...(result.applied ?? []), ...(result.skipped ?? [])].map((row) => row.candidateId))
+	        importDecisions = Object.fromEntries(Object.entries(importDecisions).map(([id, decision]) => [id, completed.has(id) ? { ...decision, selected: false } : decision]))
+        importStatus = `${result.applied?.length ?? 0} imported, ${result.skipped?.length ?? 0} skipped, ${result.errors?.length ?? 0} errors`
+	        applySucceeded = true
+      })
+    } finally {
+	    importApplyInFlight = false
+    }
+	  if (!applySucceeded) importStatus = 'Import could not be applied. Review the current preview and try again.'
   }
 
 	  function openAPISyncOptions(): main.OpenAPISyncOptions {
@@ -3534,6 +4157,21 @@
     })
   }
 
+  function requestTabKeydown(event: KeyboardEvent) {
+    const tabs = requestTabs
+    const index = tabs.findIndex((tab) => tab.id === requestPaneTab)
+    if (index < 0) return
+    let next = index
+    if (event.key === 'ArrowRight') next = (index + 1) % tabs.length
+    else if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = tabs.length - 1
+    else return
+    event.preventDefault()
+    void selectRequestPaneTab(tabs[next].id)
+    void tick().then(() => document.querySelector<HTMLButtonElement>(`[data-request-tab="${tabs[next].id}"]`)?.focus())
+  }
+
   async function selectResponsePaneTab(tabId: ResponseTab) {
     responseTab = tabId
     if (!activeTab) return
@@ -3571,9 +4209,147 @@
     await setActiveTab(tabs[nextIndex].id)
   }
 
-  async function closeActiveTab() {
-    if (!activeTab) return
-    const tabID = activeTab.id
+  function lifecycleRequests(): LifecycleRequest[] {
+    const requests: LifecycleRequest[] = []
+    for (const workspace of state?.workspaces ?? []) {
+      for (const collection of workspace.collections ?? []) {
+        for (const request of collection.items ?? []) {
+          requests.push({
+            collectionId: collection.id,
+            id: request.id,
+            name: request.name,
+            draft: request.draft,
+            transient: request.transient
+          })
+        }
+      }
+    }
+    return requests
+  }
+
+  function lifecycleTabsFor(action: TabLifecycleAction, targetTabID = ''): LifecycleOpenTab[] {
+    if (action === 'close-active') {
+      const target = targetTabID ? (state?.openTabs ?? []).find((tab) => tab.id === targetTabID) : activeTab
+      return target ? [target] : []
+    }
+    return state?.openTabs ?? []
+  }
+
+  function beginTabLifecycleAction(action: TabLifecycleAction, targetTabID = '') {
+    if (tabLifecycleDialog || tabLifecycleDecisionBusy) return
+    const tabs = lifecycleTabsFor(action, targetTabID)
+    const plan = planUnsavedClose(tabs, lifecycleRequests())
+    if (!plan.requiresConfirmation) {
+      void completeTabLifecycleAction(action, tabs.map((tab) => tab.id))
+      return
+    }
+    tabLifecycleDialog = {
+      action,
+      affected: plan.affected,
+      targetTabIDs: tabs.map((tab) => tab.id),
+      returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null
+    }
+    void tick().then(() => tabLifecycleCancelButton?.focus({ preventScroll: true }))
+  }
+
+  async function dismissTabLifecycleDialog() {
+    const returnFocus = tabLifecycleDialog?.returnFocus
+    tabLifecycleDialog = null
+    tabLifecycleDecisionBusy = false
+    await tick()
+    if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true })
+  }
+
+  function refreshLifecycleDialogAffected(dialog: TabLifecycleDialog) {
+    const originalTargets = new Set(dialog.affected.map((request) => `${request.collectionId}\u0000${request.requestId}`))
+    const plan = planUnsavedClose(lifecycleTabsFor(dialog.action, dialog.targetTabIDs[0] ?? ''), lifecycleRequests())
+    tabLifecycleDialog = {
+      ...dialog,
+      affected: plan.affected.filter((request) => originalTargets.has(`${request.collectionId}\u0000${request.requestId}`))
+    }
+  }
+
+  async function discardAndCompleteTabLifecycle() {
+    const dialog = tabLifecycleDialog
+    if (!dialog || tabLifecycleDecisionBusy) return
+    tabLifecycleDecisionBusy = true
+    let discarded = false
+    await runAction('discard changes', async () => {
+      for (const request of dialog.affected) {
+        state = await DiscardRequestDraft(request.collectionId, request.requestId)
+      }
+      discarded = true
+    })
+    if (!discarded) {
+      refreshLifecycleDialogAffected(dialog)
+      tabLifecycleDecisionBusy = false
+      return
+    }
+    tabLifecycleDialog = null
+    tabLifecycleDecisionBusy = false
+    await completeTabLifecycleAction(dialog.action, dialog.targetTabIDs)
+  }
+
+  async function saveAndCompleteTabLifecycle() {
+    const dialog = tabLifecycleDialog
+    if (!dialog || tabLifecycleDecisionBusy) return
+    tabLifecycleDecisionBusy = true
+    let saved = false
+    await runAction('save and close', async () => {
+      for (const request of dialog.affected) {
+        state = await SaveRequest(request.collectionId, request.requestId)
+      }
+      saved = true
+    })
+    if (!saved) {
+      refreshLifecycleDialogAffected(dialog)
+      tabLifecycleDecisionBusy = false
+      return
+    }
+    tabLifecycleDialog = null
+    tabLifecycleDecisionBusy = false
+    await completeTabLifecycleAction(dialog.action, dialog.targetTabIDs)
+  }
+
+  function handleTabLifecycleDialogKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      void dismissTabLifecycleDialog()
+      return
+    }
+    if (event.key !== 'Tab') return
+    const dialog = event.currentTarget as HTMLElement
+    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+    )).filter((element) => element.offsetParent !== null)
+    if (focusable.length === 0) return
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
+  async function completeTabLifecycleAction(action: TabLifecycleAction, targetTabIDs: string[] = []) {
+    if (action === 'close-active') {
+      await closeActiveTabDirect(targetTabIDs[0])
+      return
+    }
+    if (action === 'close-all') {
+      await closeAllOpenTabsDirect()
+      return
+    }
+    closeApplicationDirect()
+  }
+
+  async function closeActiveTabDirect(targetTabID = activeTab?.id) {
+    const tabID = targetTabID
+    if (!tabID || !(state?.openTabs ?? []).some((tab) => tab.id === tabID)) return
     await runAction('close tab', async () => {
       const nextState = await CloseTab(tabID)
       state = nextState
@@ -3584,11 +4360,19 @@
     })
   }
 
-  async function closeAllOpenTabs() {
+  function closeActiveTab() {
+    beginTabLifecycleAction('close-active')
+  }
+
+  async function closeAllOpenTabsDirect() {
     await runAction('close all tabs', async () => {
       state = await CloseAllTabs()
       activeView = 'request'
     })
+  }
+
+  function closeAllOpenTabs() {
+    beginTabLifecycleAction('close-all')
   }
 
   async function reopenLastClosedTab() {
@@ -4136,8 +4920,13 @@
     const collectionID = deleteRequestTarget.collection.id
     const requestID = deleteRequestTarget.request.id
     await runAction('delete request', async () => {
-      const nextState = await DeleteRequest(collectionID, requestID)
-      state = nextState
+      if (requestDeletionAction(deleteRequestTarget!.request) === 'discard-draft') {
+        state = await DiscardRequestDraft(collectionID, requestID)
+      } else {
+        const result = await DeleteRequestRecoverable(collectionID, requestID)
+        state = result.state
+        await refreshRecoveryEntries()
+      }
       selectedCollectionId = collectionID
       activeView = 'request'
       cancelDeleteRequestModal()
@@ -4161,11 +4950,13 @@
     const collectionID = deleteFolderTarget.collection.id
     const sourcePath = deleteFolderTarget.folder.path
     await runAction('delete folder', async () => {
-      const nextState = await DeleteFolder(collectionID, sourcePath)
+      const result = await DeleteFolderRecoverable(collectionID, sourcePath)
+      const nextState = result.state
       const nextCollection = nextState.workspaces
         .flatMap((workspace) => workspace.collections ?? [])
         .find((collection) => collection.id === collectionID)
       state = nextState
+      await refreshRecoveryEntries()
       selectedCollectionId = collectionID
       if (slashPathHasPrefix(selectedFolderPath, sourcePath)) {
         selectedFolderPath = ''
@@ -4189,7 +4980,9 @@
     if (!removeCollectionTarget) return
     const collectionID = removeCollectionTarget.id
     await runAction('remove collection', async () => {
-      state = await RemoveCollection(collectionID)
+      const result = await RemoveCollectionRecoverable(collectionID)
+      state = result.state
+      await refreshRecoveryEntries()
       if (selectedCollectionId === collectionID) selectedCollectionId = ''
       removeCollectionTarget = undefined
       activeView = 'collection'
@@ -4264,13 +5057,41 @@
     })
   }
 
-  async function copyText(value: string) {
-    if (!value) return
+  async function copyText(value: string): Promise<boolean> {
+    if (!value) return false
     try {
       await navigator.clipboard.writeText(value)
+      return true
     } catch {
-      error = 'Clipboard is unavailable'
+      return false
     }
+  }
+
+  async function saveActiveResponseTimeline() {
+    if (!activeCollection || !activeRequest) return
+    await runAction('save response timeline', async () => { await SaveResponseTimeline(activeCollection.id, activeRequest.id, '') })
+  }
+
+  async function saveActiveResponseBody() {
+    if (!activeCollection || !activeRequest) return
+    await runAction('save response body', async () => {
+      await SaveResponseBody(activeCollection.id, activeRequest.id, '')
+    })
+  }
+
+  function responseTabKeydown(event: KeyboardEvent) {
+    const tabs = activeResponseTabs
+    const index = tabs.findIndex((tab) => tab.id === responseTab)
+    if (index < 0) return
+    let next = index
+    if (event.key === 'ArrowRight') next = (index + 1) % tabs.length
+    else if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = tabs.length - 1
+    else return
+    event.preventDefault()
+    void selectResponsePaneTab(tabs[next].id)
+    void tick().then(() => document.querySelector<HTMLButtonElement>(`[data-response-tab="${tabs[next].id}"]`)?.focus())
   }
 
   async function checkGitVersion() {
@@ -4317,6 +5138,179 @@
     } finally {
       busy = ''
     }
+  }
+
+  function applyGitWorkbenchSnapshot(snapshot: main.CollectionGitSnapshot) {
+		const previousBranch = gitWorkbenchSnapshot?.branch
+    gitWorkbenchSnapshot = snapshot
+		if (!snapshot.available) gitNotFoundMessage = 'Git is not installed or not on PATH.'
+    gitWorkbenchSelectedPaths = reconcileGitSelection(gitWorkbenchSelectedPaths, snapshot.files ?? [])
+    if (!gitWorkbenchBranch || !(snapshot.branches ?? []).includes(gitWorkbenchBranch)) gitWorkbenchBranch = snapshot.branch ?? ''
+		gitWorkbenchRemoteBranch = reconcileGitRemoteBranch(gitWorkbenchRemoteBranch, previousBranch, snapshot.branch)
+    const selectedRemote = (snapshot.remotes ?? []).find((remote) => remote.name === gitWorkbenchRemoteName) ?? snapshot.remotes?.[0]
+    if (selectedRemote) {
+      gitWorkbenchRemoteName = selectedRemote.name
+      gitWorkbenchRemoteURL = selectedRemote.url
+    } else {
+      gitWorkbenchRemoteURL = ''
+    }
+  }
+
+  function selectGitWorkbenchRemote(name: string) {
+    gitWorkbenchRemoteName = name
+    gitWorkbenchRemoteURL = (gitWorkbenchSnapshot?.remotes ?? []).find((remote) => remote.name === name)?.url ?? ''
+  }
+
+  async function refreshGitWorkbench(announce = true) {
+    const collection = activeCollection
+    if (!collection) {
+      gitWorkbenchSnapshot = undefined
+      gitWorkbenchCollectionID = ''
+      if (announce) gitWorkbenchStatus = 'Select a local collection to use Git.'
+      return
+    }
+    gitWorkbenchLoading = true
+    try {
+      const snapshot = await GetCollectionGitStatus(collection.id)
+      gitWorkbenchCollectionID = collection.id
+      applyGitWorkbenchSnapshot(snapshot)
+      if (announce) gitWorkbenchStatus = 'Git status refreshed.'
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      if (announce) {
+        gitWorkbenchError = message
+        gitWorkbenchStatus = 'Git status could not be refreshed.'
+      }
+      if (isGitMissingError(message)) gitNotFoundMessage = message
+    } finally {
+      gitWorkbenchLoading = false
+    }
+  }
+
+  async function openGitWorkbench() {
+    gitWorkbenchError = ''
+    gitWorkbenchStatus = ''
+    gitWorkbenchDiff = undefined
+    activeView = 'git'
+    await refreshGitWorkbench()
+    await tick()
+    gitWorkbenchHeading?.focus({ preventScroll: true })
+  }
+
+  async function runGitWorkbenchAction(label: string, action: () => Promise<main.CollectionGitOperationResult>) {
+    if (!activeCollection) {
+      gitWorkbenchStatus = 'Select a local collection before using Git.'
+      return
+    }
+    gitWorkbenchBusy = label
+    gitWorkbenchError = ''
+    try {
+      const result = await action()
+      applyGitWorkbenchSnapshot(result.snapshot)
+      gitWorkbenchStatus = result.message || `${label} completed.`
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      gitWorkbenchError = message
+      gitWorkbenchStatus = `${label} did not complete.`
+      if (isGitMissingError(message)) gitNotFoundMessage = message
+      await refreshGitWorkbench(false)
+    } finally {
+      gitWorkbenchBusy = ''
+    }
+  }
+
+  function toggleGitWorkbenchPath(path: string, selected: boolean) {
+    gitWorkbenchSelectedPaths = selected
+      ? Array.from(new Set([...gitWorkbenchSelectedPaths, path]))
+      : gitWorkbenchSelectedPaths.filter((candidate) => candidate !== path)
+  }
+
+  async function initializeGitWorkbench() {
+    if (!activeCollection) return
+    await runGitWorkbenchAction('Initialize Git', () => InitializeCollectionGit(activeCollection!.id))
+  }
+
+  async function viewGitWorkbenchDiff(staged: boolean) {
+    if (!activeCollection || gitWorkbenchSelectedPaths.length !== 1) {
+      gitWorkbenchError = 'Select exactly one file to view its diff.'
+      return
+    }
+    gitWorkbenchBusy = staged ? 'View staged diff' : 'View unstaged diff'
+    gitWorkbenchError = ''
+    try {
+      gitWorkbenchDiff = await GetCollectionGitDiff(activeCollection.id, gitWorkbenchSelectedPaths[0], staged)
+      gitWorkbenchStatus = `${staged ? 'Staged' : 'Unstaged'} diff loaded for ${gitWorkbenchDiff.path}.`
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      gitWorkbenchError = message
+      gitWorkbenchStatus = 'Diff could not be loaded.'
+      if (isGitMissingError(message)) gitNotFoundMessage = message
+      await refreshGitWorkbench(false)
+    } finally {
+      gitWorkbenchBusy = ''
+    }
+  }
+
+  async function stageGitWorkbenchSelection() {
+    if (!activeCollection) return
+    await runGitWorkbenchAction('Stage selected', () => StageCollectionGitPaths(activeCollection!.id, gitWorkbenchSelectedPaths))
+  }
+
+  async function unstageGitWorkbenchSelection() {
+    if (!activeCollection) return
+    await runGitWorkbenchAction('Unstage selected', () => UnstageCollectionGitPaths(activeCollection!.id, gitWorkbenchSelectedPaths))
+  }
+
+  async function commitGitWorkbench() {
+    if (!activeCollection) return
+    if (!gitWorkbenchCommitMessage.trim()) {
+      gitWorkbenchError = 'Enter a commit message before committing staged changes.'
+      return
+    }
+    await runGitWorkbenchAction('Commit staged', () => CommitCollectionGit(activeCollection!.id, gitWorkbenchCommitMessage.trim()))
+    if (!gitWorkbenchError) gitWorkbenchCommitMessage = ''
+  }
+
+  async function createGitWorkbenchBranch() {
+    if (!activeCollection) return
+    if (!gitWorkbenchNewBranch.trim()) {
+      gitWorkbenchError = 'Enter a branch name.'
+      return
+    }
+    await runGitWorkbenchAction('Create branch', () => CreateCollectionGitBranch(activeCollection!.id, gitWorkbenchNewBranch.trim(), gitWorkbenchCheckoutNewBranch))
+    if (!gitWorkbenchError) gitWorkbenchNewBranch = ''
+  }
+
+  async function checkoutGitWorkbenchBranch() {
+    if (!activeCollection || !gitWorkbenchBranch) return
+    await runGitWorkbenchAction('Switch branch', () => CheckoutCollectionGitBranch(activeCollection!.id, gitWorkbenchBranch))
+  }
+
+  async function setGitWorkbenchRemote() {
+    if (!activeCollection || !gitWorkbenchRemoteName.trim() || !gitWorkbenchRemoteURL.trim()) {
+      gitWorkbenchError = 'Enter a remote name and credential-free remote URL.'
+      return
+    }
+    gitWorkbenchRemoteName = gitWorkbenchRemoteName.trim()
+    gitWorkbenchRemoteURL = gitWorkbenchRemoteURL.trim()
+    await runGitWorkbenchAction('Set remote', () => SetCollectionGitRemote(activeCollection!.id, gitWorkbenchRemoteName, gitWorkbenchRemoteURL))
+  }
+
+  async function fetchGitWorkbench() {
+    if (!activeCollection || !gitWorkbenchRemoteName.trim()) return
+    await runGitWorkbenchAction('Fetch', () => FetchCollectionGit(activeCollection!.id, gitWorkbenchRemoteName.trim()))
+  }
+
+  async function pullGitWorkbench() {
+    if (!activeCollection || !gitWorkbenchRemoteName.trim() || !gitWorkbenchRemoteBranch.trim()) return
+    await runGitWorkbenchAction('Pull fast-forward only', () => PullCollectionGit(activeCollection!.id, gitWorkbenchRemoteName.trim(), gitWorkbenchRemoteBranch.trim()))
+  }
+
+  async function pushGitWorkbench() {
+    if (!activeCollection || !gitWorkbenchRemoteName.trim() || !gitWorkbenchRemoteBranch.trim()) return
+    const setUpstream = gitWorkbenchSetUpstream
+    await runGitWorkbenchAction('Push', () => PushCollectionGit(activeCollection!.id, gitWorkbenchRemoteName.trim(), gitWorkbenchRemoteBranch.trim(), setUpstream))
+    if (!gitWorkbenchError && setUpstream) gitWorkbenchSetUpstream = false
   }
 
   function isGitMissingError(message: string) {
@@ -5235,7 +6229,7 @@
     }, autoSaveDelay())
   }
 
-  function closeApplication() {
+  function closeApplicationDirect() {
     try {
       Quit()
     } catch {
@@ -5243,8 +6237,272 @@
     }
   }
 
+  function closeApplication() {
+    beginTabLifecycleAction('quit')
+  }
+
   function toggleSidebarCollapse() {
     sidebarCollapsed = !sidebarCollapsed
+  }
+
+  function clampSidebarWidth(value: number) {
+    return Math.max(220, Math.min(420, Math.round(value)))
+  }
+
+  function clampResponseSplit(value: number) {
+    return Math.max(0.3, Math.min(0.7, value))
+  }
+
+  function persistWorkbenchLayout() {
+	  const sidebarKey = workbenchStorageKey('sidebar-width')
+	  const splitKey = workbenchStorageKey('response-split')
+	  if (!sidebarKey || !splitKey) return
+    try {
+      localStorage.setItem(sidebarKey, String(sidebarWidth))
+      localStorage.setItem(splitKey, String(responseSplit))
+    } catch {
+      // Layout persistence is an enhancement; a restrictive WebView must not block API work.
+    }
+  }
+
+  function restoreWorkbenchLayout() {
+	  const sidebarKey = workbenchStorageKey('sidebar-width')
+	  const splitKey = workbenchStorageKey('response-split')
+	  if (!sidebarKey || !splitKey) return
+    try {
+      const storedSidebar = localStorage.getItem(sidebarKey)
+      const storedSplit = localStorage.getItem(splitKey)
+      const savedSidebar = storedSidebar === null ? Number.NaN : Number(storedSidebar)
+      const savedSplit = storedSplit === null ? Number.NaN : Number(storedSplit)
+      if (Number.isFinite(savedSidebar)) sidebarWidth = clampSidebarWidth(savedSidebar)
+      if (Number.isFinite(savedSplit)) responseSplit = clampResponseSplit(savedSplit)
+    } catch {
+      // Use safe defaults when local storage is unavailable or corrupt.
+    }
+  }
+
+	function workbenchStorageKey(name: 'sidebar-width' | 'response-split') {
+	  return workbenchStorageScope ? `liteapi.workbench.v3.${workbenchStorageScope}.${name}` : ''
+	}
+
+  function startSidebarResize(event: MouseEvent) {
+    event.preventDefault()
+    const startX = event.clientX
+    const startWidth = sidebarWidth
+    const move = (next: MouseEvent) => { sidebarWidth = clampSidebarWidth(startWidth + next.clientX - startX) }
+    const finish = () => { persistWorkbenchLayout(); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', finish) }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', finish)
+  }
+
+  function startResponseSplitResize(event: MouseEvent) {
+    event.preventDefault()
+    const workbench = (event.currentTarget as HTMLElement).closest('.request-workbench')
+    const bounds = workbench?.getBoundingClientRect()
+    if (!bounds) return
+    // Compact CSS always stacks the panes, regardless of the persisted wide-layout preference.
+    const isVertical = compactWorkbench || responsePaneOrientation === 'vertical'
+    const move = (next: MouseEvent) => {
+      const fraction = isVertical ? (next.clientY - bounds.top) / bounds.height : (next.clientX - bounds.left) / bounds.width
+      responseSplit = clampResponseSplit(fraction)
+    }
+    const finish = () => { persistWorkbenchLayout(); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', finish) }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', finish)
+  }
+
+  function openCreationFlow(invoker: HTMLElement | null = document.activeElement instanceof HTMLElement ? document.activeElement : null) {
+    creationReturnFocus = invoker
+    creationOpen = true
+    void tick().then(() => document.querySelector<HTMLInputElement>('[data-new-request-name]')?.focus())
+  }
+
+  async function closeCreationFlow() {
+    creationOpen = false
+    await tick()
+    if (creationReturnFocus?.isConnected) creationReturnFocus.focus({ preventScroll: true })
+    creationReturnFocus = null
+  }
+
+  function containModalTab(event: KeyboardEvent) {
+    if (event.key !== 'Tab') return false
+    const dialog = event.currentTarget as HTMLElement
+    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+    )).filter((element) => element.offsetParent !== null)
+    if (focusable.length === 0) return false
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+    return true
+  }
+
+  function handleCreationDialogKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      void closeCreationFlow()
+      return
+    }
+    containModalTab(event)
+  }
+
+  async function submitCreationFlow() {
+    if (!requestName.trim()) requestName = 'Untitled request'
+    await createRequest()
+    await closeCreationFlow()
+  }
+
+  async function openKeyboardShortcuts() {
+    activeView = 'preferences'
+    await tick()
+    const disclosure = document.querySelector<HTMLDetailsElement>('details.keybindings-disclosure')
+    if (!disclosure) return
+    disclosure.open = true
+    disclosure.scrollIntoView({ block: 'start' })
+    disclosure.querySelector<HTMLElement>('summary')?.focus({ preventScroll: true })
+  }
+
+  async function runWorkbenchCommand(command: WorkbenchCommandID, invoker: HTMLElement | null = null) {
+    switch (command) {
+      case 'new-request':
+        openCreationFlow(invoker)
+        return
+      case 'new-http':
+      case 'new-graphql':
+      case 'new-grpc':
+      case 'new-websocket':
+        requestType = command.replace('new-', '')
+        requestName = 'New Request'
+        openCreationFlow(invoker)
+        return
+      case 'new-folder':
+        if (activeCollection && !activeCollection.notFoundLocally) openNewFolderModal('', activeCollection)
+        return
+      case 'new-collection':
+        await createCollection()
+        return
+      case 'send-request':
+        await sendRequest()
+        return
+      case 'save-request':
+        await saveRequest()
+        return
+      case 'open-workspace':
+        await showWorkspaceWindowPicker()
+        return
+      case 'workspace-search':
+        openGlobalSearch()
+        return
+      case 'command-palette':
+        openCommandPalette(invoker)
+        return
+      case 'toggle-sidebar':
+        toggleSidebarCollapse()
+        return
+      case 'open-request':
+        activeView = 'request'
+        return
+      case 'open-collection-settings':
+        activeView = 'collection'
+        return
+		case 'open-git-workbench':
+			await openGitWorkbench()
+			return
+      case 'open-environments':
+        activeView = 'environments'
+        return
+      case 'import':
+        activeView = 'import'
+        return
+      case 'open-network':
+        activeView = 'network'
+        return
+      case 'open-cookies':
+        activeView = 'cookies'
+        return
+      case 'toggle-devtools':
+        if (devToolsOpen) await closeDevTools()
+        else await openDevTools()
+        return
+      case 'open-capabilities':
+        activeView = 'features'
+        return
+      case 'open-runner':
+        activeView = 'runner'
+        return
+      case 'open-preferences':
+        activeView = 'preferences'
+        return
+      case 'open-keyboard-shortcuts':
+        await openKeyboardShortcuts()
+        return
+      case 'change-orientation':
+        await toggleResponsePaneOrientation()
+        return
+      case 'open-notifications':
+        await openNotifications()
+        return
+      case 'cancel-run':
+        await cancelCollectionRun()
+    }
+  }
+
+  const commandPaletteActions = commandPaletteCommandIDs.map((id) => ({ id, ...workbenchCommandMetadata(id) }))
+
+  $: visibleCommandPaletteActions = commandPaletteActions.filter((action) => action.label.toLowerCase().includes(commandPaletteQuery.trim().toLowerCase()))
+  $: if (commandPaletteActiveIndex >= visibleCommandPaletteActions.length) commandPaletteActiveIndex = Math.max(0, visibleCommandPaletteActions.length - 1)
+
+  function openCommandPalette(invoker: HTMLElement | null = document.activeElement instanceof HTMLElement ? document.activeElement : null) {
+    commandPaletteReturnFocus = invoker
+    commandPaletteOpen = true
+    commandPaletteQuery = ''
+    commandPaletteActiveIndex = 0
+    void tick().then(() => commandPaletteInput?.focus())
+  }
+
+  async function closeCommandPalette() {
+    commandPaletteOpen = false
+    commandPaletteQuery = ''
+    await tick()
+    if (commandPaletteReturnFocus?.isConnected) commandPaletteReturnFocus.focus({ preventScroll: true })
+    commandPaletteReturnFocus = null
+  }
+
+  function runCommandPaletteAction(action: typeof commandPaletteActions[number]) {
+    const returnFocus = commandPaletteReturnFocus
+    commandPaletteOpen = false
+    commandPaletteQuery = ''
+    commandPaletteReturnFocus = null
+    void runWorkbenchCommand(action.id, returnFocus)
+  }
+
+  function handleCommandPaletteKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      void closeCommandPalette()
+      return
+    }
+    if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && event.target === commandPaletteInput) {
+      if (visibleCommandPaletteActions.length === 0) return
+      event.preventDefault()
+      const direction = event.key === 'ArrowDown' ? 1 : -1
+      commandPaletteActiveIndex = (commandPaletteActiveIndex + direction + visibleCommandPaletteActions.length) % visibleCommandPaletteActions.length
+      return
+    }
+    if (event.key === 'Enter' && event.target === commandPaletteInput && visibleCommandPaletteActions[commandPaletteActiveIndex]) {
+      event.preventDefault()
+      runCommandPaletteAction(visibleCommandPaletteActions[commandPaletteActiveIndex])
+      return
+    }
+    containModalTab(event)
   }
 
   async function updateKeybindingsEnabled(enabled: boolean) {
@@ -5625,77 +6883,6 @@
     return body
   }
 
-  function responseForView(response: main.Response | undefined, view: 'pretty' | 'raw' | 'base64' | 'hex', pretty: string) {
-    if (!response) return ''
-    if (view === 'raw') return response.body ?? ''
-    if (view === 'base64') return response.bodyBase64 ?? ''
-    if (view === 'hex') return hexFromBase64(response.bodyBase64 ?? '')
-    return pretty
-  }
-
-  function parseWebSocketResponseEvents(response: main.Response | undefined): WebSocketResponseEvent[] {
-    if (response?.previewMode !== 'websocket' || !response.body) return []
-    try {
-      const parsed = JSON.parse(response.body)
-      if (!Array.isArray(parsed)) return []
-      return parsed
-        .filter((event): event is WebSocketResponseEvent => Boolean(event) && typeof event === 'object')
-        .map((event) => ({
-          direction: String(event.direction ?? ''),
-          name: String(event.name ?? ''),
-          type: String(event.type ?? ''),
-          data: event.data === undefined ? undefined : String(event.data),
-          dataBase64: event.dataBase64 === undefined ? undefined : String(event.dataBase64),
-          dataHex: event.dataHex === undefined ? undefined : String(event.dataHex),
-          error: event.error === undefined ? undefined : String(event.error),
-          at: event.at === undefined ? undefined : String(event.at)
-        }))
-    } catch {
-      return []
-    }
-  }
-
-  function parseGrpcStreamEvents(response: main.Response | undefined): GrpcStreamEvent[] {
-    if (response?.previewMode !== 'grpc-stream' || !response.body) return []
-    try {
-      const parsed = JSON.parse(response.body)
-      if (!Array.isArray(parsed)) return []
-      return parsed
-        .filter((event): event is GrpcStreamEvent => Boolean(event) && typeof event === 'object')
-        .map((event) => ({
-          direction: String(event.direction ?? ''),
-          name: String(event.name ?? ''),
-          type: String(event.type ?? ''),
-          data: event.data === undefined ? undefined : String(event.data),
-          error: event.error === undefined ? undefined : String(event.error),
-          at: event.at === undefined ? undefined : String(event.at)
-        }))
-    } catch {
-      return []
-    }
-  }
-
-  function websocketEventPayload(event: WebSocketResponseEvent) {
-    if (event.error) return event.error
-    if (event.data !== undefined) return event.data
-    if (event.dataHex) return event.dataHex
-    if (event.dataBase64) return event.dataBase64
-    return ''
-  }
-
-  function websocketEventTime(event: WebSocketResponseEvent) {
-    if (!event.at) return ''
-    const value = new Date(event.at)
-    if (Number.isNaN(value.getTime())) return event.at
-    return value.toLocaleTimeString()
-  }
-
-  function websocketEventDirection(event: WebSocketResponseEvent) {
-    const direction = (event.direction || 'system').toLowerCase()
-    if (direction === 'sent' || direction === 'received') return direction
-    return 'system'
-  }
-
   function responseHeaderValue(response: main.Response | undefined, name: string) {
     const headers = response?.headers ?? {}
     const exact = headers[name]
@@ -5716,92 +6903,6 @@
 
   function sortedTimelineEntries(entries: main.TimelineItem[]) {
     return [...entries].sort((left, right) => timelineTimestamp(right) - timelineTimestamp(left))
-  }
-
-  function timelineFilterKind(entry: main.TimelineItem): Exclude<TimelineKind, 'all'> {
-    if (entry.kind === 'oauth2' || entry.source === 'oauth2.0') return 'oauth'
-    if (entry.phase === 'post-response' || entry.phase === 'tests') return 'post'
-    if (entry.kind === 'scripted-request' || entry.kind === 'script' || entry.source === 'sendRequest' || entry.source === 'runRequest') return 'pre'
-    return 'main'
-  }
-
-  function timelineBadgeKind(entry: main.TimelineItem): Exclude<TimelineKind, 'all'> {
-    if (entry.kind === 'oauth2' || entry.source === 'oauth2.0') return 'oauth'
-    if (entry.source === 'runRequest') return 'post'
-    if (entry.source === 'sendRequest' || entry.kind === 'scripted-request' || entry.kind === 'script') return 'pre'
-    return 'main'
-  }
-
-  function timelineCounts(entries: main.TimelineItem[]) {
-    const counts: Record<TimelineKind, number> = { all: entries.length, main: 0, pre: 0, post: 0, oauth: 0 }
-    for (const entry of entries) counts[timelineFilterKind(entry)] += 1
-    return counts
-  }
-
-  function timelineVisibleFilters(counts: Record<TimelineKind, number>) {
-    if (counts.pre === 0 && counts.post === 0 && counts.oauth === 0) return [{ id: 'all' as TimelineKind, label: 'All' }]
-    const filters: { id: TimelineKind; label: string }[] = [
-      { id: 'all', label: 'All' },
-      { id: 'main', label: 'Request' }
-    ]
-    if (counts.pre > 0) filters.push({ id: 'pre', label: 'Pre-Request' })
-    if (counts.post > 0) filters.push({ id: 'post', label: 'Post-Response' })
-    if (counts.oauth > 0) filters.push({ id: 'oauth', label: 'OAuth' })
-    return filters
-  }
-
-  function timelineFilteredEntries(entries: main.TimelineItem[], filter: TimelineKind) {
-    if (filter === 'all') return entries
-    return entries.filter((entry) => timelineFilterKind(entry) === filter)
-  }
-
-  function timelineBadgeLabel(entry: main.TimelineItem) {
-    if (entry.source === 'grpc') return entry.eventType || 'grpc'
-    const kind = timelineBadgeKind(entry)
-    if (kind === 'main') return 'request'
-    if (kind === 'oauth') return 'oauth2.0'
-    if (entry.source === 'runRequest' || kind === 'post') return 'runRequest'
-    return 'sendRequest'
-  }
-
-  function timelineStatusLabel(entry: main.TimelineItem) {
-    if (entry.status) return String(entry.status)
-    if (entry.statusText) return entry.statusText
-    if (entry.error) return 'Error'
-    return '-'
-  }
-
-  function timelineMethod(entry: main.TimelineItem) {
-    return (entry.method || entry.message?.split(/\s+/)[0] || '').toUpperCase() || '-'
-  }
-
-  function timelineURL(entry: main.TimelineItem) {
-    if (entry.source === 'grpc' && entry.eventType) return grpcTimelineTitle(entry)
-    if (entry.url) return entry.url
-    const match = entry.message?.match(/https?:\/\/\S+/)
-    return match?.[0]?.replace(/\s*->.*$/, '') ?? entry.message ?? '-'
-  }
-
-  function grpcTimelineTitle(entry: main.TimelineItem) {
-    if (entry.eventType === 'request') return 'Request started'
-    if (entry.eventType === 'message') return entry.eventName ? `Message: ${entry.eventName}` : 'Message'
-    if (entry.eventType === 'response') return entry.eventName ? `Response Message #${entry.eventName.replace(/^response\s+/i, '')}` : 'Response Message'
-    if (entry.eventType === 'metadata') return 'Response metadata'
-    if (entry.eventType === 'status') return 'Status and trailers'
-    if (entry.eventType === 'end') return 'Stream ended'
-    if (entry.eventType === 'cancel') return 'Stream cancelled'
-    if (entry.eventType === 'error') return 'Stream error'
-    return entry.message || 'gRPC event'
-  }
-
-  function timelineTime(entry: main.TimelineItem) {
-    const timestamp = timelineTimestamp(entry)
-    if (!timestamp) return '-'
-    return new Date(timestamp).toLocaleTimeString()
-  }
-
-  function toggleTimelineEntry(entry: main.TimelineItem) {
-    expandedTimelineEntryID = expandedTimelineEntryID === entry.id ? '' : entry.id
   }
 
   function devToolsConsoleLogs(workspace: main.Workspace | undefined): DevToolsConsoleLog[] {
@@ -6291,6 +7392,72 @@
     return `${amount.toFixed(precision)} ${units[unitIndex]}`
   }
 
+  function requestCommandState(
+    request: main.RequestItem | undefined,
+    collection: main.Collection | undefined,
+    environmentName: string | undefined,
+    action: string,
+    webSocketConnected: boolean,
+    grpcConnected: boolean,
+    preferences: main.Preferences | undefined,
+    httpInFlight: boolean,
+    cancellationPending: boolean,
+    backgroundCancellation: RequestCommandState['backgroundCancellation']
+  ): RequestCommandState {
+    const response = request?.response
+    const status = response?.cancelled ? 'Cancelled' : response?.status ? String(response.status) : 'Idle'
+    const tone = response?.cancelled ? 'warning' : !response?.status ? 'idle' : response.status < 300 ? 'success' : response.status < 400 ? 'warning' : 'danger'
+    const transient = requestIsTransient(collection, request)
+    const collectionProxy = collectionProxyMode(collection?.proxy)
+    const preferencesProxy = preferencesProxyMode(preferences)
+    const proxyCue = collectionProxy === 'off'
+      ? 'Proxy off'
+      : collectionProxy === 'manual'
+        ? 'Proxy: collection'
+        : preferencesProxy === 'off'
+          ? 'Proxy off'
+          : preferencesProxy === 'manual'
+            ? 'Proxy: manual'
+            : preferencesProxy === 'pac'
+              ? 'Proxy: PAC'
+              : 'Proxy: system'
+    const tlsVerificationEnabled = request?.settings?.verifyTls !== false && preferences?.request?.sslVerification !== false
+    return {
+      protocol: request?.type === 'grpc' ? 'gRPC' : request?.type === 'websocket' ? 'WebSocket' : request?.type === 'graphql' ? 'GraphQL' : 'HTTP',
+      environmentName: environmentName || 'No environment',
+      saveLabel: transient ? 'Save temp' : 'Save',
+      dirty: transient || Boolean(request?.draft),
+      runningLabel: action,
+      canCancel: httpInFlight || webSocketConnected || grpcConnected,
+      cancelLabel: httpInFlight ? 'Cancel request' : request?.type === 'websocket' ? 'Disconnect' : 'Cancel stream',
+      cancelDuringBusy: httpInFlight,
+      cancellationPending,
+      backgroundCancellation,
+      transportCues: [tlsVerificationEnabled ? 'TLS verify' : 'TLS off', proxyCue],
+      response: {
+        status,
+        statusText: response?.cancelled ? 'Request cancelled' : response?.statusText || (response?.error ? 'Request failed' : 'No response yet'),
+        duration: `${response?.durationMs ?? 0} ms`,
+        size: formatRuntimeBytes(response?.size),
+        tone
+      }
+    }
+  }
+
+  function requestNameForTransport(target: { collectionId: string; requestId: string }) {
+    for (const workspace of state?.workspaces ?? []) {
+      const collection = workspace.collections?.find((candidate) => candidate.id === target.collectionId)
+      const request = collection?.items?.find((candidate) => candidate.id === target.requestId)
+      if (request) return request.name?.trim() || 'request'
+    }
+    return 'request'
+  }
+
+  function runnerCancellationCount(snapshot: main.RunnerSnapshot | undefined) {
+    const count = snapshot?.cancelled
+    return typeof count === 'number' && Number.isFinite(count) && count > 0 ? count : 0
+  }
+
   function formatCPUPercent(value: number | undefined) {
     const percent = Number(value ?? 0)
     if (!Number.isFinite(percent) || percent < 0) return '0.0%'
@@ -6369,15 +7536,6 @@
   function buildGlobalSearchResults(workspace: main.Workspace | undefined, query: string): GlobalSearchResult[] {
     const collections = workspace?.collections ?? []
     const normalized = normalizeGlobalSearchQuery(query)
-    const documentationResult: GlobalSearchResult = {
-      id: 'documentation:bruno',
-      type: 'documentation',
-      collectionId: '',
-      name: 'Bruno Documentation',
-      subtitle: 'Browse the official Bruno documentation',
-      meta: 'documentation',
-      rank: 0
-    }
     if (!normalized) {
       const collectionResults = collections
         .map((collection) => ({
@@ -6390,16 +7548,12 @@
           rank: 1
         }))
         .sort(sortGlobalSearchResults)
-      return [documentationResult, ...collectionResults]
+      return collectionResults
     }
     if (!isValidGlobalSearchQuery(normalized)) return []
     const terms = normalized.split(/[\s/]+/).filter(Boolean)
     const enablePathMatch = normalized.includes('/')
     const results: GlobalSearchResult[] = []
-    if (globalSearchTermsMatch([documentationResult.name, documentationResult.subtitle, 'docs', 'https://docs.usebruno.com/'], terms)) {
-      results.push(documentationResult)
-    }
-
     for (const collection of collections) {
       if (globalSearchTermsMatch([collection.name, collection.path, collection.format], terms)) {
         results.push({
@@ -6499,9 +7653,7 @@
 
   async function selectGlobalSearchResult(result: GlobalSearchResult) {
     closeGlobalSearch()
-    if (result.type === 'documentation') {
-      openExternalLink('https://docs.usebruno.com/')
-    } else if (result.type === 'request' && result.itemId) {
+    if (result.type === 'request' && result.itemId) {
       await openRequestTab(result.collectionId, result.itemId)
     } else if (result.type === 'folder') {
       selectedCollectionId = result.collectionId
@@ -6732,14 +7884,120 @@
 	    }
 	  }
 
-	  function responseStatusClass(status?: number) {
+  function responseStatusClass(status?: number) {
     if (!status) return 'muted'
     if (status < 300) return 'ok'
     if (status < 400) return 'warn'
     return 'bad'
   }
 
+  async function handleNativeMenuCommand(command: string) {
+    switch (command) {
+      case 'new-window':
+        await openNativeNewWindow()
+        return
+      case 'open-workspace-in-new-window':
+        await runWorkbenchCommand('open-workspace')
+        return
+      case 'new-request':
+        await runWorkbenchCommand('new-request')
+        return
+      case 'save':
+        await saveRequest()
+        return
+      case 'save-all':
+        await saveAllOpenTabs()
+        return
+      case 'close-tab':
+        await closeActiveTab()
+        return
+      case 'reopen-tab':
+        await reopenLastClosedTab()
+        return
+      case 'import':
+      case 'open-collection':
+        await runWorkbenchCommand('import')
+        return
+      case 'command-palette':
+        await runWorkbenchCommand('command-palette')
+        return
+      case 'workspace-search':
+        await runWorkbenchCommand('workspace-search')
+        return
+      case 'toggle-sidebar':
+        await runWorkbenchCommand('toggle-sidebar')
+        return
+      case 'toggle-devtools':
+        await runWorkbenchCommand('toggle-devtools')
+        return
+      case 'change-orientation':
+        await runWorkbenchCommand('change-orientation')
+        return
+      case 'send-or-start':
+        if (activeView === 'runner') await runCollection()
+        else await sendRequest()
+        return
+      case 'cancel-active':
+        await cancelActiveRequest()
+        return
+      case 'open-runner':
+        await runWorkbenchCommand('open-runner')
+        return
+      case 'new-collection':
+        await runWorkbenchCommand('new-collection')
+        return
+      case 'open-environments':
+        await runWorkbenchCommand('open-environments')
+        return
+      case 'open-git':
+		await runWorkbenchCommand('open-git-workbench')
+        return
+      case 'open-preferences':
+        await runWorkbenchCommand('open-preferences')
+        return
+      case 'open-network':
+        await runWorkbenchCommand('open-network')
+        return
+      case 'open-cookies':
+        await runWorkbenchCommand('open-cookies')
+        return
+      case 'open-capabilities':
+        await runWorkbenchCommand('open-capabilities')
+        return
+      case 'open-keyboard-shortcuts':
+        await runWorkbenchCommand('open-keyboard-shortcuts')
+    }
+  }
+
   function shortcut(event: KeyboardEvent) {
+    if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'p') {
+      event.preventDefault()
+      openCommandPalette()
+      return
+    }
+    if (event.key === 'Escape' && commandPaletteOpen) {
+      event.preventDefault()
+      closeCommandPalette()
+      return
+    }
+    if (event.key === 'Escape' && document.querySelector('details.request-actions[open]')) {
+      event.preventDefault()
+      closeRequestActionMenus()
+      return
+    }
+    const hasCommandModifier = event.metaKey || event.ctrlKey
+    if (hasCommandModifier && event.key.toLowerCase() === 'l' && activeView === 'request') {
+      event.preventDefault()
+      requestURLInput?.focus()
+      requestURLInput?.select()
+      return
+    }
+    if (event.key === 'Escape' && (requestCommand.canCancel || hasActiveHTTPTransport || activeCollectionRun)) {
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
+      event.preventDefault()
+      void cancelActiveRequest()
+      return
+    }
     if (!state || !keybindingsAreEnabled(state.preferences)) return
     if (keyBindingEventMatches(event, 'globalSearch')) {
       event.preventDefault()
@@ -6878,48 +8136,29 @@
 {#if loading}
   <main class="boot">
     <div class="loader"></div>
-    <p>Loading LiteAPI</p>
+    <p>{loadingStatus}</p>
   </main>
 {:else if state}
-  <main class="app-shell" class:sidebar-collapsed={sidebarCollapsed}>
-    <aside class="workspace-rail">
+  <main class="app-shell" class:sidebar-collapsed={sidebarCollapsed} style={`--sidebar-width: ${sidebarWidth}px;`} inert={creationOpen || commandPaletteOpen}>
+    <aside class="workspace-rail" aria-label="Collections sidebar">
       <div class="brand">
         <div class="brand-mark">LA</div>
         <div>
           <h1>LiteAPI</h1>
-          <p>Bruno parity workbench</p>
+          <p>Local-first API workbench</p>
         </div>
       </div>
 
-      <section class="rail-section">
-        <span class="field-label">Workspace</span>
-        <select aria-label="Workspace" bind:value={state.activeWorkspaceId}>
-          {#each state.workspaces as workspace}
-            <option value={workspace.id}>{workspace.name}</option>
-          {/each}
-        </select>
-      </section>
-
-      <section class="rail-section compact">
-        <div class="split">
-          <input aria-label="Collection name" bind:value={collectionName} />
-          <button class="icon-button" title="Create collection" on:click={createCollection}>+</button>
-        </div>
-        <div class="split">
-          <select aria-label="Request type" bind:value={requestType}>
-            <option value="http">HTTP</option>
-            <option value="graphql">GraphQL</option>
-            <option value="websocket">WebSocket</option>
-            <option value="grpc">gRPC</option>
-          </select>
-          <button class="icon-button" title="Create request" on:click={createRequest}>+</button>
-        </div>
-        <input aria-label="Request name" bind:value={requestName} />
+      <section class="rail-section rail-create">
+        <button class="primary new-request-button" type="button" on:click={(event) => openCreationFlow(event.currentTarget as HTMLElement)} aria-haspopup="dialog">
+          <span aria-hidden="true">+</span> New
+          <kbd>⌘N</kbd>
+        </button>
+        <small>Create a scratch request in the active collection.</small>
       </section>
 
       <section class="rail-section search-section">
         <span class="field-label">Search</span>
-        <button class="global-search-trigger" type="button" on:click={openGlobalSearch}>Global Search</button>
         <div class="search-box">
           <input aria-label="Search requests" placeholder="Find requests" bind:this={requestSearchInput} bind:value={requestSearch} />
           {#if requestSearch}
@@ -6937,8 +8176,17 @@
         {/if}
         {#each visibleSidebarCollections as collection}
           {@const groups = groupedItems(collection, searchQuery)}
+          {@const collectionCollapsed = !searchQuery && Boolean(collapsedSidebarCollections[collection.id])}
           <article class:active={collection.id === activeCollection?.id}>
             <header>
+              <button
+                class="tree-chevron"
+                class:collapsed={collectionCollapsed}
+                type="button"
+                aria-expanded={!collectionCollapsed}
+                aria-label={`${collectionCollapsed ? 'Expand' : 'Collapse'} ${collection.name}`}
+                on:click={() => toggleSidebarCollection(collection.id)}
+              >▾</button>
               <button class="collection-title" on:click={() => selectCollection(collection.id)}>{collection.name}</button>
               <span class="collection-badges">
                 {#if collectionIsScratch(collection)}<small>Scratch</small>{/if}
@@ -6956,13 +8204,22 @@
                   <button on:click={() => disconnectGitRemote(collection.id)}>Remove</button>
                 </div>
               </div>
-            {:else if groups.length === 0}
+            {:else if groups.length === 0 && !collectionCollapsed}
               <div class="sidebar-empty">No requests</div>
             {/if}
-            {#if !collection.notFoundLocally}
+            {#if !collection.notFoundLocally && !collectionCollapsed}
               {#each groups as group}
+                {@const folderCollapsed = Boolean(group.folder) && !searchQuery && Boolean(collapsedSidebarFolders[sidebarFolderKey(collection.id, group.folder)])}
                 {#if group.folder}
                   <div class="folder-row-shell">
+                    <button
+                      class="tree-chevron"
+                      class:collapsed={folderCollapsed}
+                      type="button"
+                      aria-expanded={!folderCollapsed}
+                      aria-label={`${folderCollapsed ? 'Expand' : 'Collapse'} folder ${group.folder}`}
+                      on:click={() => toggleSidebarFolder(collection.id, group.folder)}
+                    >▾</button>
                     <button class="folder-row" title={`${group.folder} settings`} on:click={() => selectFolderSettings(collection, group.folder)}>{group.folder}</button>
                     <button
                       class="folder-action"
@@ -7021,27 +8278,30 @@
                     >x</button>
                   </div>
                 {/if}
+                {#if !folderCollapsed}
                 {#each group.items as item}
-                  <div class="request-row-shell">
+                  <div class="request-row-shell" class:in-folder={Boolean(group.folder)}>
                     <button
                       class="request-row"
                       class:item-active={item.id === activeRequest?.id}
                       title={group.folder ? `${group.folder} · ${item.url}` : item.url}
                       on:click={() => openRequestTab(collection.id, item.id)}
                     >
-                      <span class="method">{item.method}</span>
+                      <span class="method" data-method={item.method}>{methodLabel(item.method)}</span>
                       <span>{item.name}</span>
                       {#if requestIsTransient(collection, item)}<em>temp</em>{/if}
                       {#if item.draft}<em>draft</em>{/if}
                     </button>
+                    <details class="request-actions" data-testid="request-actions-menu">
+                      <summary data-testid="request-actions-menu-toggle" aria-label={`More actions for ${item.name}`} title={`More actions for ${item.name}`}>More</summary>
                     <button
                       class="request-action"
                       type="button"
                       title={revealInFolderLabel()}
                       aria-label={`${revealInFolderLabel()} ${item.name}`}
                       data-testid="collection-item-menu-show-in-folder"
-                      on:click={() => revealRequestInFolder(collection, item)}
-                    >F</button>
+                      on:click={() => { closeRequestActionMenus(); void revealRequestInFolder(collection, item) }}
+                    >Reveal</button>
                     {#if requestSupportsGenerateCode(item)}
                       <button
                         class="request-action"
@@ -7049,8 +8309,8 @@
                         title="Generate Code"
                         aria-label={`Generate Code ${item.name}`}
                         data-testid="collection-item-menu-generate-code"
-                        on:click={() => beginGenerateRequestCode(collection, item)}
-                      >G</button>
+                        on:click={() => { closeRequestActionMenus(); void beginGenerateRequestCode(collection, item) }}
+                      >Code</button>
                     {/if}
                     <button
                       class="request-action"
@@ -7058,32 +8318,33 @@
                       title="Info"
                       aria-label={`Info ${item.name}`}
                       data-testid="collection-item-menu-info"
-                      on:click={() => openRequestInfoModal(collection, item)}
-                    >i</button>
+                      on:click={() => { closeRequestActionMenus(); openRequestInfoModal(collection, item) }}
+                    >Info</button>
                     <button
                       class="request-action"
                       type="button"
                       title="Rename"
                       aria-label={`Rename ${item.name}`}
                       data-testid="collection-item-menu-rename"
-                      on:click={() => openRenameRequestModal(collection, item)}
-                    >R</button>
+                      on:click={() => { closeRequestActionMenus(); openRenameRequestModal(collection, item) }}
+                    >Rename</button>
                     <button
                       class="request-action"
                       type="button"
                       title="Clone"
                       aria-label={`Clone ${item.name}`}
                       data-testid="collection-item-menu-clone"
-                      on:click={() => openCloneRequestModal(collection, item)}
-                    >C</button>
+                      on:click={() => { closeRequestActionMenus(); openCloneRequestModal(collection, item) }}
+                    >Clone</button>
                     <button
                       class="request-action danger-inline"
                       type="button"
                       title="Delete"
                       aria-label={`Delete ${item.name}`}
                       data-testid="collection-item-menu-delete"
-                      on:click={() => openDeleteRequestModal(collection, item)}
-                    >x</button>
+                      on:click={() => { closeRequestActionMenus(); openDeleteRequestModal(collection, item) }}
+                    >Delete</button>
+                    </details>
                   </div>
                   {#if (item.examples ?? []).length > 0}
                     <div class="sidebar-examples" aria-label={`Response examples for ${item.name}`}>
@@ -7102,88 +8363,107 @@
                     </div>
                   {/if}
                 {/each}
+                {/if}
               {/each}
             {/if}
           </article>
         {/each}
       </section>
 
-      <section class="rail-footer" aria-label="Support, licensing, and tools">
-        <button type="button" aria-label="Open Dev Tools" data-trigger="dev-tools" on:click={() => openDevTools()}>
-          <span>DT</span>
-          <strong>Dev Tools</strong>
-        </button>
-        <button type="button" on:click={() => (supportOpen = true)}>
-          <span>?</span>
-          <strong>Support</strong>
-        </button>
-        <button type="button" on:click={() => (goldenEditionOpen = true)}>
-          <span>GE</span>
-          <strong>Golden Edition</strong>
-        </button>
-      </section>
     </aside>
+    <input
+      type="range"
+      class="sidebar-resizer"
+      aria-label="Resize collection sidebar"
+      min="220"
+      max="420"
+      value={sidebarWidth}
+      title="Drag to resize sidebar; double-click to reset"
+      on:mousedown={startSidebarResize}
+      on:dblclick={() => { sidebarWidth = 312; persistWorkbenchLayout() }}
+      on:input={(event) => (sidebarWidth = clampSidebarWidth(Number(event.currentTarget.value)))}
+      on:change={persistWorkbenchLayout}
+    />
 
     <section class="main-pane">
       <header class="topbar">
-        <nav class="tabs">
-          {#each state.openTabs as tab}
-            <button class:active={tab.id === state.activeTabId} on:click={() => setActiveTab(tab.id)}>
-              {tabLabel(tab)}
-            </button>
-          {/each}
-        </nav>
-        <div class="toolbar">
-          <button
-            type="button"
-            class="icon-button"
-            data-testid="toggle-sidebar-button"
-            aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
-            title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
-            on:click={toggleSidebarCollapse}
-          >
-            {sidebarCollapsed ? '>>' : '<<'}
-          </button>
-          <button class="notification-trigger" type="button" aria-label="Check all Notifications" title="Notifications" on:click={openNotifications}>
-            <span>Notifications</span>
-            {#if unreadNotificationCount > 0}
-              <strong>{unreadNotificationCount}</strong>
+        <WorkspaceCommandBar
+          {sidebarCollapsed}
+          workspaceName={activeWorkspace?.name ?? 'Workspace'}
+          workspaceOptions={state.workspaces.map((workspace) => ({ id: workspace.id, name: workspace.name }))}
+          workspaceValue={state.activeWorkspaceId}
+          collectionName={activeCollection?.name ?? 'No collection'}
+          requestName={activeRequest?.name ?? 'No request'}
+          {activeView}
+          globalEnvironmentOptions={(activeWorkspace?.globalEnvironments ?? []).map((environment) => ({ id: environment.id, name: environment.name }))}
+          environmentOptions={(activeCollection?.environments ?? []).map((environment) => ({ id: environment.id, name: environment.name }))}
+          globalEnvironmentValue={activeWorkspace?.activeGlobalEnvironmentId ?? ''}
+          environmentValue={selectedEnvironmentId}
+          globalEnvironmentName={activeGlobalEnvironment?.name ?? 'none'}
+          environmentName={selectedEnvironmentId ? (selectedEnvironment?.name ?? 'No environment') : 'No environment'}
+          notificationCount={unreadNotificationCount}
+          gitConnected={Boolean(activeCollection?.remote)}
+          runningCollectionName={activeCollectionRun?.collectionName ?? ''}
+          cancellingRun={collectionRunCancellationRequested}
+          canCreateRequest={Boolean(activeCollection)}
+          canCreateFolder={Boolean(activeCollection && !activeCollection.notFoundLocally)}
+          onCommand={runWorkbenchCommand}
+          onWorkspaceChange={setActiveWorkspace}
+          onGlobalEnvironmentChange={setActiveGlobalEnvironment}
+          onEnvironmentChange={(environmentID) => { selectedEnvironmentId = environmentID }}
+        >
+          <svelte:fragment slot="recovery">
+            {#if recoveryEntries.length > 0}
+              <details class="recovery-center" aria-live="polite">
+                <summary aria-label={`${recoveryEntries.length} recoverable deletion${recoveryEntries.length === 1 ? '' : 's'}`}>Recovery ({recoveryEntries.length})</summary>
+                <div class="recovery-center-list" aria-label="Recoverable deletions">
+                  {#each recoveryEntries as entry (entry.id)}
+                    <article>
+                      <div>
+                        <strong>{entry.displayName}</strong>
+                        <span>{entry.kind} · {recoveryExpiryLabel(entry)}</span>
+                      </div>
+                      <div class="button-row compact">
+                        <button type="button" aria-label={`Restore ${entry.kind} ${entry.displayName}`} on:click={() => void restoreRecoveryEntry(entry)} disabled={recoveryBusyEntryID !== ''}>Restore</button>
+                        <button type="button" class="danger-button" aria-label={`Remove recovery copy for ${entry.displayName}`} on:click={() => void discardRecoveryEntry(entry)} disabled={recoveryBusyEntryID !== ''}>Remove recovery copy</button>
+                      </div>
+                    </article>
+                  {/each}
+                </div>
+              </details>
             {/if}
-          </button>
-          <select aria-label="Global environment" value={activeWorkspace?.activeGlobalEnvironmentId ?? ''} on:change={(e) => setActiveGlobalEnvironment(e.currentTarget.value)}>
-            <option value="">No global environment</option>
-            {#each activeWorkspace?.globalEnvironments ?? [] as env}
-              <option value={env.id}>{env.name}</option>
+          </svelte:fragment>
+        </WorkspaceCommandBar>
+        {#if (state.openTabs ?? []).length > 0}
+          <nav class="tabs" aria-label="Open tabs">
+            {#each state.openTabs as tab}
+              <div class="tab" class:active={tab.id === state.activeTabId}>
+                <button class="tab-select" title={tabLabel(tab)} on:click={() => setActiveTab(tab.id)}>
+                  {#if tabMethod(tab)}
+                    <span class="tab-method" data-method={tabMethod(tab)}>{methodLabel(tabMethod(tab))}</span>
+                  {/if}
+                  <span class="tab-name">{tabLabel(tab)}</span>
+                </button>
+                <button
+                  class="tab-close"
+                  type="button"
+                  aria-label={`Close tab ${tabLabel(tab)}`}
+                  title="Close tab"
+                  on:click={() => beginTabLifecycleAction('close-active', tab.id)}
+                >×</button>
+              </div>
             {/each}
-          </select>
-          <select aria-label="Environment" bind:value={selectedEnvironmentId}>
-            <option value="">No environment</option>
-            {#each activeCollection?.environments ?? [] as env}
-              <option value={env.id}>{env.name}</option>
-            {/each}
-          </select>
-          <button on:click={saveRequest} disabled={!activeRequest || busy !== ''}>{requestIsTransient(activeCollection, activeRequest) ? 'Save temp' : 'Save'}</button>
-          <button class="primary" on:click={sendRequest} disabled={!activeRequest || busy !== ''}>Send</button>
-          <button on:click={runCollection} disabled={!activeCollection || busy !== ''}>Run</button>
-        </div>
+          </nav>
+        {/if}
       </header>
 
-      {#if error}
-        <div class="error-banner">{error}</div>
+      {#if nativeWindowError}
+        <div class="error-banner" role="alert" aria-live="assertive">{nativeWindowError}</div>
       {/if}
 
-      <nav class="view-switcher">
-        <button class:active={activeView === 'request'} on:click={() => (activeView = 'request')}>Request</button>
-        <button class:active={activeView === 'collection'} on:click={() => (activeView = 'collection')}>Collection</button>
-        <button class:active={activeView === 'runner'} on:click={() => (activeView = 'runner')}>Runner</button>
-        <button class:active={activeView === 'environments'} on:click={() => (activeView = 'environments')}>Environments</button>
-        <button class:active={activeView === 'import'} on:click={() => (activeView = 'import')}>Import</button>
-        <button class:active={activeView === 'network'} on:click={() => (activeView = 'network')}>Network</button>
-        <button class:active={activeView === 'cookies'} on:click={() => (activeView = 'cookies')}>Cookies</button>
-        <button class:active={devToolsOpen} on:click={() => openDevTools()}>Dev Tools</button>
-        <button class:active={activeView === 'preferences'} on:click={() => (activeView = 'preferences')}>Preferences</button>
-        <button class:active={activeView === 'features'} on:click={() => (activeView = 'features')}>Parity</button>
-      </nav>
+      {#if error}
+        <div class="error-banner" role="alert" aria-live="assertive">{error}</div>
+      {/if}
 
       {#snippet devToolsPanel()}
         <section class="panel devtools-panel" aria-label="Dev Tools">
@@ -7476,271 +8756,125 @@
       {/snippet}
 
       {#if activeView === 'request' && activeRequest && activeCollection}
-        <section class="request-workbench" class:vertical-layout={responsePaneOrientation === 'vertical'} data-orientation={responsePaneOrientation}>
+        <section
+          class="request-workbench"
+          class:vertical-layout={responsePaneOrientation === 'vertical'}
+          data-orientation={responsePaneOrientation}
+          style={`--request-pane-size: ${Math.round(responseSplit * 100)}%;`}
+        >
+          <RequestCommandStrip
+            command={requestCommand}
+            actions={{
+              onSave: saveRequest,
+              onSend: sendRequest,
+              onRun: runCollection,
+              onCancel: cancelActiveRequest,
+              onCancelBackground: cancelHTTPTransport,
+              onToggleOrientation: toggleResponsePaneOrientation
+            }}
+            disabled={busy !== '' || hasActiveHTTPTransport}
+            orientation={responsePaneOrientation}
+          >
+            <svelte:fragment slot="request-line">
+              {#snippet variableURLField()}
+                <div class="url-variable-editor">
+                  <input
+                    class="url-variable-input"
+                    aria-label={activeRequest.type === 'grpc' ? 'gRPC server URL' : activeRequest.type === 'websocket' ? 'WebSocket URL' : 'URL'}
+                    bind:this={requestURLInput}
+                    value={activeRequest.url}
+                    on:input={patchURLField}
+                    on:scroll={syncURLInputScroll}
+                    on:keyup={syncURLInputScroll}
+                    on:mouseup={syncURLInputScroll}
+                  />
+                  <div class="url-variable-overlay">
+                    <span class="url-variable-overlay-content" style={`transform: translateX(-${urlInputScrollLeft}px);`}>
+                      {#each urlVariableSegments(activeRequest.url, requestVariableTooltips, activeRequest.pathParams ?? []) as segment (segment.key)}
+                        {#if segment.variable}
+                          <span
+                            class="url-variable-token-wrapper"
+                            class:open={activeVariableTooltip === segment.name}
+                          >
+                            <span
+                              role="button"
+                              tabindex="0"
+                              class:cm-variable-valid={isValidURLVariableSegment(segment)}
+                              class:cm-variable-invalid={!isValidURLVariableSegment(segment)}
+                              on:click={() => toggleActiveVariableTooltip(segment.name)}
+                              on:keydown={(event) => handleInlineVariableTokenKey(event, segment.name)}
+                            >{segment.text}</span>
+                            {#if segment.info}
+                              <div class="CodeMirror-brunoVarInfo inline-var-tooltip" role="tooltip">
+                                <div class="variable-tooltip-title">
+                                  <strong class="var-name">{segment.info.name}</strong>
+                                  <span class="var-scope-badge">{segment.info.scope}</span>
+                                </div>
+                                {#if !segment.info.validName}
+                                  <small class="var-warning-note">{invalidVariableWarning}</small>
+                                {:else if editingVariableTooltip === segment.info.name}
+                                  <textarea
+                                    class="var-value-editor"
+                                    aria-label={'Edit variable ' + segment.info.name}
+                                    bind:value={variableTooltipDraft}
+                                    on:keydown={(event) => handleVariableTooltipEditorKey(event, segment.info)}
+                                    on:blur={(event) => handleVariableTooltipEditorBlur(event, segment.info)}
+                                  ></textarea>
+                                  <div class="button-row compact">
+                                    <button class="var-save-button" on:click|stopPropagation={() => saveVariableTooltipEdit(segment.info)} disabled={busy !== ''}>Save</button>
+                                    <button on:click|stopPropagation={cancelVariableTooltipEdit}>Cancel</button>
+                                  </div>
+                                {:else if segment.info.editable}
+                                  <button type="button" class="var-value-editable-display" on:click|stopPropagation={() => beginVariableTooltipEdit(segment.info)}>
+                                    {displayTooltipValue(segment.info, Boolean(revealedVariableTooltips[segment.info.name]))}
+                                  </button>
+                                {:else}
+                                  <div class="var-value-editable-display">{displayTooltipValue(segment.info, Boolean(revealedVariableTooltips[segment.info.name]))}</div>
+                                {/if}
+                                {#if segment.info.readOnly}
+                                  <small class="var-readonly-note">read-only</small>
+                                {/if}
+                                <div class="button-row compact">
+                                  <button
+                                    class="copy-button"
+                                    class:copy-success={copiedVariableTooltips[segment.info.name]}
+                                    on:click|stopPropagation={() => copyVariableTooltipValue(segment.info)}
+                                    disabled={!segment.info.found || !segment.info.validName || copiedVariableTooltips[segment.info.name]}
+                                  >
+                                    {copiedVariableTooltips[segment.info.name] ? 'Copied' : 'Copy'}
+                                  </button>
+                                  {#if segment.info.secret}
+                                    <button class="secret-toggle-button" on:click|stopPropagation={() => toggleTooltipSecret(segment.info.name)}>
+                                      {revealedVariableTooltips[segment.info.name] ? 'Hide' : 'Show'}
+                                    </button>
+                                  {/if}
+                                </div>
+                              </div>
+                            {/if}
+                          </span>
+	                        {:else if segment.prompt}
+	                          <span class="cm-variable-prompt">{segment.text}</span>
+	                        {:else}
+	                          <span>{segment.text}</span>
+	                        {/if}
+                      {/each}
+                    </span>
+                  </div>
+                </div>
+              {/snippet}
+              <ProtocolRequestLine
+                protocol={activeRequest.type}
+                method={activeRequest.method}
+                {methods}
+                {busy}
+                urlField={variableURLField}
+                onMethodChange={(method) => patchField('method', method)}
+                onGenerateGrpcurl={beginGenerateGrpcurlCommand}
+              />
+            </svelte:fragment>
+          </RequestCommandStrip>
           <div class="request-side">
-            <div class="request-line" class:grpc={activeRequest.type === 'grpc'} class:ws={activeRequest.type === 'websocket'}>
-              {#if activeRequest.type === 'grpc'}
-                <div class="url-variable-editor">
-                  <input
-                    class="url-variable-input"
-                    aria-label="gRPC server URL"
-                    value={activeRequest.url}
-                    on:input={patchURLField}
-                    on:scroll={syncURLInputScroll}
-                    on:keyup={syncURLInputScroll}
-                    on:mouseup={syncURLInputScroll}
-                  />
-                  <div class="url-variable-overlay">
-                    <span class="url-variable-overlay-content" style={`transform: translateX(-${urlInputScrollLeft}px);`}>
-                      {#each urlVariableSegments(activeRequest.url, requestVariableTooltips, activeRequest.pathParams ?? []) as segment (segment.key)}
-                        {#if segment.variable}
-                          <span
-                            class="url-variable-token-wrapper"
-                            class:open={activeVariableTooltip === segment.name}
-                          >
-                            <span
-                              role="button"
-                              tabindex="0"
-                              class:cm-variable-valid={isValidURLVariableSegment(segment)}
-                              class:cm-variable-invalid={!isValidURLVariableSegment(segment)}
-                              on:click={() => toggleActiveVariableTooltip(segment.name)}
-                              on:keydown={(event) => handleInlineVariableTokenKey(event, segment.name)}
-                            >{segment.text}</span>
-                            {#if segment.info}
-                              <div class="CodeMirror-brunoVarInfo inline-var-tooltip" role="tooltip">
-                                <div class="variable-tooltip-title">
-                                  <strong class="var-name">{segment.info.name}</strong>
-                                  <span class="var-scope-badge">{segment.info.scope}</span>
-                                </div>
-                                {#if !segment.info.validName}
-                                  <small class="var-warning-note">{invalidVariableWarning}</small>
-                                {:else if editingVariableTooltip === segment.info.name}
-                                  <textarea
-                                    class="var-value-editor"
-                                    aria-label={'Edit variable ' + segment.info.name}
-                                    bind:value={variableTooltipDraft}
-                                    on:keydown={(event) => handleVariableTooltipEditorKey(event, segment.info)}
-                                    on:blur={(event) => handleVariableTooltipEditorBlur(event, segment.info)}
-                                  ></textarea>
-                                  <div class="button-row compact">
-                                    <button class="var-save-button" on:click|stopPropagation={() => saveVariableTooltipEdit(segment.info)} disabled={busy !== ''}>Save</button>
-                                    <button on:click|stopPropagation={cancelVariableTooltipEdit}>Cancel</button>
-                                  </div>
-                                {:else if segment.info.editable}
-                                  <button type="button" class="var-value-editable-display" on:click|stopPropagation={() => beginVariableTooltipEdit(segment.info)}>
-                                    {displayTooltipValue(segment.info, Boolean(revealedVariableTooltips[segment.info.name]))}
-                                  </button>
-                                {:else}
-                                  <div class="var-value-editable-display">{displayTooltipValue(segment.info, Boolean(revealedVariableTooltips[segment.info.name]))}</div>
-                                {/if}
-                                {#if segment.info.readOnly}
-                                  <small class="var-readonly-note">read-only</small>
-                                {/if}
-                                <div class="button-row compact">
-                                  <button
-                                    class="copy-button"
-                                    class:copy-success={copiedVariableTooltips[segment.info.name]}
-                                    on:click|stopPropagation={() => copyVariableTooltipValue(segment.info)}
-                                    disabled={!segment.info.found || !segment.info.validName || copiedVariableTooltips[segment.info.name]}
-                                  >
-                                    {copiedVariableTooltips[segment.info.name] ? 'Copied' : 'Copy'}
-                                  </button>
-                                  {#if segment.info.secret}
-                                    <button class="secret-toggle-button" on:click|stopPropagation={() => toggleTooltipSecret(segment.info.name)}>
-                                      {revealedVariableTooltips[segment.info.name] ? 'Hide' : 'Show'}
-                                    </button>
-                                  {/if}
-                                </div>
-                              </div>
-                            {/if}
-                          </span>
-	                        {:else if segment.prompt}
-	                          <span class="cm-variable-prompt">{segment.text}</span>
-	                        {:else}
-	                          <span>{segment.text}</span>
-	                        {/if}
-                      {/each}
-                    </span>
-                  </div>
-                </div>
-                <input aria-label="gRPC method" placeholder="package.Service/Method" value={activeRequest.method === 'CALL' ? '' : activeRequest.method} on:input={(e) => patchField('method', e.currentTarget.value)} />
-                <button type="button" title="Generate grpcurl command" on:click={beginGenerateGrpcurlCommand} disabled={busy !== '' || !activeRequest.method || activeRequest.method === 'CALL'}>grpcurl</button>
-              {:else if activeRequest.type === 'websocket'}
-                <span class="method-badge ws">WS</span>
-                <div class="url-variable-editor">
-                  <input
-                    class="url-variable-input"
-                    aria-label="WebSocket URL"
-                    value={activeRequest.url}
-                    on:input={patchURLField}
-                    on:scroll={syncURLInputScroll}
-                    on:keyup={syncURLInputScroll}
-                    on:mouseup={syncURLInputScroll}
-                  />
-                  <div class="url-variable-overlay">
-                    <span class="url-variable-overlay-content" style={`transform: translateX(-${urlInputScrollLeft}px);`}>
-                      {#each urlVariableSegments(activeRequest.url, requestVariableTooltips, activeRequest.pathParams ?? []) as segment (segment.key)}
-                        {#if segment.variable}
-                          <span
-                            class="url-variable-token-wrapper"
-                            class:open={activeVariableTooltip === segment.name}
-                          >
-                            <span
-                              role="button"
-                              tabindex="0"
-                              class:cm-variable-valid={isValidURLVariableSegment(segment)}
-                              class:cm-variable-invalid={!isValidURLVariableSegment(segment)}
-                              on:click={() => toggleActiveVariableTooltip(segment.name)}
-                              on:keydown={(event) => handleInlineVariableTokenKey(event, segment.name)}
-                            >{segment.text}</span>
-                            {#if segment.info}
-                              <div class="CodeMirror-brunoVarInfo inline-var-tooltip" role="tooltip">
-                                <div class="variable-tooltip-title">
-                                  <strong class="var-name">{segment.info.name}</strong>
-                                  <span class="var-scope-badge">{segment.info.scope}</span>
-                                </div>
-                                {#if !segment.info.validName}
-                                  <small class="var-warning-note">{invalidVariableWarning}</small>
-                                {:else if editingVariableTooltip === segment.info.name}
-                                  <textarea
-                                    class="var-value-editor"
-                                    aria-label={'Edit variable ' + segment.info.name}
-                                    bind:value={variableTooltipDraft}
-                                    on:keydown={(event) => handleVariableTooltipEditorKey(event, segment.info)}
-                                    on:blur={(event) => handleVariableTooltipEditorBlur(event, segment.info)}
-                                  ></textarea>
-                                  <div class="button-row compact">
-                                    <button class="var-save-button" on:click|stopPropagation={() => saveVariableTooltipEdit(segment.info)} disabled={busy !== ''}>Save</button>
-                                    <button on:click|stopPropagation={cancelVariableTooltipEdit}>Cancel</button>
-                                  </div>
-                                {:else if segment.info.editable}
-                                  <button type="button" class="var-value-editable-display" on:click|stopPropagation={() => beginVariableTooltipEdit(segment.info)}>
-                                    {displayTooltipValue(segment.info, Boolean(revealedVariableTooltips[segment.info.name]))}
-                                  </button>
-                                {:else}
-                                  <div class="var-value-editable-display">{displayTooltipValue(segment.info, Boolean(revealedVariableTooltips[segment.info.name]))}</div>
-                                {/if}
-                                {#if segment.info.readOnly}
-                                  <small class="var-readonly-note">read-only</small>
-                                {/if}
-                                <div class="button-row compact">
-                                  <button
-                                    class="copy-button"
-                                    class:copy-success={copiedVariableTooltips[segment.info.name]}
-                                    on:click|stopPropagation={() => copyVariableTooltipValue(segment.info)}
-                                    disabled={!segment.info.found || !segment.info.validName || copiedVariableTooltips[segment.info.name]}
-                                  >
-                                    {copiedVariableTooltips[segment.info.name] ? 'Copied' : 'Copy'}
-                                  </button>
-                                  {#if segment.info.secret}
-                                    <button class="secret-toggle-button" on:click|stopPropagation={() => toggleTooltipSecret(segment.info.name)}>
-                                      {revealedVariableTooltips[segment.info.name] ? 'Hide' : 'Show'}
-                                    </button>
-                                  {/if}
-                                </div>
-                              </div>
-                            {/if}
-                          </span>
-	                        {:else if segment.prompt}
-	                          <span class="cm-variable-prompt">{segment.text}</span>
-	                        {:else}
-	                          <span>{segment.text}</span>
-	                        {/if}
-                      {/each}
-                    </span>
-                  </div>
-                </div>
-              {:else}
-                <select aria-label="Method" value={activeRequest.method} on:change={(e) => patchField('method', e.currentTarget.value)}>
-                  {#each methods as method}
-                    <option value={method}>{method}</option>
-                  {/each}
-                </select>
-                <div class="url-variable-editor">
-                  <input
-                    class="url-variable-input"
-                    aria-label="URL"
-                    value={activeRequest.url}
-                    on:input={patchURLField}
-                    on:scroll={syncURLInputScroll}
-                    on:keyup={syncURLInputScroll}
-                    on:mouseup={syncURLInputScroll}
-                  />
-                  <div class="url-variable-overlay">
-                    <span class="url-variable-overlay-content" style={`transform: translateX(-${urlInputScrollLeft}px);`}>
-                      {#each urlVariableSegments(activeRequest.url, requestVariableTooltips, activeRequest.pathParams ?? []) as segment (segment.key)}
-                        {#if segment.variable}
-                          <span
-                            class="url-variable-token-wrapper"
-                            class:open={activeVariableTooltip === segment.name}
-                          >
-                            <span
-                              role="button"
-                              tabindex="0"
-                              class:cm-variable-valid={isValidURLVariableSegment(segment)}
-                              class:cm-variable-invalid={!isValidURLVariableSegment(segment)}
-                              on:click={() => toggleActiveVariableTooltip(segment.name)}
-                              on:keydown={(event) => handleInlineVariableTokenKey(event, segment.name)}
-                            >{segment.text}</span>
-                            {#if segment.info}
-                              <div class="CodeMirror-brunoVarInfo inline-var-tooltip" role="tooltip">
-                                <div class="variable-tooltip-title">
-                                  <strong class="var-name">{segment.info.name}</strong>
-                                  <span class="var-scope-badge">{segment.info.scope}</span>
-                                </div>
-                                {#if !segment.info.validName}
-                                  <small class="var-warning-note">{invalidVariableWarning}</small>
-                                {:else if editingVariableTooltip === segment.info.name}
-                                  <textarea
-                                    class="var-value-editor"
-                                    aria-label={'Edit variable ' + segment.info.name}
-                                    bind:value={variableTooltipDraft}
-                                    on:keydown={(event) => handleVariableTooltipEditorKey(event, segment.info)}
-                                    on:blur={(event) => handleVariableTooltipEditorBlur(event, segment.info)}
-                                  ></textarea>
-                                  <div class="button-row compact">
-                                    <button class="var-save-button" on:click|stopPropagation={() => saveVariableTooltipEdit(segment.info)} disabled={busy !== ''}>Save</button>
-                                    <button on:click|stopPropagation={cancelVariableTooltipEdit}>Cancel</button>
-                                  </div>
-                                {:else if segment.info.editable}
-                                  <button type="button" class="var-value-editable-display" on:click|stopPropagation={() => beginVariableTooltipEdit(segment.info)}>
-                                    {displayTooltipValue(segment.info, Boolean(revealedVariableTooltips[segment.info.name]))}
-                                  </button>
-                                {:else}
-                                  <div class="var-value-editable-display">{displayTooltipValue(segment.info, Boolean(revealedVariableTooltips[segment.info.name]))}</div>
-                                {/if}
-                                {#if segment.info.readOnly}
-                                  <small class="var-readonly-note">read-only</small>
-                                {/if}
-                                <div class="button-row compact">
-                                  <button
-                                    class="copy-button"
-                                    class:copy-success={copiedVariableTooltips[segment.info.name]}
-                                    on:click|stopPropagation={() => copyVariableTooltipValue(segment.info)}
-                                    disabled={!segment.info.found || !segment.info.validName || copiedVariableTooltips[segment.info.name]}
-                                  >
-                                    {copiedVariableTooltips[segment.info.name] ? 'Copied' : 'Copy'}
-                                  </button>
-                                  {#if segment.info.secret}
-                                    <button class="secret-toggle-button" on:click|stopPropagation={() => toggleTooltipSecret(segment.info.name)}>
-                                      {revealedVariableTooltips[segment.info.name] ? 'Hide' : 'Show'}
-                                    </button>
-                                  {/if}
-                                </div>
-                              </div>
-                            {/if}
-                          </span>
-	                        {:else if segment.prompt}
-	                          <span class="cm-variable-prompt">{segment.text}</span>
-	                        {:else}
-	                          <span>{segment.text}</span>
-	                        {/if}
-                      {/each}
-                    </span>
-                  </div>
-                </div>
-              {/if}
-            </div>
+            <div class="request-variable-region">
             {#if requestVariableTooltips.length > 0}
               <div class="variable-inspector" aria-label="Variable inspector">
                 {#each requestVariableTooltips as variableInfo (variableInfo.name)}
@@ -7797,16 +8931,26 @@
                 {/each}
               </div>
             {/if}
+            </div>
 
-            <nav class="subtabs">
+            <div class="subtabs" role="tablist" aria-label="Request sections" tabindex="-1" on:keydown={requestTabKeydown}>
               {#each requestTabs as tab}
-                <button class:active={requestPaneTab === tab.id} on:click={() => selectRequestPaneTab(tab.id)}>
+                <button
+                  class:active={requestPaneTab === tab.id}
+                  id={`request-tab-${tab.id}`}
+                  data-request-tab={tab.id}
+                  role="tab"
+                  aria-selected={requestPaneTab === tab.id}
+                  aria-controls={`request-panel-${tab.id}`}
+                  tabindex={requestPaneTab === tab.id ? 0 : -1}
+                  on:click={() => selectRequestPaneTab(tab.id)}
+                >
                   {tab.label}
                 </button>
               {/each}
-            </nav>
+            </div>
 
-	            <div class="editor-surface">
+	            <div class="editor-surface" id={`request-panel-${requestPaneTab}`} role="tabpanel" aria-labelledby={`request-tab-${requestPaneTab}`} tabindex="0">
 	              {#if requestPaneTab === 'params'}
 	                <div class="param-section-title">Query</div>
 	                <KeyValueTable
@@ -8009,124 +9153,14 @@
                     </select>
                   </div>
                   {#if activeRequest.body.mode === 'json'}
-                    <div class="variable-textarea-editor" data-testid="request-body-editor">
-                      <textarea class="variable-textarea-input" spellcheck="false" value={activeRequest.body.json} on:input={(e) => updateBodyText('json', e)} on:scroll={syncBodyTextScroll} on:keyup={syncBodyTextScroll} on:mouseup={syncBodyTextScroll}></textarea>
-                      <VariableTextOverlay
-                        segments={urlVariableSegments(activeRequest.body.json ?? '', requestVariableTooltips)}
-                        {activeVariableTooltip}
-                        {editingVariableTooltip}
-                        bind:variableTooltipDraft
-                        {revealedVariableTooltips}
-                        {copiedVariableTooltips}
-                        {busy}
-                        scrollLeft={bodyTextScrollLeft}
-                        scrollTop={bodyTextScrollTop}
-                        displayTooltipValue={displayTooltipValue}
-                        onToggleActive={toggleActiveVariableTooltip}
-                        onBeginEdit={beginVariableTooltipEdit}
-                        onEditorKey={handleVariableTooltipEditorKey}
-                        onEditorBlur={handleVariableTooltipEditorBlur}
-                        onSave={saveVariableTooltipEdit}
-                        onCancel={cancelVariableTooltipEdit}
-                        onCopy={copyVariableTooltipValue}
-                        onToggleSecret={toggleTooltipSecret}
-                      />
-                    </div>
+                    <CodeEditor editorKey={`${activeRequest.id}:body-json`} value={activeRequest.body.json ?? ''} language="json" ariaLabel="JSON request body" testId="request-body-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => updateBody({ json: value })} />
                   {:else if activeRequest.body.mode === 'xml'}
-                    <div class="variable-textarea-editor" data-testid="request-body-editor">
-                      <textarea class="variable-textarea-input" spellcheck="false" value={activeRequest.body.xml} on:input={(e) => updateBodyText('xml', e)} on:scroll={syncBodyTextScroll} on:keyup={syncBodyTextScroll} on:mouseup={syncBodyTextScroll}></textarea>
-                      <VariableTextOverlay
-                        segments={urlVariableSegments(activeRequest.body.xml ?? '', requestVariableTooltips)}
-                        {activeVariableTooltip}
-                        {editingVariableTooltip}
-                        bind:variableTooltipDraft
-                        {revealedVariableTooltips}
-                        {copiedVariableTooltips}
-                        {busy}
-                        scrollLeft={bodyTextScrollLeft}
-                        scrollTop={bodyTextScrollTop}
-                        displayTooltipValue={displayTooltipValue}
-                        onToggleActive={toggleActiveVariableTooltip}
-                        onBeginEdit={beginVariableTooltipEdit}
-                        onEditorKey={handleVariableTooltipEditorKey}
-                        onEditorBlur={handleVariableTooltipEditorBlur}
-                        onSave={saveVariableTooltipEdit}
-                        onCancel={cancelVariableTooltipEdit}
-                        onCopy={copyVariableTooltipValue}
-                        onToggleSecret={toggleTooltipSecret}
-                      />
-                    </div>
+                    <CodeEditor editorKey={`${activeRequest.id}:body-xml`} value={activeRequest.body.xml ?? ''} language="xml" ariaLabel="XML request body" testId="request-body-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => updateBody({ xml: value })} />
                   {:else if activeRequest.body.mode === 'graphql'}
-                    <div class="variable-textarea-editor" data-testid="request-body-editor">
-                      <textarea class="variable-textarea-input" spellcheck="false" value={activeRequest.body.graphqlQuery} on:input={(e) => updateBodyText('graphqlQuery', e)} on:scroll={syncBodyTextScroll} on:keyup={syncBodyTextScroll} on:mouseup={syncBodyTextScroll}></textarea>
-                      <VariableTextOverlay
-                        segments={urlVariableSegments(activeRequest.body.graphqlQuery ?? '', requestVariableTooltips)}
-                        {activeVariableTooltip}
-                        {editingVariableTooltip}
-                        bind:variableTooltipDraft
-                        {revealedVariableTooltips}
-                        {copiedVariableTooltips}
-                        {busy}
-                        scrollLeft={bodyTextScrollLeft}
-                        scrollTop={bodyTextScrollTop}
-                        displayTooltipValue={displayTooltipValue}
-                        onToggleActive={toggleActiveVariableTooltip}
-                        onBeginEdit={beginVariableTooltipEdit}
-                        onEditorKey={handleVariableTooltipEditorKey}
-                        onEditorBlur={handleVariableTooltipEditorBlur}
-                        onSave={saveVariableTooltipEdit}
-                        onCancel={cancelVariableTooltipEdit}
-                        onCopy={copyVariableTooltipValue}
-                        onToggleSecret={toggleTooltipSecret}
-                      />
-                    </div>
-                    <div class="variable-textarea-editor short" data-testid="request-body-variables-editor">
-                      <textarea class="variable-textarea-input short" spellcheck="false" value={activeRequest.body.graphqlVariables} on:input={(e) => updateBodyText('graphqlVariables', e)} on:scroll={syncBodyTextScroll} on:keyup={syncBodyTextScroll} on:mouseup={syncBodyTextScroll}></textarea>
-                      <VariableTextOverlay
-                        segments={urlVariableSegments(activeRequest.body.graphqlVariables ?? '', requestVariableTooltips)}
-                        {activeVariableTooltip}
-                        {editingVariableTooltip}
-                        bind:variableTooltipDraft
-                        {revealedVariableTooltips}
-                        {copiedVariableTooltips}
-                        {busy}
-                        scrollLeft={bodyTextScrollLeft}
-                        scrollTop={bodyTextScrollTop}
-                        displayTooltipValue={displayTooltipValue}
-                        onToggleActive={toggleActiveVariableTooltip}
-                        onBeginEdit={beginVariableTooltipEdit}
-                        onEditorKey={handleVariableTooltipEditorKey}
-                        onEditorBlur={handleVariableTooltipEditorBlur}
-                        onSave={saveVariableTooltipEdit}
-                        onCancel={cancelVariableTooltipEdit}
-                        onCopy={copyVariableTooltipValue}
-                        onToggleSecret={toggleTooltipSecret}
-                      />
-                    </div>
+                    <CodeEditor editorKey={`${activeRequest.id}:body-graphql-query`} value={activeRequest.body.graphqlQuery ?? ''} language="graphql" ariaLabel="GraphQL query" testId="request-body-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => updateBody({ graphqlQuery: value })} />
+                    <CodeEditor editorKey={`${activeRequest.id}:body-graphql-variables`} value={activeRequest.body.graphqlVariables ?? ''} language="json" ariaLabel="GraphQL variables" testId="request-body-variables-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => updateBody({ graphqlVariables: value })} />
                   {:else if activeRequest.body.mode === 'text' || activeRequest.body.mode === 'sparql'}
-                    <div class="variable-textarea-editor" data-testid="request-body-editor">
-                      <textarea class="variable-textarea-input" spellcheck="false" value={activeRequest.body.text} on:input={(e) => updateBodyText('text', e)} on:scroll={syncBodyTextScroll} on:keyup={syncBodyTextScroll} on:mouseup={syncBodyTextScroll}></textarea>
-                      <VariableTextOverlay
-                        segments={urlVariableSegments(activeRequest.body.text ?? '', requestVariableTooltips)}
-                        {activeVariableTooltip}
-                        {editingVariableTooltip}
-                        bind:variableTooltipDraft
-                        {revealedVariableTooltips}
-                        {copiedVariableTooltips}
-                        {busy}
-                        scrollLeft={bodyTextScrollLeft}
-                        scrollTop={bodyTextScrollTop}
-                        displayTooltipValue={displayTooltipValue}
-                        onToggleActive={toggleActiveVariableTooltip}
-                        onBeginEdit={beginVariableTooltipEdit}
-                        onEditorKey={handleVariableTooltipEditorKey}
-                        onEditorBlur={handleVariableTooltipEditorBlur}
-                        onSave={saveVariableTooltipEdit}
-                        onCancel={cancelVariableTooltipEdit}
-                        onCopy={copyVariableTooltipValue}
-                        onToggleSecret={toggleTooltipSecret}
-	                      />
-	                    </div>
+                    <CodeEditor editorKey={`${activeRequest.id}:body-text`} value={activeRequest.body.text ?? ''} language="text" ariaLabel="Text request body" testId="request-body-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => updateBody({ text: value })} />
 	                  {:else if activeRequest.body.mode === 'formUrlEncoded'}
 	                    <KeyValueTable
 	                      rows={activeRequest.body.formUrlEncoded ?? []}
@@ -8357,7 +9391,7 @@
 		                    <span class="field-label">Body hash</span>
 		                    <input type="checkbox" checked={activeRequest.auth.oauth1?.includeBodyHash ?? false} on:change={(e) => updateOAuth1Auth({ includeBodyHash: e.currentTarget.checked })} />
 		                  {:else if activeRequest.auth.mode !== 'none'}
-	                    <div class="empty-state wide">This auth mode is modeled for parity and marked partial until its full backend signer is implemented.</div>
+                    <div class="empty-state wide">This auth mode is marked partial until its full backend signer is implemented.</div>
 	                  {/if}
                 </div>
               {:else if requestPaneTab === 'vars'}
@@ -8369,9 +9403,9 @@
                 />
               {:else if requestPaneTab === 'script'}
                 <span class="field-label">Pre-request</span>
-                <textarea class="short" spellcheck="false" value={activeRequest.preScript} on:change={(e) => patchField('preScript', e.currentTarget.value)}></textarea>
+                <CodeEditor editorKey={`${activeRequest.id}:pre-script`} value={activeRequest.preScript} language="javascript" ariaLabel="Pre-request script" testId="pre-request-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => patchField('preScript', value)} />
                 <span class="field-label">Post-response</span>
-                <textarea class="short" spellcheck="false" value={activeRequest.postScript} on:change={(e) => patchField('postScript', e.currentTarget.value)}></textarea>
+                <CodeEditor editorKey={`${activeRequest.id}:post-script`} value={activeRequest.postScript} language="javascript" ariaLabel="Post-response script" testId="post-response-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => patchField('postScript', value)} />
               {:else if requestPaneTab === 'assert'}
                 <table>
                   <thead>
@@ -8391,59 +9425,52 @@
                 </table>
                 <button on:click={addAssertion}>Add assertion</button>
               {:else if requestPaneTab === 'tests'}
-                <textarea spellcheck="false" value={activeRequest.tests} on:change={(e) => patchField('tests', e.currentTarget.value)}></textarea>
+                <CodeEditor editorKey={`${activeRequest.id}:tests`} value={activeRequest.tests} language="javascript" ariaLabel="Request tests" testId="request-tests-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => patchField('tests', value)} />
               {:else if requestPaneTab === 'docs'}
-                <textarea spellcheck="false" value={activeRequest.docs} on:change={(e) => patchField('docs', e.currentTarget.value)}></textarea>
+                <CodeEditor editorKey={`${activeRequest.id}:docs`} value={activeRequest.docs} language="markdown" ariaLabel="Request documentation" testId="request-docs-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => patchField('docs', value)} />
               {:else if requestPaneTab === 'app'}
                 <div class="empty-state">Request app runtime surface</div>
               {:else if requestPaneTab === 'settings'}
-                <div class="field-grid">
-                  <span class="field-label">URL Encoding</span>
-                  <input type="checkbox" checked={activeRequest.settings.encodeUrl} on:change={(e) => updateSettings({ encodeUrl: e.currentTarget.checked })} />
-                  <span class="field-label">Timeout ms</span>
-                  <input type="number" value={activeRequest.settings.timeoutMs} on:input={(e) => updateSettings({ timeoutMs: Number(e.currentTarget.value) })} />
-                  <span class="field-label">Follow redirects</span>
-                  <input type="checkbox" checked={activeRequest.settings.followRedirects} on:change={(e) => updateSettings({ followRedirects: e.currentTarget.checked })} />
-                  <span class="field-label">Max redirects</span>
-                  <input type="number" value={activeRequest.settings.maxRedirects} on:input={(e) => updateSettings({ maxRedirects: Number(e.currentTarget.value) })} />
-                  <span class="field-label">Store cookies</span>
-                  <input type="checkbox" checked={activeRequest.settings.storeCookies} on:change={(e) => updateSettings({ storeCookies: e.currentTarget.checked })} />
-                  <span class="field-label">Verify TLS</span>
-                  <input type="checkbox" checked={activeRequest.settings.verifyTls} on:change={(e) => updateSettings({ verifyTls: e.currentTarget.checked })} />
-                  <span class="field-label">WS keep alive ms</span>
-                  <input type="number" value={activeRequest.settings.keepAliveInterval ?? 0} on:input={(e) => updateSettings({ keepAliveInterval: Number(e.currentTarget.value) })} />
-                </div>
+                <RequestSettingsPanel requestType={activeRequest.type} settings={activeRequest.settings} onChange={updateSettings} />
               {/if}
             </div>
           </div>
 
+          <input
+            type="range"
+            class="response-splitter"
+            aria-label="Resize request and response panes"
+            min="30"
+            max="70"
+            value={Math.round(responseSplit * 100)}
+            title="Drag to resize panes; double-click to reset"
+            on:mousedown={startResponseSplitResize}
+            on:dblclick={() => { responseSplit = 0.52; persistWorkbenchLayout() }}
+            on:input={(event) => (responseSplit = clampResponseSplit(Number(event.currentTarget.value) / 100))}
+            on:change={persistWorkbenchLayout}
+          />
           <div class="response-side">
             <div class="response-summary">
-              <span class={responseStatusClass(activeRequest.response?.status)}>{activeRequest.response?.status || 'Idle'}</span>
-              <span>{activeRequest.response?.durationMs ?? 0} ms</span>
-              <span>{activeRequest.response?.size ?? 0} B</span>
-              <span>{activeRequest.response?.requestedUrl ?? activeRequest.url}</span>
-              <button
-                type="button"
-                class="icon-button orientation-toggle"
-                data-testid="response-layout-toggle-btn"
-                title="Change orientation"
-                aria-label="Change orientation"
-                on:click={toggleResponsePaneOrientation}
-              >
-                {responsePaneOrientation === 'horizontal' ? 'V' : 'H'}
-              </button>
+              <div class={`response-summary-status ${requestCommand.response.tone}`} aria-live="polite">
+                <strong>{requestCommand.response.status}</strong>
+                <span>{requestCommand.response.statusText}</span>
+                <span>{requestCommand.response.duration}</span>
+                <span>{requestCommand.response.size}</span>
+              </div>
               <button title="Save response as example" on:click={saveResponseExample} disabled={!activeRequest.response || busy !== ''}>Example</button>
-              <select aria-label="Response view" bind:value={responseView}>
-                <option value="pretty">Pretty</option>
-                <option value="raw">Raw</option>
-                <option value="base64">Base64</option>
-                <option value="hex">Hex</option>
-              </select>
             </div>
-            <nav class="subtabs">
+            <div class="subtabs" role="tablist" aria-label="Response sections" tabindex="-1" on:keydown={responseTabKeydown}>
               {#each activeResponseTabs as tab}
-                <button class:active={responseTab === tab.id} on:click={() => selectResponsePaneTab(tab.id)}>
+                <button
+                  class:active={responseTab === tab.id}
+                  id={`response-tab-${tab.id}`}
+                  data-response-tab={tab.id}
+                  role="tab"
+                  aria-selected={responseTab === tab.id}
+                  aria-controls={`response-panel-${tab.id}`}
+                  tabindex={responseTab === tab.id ? 0 : -1}
+                  on:click={() => selectResponsePaneTab(tab.id)}
+                >
                   {tab.label}
                   {#if tab.id === 'metadata' && (activeRequest.response?.metadata?.length ?? 0) > 0}
                     <span>{activeRequest.response?.metadata?.length}</span>
@@ -8452,184 +9479,21 @@
                   {/if}
                 </button>
               {/each}
-            </nav>
-            <div class="response-content">
-              {#if responseTab === 'response'}
-                {#if activeRequest.response?.error}
-                  <div class="error-card">{activeRequest.response.error}</div>
-                {/if}
-                {#if responseView === 'pretty' && websocketResponseEvents.length > 0}
-                  <div class="ws-event-log" data-testid="ws-event-log">
-                    {#each websocketResponseEvents as event, index}
-                      <article class={`ws-event-row ${websocketEventDirection(event)}`} data-testid="ws-event-row">
-                        <div class="ws-event-meta">
-                          <span class="ws-event-direction">{websocketEventDirection(event)}</span>
-                          <span>{event.type || 'message'}</span>
-                          {#if event.name}
-                            <span>{event.name}</span>
-                          {/if}
-                          {#if event.at}
-                            <time>{websocketEventTime(event)}</time>
-                          {/if}
-                        </div>
-                        <code class:error-text={Boolean(event.error)} data-testid={`ws-event-payload-${index}`}>{websocketEventPayload(event)}</code>
-                      </article>
-                    {/each}
-                  </div>
-                {:else if responseView === 'pretty' && grpcStreamEvents.length > 0}
-                  <div class="ws-event-log" data-testid="grpc-stream-event-log">
-                    {#each grpcStreamEvents as event, index}
-                      <article class={`ws-event-row ${websocketEventDirection(event)}`} data-testid="grpc-stream-event-row">
-                        <div class="ws-event-meta">
-                          <span class="ws-event-direction">{websocketEventDirection(event)}</span>
-                          <span>{event.type || 'message'}</span>
-                          {#if event.name}
-                            <span>{event.name}</span>
-                          {/if}
-                          {#if event.at}
-                            <time>{websocketEventTime(event)}</time>
-                          {/if}
-                        </div>
-                        <code class:error-text={Boolean(event.error)} data-testid={`grpc-stream-event-payload-${index}`}>{websocketEventPayload(event)}</code>
-                      </article>
-                    {/each}
-                  </div>
-                {:else}
-                  <pre>{displayedResponse}</pre>
-                {/if}
-              {:else if responseTab === 'headers'}
-                <table>
-                  <tbody>
-                    {#each Object.entries(activeRequest.response?.headers ?? {}) as [name, value]}
-                      <tr><td>{name}</td><td>{value}</td></tr>
-                    {/each}
-                  </tbody>
-                </table>
-              {:else if responseTab === 'metadata'}
-                {#if (activeRequest.response?.metadata?.length ?? 0) === 0}
-                  <div class="empty-state">No metadata</div>
-                {:else}
-                  <table data-testid="grpc-response-metadata">
-                    <tbody>
-                      {#each activeRequest.response?.metadata ?? [] as row}
-                        <tr><td>{row.name}</td><td>{row.value}</td></tr>
-                      {/each}
-                    </tbody>
-                  </table>
-                {/if}
-              {:else if responseTab === 'trailers'}
-                {#if (activeRequest.response?.trailers?.length ?? 0) === 0}
-                  <div class="empty-state">No trailers</div>
-                {:else}
-                  <table data-testid="grpc-response-trailers">
-                    <tbody>
-                      {#each activeRequest.response?.trailers ?? [] as row}
-                        <tr><td>{row.name}</td><td>{row.value}</td></tr>
-                      {/each}
-                    </tbody>
-                  </table>
-                {/if}
-              {:else if responseTab === 'timeline'}
-                <div class="timeline" data-testid="timeline-container">
-                  {#if visibleTimelineFilters.length > 1}
-                    <div class="timeline-filter-bar" data-testid="timeline-filter-bar">
-                      {#each visibleTimelineFilters as filter}
-                        <button
-                          type="button"
-                          class:active={timelineActiveFilter === filter.id}
-                          data-testid={`timeline-chip-${filter.id}`}
-                          on:click={() => timelineActiveFilter = filter.id}
-                        >
-                          {filter.label}
-                          <span data-testid="timeline-chip-count">{timelineFilterCounts[filter.id] ?? 0}</span>
-                        </button>
-                      {/each}
-                    </div>
-                  {/if}
-                  {#if filteredTimelineEntries.length === 0}
-                    <div class="empty-state">No timeline entries</div>
-                  {:else}
-                    {#each filteredTimelineEntries as entry (entry.id)}
-                      <article class="timeline-entry" data-testid="timeline-entry">
-                        <button
-                          type="button"
-                          class="timeline-entry-header"
-                          aria-expanded={expandedTimelineEntryID === entry.id}
-                          data-testid="timeline-item-header"
-                          on:click={() => toggleTimelineEntry(entry)}
-                        >
-                          <span class={`timeline-status ${timelineFilterKind(entry)}`} data-testid="timeline-status">{timelineStatusLabel(entry)}</span>
-                          <span class="timeline-method">{timelineMethod(entry)}</span>
-                          <span class="timeline-url" data-testid="timeline-url">{timelineURL(entry)}</span>
-                          <span class={`timeline-badge ${timelineBadgeKind(entry)}`} data-testid={`timeline-badge-${timelineBadgeKind(entry)}`}>{timelineBadgeLabel(entry)}</span>
-                          <small>{timelineTime(entry)}</small>
-                        </button>
-                        {#if expandedTimelineEntryID === entry.id}
-                          <div class="timeline-detail" data-testid="timeline-detail">
-                            <div>
-                              <strong>{timelineMethod(entry)}</strong>
-                              <span>{timelineURL(entry)}</span>
-                            </div>
-                            {#if entry.sourceFile}
-                              <button type="button" class="link-button" data-testid="timeline-source-link" on:click={() => requestPaneTab = entry.phase === 'tests' ? 'tests' : 'script'}>
-                                <span data-testid="timeline-source-file">{entry.sourceFile}</span>
-                              </button>
-                            {/if}
-                            {#if entry.error}
-                              <code>{entry.error}</code>
-                            {:else if entry.payload}
-                              <code>{entry.payload}</code>
-                            {:else}
-                              <code>{entry.message}</code>
-                            {/if}
-                            {#if (entry.metadata?.length ?? 0) > 0}
-                              <table class="timeline-kv" data-testid="timeline-grpc-metadata">
-                                <tbody>
-                                  {#each entry.metadata ?? [] as row}
-                                    <tr><td>{row.name}</td><td>{row.value}</td></tr>
-                                  {/each}
-                                </tbody>
-                              </table>
-                            {/if}
-                            {#if (entry.trailers?.length ?? 0) > 0}
-                              <table class="timeline-kv" data-testid="timeline-grpc-trailers">
-                                <tbody>
-                                  {#each entry.trailers ?? [] as row}
-                                    <tr><td>{row.name}</td><td>{row.value}</td></tr>
-                                  {/each}
-                                </tbody>
-                              </table>
-                            {/if}
-                            <small>{entry.duration ?? 0} ms</small>
-                          </div>
-                        {/if}
-                      </article>
-                    {/each}
-                  {/if}
-                </div>
-              {:else if responseTab === 'console'}
-                {#if activeScriptLogs.length === 0}
-                  <div class="empty-state">No console output</div>
-                {:else}
-                  <div class="console-log-list">
-                    {#each activeScriptLogs as log}
-                      <div class={`console-row ${log.level || 'log'}`}>
-                        <span>{log.level || 'log'}</span>
-                        <code>{log.message}</code>
-                      </div>
-                    {/each}
-                  </div>
-                {/if}
-              {:else if responseTab === 'tests'}
-                <div class="results">
-                  {#each activeRequest.response?.assertions ?? [] as assertion}
-                    <div class:passed={assertion.passed} class:failed={!assertion.passed}>{assertion.expression} {assertion.message}</div>
-                  {/each}
-                  {#each activeRequest.response?.testResults ?? [] as test}
-                    <div class:passed={test.passed} class:failed={!test.passed}>{test.name} {test.message}</div>
-                  {/each}
-                </div>
-              {:else if responseTab === 'examples'}
+            </div>
+            <div class="response-content" id={`response-panel-${responseTab}`} role="tabpanel" aria-labelledby={`response-tab-${responseTab}`} tabindex="0">
+              {#if responseTab !== 'examples'}
+                <ResponseInspector
+                  request={activeRequest}
+                  selectedTab={responseTab}
+                  selectedView={responseView}
+                  timeline={activeTimelineEntries}
+                  scriptLogs={activeScriptLogs}
+                  onViewChange={(view) => (responseView = view as typeof responseView)}
+                  onCopy={copyText}
+                  onDownloadBody={saveActiveResponseBody}
+                  onExportTimeline={saveActiveResponseTimeline}
+                />
+              {:else}
                 <div class="examples-toolbar">
                   <button class="primary" type="button" on:click={beginCreateResponseExample} disabled={busy !== ''}>New example</button>
                 </div>
@@ -9120,15 +9984,13 @@
                   </div>
                   <button type="button" data-testid="collection-actions-remove" on:click={openRemoveCollectionModal} disabled={busy !== '' || activeCollection.scratch}>Remove Collection</button>
                 </div>
-                <span class="field-label">Git remote</span>
-                <input aria-label="Git remote URL" placeholder="https://github.com/org/repo.git" bind:value={gitRemoteURL} />
-                <span class="field-label"></span>
-                <div class="button-row">
-                  <button class="primary" on:click={connectGitRemote} disabled={busy !== ''}>{activeCollection.remote ? 'Update remote' : 'Connect to Git'}</button>
-                  {#if activeCollection.remote}
-                    <button on:click={() => copyText(activeCollection.remote ?? '')}>Copy URL</button>
-                    <button on:click={() => disconnectGitRemote(activeCollection.id)}>Remove remote</button>
-                  {/if}
+                <span class="field-label">Git</span>
+                <div class="collection-doc-actions">
+                  <div class="version-info">
+                    <div class="version-line"><span class="version-label">Local Git workbench</span></div>
+                    <p class="version-summary">Review scoped changes, commits, branches, and remotes without opening a terminal.</p>
+                  </div>
+                  <button type="button" data-testid="collection-actions-open-git" on:click={openGitWorkbench} disabled={busy !== '' || activeCollection.notFoundLocally}>Open Git Workbench</button>
                 </div>
                 <span class="field-label">Docs</span>
                 <textarea spellcheck="false" value={activeCollection.docs} on:change={(e) => updateCollectionDocs(e.currentTarget.value)}></textarea>
@@ -9515,7 +10377,7 @@
 		                  <span class="field-label">Body hash</span>
 		                  <input type="checkbox" checked={activeCollection.auth.oauth1?.includeBodyHash ?? false} on:change={(e) => updateCollectionOAuth1Auth({ includeBodyHash: e.currentTarget.checked })} />
 		                {:else if activeCollection.auth?.mode !== 'none'}
-		                  <div class="empty-state wide">This collection auth mode is modeled for parity and marked partial until its backend signer is implemented.</div>
+		                  <div class="empty-state wide">This collection auth mode is marked partial until its backend signer is implemented.</div>
 		                {/if}
               </div>
             {:else if collectionTab === 'presets'}
@@ -9672,13 +10534,144 @@
             {/if}
           </div>
         </section>
+      {:else if activeView === 'git'}
+        <section class="panel git-workbench-panel" aria-labelledby="git-workbench-title" data-testid="git-workbench">
+          <header class="panel-header">
+            <div>
+              <h2 id="git-workbench-title" tabindex="-1" bind:this={gitWorkbenchHeading}>Git Workbench</h2>
+              <p class="panel-subtitle">Safe, collection-scoped Git actions for {activeCollection?.name ?? 'the active collection'}.</p>
+            </div>
+            <button type="button" on:click={() => refreshGitWorkbench()} disabled={gitWorkbenchLoading || gitWorkbenchBusy !== ''}>Refresh</button>
+          </header>
+
+          <div class="git-workbench-feedback" aria-live="polite" aria-atomic="true">
+            {#if gitWorkbenchStatus}<p class="git-status-message">{gitWorkbenchStatus}</p>{/if}
+            {#if gitWorkbenchError}<p class="error-text">{gitWorkbenchError}</p>{/if}
+          </div>
+
+          {#if !activeCollection}
+            <div class="empty-state wide">Select a local collection before opening the Git workbench.</div>
+          {:else if gitWorkbenchLoading && !gitWorkbenchSnapshot}
+            <div class="empty-state wide">Loading Git status…</div>
+          {:else if gitWorkbenchSnapshot && !gitWorkbenchSnapshot.available}
+            <div class="empty-state wide">Git is required for this workbench. Install Git, then refresh.</div>
+          {:else if gitWorkbenchSnapshot && !gitWorkbenchSnapshot.initialized}
+            <div class="git-workbench-empty">
+              <h3>Initialize this collection</h3>
+              <p>This creates only local Git metadata. It does not stage, commit, or share any files.</p>
+              <button class="primary" type="button" on:click={initializeGitWorkbench} disabled={gitWorkbenchBusy !== ''}>Initialize Git</button>
+            </div>
+          {:else if gitWorkbenchSnapshot}
+            <div class="git-summary" aria-label="Repository summary">
+              <div><span>Repository</span><strong>{gitWorkbenchSnapshot.rootLabel || 'Local repository'}</strong></div>
+              <div><span>Branch</span><strong>{gitWorkbenchSnapshot.detached ? 'Detached HEAD' : gitWorkbenchSnapshot.branch || 'Unborn branch'}</strong></div>
+              <div><span>Upstream</span><strong>{gitWorkbenchSnapshot.upstream || 'Not configured'}</strong></div>
+              <div><span>Sync</span><strong>{gitWorkbenchSnapshot.ahead} ahead · {gitWorkbenchSnapshot.behind} behind</strong></div>
+              <div class:conflict={gitWorkbenchSnapshot.conflicts}><span>Status</span><strong>{gitWorkbenchSnapshot.conflicts ? 'Conflicts need manual resolution' : gitWorkbenchSnapshot.clean ? 'Clean' : 'Scoped changes'}</strong></div>
+            </div>
+
+            <section class="git-workbench-section" aria-labelledby="git-files-title">
+              <div class="git-section-heading">
+                <div><h3 id="git-files-title">Changes</h3><p>{gitWorkbenchSelectedPaths.length} selected · only active collection files are shown.</p></div>
+                <div class="button-row compact">
+                  <button type="button" on:click={() => viewGitWorkbenchDiff(false)} disabled={gitWorkbenchBusy !== '' || gitWorkbenchSelectedPaths.length !== 1}>View unstaged diff</button>
+                  <button type="button" on:click={() => viewGitWorkbenchDiff(true)} disabled={gitWorkbenchBusy !== '' || gitWorkbenchSelectedPaths.length !== 1}>View staged diff</button>
+                  <button type="button" on:click={stageGitWorkbenchSelection} disabled={gitWorkbenchBusy !== '' || !canStageGitSelection(gitWorkbenchSelectedPaths, gitWorkbenchSnapshot.files ?? [])}>Stage selected</button>
+                  <button type="button" on:click={unstageGitWorkbenchSelection} disabled={gitWorkbenchBusy !== '' || !canUnstageGitSelection(gitWorkbenchSelectedPaths, gitWorkbenchSnapshot.files ?? [])}>Unstage selected</button>
+                </div>
+              </div>
+              {#if (gitWorkbenchSnapshot.files ?? []).length}
+                <div class="git-file-table" role="table" aria-label="Collection Git changes">
+                  <div class="git-file-row git-file-header" role="row"><span role="columnheader">Select</span><span role="columnheader">File</span><span role="columnheader">Status</span></div>
+                  {#each gitWorkbenchSnapshot.files ?? [] as file (file.path)}
+                    <div class="git-file-row" class:selected={gitWorkbenchSelectedPaths.includes(file.path)} role="row">
+                      <span role="cell"><input type="checkbox" aria-label={`Select ${file.path}`} checked={gitWorkbenchSelectedPaths.includes(file.path)} on:change={(event) => toggleGitWorkbenchPath(file.path, event.currentTarget.checked)} /></span>
+                      <span role="cell"><code>{file.path}</code></span>
+                      <span class="git-file-badges" role="cell">
+                        {#if file.conflicted}<span class="git-badge conflict">Conflict</span>{/if}
+                        {#if file.staged}<span class="git-badge staged">Staged {file.index}</span>{/if}
+                        {#if file.untracked}<span class="git-badge untracked">Untracked</span>{/if}
+                        {#if file.worktree && !file.untracked}<span class="git-badge">Working {file.worktree}</span>{/if}
+                        {#if file.binary}<span class="git-badge">Binary</span>{/if}
+                      </span>
+                    </div>
+                  {/each}
+                </div>
+              {:else}
+                <div class="empty-state compact">No scoped changes.</div>
+              {/if}
+              {#if gitWorkbenchDiff}
+                <article class="git-diff-viewer" aria-label={`Git diff ${gitWorkbenchDiff.path}`}>
+                  <header><strong>{gitWorkbenchDiff.staged ? 'Staged' : 'Unstaged'} diff · {gitWorkbenchDiff.path}</strong><button type="button" on:click={() => (gitWorkbenchDiff = undefined)}>Close diff</button></header>
+                  {#if gitWorkbenchDiff.binary}<p>This file is binary; Git does not provide a text diff.</p>{:else}<pre>{gitWorkbenchDiff.text || 'No text diff is available.'}</pre>{/if}
+                  {#if gitWorkbenchDiff.truncated}<p class="muted">This diff is bounded for safe display and was truncated.</p>{/if}
+                </article>
+              {/if}
+            </section>
+
+            <div class="git-workbench-grid">
+              <section class="git-workbench-section" aria-labelledby="git-commit-title">
+                <h3 id="git-commit-title">Commit staged changes</h3>
+                <label>Message<textarea aria-label="Git commit message" bind:value={gitWorkbenchCommitMessage} placeholder="Describe this intentional change" disabled={gitWorkbenchBusy !== ''}></textarea></label>
+                <button class="primary" type="button" on:click={commitGitWorkbench} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchCommitMessage.trim()}>Commit staged</button>
+              </section>
+
+              <section class="git-workbench-section" aria-labelledby="git-branch-title">
+                <h3 id="git-branch-title">Branches</h3>
+                <label>Current or target branch<select aria-label="Git branch" bind:value={gitWorkbenchBranch} disabled={gitWorkbenchBusy !== ''}>{#each gitWorkbenchSnapshot.branches ?? [] as branch}<option value={branch}>{branch}</option>{/each}</select></label>
+                {#if !canSwitchGitBranch(gitWorkbenchSnapshot)}<p class="muted">Switching is disabled until this collection’s scoped changes and conflicts are resolved.</p>{/if}
+                <button type="button" on:click={checkoutGitWorkbenchBranch} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchBranch || !canSwitchGitBranch(gitWorkbenchSnapshot)}>Switch branch</button>
+                <label>New branch<input aria-label="New Git branch" bind:value={gitWorkbenchNewBranch} placeholder="feature/name" disabled={gitWorkbenchBusy !== ''} /></label>
+                <label class="checkbox-line"><input type="checkbox" bind:checked={gitWorkbenchCheckoutNewBranch} disabled={gitWorkbenchBusy !== ''} />Switch to the new branch after creation</label>
+                <button type="button" on:click={createGitWorkbenchBranch} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchNewBranch.trim() || (gitWorkbenchCheckoutNewBranch && !canSwitchGitBranch(gitWorkbenchSnapshot))}>Create branch</button>
+              </section>
+            </div>
+
+            <section class="git-workbench-section" aria-labelledby="git-remote-title">
+              <div class="git-section-heading"><div><h3 id="git-remote-title">Remote sync</h3><p>Use credential-free URLs. Pull is fast-forward only; push never forces.</p></div></div>
+              {#if (gitWorkbenchSnapshot.remotes ?? []).length}<div class="git-remote-list" aria-label="Configured Git remotes">{#each gitWorkbenchSnapshot.remotes ?? [] as remote}<span><strong>{remote.name}</strong><code>{remote.url}</code></span>{/each}</div>{/if}
+              <div class="git-remote-fields">
+                <label>Name<input aria-label="Git remote name" value={gitWorkbenchRemoteName} on:input={(event) => selectGitWorkbenchRemote(event.currentTarget.value)} placeholder="origin" disabled={gitWorkbenchBusy !== ''} /></label>
+                <label>Credential-free URL<input aria-label="Git remote URL" bind:value={gitWorkbenchRemoteURL} placeholder="https://host/org/repository.git or file:///…" disabled={gitWorkbenchBusy !== ''} /></label>
+                <label>Branch<input aria-label="Git remote branch" bind:value={gitWorkbenchRemoteBranch} placeholder={gitWorkbenchSnapshot.branch || 'main'} disabled={gitWorkbenchBusy !== ''} /></label>
+              </div>
+              <div class="button-row compact">
+                <button type="button" on:click={setGitWorkbenchRemote} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchRemoteName.trim() || !gitWorkbenchRemoteURL.trim()}>Set / update remote</button>
+                <button type="button" on:click={fetchGitWorkbench} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchRemoteName.trim()}>Fetch</button>
+                <button type="button" on:click={pullGitWorkbench} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchRemoteName.trim() || !gitWorkbenchRemoteBranch.trim()}>Pull ff-only</button>
+                <label class="checkbox-line"><input type="checkbox" bind:checked={gitWorkbenchSetUpstream} disabled={gitWorkbenchBusy !== ''} />Set upstream</label>
+                <button class="primary" type="button" on:click={pushGitWorkbench} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchRemoteName.trim() || !gitWorkbenchRemoteBranch.trim() || !canPushGitBranch(gitWorkbenchSnapshot.upstream, gitWorkbenchRemoteName.trim(), gitWorkbenchRemoteBranch.trim(), gitWorkbenchSetUpstream)}>Push</button>
+              </div>
+              {#if !canPushGitBranch(gitWorkbenchSnapshot.upstream, gitWorkbenchRemoteName.trim(), gitWorkbenchRemoteBranch.trim(), gitWorkbenchSetUpstream)}<p class="muted">Push is disabled until this exact remote/branch is upstream, or you explicitly choose Set upstream.</p>{/if}
+            </section>
+          {/if}
+        </section>
       {:else if activeView === 'runner'}
         <section class="panel">
           <header class="panel-header">
             <h2>Runner</h2>
-            <button data-testid="runner-run-button" on:click={runCollection} disabled={runnerSelectedCount === 0 || busy !== ''}>
+            <div class="runner-header-actions">
+              {#if activeCollectionRun}
+                <div class="runner-live-status" role="status" aria-live="polite" aria-atomic="true">
+                  <span>{collectionRunCancellationRequested ? 'Cancelling run' : 'Running'}: {activeCollectionRun.collectionName}</span>
+                  <button
+                    type="button"
+                    class="command-cancel"
+                    data-testid="runner-cancel-button"
+                    aria-label={collectionRunCancellationRequested
+                      ? `Cancelling collection run: ${activeCollectionRun.collectionName}`
+                      : `Cancel collection run: ${activeCollectionRun.collectionName}`}
+                    on:click={() => void cancelCollectionRun()}
+                    disabled={collectionRunCancellationRequested}
+                  >
+                    {collectionRunCancellationRequested ? 'Cancelling run…' : 'Cancel run'}
+                  </button>
+                </div>
+              {/if}
+              <button data-testid="runner-run-button" on:click={runCollection} disabled={runnerSelectedCount === 0 || busy !== '' || Boolean(activeCollectionRun)}>
               Run {runnerSelectedCount} Request{runnerSelectedCount === 1 ? '' : 's'}
-            </button>
+              </button>
+            </div>
           </header>
           <div class="runner-workbench">
             <aside class="runner-config-panel" data-testid="runner-config-panel">
@@ -9723,13 +10716,18 @@
                 <span>Total {state.runner.total}</span>
                 <span class="ok">Passed {state.runner.passed}</span>
                 <span class="bad">Failed {state.runner.failed}</span>
+                {#if activeCollectionRun}
+                  <span class="warning">{collectionRunCancellationRequested ? 'Cancellation requested' : 'Run active'}</span>
+                {:else if runnerCompletedCancelled}
+                  <span class="warning">Cancelled {runnerCancelledCount || 'run'}</span>
+                {/if}
                 <span>Skipped {state.runner.skipped}</span>
               </div>
               <table>
                 <thead><tr><th>Name</th><th>Status</th><th>Code</th><th>Time</th><th>Error</th></tr></thead>
                 <tbody>
                   {#each state.runner.results ?? [] as result}
-                    <tr><td>{result.name}</td><td>{result.status}</td><td>{result.code}</td><td>{result.durationMs} ms</td><td>{result.error}</td></tr>
+                    <tr class:runner-result-cancelled={result.status === 'cancelled'}><td>{result.name}</td><td>{result.status === 'cancelled' ? 'Cancelled' : result.status}</td><td>{result.code}</td><td>{result.durationMs} ms</td><td>{result.error}</td></tr>
                   {/each}
                 </tbody>
               </table>
@@ -10143,99 +11141,103 @@
       {:else if activeView === 'import'}
         <section class="panel import-panel">
           <header class="panel-header">
-            <h2>Import and Export</h2>
+            <div>
+              <h2>Import</h2>
+              <p class="panel-subtitle">Choose local files first, review the plan, then import the selected valid sources.</p>
+            </div>
             <div class="toolbar">
-              <button on:click={openCollection}>Open path</button>
-              <button on:click={refreshCollection}>Refresh active</button>
-              <button on:click={importCollection}>Import</button>
               <button on:click={exportCollection}>Export active</button>
             </div>
           </header>
-          <div class="import-grid">
-            <div>
-              <span class="field-label">Existing Bruno collection path</span>
-              <input bind:value={openCollectionPath} />
-              <span class="field-label">Kind</span>
-              <select bind:value={importKind}>
-                <option value="postman">Postman</option>
-                <option value="insomnia">Insomnia</option>
-                <option value="bruno-json">Bruno JSON</option>
-                <option value="bru">BRU</option>
-                <option value="openapi">OpenAPI</option>
-	              </select>
-	              {#if importKind === 'openapi'}
-	                <span class="field-label">Group by</span>
-	                <select bind:value={importGroupBy}>
-	                  <option value="tag">Tags</option>
-	                  <option value="path">Paths</option>
-	                </select>
-	                <span class="field-label">Spec source</span>
-	                <input aria-label="OpenAPI import source" data-testid="openapi-import-source" placeholder="https://example.com/openapi.yml" bind:value={importSourceURL} />
-	                <span class="field-label">Updates</span>
-	                <label class="checkbox-line">
-	                  <input type="checkbox" data-testid="openapi-import-sync" bind:checked={importOpenAPISync} />
-	                  <span>Check for Spec Updates</span>
-	                </label>
-	              {/if}
-	              <span class="field-label">Name</span>
-	              <input bind:value={importName} />
-              <span class="field-label">Payload</span>
-              <textarea spellcheck="false" bind:value={importContent}></textarea>
-            </div>
-            <div>
-              <div class="import-stack">
-                <section>
-                  <h3>Git Repository</h3>
-                  <span class="field-label">Remote URL</span>
-                  <input aria-label="Git clone URL" placeholder="https://github.com/org/repo.git" bind:value={gitCloneURL} />
-                  <span class="field-label">Clone location</span>
-                  <input aria-label="Git clone location" bind:value={gitCloneRoot} />
-                  <span class="field-label">Folder name</span>
-                  <input aria-label="Git clone folder name" placeholder="Derived from remote" bind:value={gitCloneName} />
-                  <div class="button-row">
-                    <button on:click={checkGitVersion} disabled={busy !== ''}>Check Git</button>
-                    <button on:click={scanGitCollections} disabled={busy !== ''}>Scan path</button>
-                    <button class="primary" on:click={cloneGitRepository} disabled={busy !== '' || !gitCloneURL.trim()}>{gitCloneInProgress ? 'Cloning' : 'Clone'}</button>
-                  </div>
-                  {#if gitVersionText}
-                    <p class="panel-subtitle">{gitVersionText}</p>
-                  {/if}
-                  {#if gitCloneProgress.length > 0}
-                    <div class="progress-log" aria-label="Git clone progress">
-                      {#each gitCloneProgress as row}
-                        <div class="progress-row">
-                          <span>{row.stage || 'git'}</span>
-                          <code>{row.message}</code>
-                        </div>
-                      {/each}
-                    </div>
-                  {/if}
-                  {#if gitCloneOutput}
-                    <pre class="mini-output">{gitCloneOutput}</pre>
-                  {/if}
-                  {#if gitCandidates.length > 0}
-                    <table>
-                      <thead><tr><th></th><th>Name</th><th>Format</th><th>Requests</th><th>Path</th></tr></thead>
-                      <tbody>
-                        {#each gitCandidates as candidate}
-                          <tr>
-                            <td><input type="checkbox" checked={selectedGitCollectionPaths.includes(candidate.path)} on:change={(e) => toggleGitCandidate(candidate.path, e.currentTarget.checked)} /></td>
-                            <td>{candidate.name}</td>
-                            <td>{candidate.format}</td>
-                            <td>{candidate.requestCount}</td>
-                            <td><code>{candidate.path}</code></td>
-                          </tr>
-                        {/each}
-                      </tbody>
-                    </table>
-                    <button on:click={openSelectedGitCollections} disabled={selectedGitCollectionPaths.length === 0 || !gitCloneURL}>Open selected</button>
-                  {/if}
-                </section>
+          <nav class="import-source-tabs" aria-label="Import source">
+            {#each [['files', 'Files'], ['url', 'URL'], ['paste', 'Paste'], ['git', 'Git repository']] as [mode, label]}
+              <button type="button" aria-pressed={importSourceMode === mode} class:active={importSourceMode === mode} on:click={() => selectImportSourceMode(mode as ImportSourceMode)}>{label}</button>
+            {/each}
+          </nav>
+          <div class="import-planning">
+            {#if importSourceMode === 'files'}
+              <div class="import-file-actions">
+                <button class="primary" bind:this={importPickerButton} type="button" on:click={chooseImportFiles} disabled={busy !== ''}>Choose files…</button>
+                <button type="button" on:click={chooseImportFolder} disabled={busy !== ''}>Choose collection folder…</button>
               </div>
+              <button type="button" class="import-drop-target" style="--wails-drop-target: drop" aria-label="Drop collection import files or folders here" on:click={chooseImportFiles}>
+                Drop files or a Bruno/OpenCollection folder here. Press Enter to choose files.
+              </button>
+            {:else if importSourceMode === 'url'}
+              <div class="import-inline-form">
+                <label for="import-url">HTTP or HTTPS URL</label>
+                <input id="import-url" bind:value={importURL} placeholder="https://example.com/collection.json" />
+                <button class="primary" type="button" on:click={previewURLImport} disabled={busy !== '' || !importURL.trim()}>Preview URL</button>
+              </div>
+              <p class="panel-subtitle">URL credentials are rejected. Signed query URLs are fetched by LiteAPI but never shown in the plan.</p>
+            {:else if importSourceMode === 'paste'}
+              <div class="import-inline-form paste-import-form">
+                <label for="import-paste-name">Safe display name</label>
+                <input id="import-paste-name" bind:value={importPasteName} />
+                <label for="import-paste-content">Raw import or cURL command</label>
+                <textarea id="import-paste-content" spellcheck="false" bind:value={importContent} placeholder="Paste Postman, OpenAPI, Bruno JSON, or a cURL command"></textarea>
+                <button class="primary" type="button" on:click={previewPasteImport} disabled={busy !== '' || !importContent.trim()}>Preview pasted import</button>
+              </div>
+            {:else}
+              <div class="import-stack git-import-stack">
+                <h3>Git Repository</h3>
+                <label for="git-import-url">Remote URL</label>
+                <input id="git-import-url" placeholder="https://github.com/org/repo.git" bind:value={gitCloneURL} />
+                <label for="git-import-root">Clone location</label>
+                <input id="git-import-root" bind:value={gitCloneRoot} />
+                <div class="button-row"><button on:click={checkGitVersion} disabled={busy !== ''}>Check Git</button><button on:click={scanGitCollections} disabled={busy !== ''}>Scan path</button><button class="primary" on:click={cloneGitRepository} disabled={busy !== '' || !gitCloneURL.trim()}>{gitCloneInProgress ? 'Cloning' : 'Clone'}</button></div>
+              </div>
+            {/if}
 
-              <span class="field-label">Export</span>
-              <textarea spellcheck="false" bind:value={exportText}></textarea>
-            </div>
+            {#if importPreview && importSourceMode !== 'git'}
+              <div class="import-destination">
+                <label for="import-workspace">Destination workspace</label>
+                <select id="import-workspace" bind:value={importDestinationWorkspaceID} on:change={() => void previewImportSources(importSources)}>
+                  {#each state.workspaces ?? [] as workspace}<option value={workspace.id}>{workspace.name}</option>{/each}
+                </select>
+                <label for="import-destination-root">Advanced destination root (absolute, optional)</label>
+                <input id="import-destination-root" bind:value={importDestinationRoot} placeholder="Uses the workspace folder" on:change={() => void previewImportSources(importSources)} />
+              </div>
+              <div class="import-preview" aria-label="Import preview">
+                {#each importPreview.rows ?? [] as row (row.candidateId)}
+                  {@const decision = importDecisionFor(row)}
+                  <article class:error={Boolean(row.error)} class:warning={(row.warnings?.length ?? 0) > 0} class="import-preview-row" data-import-preview-row tabindex="-1">
+                    <header>
+                      <label><input type="checkbox" checked={decision.selected} disabled={Boolean(row.error) || row.conflict === 'unavailable'} on:change={(event) => updateImportDecision(row.candidateId, { selected: event.currentTarget.checked })} /> Import</label>
+                      <strong>{row.sourceName || 'Import source'}</strong>
+                      <span>{row.detectedKind} · {row.confidence}</span>
+                      <button type="button" aria-label={`Toggle ${row.sourceName} details`} on:click={() => importExpanded = { ...importExpanded, [row.candidateId]: !importExpanded[row.candidateId] }}>{importExpanded[row.candidateId] ? 'Hide details' : 'Details'}</button>
+                    </header>
+                    <p class="import-source-path">{row.sourcePath || 'Pasted content'}</p>
+                    <div class="import-row-summary"><span>{row.collectionName || 'No collection detected'}</span><span>{row.destinationPath || 'Destination pending'}</span><span>{row.conflict || 'ready'}</span>{#if row.openSemantics}<span>{row.openSemantics}</span>{/if}</div>
+                    {#if row.error}<p class="import-row-error" role="alert">{row.error}</p>{/if}
+                    {#if (row.warnings?.length ?? 0) > 0 || (row.losses?.length ?? 0) > 0}<p class="import-row-warning">{[...(row.warnings ?? []), ...(row.losses ?? [])].join(' · ')}</p>{/if}
+                    {#if importExpanded[row.candidateId]}
+                      <div class="import-row-details">
+                        <label>Manual format override <select value={decision.kindOverride} on:change={(event) => { updateImportDecision(row.candidateId, { kindOverride: event.currentTarget.value }); void updateImportOverride(row, event.currentTarget.value) }}><option value="">Automatic</option><option value="postman">Postman</option><option value="insomnia">Insomnia</option><option value="bruno-json">Bruno JSON</option><option value="bru">BRU</option><option value="openapi">OpenAPI</option><option value="curl">cURL</option></select></label>
+                        {#if !row.error}
+                          <label>Output name <input value={decision.outputName} on:input={(event) => updateImportDecision(row.candidateId, { outputName: event.currentTarget.value })} /></label>
+                          <label>Conflict action <select value={decision.conflictAction} on:change={(event) => updateImportDecision(row.candidateId, { conflictAction: event.currentTarget.value })}><option value="">Default safe rename</option><option value="rename">Rename</option><option value="skip">Skip</option><option value="replace">Replace existing</option></select></label>
+                        {#if row.existingFolder}<p>This is an existing collection folder. It opens as one whole collection; child filtering is unavailable.</p>{:else}
+                          <div class="import-hierarchy"><strong>Contents</strong>
+                            <div>Environments <button type="button" on:click={() => updateImportDecision(row.candidateId, { environments: (row.environments ?? []).map((entry) => entry.selectionId) })}>All</button> <button type="button" on:click={() => updateImportDecision(row.candidateId, { environments: [] })}>None</button></div>
+                            {#each row.environments ?? [] as entry}<label><input type="checkbox" checked={decision.environments.includes(entry.selectionId)} on:change={(event) => toggleImportChild(row, 'environments', entry.selectionId, event.currentTarget.checked)} /> {entry.name}</label>{/each}
+                            <div>Folders <button type="button" on:click={() => updateImportDecision(row.candidateId, { folders: (row.folders ?? []).map((entry) => entry.selectionId) })}>All</button> <button type="button" on:click={() => updateImportDecision(row.candidateId, { folders: [] })}>None</button></div>
+                            {#each row.folders ?? [] as entry}<label><input type="checkbox" checked={decision.folders.includes(entry.selectionId)} on:change={(event) => toggleImportChild(row, 'folders', entry.selectionId, event.currentTarget.checked)} /> {entry.path || entry.name}</label>{/each}
+                            <div>Requests <button type="button" on:click={() => updateImportDecision(row.candidateId, { requests: (row.requests ?? []).map((entry) => entry.selectionId) })}>All</button> <button type="button" on:click={() => updateImportDecision(row.candidateId, { requests: [] })}>None</button></div>
+                            {#each row.requests ?? [] as entry}<label><input type="checkbox" checked={decision.requests.includes(entry.selectionId)} on:change={(event) => toggleImportChild(row, 'requests', entry.selectionId, event.currentTarget.checked)} /> {entry.folderPath ? `${entry.folderPath} / ` : ''}{entry.method || entry.type} {entry.name}</label>{/each}
+                          </div>
+                        {/if}
+                        {/if}
+                      </div>
+                    {/if}
+                  </article>
+                {/each}
+              </div>
+              <footer class="import-action-footer"><span>{importReadyRows.length} valid source{importReadyRows.length === 1 ? '' : 's'} selected</span><button class="primary" bind:this={importApplyButton} data-testid="import-apply-selected" type="button" on:click={requestPlannedImport} disabled={busy !== '' || importApplyInFlight || importReadyRows.length === 0}>Apply selected imports</button></footer>
+            {/if}
+            {#if importApplyResult}<div class="import-results" aria-live="polite"><strong>{importStatus}</strong>{#each [...(importApplyResult.applied ?? []), ...(importApplyResult.skipped ?? []), ...(importApplyResult.errors ?? [])] as row}<p>{row.sourceName}: {row.error || (importApplyResult.skipped?.some((entry) => entry.candidateId === row.candidateId) ? 'Skipped' : 'Imported')}</p>{/each}</div>{/if}
+            <p class="import-live" aria-live="polite">{importStatus}</p>
           </div>
         </section>
       {:else if activeView === 'devtools'}
@@ -10354,7 +11356,7 @@
 	          </div>
 	        </section>
 	      {:else if activeView === 'preferences'}
-	        <section class="panel">
+	        <section class="panel preferences-panel">
 	          <header class="panel-header">
 	            <div>
 	              <h2>Preferences</h2>
@@ -10638,22 +11640,21 @@
 		              </label>
 		            </section>
 	
-		            <section>
-		              <div class="settings-section-header">
-		                <h3>Keybindings</h3>
-	                <div class="settings-section-actions">
-	                  <label class="inline-toggle">
-	                    <input
-	                      type="checkbox"
-	                      checked={keybindingsAreEnabled(state.preferences)}
-	                      on:change={(e) => updateKeybindingsEnabled(e.currentTarget.checked)}
-	                    />
-	                    Enabled
-	                  </label>
-	                  <button on:click={resetAllKeyBindings} disabled={Object.keys(state.preferences.keyBindings ?? {}).length === 0}>Reset Default</button>
-	                </div>
-	              </div>
-	              <div class:settings-disabled={!keybindingsAreEnabled(state.preferences)} class="keybindings-table-wrap">
+	            <section class="keybindings-preference-section">
+	              <details class="keybindings-disclosure">
+	                <summary>
+	                  <span class="keybindings-summary-title">Keybindings</span>
+	                  <span class="keybindings-summary-status">
+	                    {#if keybindingsAreEnabled(state.preferences)}
+	                      {Object.keys(state.preferences.keyBindings ?? {}).length === 0
+	                        ? 'Enabled · defaults'
+	                        : `Enabled · ${Object.keys(state.preferences.keyBindings ?? {}).length} customized`}
+	                    {:else}
+	                      Disabled
+	                    {/if}
+	                  </span>
+	                </summary>
+	                <div class:settings-disabled={!keybindingsAreEnabled(state.preferences)} class="keybindings-table-wrap">
 	                <table class="keybindings-table">
 	                  <thead>
 	                    <tr>
@@ -10703,6 +11704,19 @@
 	                    {/each}
 	                  </tbody>
 	                </table>
+	                </div>
+	              </details>
+	              <div class="settings-section-actions keybindings-section-actions">
+	                <label class="inline-toggle">
+	                  <input
+	                    type="checkbox"
+	                    aria-label="Enable keybindings"
+	                    checked={keybindingsAreEnabled(state.preferences)}
+	                    on:change={(e) => updateKeybindingsEnabled(e.currentTarget.checked)}
+	                  />
+	                  Enabled
+	                </label>
+	                <button aria-label="Reset all keybindings to defaults" on:click={resetAllKeyBindings} disabled={Object.keys(state.preferences.keyBindings ?? {}).length === 0}>Reset Default</button>
 	              </div>
 	            </section>
 
@@ -10788,25 +11802,12 @@
 	              </div>
 	            </section>
 
-	            <section>
-	              <div class="settings-section-header">
-	                <h3>Support</h3>
-	              </div>
-	              <div class="support-link-list" aria-label="Support links">
-	                {#each supportLinks as link}
-	                  <button type="button" class="support-link" on:click={() => openExternalLink(link.url)}>
-	                    <span>{link.glyph}</span>
-	                    <strong>{link.label}</strong>
-	                  </button>
-	                {/each}
-	              </div>
-	            </section>
 	          </div>
 	        </section>
 	      {:else if activeView === 'features'}
 	        <section class="panel">
 	          <header class="panel-header">
-            <h2>Parity Ledger</h2>
+            <h2>Local Capabilities</h2>
             <div class="runner-summary">
               <span>{doneFeatures}/{totalFeatures} done</span>
               <span>{partialFeatures} partial</span>
@@ -10847,6 +11848,98 @@
   </main>
 {/if}
 
+{#if importReplaceConfirmationOpen}
+  <div class="prompt-backdrop">
+    <div
+      class="prompt-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="import-replace-confirmation-title"
+      aria-describedby="import-replace-confirmation-description"
+      tabindex="-1"
+      data-testid="import-replace-confirmation-modal"
+      on:keydown={handleImportReplaceConfirmationKeydown}
+    >
+      <header>
+        <h2 id="import-replace-confirmation-title">Replace existing collections?</h2>
+      </header>
+      <p id="import-replace-confirmation-description">Replace the selected existing collection folders? Backups are retained until import persistence succeeds.</p>
+      <div class="button-row modal-footer">
+        <button type="button" bind:this={importReplaceConfirmationCancelButton} data-testid="import-replace-confirmation-cancel" on:click={cancelImportReplaceConfirmation}>Cancel</button>
+        <button class="danger-button" type="button" data-testid="import-replace-confirmation-confirm" on:click={confirmImportReplace}>Replace collections</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if workspaceWindowPickerOpen}
+  <WorkspaceWindowPicker
+    targets={workspaceWindowTargets}
+    currentWorkspaceId={state?.activeWorkspaceId ?? ''}
+    busy={workspaceWindowPickerBusy}
+    busyAction={workspaceWindowPickerBusyAction}
+    error={workspaceWindowPickerError}
+    onOpen={openSelectedWorkspaceInNewWindow}
+    onCreate={createWorkspaceForNewWindow}
+    onCancel={closeWorkspaceWindowPicker}
+  />
+{/if}
+
+{#if creationOpen}
+  <div class="prompt-backdrop">
+    <div class="prompt-dialog compact-create-dialog" role="dialog" aria-modal="true" aria-labelledby="new-request-title" tabindex="-1" on:keydown={handleCreationDialogKeydown}>
+    <form on:submit|preventDefault={submitCreationFlow}>
+      <header>
+        <div>
+          <h2 id="new-request-title">New request</h2>
+          <p>Create a local scratch request in {activeCollection?.name ?? 'the active collection'}.</p>
+        </div>
+        <button type="button" class="icon-button" aria-label="Close new request" title="Close" on:click={() => void closeCreationFlow()}>×</button>
+      </header>
+      <label>
+        <span>Name</span>
+        <input data-new-request-name aria-label="New request name" bind:value={requestName} placeholder="Untitled request" />
+      </label>
+      <label>
+        <span>Protocol</span>
+        <select aria-label="New request protocol" bind:value={requestType}>
+          <option value="http">HTTP</option>
+          <option value="graphql">GraphQL</option>
+          <option value="websocket">WebSocket</option>
+          <option value="grpc">gRPC</option>
+        </select>
+      </label>
+      <footer class="button-row">
+        <button type="button" on:click={() => void closeCreationFlow()}>Cancel</button>
+        <button class="primary" type="submit" disabled={!activeCollection}>Create request</button>
+      </footer>
+    </form>
+    </div>
+  </div>
+{/if}
+
+{#if commandPaletteOpen}
+  <div class="prompt-backdrop">
+    <div class="global-search-modal command-palette" role="dialog" aria-modal="true" aria-labelledby="command-palette-title" tabindex="-1" on:keydown={handleCommandPaletteKeydown}>
+      <header>
+        <div><h2 id="command-palette-title">Command palette</h2></div>
+        <button type="button" class="icon-button" aria-label="Close command palette" title="Close" on:click={() => void closeCommandPalette()}>×</button>
+      </header>
+      <input class="global-search-input" bind:this={commandPaletteInput} bind:value={commandPaletteQuery} on:input={() => (commandPaletteActiveIndex = 0)} aria-label="Filter commands" aria-controls="command-palette-commands" aria-activedescendant={visibleCommandPaletteActions[commandPaletteActiveIndex] ? `command-palette-option-${visibleCommandPaletteActions[commandPaletteActiveIndex].id}` : undefined} placeholder="Type a command" />
+      <div id="command-palette-commands" class="global-search-results" role="listbox" aria-label="Commands">
+        {#each visibleCommandPaletteActions as action, index (action.id)}
+          <button id={`command-palette-option-${action.id}`} type="button" role="option" aria-selected={index === commandPaletteActiveIndex} class:active={index === commandPaletteActiveIndex} on:mouseenter={() => (commandPaletteActiveIndex = index)} on:click={() => runCommandPaletteAction(action)}>
+            <span class="global-search-main"><strong>{action.label}</strong></span>
+            {#if action.shortcut}<kbd>{action.shortcut}</kbd>{/if}
+          </button>
+        {:else}
+          <div class="empty-state">No commands match.</div>
+        {/each}
+      </div>
+    </div>
+  </div>
+{/if}
+
 {#if globalSearchOpen}
   <div class="prompt-backdrop">
     <div class="global-search-modal" role="dialog" aria-modal="true" aria-labelledby="global-search-title" tabindex="-1">
@@ -10885,73 +11978,6 @@
           {/each}
         </div>
       {/if}
-    </div>
-  </div>
-{/if}
-
-{#if supportOpen}
-  <div class="prompt-backdrop">
-    <div class="support-modal" role="dialog" aria-modal="true" aria-labelledby="support-title" tabindex="-1">
-      <header>
-        <h2 id="support-title">Support</h2>
-        <button type="button" class="icon-button" title="Close support" on:click={() => (supportOpen = false)}>x</button>
-      </header>
-      <div class="support-link-list modal-links" aria-label="Support links">
-        {#each supportLinks as link}
-          <button type="button" class="support-link" on:click={() => openExternalLink(link.url)}>
-            <span>{link.glyph}</span>
-            <strong>{link.label}</strong>
-          </button>
-        {/each}
-      </div>
-    </div>
-  </div>
-{/if}
-
-{#if goldenEditionOpen}
-  <div class="prompt-backdrop">
-    <div class="golden-modal" role="dialog" aria-modal="true" aria-labelledby="golden-title" tabindex="-1">
-      <header>
-        <div>
-          <h2 id="golden-title">Golden Edition</h2>
-        </div>
-        <button type="button" class="icon-button" title="Close Golden Edition" on:click={() => (goldenEditionOpen = false)}>x</button>
-      </header>
-      <div class="golden-heading">
-        <h3>Golden Edition</h3>
-        <button type="button" class="golden-buy" on:click={() => openExternalLink('https://www.usebruno.com/pricing')}>Buy</button>
-      </div>
-      {#if goldenPricingOption === 'individuals'}
-        <div class="golden-price">
-          <strong>$19</strong>
-          <span>One Time Payment</span>
-          <p>perpetual license for 2 devices, with 2 years of updates</p>
-        </div>
-      {:else}
-        <div class="golden-price">
-          <strong>$49</strong>
-          <em>/ user</em>
-          <span>One Time Payment</span>
-          <p>perpetual license with 2 years of updates</p>
-        </div>
-      {/if}
-      <div class="golden-switch" role="tablist" aria-label="Golden Edition pricing">
-        <button type="button" role="tab" class:selected={goldenPricingOption === 'individuals'} aria-selected={goldenPricingOption === 'individuals'} on:click={() => (goldenPricingOption = 'individuals')}>Individuals</button>
-        <button type="button" role="tab" class:selected={goldenPricingOption === 'organizations'} aria-selected={goldenPricingOption === 'organizations'} on:click={() => (goldenPricingOption = 'organizations')}>Organizations</button>
-      </div>
-      <ul class="golden-features">
-        <li><span>Heart</span> Support Bruno's Development</li>
-        {#if goldenPricingOption === 'organizations'}
-          <li><span>+</span> Everything in the Individual Plan</li>
-          {#each goldenEditionOrganizations as item}
-            <li><span>Check</span> {item}</li>
-          {/each}
-        {:else}
-          {#each goldenEditionIndividuals as item}
-            <li><span>Check</span> {item}</li>
-          {/each}
-        {/if}
-      </ul>
     </div>
   </div>
 {/if}
@@ -11098,9 +12124,9 @@
           <button type="button" class="icon-button" title="Cancel" on:click={cancelShareCollectionModal}>x</button>
         </header>
         <div class="share-collection-content">
-          <p>Bruno uses <a href="https://opencollection.com" target="_blank" rel="noreferrer">OpenCollection</a> - An open format for API collections</p>
+          <p>Bruno-compatible collection exports use <a href="https://opencollection.com" target="_blank" rel="noreferrer">OpenCollection</a>, an open format for API collections.</p>
 
-          <div class="share-section-title">Bruno Format</div>
+          <div class="share-section-title">Bruno-compatible format</div>
           <div class="share-format-grid">
             <button
               type="button"
@@ -11232,7 +12258,7 @@
             <p class="field-error">Folder name is not valid.</p>
           {/if}
           {#if newFolderDirectoryIsReservedRoot()}
-            <p class="field-error">The folder name "environments" at the root of the collection is reserved in bruno.</p>
+            <p class="field-error">The folder name "environments" at the root is reserved by the Bruno-compatible collection file format.</p>
           {/if}
         </div>
         <div class="button-row">
@@ -11310,7 +12336,7 @@
             <p class="field-error">Folder name is not valid.</p>
           {/if}
           {#if renameFolderDirectoryIsReserved()}
-            <p class="field-error">The file names "collection" and "folder" are reserved in bruno.</p>
+            <p class="field-error">The file names "collection" and "folder" are reserved by the Bruno-compatible collection file format.</p>
           {/if}
         </div>
         <div class="button-row">
@@ -11388,7 +12414,7 @@
             <p class="field-error">Folder name is not valid.</p>
           {/if}
           {#if cloneFolderDirectoryIsReserved()}
-            <p class="field-error">The file names "collection" and "folder" are reserved in bruno.</p>
+            <p class="field-error">The file names "collection" and "folder" are reserved by the Bruno-compatible collection file format.</p>
           {/if}
         </div>
         <div class="button-row">
@@ -11469,7 +12495,7 @@
             <p class="field-error">File name is not valid.</p>
           {/if}
           {#if renameRequestFilenameIsReserved()}
-            <p class="field-error">The file names "collection" and "folder" are reserved in bruno.</p>
+            <p class="field-error">The file names "collection" and "folder" are reserved by the Bruno-compatible collection file format.</p>
           {/if}
         </div>
         <div class="button-row">
@@ -11550,7 +12576,7 @@
             <p class="field-error">File name is not valid.</p>
           {/if}
           {#if cloneRequestFilenameIsReserved()}
-            <p class="field-error">The file names "collection" and "folder" are reserved in bruno.</p>
+            <p class="field-error">The file names "collection" and "folder" are reserved by the Bruno-compatible collection file format.</p>
           {/if}
         </div>
         <div class="button-row">
@@ -11608,7 +12634,7 @@
           <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={cancelDeleteRequestModal}>x</button>
         </header>
         <div class="prompt-fields">
-          <p>Are you sure you want to delete <span class="font-medium">{deleteRequestTarget.request.name}</span> ?</p>
+          <p>Delete <span class="font-medium">{deleteRequestTarget.request.name}</span>? {deleteRequestTarget.request.transient ? 'This unsaved request will be discarded without a recovery copy.' : 'A temporary recovery copy will be kept so it can be restored.'}</p>
         </div>
         <div class="button-row">
           <button type="button" on:click={cancelDeleteRequestModal}>Cancel</button>
@@ -11633,7 +12659,7 @@
           <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={cancelDeleteFolderModal}>x</button>
         </header>
         <div class="prompt-fields">
-          <p>Are you sure you want to delete <span class="font-medium">{deleteFolderTarget.folder.name || slashPathBase(deleteFolderTarget.folder.displayPath || deleteFolderTarget.folder.path)}</span> ?</p>
+          <p>Delete <span class="font-medium">{deleteFolderTarget.folder.name || slashPathBase(deleteFolderTarget.folder.displayPath || deleteFolderTarget.folder.path)}</span>? A temporary recovery copy will be kept so it can be restored.</p>
         </div>
         <div class="button-row">
           <button type="button" on:click={cancelDeleteFolderModal}>Cancel</button>
@@ -11760,7 +12786,7 @@
         <h2 id="remove-collection-title">Remove Collection</h2>
         <button type="button" class="icon-button" title="Cancel" on:click={cancelRemoveCollectionModal}>x</button>
       </header>
-      <p>Remove {removeCollectionTarget.name} from this workspace. The collection folder remains on disk.</p>
+      <p>Remove {removeCollectionTarget.name} from this workspace. A temporary recovery copy will be kept so it can be restored.</p>
       <code>{removeCollectionTarget.path}</code>
       <div class="button-row">
         <button type="button" data-testid="remove-collection-cancel" on:click={cancelRemoveCollectionModal}>Cancel</button>
@@ -11960,6 +12986,62 @@
 	          <button class="primary" type="submit" data-testid="openapi-sync-settings-save" disabled={busy !== ''}>Save</button>
 	        </div>
 	      </form>
+	    </div>
+	  </div>
+	{/if}
+
+	{#if tabLifecycleDialog}
+	  <div class="prompt-backdrop">
+	    <div
+	      class="prompt-dialog unsaved-tabs-dialog"
+	      role="dialog"
+	      aria-modal="true"
+	      aria-labelledby="unsaved-tabs-title"
+	      aria-describedby="unsaved-tabs-description"
+	      aria-busy={tabLifecycleDecisionBusy}
+	      tabindex="-1"
+	      on:keydown={handleTabLifecycleDialogKeydown}
+	    >
+	      <header>
+	        <h2 id="unsaved-tabs-title">Unsaved changes</h2>
+	      </header>
+	      <p id="unsaved-tabs-description">
+	        {#if tabLifecycleDialog.action === 'quit'}
+	          Save or discard these drafts before quitting LiteAPI.
+	        {:else if tabLifecycleDialog.action === 'close-all'}
+	          Save or discard these drafts before closing all tabs.
+	        {:else}
+	          Save or discard this draft before closing the tab.
+	        {/if}
+	      </p>
+	      <ul class="unsaved-tabs-list" aria-label="Affected unsaved requests">
+	        {#each tabLifecycleDialog.affected as request (request.collectionId + request.requestId)}
+	          <li>
+	            <strong>{request.requestName}</strong>
+	            <span>{request.transient ? 'Scratch draft' : 'Unsaved changes'}</span>
+	          </li>
+	        {/each}
+	      </ul>
+	      <div class="button-row modal-footer">
+	        <button
+	          type="button"
+	          class="danger-button"
+	          on:click={discardAndCompleteTabLifecycle}
+	          disabled={tabLifecycleDecisionBusy}
+	        >Discard &amp; Close</button>
+	        <button
+	          type="button"
+	          bind:this={tabLifecycleCancelButton}
+	          on:click={dismissTabLifecycleDialog}
+	          disabled={tabLifecycleDecisionBusy}
+	        >Cancel</button>
+	        <button
+	          type="button"
+	          class="primary"
+	          on:click={saveAndCompleteTabLifecycle}
+	          disabled={tabLifecycleDecisionBusy}
+	        >Save &amp; Close</button>
+	      </div>
 	    </div>
 	  </div>
 	{/if}

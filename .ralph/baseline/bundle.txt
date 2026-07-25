@@ -1,0 +1,18 @@
+# Bundle-size baseline
+# Captured on branch ralph/postman-switchable-v2, working tree at Phase 0 start.
+# Command: cd frontend && npm run build
+# Referenced by: US-036 (initial chunk must drop below 500 KB), improvement_v2.md §2.
+
+date          2026-07-25
+vite          8.1.0 (rolldown)
+svelte        5.56.4
+
+file                                    bytes      gzip
+frontend/dist/assets/index-BsBUEQ9r.js  1159933    352560
+frontend/dist/assets/index-LydZFBwi.css  113999     20490
+frontend/dist/index.html                    370       260
+
+# Single JS chunk — no code splitting configured. Vite emits its own warning:
+#   "(!) Some chunks are larger than 500 kB after minification."
+#
+# US-036 target: initial chunk < 500,000 bytes.

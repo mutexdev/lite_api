@@ -36,6 +36,7 @@ import (
 	"mime/multipart"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/textproto"
 	"net/url"
 	"os"
@@ -146,6 +147,7 @@ type App struct {
 	revealInFolder              func(string) error
 	oauth2CallbackTimeout       time.Duration
 	oauth2                      map[string]oauth2TokenResponse
+	oauth2Baseline              map[string]oauth2TokenResponse
 	oauth2PendingMu             sync.Mutex
 	oauth2Authorization         map[string]chan oauth2AuthorizationResult
 	oauth2Implicit              map[string]chan oauth2ImplicitResult
@@ -155,6 +157,15 @@ type App struct {
 	startedAt                   time.Time
 	lastCPUTime                 time.Duration
 	lastCPUWall                 time.Time
+	requests                    *requestLifecycleRegistry
+	collectionRuns              *collectionRunLifecycleRegistry
+	systemProxyMu               sync.Mutex
+	systemProxyTransport        http.RoundTripper
+	workspaceRuntime            *workspaceWindowRuntime
+	workspaceProcessStart       func(string, []string) error
+	collectionImportHooks       *collectionImportHooks
+	gitWorkbenchExecutable      string
+	gitWorkbenchPersist         func() error
 }
 
 type TerminalSession struct {
@@ -611,23 +622,26 @@ type RequestSettings struct {
 }
 
 type Response struct {
-	Status       int               `json:"status"`
-	StatusText   string            `json:"statusText"`
-	Headers      map[string]string `json:"headers"`
-	Metadata     []KeyValue        `json:"metadata,omitempty"`
-	Trailers     []KeyValue        `json:"trailers,omitempty"`
-	Body         string            `json:"body"`
-	BodyBase64   string            `json:"bodyBase64"`
-	Size         int               `json:"size"`
-	DurationMs   int64             `json:"durationMs"`
-	Error        string            `json:"error"`
-	PreviewMode  string            `json:"previewMode"`
-	TestResults  []TestResult      `json:"testResults"`
-	ScriptLogs   []ScriptLog       `json:"scriptLogs"`
-	Assertions   []Assertion       `json:"assertions"`
-	RequestedURL string            `json:"requestedUrl"`
-	SentAt       time.Time         `json:"sentAt"`
-	Cookies      []CookieEntry     `json:"cookies"`
+	Status        int               `json:"status"`
+	StatusText    string            `json:"statusText"`
+	Headers       map[string]string `json:"headers"`
+	HeaderEntries []KeyValue        `json:"headerEntries,omitempty"`
+	Metadata      []KeyValue        `json:"metadata,omitempty"`
+	Trailers      []KeyValue        `json:"trailers,omitempty"`
+	Body          string            `json:"body"`
+	BodyBase64    string            `json:"bodyBase64"`
+	Size          int               `json:"size"`
+	DurationMs    int64             `json:"durationMs"`
+	Error         string            `json:"error"`
+	Cancelled     bool              `json:"cancelled,omitempty"`
+	PreviewMode   string            `json:"previewMode"`
+	TestResults   []TestResult      `json:"testResults"`
+	ScriptLogs    []ScriptLog       `json:"scriptLogs"`
+	Assertions    []Assertion       `json:"assertions"`
+	RequestedURL  string            `json:"requestedUrl"`
+	SentAt        time.Time         `json:"sentAt"`
+	Cookies       []CookieEntry     `json:"cookies"`
+	Timings       ResponseTimings   `json:"timings"`
 }
 
 type ResponseExample struct {
@@ -658,6 +672,7 @@ type ResponseExamplePayload struct {
 	BodyType   string     `json:"bodyType"`
 	Body       string     `json:"body"`
 	Size       int        `json:"size"`
+	DurationMs int64      `json:"durationMs,omitempty"`
 }
 
 type TestResult struct {
@@ -1006,6 +1021,7 @@ type KeepDefaultCaCertificatesPreferences struct {
 type GeneralPreferences struct {
 	DefaultLocation      string `json:"defaultLocation,omitempty"`
 	DefaultWorkspacePath string `json:"defaultWorkspacePath,omitempty"`
+	LastImportDirectory  string `json:"lastImportDirectory,omitempty"`
 }
 
 type AutoSavePreferences struct {
@@ -1105,12 +1121,13 @@ type CookieInput struct {
 }
 
 type RunnerSnapshot struct {
-	Total    int         `json:"total"`
-	Passed   int         `json:"passed"`
-	Failed   int         `json:"failed"`
-	Skipped  int         `json:"skipped"`
-	Results  []RunResult `json:"results"`
-	Finished time.Time   `json:"finished"`
+	Total     int         `json:"total"`
+	Passed    int         `json:"passed"`
+	Failed    int         `json:"failed"`
+	Skipped   int         `json:"skipped"`
+	Cancelled int         `json:"cancelled,omitempty"`
+	Results   []RunResult `json:"results"`
+	Finished  time.Time   `json:"finished"`
 }
 
 type RunnerOptions struct {
@@ -1201,6 +1218,14 @@ func NewApp() *App {
 }
 
 func NewAppWithDir(dir string) *App {
+	app := newAppBase(dir)
+	app.state = defaultState(dir)
+	_ = app.loadOAuth2Credentials()
+	_ = app.load()
+	return app
+}
+
+func newAppBase(dir string) *App {
 	app := &App{
 		dataDir:                     dir,
 		httpClient:                  &http.Client{Timeout: 30 * time.Second},
@@ -1210,16 +1235,17 @@ func NewAppWithDir(dir string) *App {
 		revealInFolder:              defaultRevealInFolder,
 		oauth2CallbackTimeout:       2 * time.Minute,
 		oauth2:                      map[string]oauth2TokenResponse{},
+		oauth2Baseline:              map[string]oauth2TokenResponse{},
 		oauth2Authorization:         map[string]chan oauth2AuthorizationResult{},
 		oauth2Implicit:              map[string]chan oauth2ImplicitResult{},
 		websocketSessions:           map[string]*websocketSession{},
 		grpcStreamSessions:          map[string]*grpcStreamSession{},
 		terminals:                   map[string]*terminalSessionProcess{},
 		startedAt:                   time.Now(),
+		workspaceProcessStart: func(name string, args []string) error {
+			return exec.Command(name, args...).Start()
+		},
 	}
-	app.state = defaultState(dir)
-	_ = app.loadOAuth2Credentials()
-	_ = app.load()
 	return app
 }
 
@@ -1290,6 +1316,10 @@ func defaultOAuth2OpenInAppURL(ctx context.Context, request oauth2AuthorizationB
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	if a.workspaceRuntime != nil {
+		a.workspaceRuntime.startHeartbeat()
+		a.workspaceRuntime.restoreGeometry(ctx)
+	}
 	_ = a.ensureReady()
 }
 
@@ -1307,6 +1337,10 @@ func (a *App) handleSecondInstanceArgs(args []string) {
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	if a.workspaceRuntime != nil {
+		a.workspaceRuntime.captureGeometry(ctx)
+		a.workspaceRuntime.release()
+	}
 	a.websocketMu.Lock()
 	websocketSessions := make([]*websocketSession, 0, len(a.websocketSessions))
 	for _, session := range a.websocketSessions {
@@ -1657,6 +1691,9 @@ func (a *App) CreateWorkspace(name string) (AppState, error) {
 	if err := a.ensureReadyLocked(); err != nil {
 		return AppState{}, err
 	}
+	if a.workspaceRuntime != nil {
+		return a.createScopedWorkspaceTargetLocked(name)
+	}
 	if strings.TrimSpace(name) == "" {
 		return AppState{}, errors.New("workspace name is required")
 	}
@@ -1677,6 +1714,27 @@ func (a *App) CreateWorkspace(name string) (AppState, error) {
 	}
 	a.state.ActiveWorkspaceID = id
 	a.notify("info", "Workspace created: "+ws.Name)
+	return a.state, a.persistLocked()
+}
+
+func (a *App) SetActiveWorkspace(workspaceID string) (AppState, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.ensureReadyLocked(); err != nil {
+		return AppState{}, err
+	}
+	workspaceID = strings.TrimSpace(workspaceID)
+	if workspaceID == "" {
+		return AppState{}, errors.New("workspace id is required")
+	}
+	if a.workspaceRuntime != nil && workspaceID != a.workspaceRuntime.intent.WorkspaceID {
+		return AppState{}, errors.New("scoped workspace windows cannot switch workspaces")
+	}
+	workspace, err := a.findWorkspaceLocked(workspaceID)
+	if err != nil {
+		return AppState{}, err
+	}
+	a.state.ActiveWorkspaceID = workspace.ID
 	return a.state, a.persistLocked()
 }
 
@@ -1711,6 +1769,17 @@ func (a *App) CreateCollection(workspaceID, name, format string) (AppState, erro
 		Docs:           "# Collection notes\n",
 		CreatedAt:      now,
 		UpdatedAt:      now,
+	}
+	if _, statErr := os.Lstat(collection.Path); statErr == nil {
+		return AppState{}, fmt.Errorf("collection path already exists: %s", collection.Path)
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return AppState{}, fmt.Errorf("check collection path: %w", statErr)
+	}
+	// Empty collections are durable filesystem objects too. Materialise the
+	// root metadata before publishing the collection into workspace state so a
+	// clean relaunch never points at a directory that was never created.
+	if err := a.writeCollectionFilesLocked(&collection); err != nil {
+		return AppState{}, fmt.Errorf("create collection files: %w", err)
 	}
 	if firstScratch := firstScratchCollectionIndex(ws.Collections); firstScratch == 0 && countRegularCollections(ws.Collections) == 0 {
 		ws.Collections = append(ws.Collections, Collection{})
@@ -1872,6 +1941,13 @@ func (a *App) RefreshChangedCollections() (CollectionWatchRefreshResult, error) 
 				continue
 			}
 			previous, seen := a.collectionWatchFingerprints[collectionPath]
+			if !seen {
+				// A process restart begins with an empty in-memory watch map. The
+				// first observation establishes a baseline; it is not evidence of
+				// an external edit and must not replace live request/tab identity.
+				a.collectionWatchFingerprints[collectionPath] = fingerprint
+				continue
+			}
 			if seen && previous == fingerprint {
 				continue
 			}
@@ -1964,7 +2040,7 @@ func (a *App) RevealRequestInFolder(collectionID, itemID string) error {
 	}
 	if info, err := os.Stat(targetPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return errors.New("The file does not exist")
+			return errors.New("the file does not exist")
 		}
 		return fmt.Errorf("reveal request: %w", err)
 	} else if info.IsDir() {
@@ -2483,6 +2559,19 @@ func (a *App) CreateRequest(collectionID, requestType, name string) (AppState, e
 		item.FilePath = requestFilePath(*collection, item, requestFileExtensionForCollection(*collection))
 	}
 	collection.Items = append(collection.Items, item)
+	if !collection.Scratch && strings.TrimSpace(collection.Path) != "" {
+		// File-backed request identities are derived from their eventual path on
+		// disk. Establish that identity before opening the tab so an internal
+		// save, watcher refresh, or restart cannot strand the tab on a temporary
+		// random ID.
+		ensureRequestFilePaths(collection, requestFileExtensionForCollection(*collection))
+		created := &collection.Items[len(collection.Items)-1]
+		created.ID = deterministicID("request", filepath.Clean(created.FilePath))
+		assignExampleIDs(created)
+		created.Draft = true
+		created.Transient = true
+		item = *created
+	}
 	collection.UpdatedAt = time.Now()
 	if collection.Scratch {
 		if err := a.writeScratchCollectionMetadataLocked(collection); err != nil {
@@ -2526,10 +2615,10 @@ func (a *App) CreateFolder(collectionID, parentFolderPath, folderName, directory
 		return AppState{}, err
 	}
 	if parentPath == "" && strings.Contains(strings.ToLower(strings.TrimSpace(directoryName)), "environments") {
-		return AppState{}, errors.New("The folder name \"environments\" at the root of the collection is reserved in bruno")
+		return AppState{}, errors.New("the folder name \"environments\" at the root of the collection is reserved in bruno")
 	}
 	if collectionHasChildFolder(collection, parentPath, directoryName) {
-		return AppState{}, errors.New("Duplicate folder names under same parent folder are not allowed")
+		return AppState{}, errors.New("duplicate folder names under same parent folder are not allowed")
 	}
 	if err := a.ensureCollectionDirectoryForWriteLocked(collection); err != nil {
 		return AppState{}, err
@@ -2547,7 +2636,7 @@ func (a *App) CreateFolder(collectionID, parentFolderPath, folderName, directory
 	}
 	if err := os.Mkdir(targetDir, 0o755); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return AppState{}, errors.New("The directory already exists")
+			return AppState{}, errors.New("the directory already exists")
 		}
 		return AppState{}, err
 	}
@@ -2608,14 +2697,14 @@ func (a *App) RenameFolder(collectionID, folderPath, folderName, directoryName s
 		return AppState{}, fmt.Errorf("collection: invalid pathname - %s", filepath.Join(collection.Path, directoryName))
 	}
 	if strings.EqualFold(directoryName, "collection") || strings.EqualFold(directoryName, "folder") {
-		return AppState{}, errors.New(`The file names "collection" and "folder" are reserved in bruno`)
+		return AppState{}, errors.New(`the file names "collection" and "folder" are reserved in bruno`)
 	}
 	parentPath := normalizeFolderPathKey(parentFolderDisplayPath(oldPath))
 	parentDisplayPath := normalizeFolderPathKey(parentFolderDisplayPath(oldDisplayPath))
 	newPath := joinCollectionFolderPath(parentPath, directoryName)
 	newDisplayPath := joinCollectionFolderPath(parentDisplayPath, name)
 	if newPath != oldPath && collectionHasChildFolder(collection, parentPath, directoryName) {
-		return AppState{}, errors.New("Duplicate folder names under same parent folder are not allowed")
+		return AppState{}, errors.New("duplicate folder names under same parent folder are not allowed")
 	}
 	if err := a.ensureCollectionDirectoryForWriteLocked(collection); err != nil {
 		return AppState{}, err
@@ -2632,7 +2721,7 @@ func (a *App) RenameFolder(collectionID, folderPath, folderName, directoryName s
 	}
 	if newPath != oldPath {
 		if _, err := os.Stat(newDir); err == nil {
-			return AppState{}, errors.New("Duplicate folder names under same parent folder are not allowed")
+			return AppState{}, errors.New("duplicate folder names under same parent folder are not allowed")
 		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return AppState{}, err
 		}
@@ -2662,6 +2751,7 @@ func (a *App) RenameFolder(collectionID, folderPath, folderName, directoryName s
 		}
 	}
 	updateCollectionFolderRenameState(collection, oldPath, newPath, oldDisplayPath, newDisplayPath, oldDir, newDir)
+	a.seedCollectionWatchFingerprintLocked(collection.Path)
 	now := time.Now()
 	collection.UpdatedAt = now
 	ws.UpdatedAt = now
@@ -2701,7 +2791,7 @@ func (a *App) DeleteFolder(collectionID, folderPath string) (AppState, error) {
 	}
 	if info, statErr := os.Stat(targetDir); statErr != nil {
 		if errors.Is(statErr, os.ErrNotExist) {
-			return AppState{}, errors.New("The directory does not exist")
+			return AppState{}, errors.New("the directory does not exist")
 		}
 		return AppState{}, statErr
 	} else if !info.IsDir() {
@@ -2744,6 +2834,7 @@ func (a *App) DeleteFolder(collectionID, folderPath string) (AppState, error) {
 	if err := a.resequenceCollectionSiblingsLocked(collection, parentPath, parentDisplayPath); err != nil {
 		return AppState{}, err
 	}
+	a.seedCollectionWatchFingerprintLocked(collection.Path)
 	a.removeOpenTabsForRequestIDsLocked(collection.ID, removedRequestIDs)
 	now := time.Now()
 	collection.UpdatedAt = now
@@ -2790,7 +2881,7 @@ func (a *App) DeleteRequest(collectionID, itemID string) (AppState, error) {
 	}
 	if info, statErr := os.Stat(oldFile); statErr != nil {
 		if errors.Is(statErr, os.ErrNotExist) {
-			return AppState{}, errors.New("The file does not exist")
+			return AppState{}, errors.New("the file does not exist")
 		}
 		return AppState{}, statErr
 	} else if info.IsDir() {
@@ -2813,6 +2904,7 @@ func (a *App) DeleteRequest(collectionID, itemID string) (AppState, error) {
 	if err := a.resequenceCollectionSiblingsLocked(collection, parentPath, parentDisplayPath); err != nil {
 		return AppState{}, err
 	}
+	a.seedCollectionWatchFingerprintLocked(collection.Path)
 	a.removeOpenTabsForRequestIDsLocked(collection.ID, map[string]bool{item.ID: true})
 	now := time.Now()
 	collection.UpdatedAt = now
@@ -2863,14 +2955,14 @@ func (a *App) CloneFolder(collectionID, folderPath, folderName, directoryName st
 		return AppState{}, fmt.Errorf("collection: invalid pathname - %s", filepath.Join(collection.Path, directoryName))
 	}
 	if strings.EqualFold(directoryName, "collection") || strings.EqualFold(directoryName, "folder") {
-		return AppState{}, errors.New(`The file names "collection" and "folder" are reserved in bruno`)
+		return AppState{}, errors.New(`the file names "collection" and "folder" are reserved in bruno`)
 	}
 	parentPath := normalizeFolderPathKey(parentFolderDisplayPath(sourcePath))
 	parentDisplayPath := normalizeFolderPathKey(parentFolderDisplayPath(sourceDisplayPath))
 	targetPath := joinCollectionFolderPath(parentPath, directoryName)
 	targetDisplayPath := joinCollectionFolderPath(parentDisplayPath, name)
 	if collectionHasChildFolder(collection, parentPath, directoryName) {
-		return AppState{}, errors.New("Duplicate folder names under same parent folder are not allowed")
+		return AppState{}, errors.New("duplicate folder names under same parent folder are not allowed")
 	}
 	if err := a.ensureCollectionDirectoryForWriteLocked(collection); err != nil {
 		return AppState{}, err
@@ -2882,7 +2974,7 @@ func (a *App) CloneFolder(collectionID, folderPath, folderName, directoryName st
 	}
 	if info, statErr := os.Stat(sourceDir); statErr != nil {
 		if errors.Is(statErr, os.ErrNotExist) {
-			return AppState{}, errors.New("The directory does not exist")
+			return AppState{}, errors.New("the directory does not exist")
 		}
 		return AppState{}, statErr
 	} else if !info.IsDir() {
@@ -3008,7 +3100,7 @@ func (a *App) CloneRequest(collectionID, itemID, requestName, filename string) (
 		return AppState{}, fmt.Errorf("collection: invalid pathname - %s", filepath.Join(collection.Path, filenameBase))
 	}
 	if strings.EqualFold(filenameBase, "collection") || strings.EqualFold(filenameBase, "folder") {
-		return AppState{}, errors.New(`The file names "collection" and "folder" are reserved in bruno`)
+		return AppState{}, errors.New(`the file names "collection" and "folder" are reserved in bruno`)
 	}
 	if err := a.ensureCollectionDirectoryForWriteLocked(collection); err != nil {
 		return AppState{}, err
@@ -3031,10 +3123,10 @@ func (a *App) CloneRequest(collectionID, itemID, requestName, filename string) (
 		return AppState{}, fmt.Errorf("request path %s escapes collection", targetFilename)
 	}
 	if collectionHasRequestFileSibling(collection, folderPath, targetFilename) {
-		return AppState{}, errors.New("Duplicate request names are not allowed under the same folder")
+		return AppState{}, errors.New("duplicate request names are not allowed under the same folder")
 	}
 	if _, statErr := os.Stat(targetFile); statErr == nil {
-		return AppState{}, errors.New("Duplicate request names are not allowed under the same folder")
+		return AppState{}, errors.New("duplicate request names are not allowed under the same folder")
 	} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 		return AppState{}, statErr
 	}
@@ -3108,7 +3200,7 @@ func (a *App) RenameRequest(collectionID, itemID, requestName, filename string) 
 		return AppState{}, fmt.Errorf("collection: invalid pathname - %s", filepath.Join(collection.Path, filenameBase))
 	}
 	if strings.EqualFold(filenameBase, "collection") || strings.EqualFold(filenameBase, "folder") {
-		return AppState{}, errors.New(`The file names "collection" and "folder" are reserved in bruno`)
+		return AppState{}, errors.New(`the file names "collection" and "folder" are reserved in bruno`)
 	}
 	if err := a.ensureCollectionDirectoryForWriteLocked(collection); err != nil {
 		return AppState{}, err
@@ -3129,11 +3221,15 @@ func (a *App) RenameRequest(collectionID, itemID, requestName, filename string) 
 	if pathInside(collection.Path, item.FilePath) {
 		oldFile = filepath.Clean(item.FilePath)
 	}
+	oldFileExists := true
 	if info, statErr := os.Stat(oldFile); statErr != nil {
-		if errors.Is(statErr, os.ErrNotExist) {
-			return AppState{}, errors.New("The file does not exist")
+		if errors.Is(statErr, os.ErrNotExist) && item.Draft && item.Transient {
+			oldFileExists = false
+		} else if errors.Is(statErr, os.ErrNotExist) {
+			return AppState{}, errors.New("the file does not exist")
+		} else {
+			return AppState{}, statErr
 		}
-		return AppState{}, statErr
 	} else if info.IsDir() {
 		return AppState{}, fmt.Errorf("%s is not a request file", oldFile)
 	}
@@ -3145,15 +3241,17 @@ func (a *App) RenameRequest(collectionID, itemID, requestName, filename string) 
 	renamingFile := !sameFilePath(oldFile, targetFile)
 	if renamingFile {
 		if collectionHasRequestFileSiblingExcept(collection, folderPath, targetFilename, item.ID) {
-			return AppState{}, errors.New("Duplicate request names are not allowed under the same folder")
+			return AppState{}, errors.New("duplicate request names are not allowed under the same folder")
 		}
 		if _, statErr := os.Stat(targetFile); statErr == nil {
-			return AppState{}, errors.New("Duplicate request names are not allowed under the same folder")
+			return AppState{}, errors.New("duplicate request names are not allowed under the same folder")
 		} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 			return AppState{}, statErr
 		}
-		if err := os.Rename(oldFile, targetFile); err != nil {
-			return AppState{}, err
+		if oldFileExists {
+			if err := os.Rename(oldFile, targetFile); err != nil {
+				return AppState{}, err
+			}
 		}
 		item.FilePath = targetFile
 	}
@@ -3161,6 +3259,7 @@ func (a *App) RenameRequest(collectionID, itemID, requestName, filename string) 
 	item.Name = name
 	item.FolderPath = folderPath
 	item.Draft = false
+	item.Transient = collection.Scratch
 	item.UpdatedAt = now
 	collection.UpdatedAt = now
 	ws.UpdatedAt = now
@@ -3299,7 +3398,7 @@ func (a *App) ListGRPCMethods(collectionID, itemID, environmentID string) ([]GRP
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	outgoingCtx, err := grpcOutgoingContext(ctx, requestCopy, vars, a.fetchOAuth2Token)
 	if err != nil {
 		return nil, err
@@ -3333,7 +3432,7 @@ func (a *App) GenerateGRPCMessage(collectionID, itemID, environmentID, methodPat
 		if connErr != nil {
 			return "", connErr
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		outgoingCtx, ctxErr := grpcOutgoingContext(ctx, requestCopy, vars, a.fetchOAuth2Token)
 		if ctxErr != nil {
 			return "", ctxErr
@@ -3391,6 +3490,8 @@ func (a *App) SaveRequest(collectionID, itemID string) (AppState, error) {
 		if strings.TrimSpace(item.FilePath) == "" || !pathInside(collection.Path, item.FilePath) {
 			item.FilePath = requestFilePath(*collection, *item, requestFileExtensionForCollection(*collection))
 		}
+	} else {
+		item.Transient = false
 	}
 	item.UpdatedAt = time.Now()
 	if err := a.writeCollectionFilesLocked(collection); err != nil {
@@ -3442,6 +3543,8 @@ func (a *App) SaveAllTabs(collectionID string) (AppState, error) {
 			if strings.TrimSpace(item.FilePath) == "" || !pathInside(collection.Path, item.FilePath) {
 				item.FilePath = requestFilePath(*collection, *item, requestFileExtensionForCollection(*collection))
 			}
+		} else {
+			item.Transient = false
 		}
 		item.UpdatedAt = now
 		seenItems[key] = true
@@ -3491,6 +3594,9 @@ func (a *App) SaveResponseExample(collectionID, itemID, name string) (AppState, 
 	example := responseExampleFromItem(*item, strings.TrimSpace(name))
 	item.Examples = append(item.Examples, example)
 	item.Draft = false
+	if !collection.Scratch {
+		item.Transient = false
+	}
 	item.UpdatedAt = time.Now()
 	a.openResponseExampleTabLocked(collectionID, itemID, example)
 	if err := a.writeCollectionFilesLocked(collection); err != nil {
@@ -3873,6 +3979,7 @@ func responseExampleFromItem(item RequestItem, name string) ResponseExample {
 			BodyType:   bodyType,
 			Body:       response.Body,
 			Size:       response.Size,
+			DurationMs: response.DurationMs,
 		},
 	}
 	return example
@@ -5115,15 +5222,6 @@ func cookieKey(cookie CookieEntry) string {
 	return strings.ToLower(cookie.Domain) + "|" + cookie.Path + "|" + cookie.Name
 }
 
-func hasHeader(headers []KeyValue, name string) bool {
-	for _, header := range headers {
-		if header.Enabled && strings.EqualFold(header.Name, name) {
-			return true
-		}
-	}
-	return false
-}
-
 func sameSiteString(value http.SameSite) string {
 	switch value {
 	case http.SameSiteDefaultMode:
@@ -5311,10 +5409,12 @@ func (a *App) MoveOpenTab(tabID string, offset int) (AppState, error) {
 		return a.state, nil
 	}
 	tab := a.state.OpenTabs[index]
-	next := append([]OpenTab(nil), a.state.OpenTabs[:index]...)
-	next = append(next, a.state.OpenTabs[index+1:]...)
-	next = append(next[:target], append([]OpenTab{tab}, next[target:]...)...)
-	a.state.OpenTabs = next
+	if target < index {
+		copy(a.state.OpenTabs[target+1:index+1], a.state.OpenTabs[target:index])
+	} else {
+		copy(a.state.OpenTabs[index:target], a.state.OpenTabs[index+1:target+1])
+	}
+	a.state.OpenTabs[target] = tab
 	return a.state, a.persistLocked()
 }
 
@@ -6025,6 +6125,10 @@ func (a *App) SendRequestWithPromptValues(collectionID, itemID, environmentID st
 }
 
 func (a *App) sendRequestWithControls(collectionID, itemID, environmentID string, promptValues map[string]string) (AppState, scriptControls, error) {
+	return a.sendRequestWithControlsContext(context.Background(), collectionID, itemID, environmentID, promptValues)
+}
+
+func (a *App) sendRequestWithControlsContext(parent context.Context, collectionID, itemID, environmentID string, promptValues map[string]string) (AppState, scriptControls, error) {
 	controls := scriptControls{}
 	a.mu.Lock()
 	if err := a.ensureReadyLocked(); err != nil {
@@ -6071,12 +6175,28 @@ func (a *App) sendRequestWithControls(collectionID, itemID, environmentID string
 	shouldSendCookies := boolPtrValue(preferences.Request.SendCookies, true) && requestCopy.Settings.StoreCookies
 	a.mu.Unlock()
 
+	// Register before pre-request scripts start so the Wails SendRequest call
+	// remains truthfully cancellable for its entire HTTP/GraphQL execution.
+	// Scripts are not interruptible, so cancellation is observed at the
+	// checkpoints below and prevents any transport that has not started.
+	executionContext, finishExecution := a.startCancellableRequestWithParent(parent, collectionID, itemID, requestCopy.Type)
+	defer finishExecution()
+
 	var response Response
 	preMeta := scriptMeta
 	preMeta.TimelinePhase = "pre-request"
-	preState, err := runPreRequestScriptWithJarStateMeta(scripts.Pre, &requestCopy, vars, scriptCookieJar, preMeta, &scriptLogs)
-	controls.merge(preState)
-	if err != nil {
+	preState := (*scriptRequestState)(nil)
+	if requestContextCancelled(executionContext) {
+		response = cancelledRequestResponse(requestCopy, vars)
+		response.ScriptLogs = scriptLogs
+	} else {
+		preState, err = runPreRequestScriptWithJarStateMeta(scripts.Pre, &requestCopy, vars, scriptCookieJar, preMeta, &scriptLogs)
+		controls.merge(preState)
+	}
+	if requestContextCancelled(executionContext) {
+		response = cancelledRequestResponse(requestCopy, vars)
+		response.ScriptLogs = scriptLogs
+	} else if err != nil {
 		response = scriptErrorResponse("pre-request script", err)
 		response.ScriptLogs = scriptLogs
 	} else if preState != nil && preState.skipRequest {
@@ -6087,27 +6207,52 @@ func (a *App) sendRequestWithControls(collectionID, itemID, environmentID string
 		if shouldSendCookies {
 			attachCookieHeader(&requestCopy, scriptCookieJar.snapshot(), requestURL)
 		}
-		response = a.executeHTTP(collectionID, collectionCopy, requestCopy, vars, preState, scriptMeta.RecordTimeline)
+		response = a.executeHTTP(executionContext, collectionID, collectionCopy, requestCopy, vars, preState, scriptMeta.RecordTimeline)
 		controls.merge(preState)
-		scriptCookieJar.upsertAll(response.Cookies)
-		postVariablesMeta := scriptMeta
-		postVariablesMeta.TimelinePhase = "post-response"
-		if err := runPostResponseVariables(effectiveResponseVariables(collectionCopy, requestCopy), requestCopy, &response, scriptVariables, scriptCookieJar, postVariablesMeta, &scriptLogs); err != nil {
-			response.TestResults = append(response.TestResults, TestResult{Name: "post-response variables", Passed: false, Message: err.Error()})
+		if requestContextCancelled(executionContext) {
+			markRequestCancelled(&response)
+			response.ScriptLogs = scriptLogs
+		} else {
+			scriptCookieJar.upsertAll(response.Cookies)
+			postVariablesMeta := scriptMeta
+			postVariablesMeta.TimelinePhase = "post-response"
+			if err := runPostResponseVariables(effectiveResponseVariables(collectionCopy, requestCopy), requestCopy, &response, scriptVariables, scriptCookieJar, postVariablesMeta, &scriptLogs); err != nil {
+				response.TestResults = append(response.TestResults, TestResult{Name: "post-response variables", Passed: false, Message: err.Error()})
+			}
+			if requestContextCancelled(executionContext) {
+				markRequestCancelled(&response)
+				response.ScriptLogs = scriptLogs
+			} else {
+				postMeta := scriptMeta
+				postMeta.TimelinePhase = "post-response"
+				postState, err := runPostResponseScriptWithJarStateMeta(scripts.Post, requestCopy, &response, vars, scriptCookieJar, postMeta, &scriptLogs)
+				controls.merge(postState)
+				if err != nil {
+					response.TestResults = append(response.TestResults, TestResult{Name: "post-response script", Passed: false, Message: err.Error()})
+				}
+				if requestContextCancelled(executionContext) {
+					markRequestCancelled(&response)
+					response.ScriptLogs = scriptLogs
+				} else {
+					testsMeta := scriptMeta
+					testsMeta.TimelinePhase = "tests"
+					testResults, testState := evaluateRuntimeTestsWithJarStateMeta(scripts.Tests, response, requestCopy, vars, scriptCookieJar, testsMeta, &scriptLogs)
+					controls.merge(testState)
+					response.TestResults = append(response.TestResults, testResults...)
+					response.ScriptLogs = scriptLogs
+					if requestContextCancelled(executionContext) {
+						markRequestCancelled(&response)
+					}
+				}
+			}
 		}
-		postMeta := scriptMeta
-		postMeta.TimelinePhase = "post-response"
-		postState, err := runPostResponseScriptWithJarStateMeta(scripts.Post, requestCopy, &response, vars, scriptCookieJar, postMeta, &scriptLogs)
-		controls.merge(postState)
-		if err != nil {
-			response.TestResults = append(response.TestResults, TestResult{Name: "post-response script", Passed: false, Message: err.Error()})
-		}
-		testsMeta := scriptMeta
-		testsMeta.TimelinePhase = "tests"
-		testResults, testState := evaluateRuntimeTestsWithJarStateMeta(scripts.Tests, response, requestCopy, vars, scriptCookieJar, testsMeta, &scriptLogs)
-		controls.merge(testState)
-		response.TestResults = append(response.TestResults, testResults...)
-		response.ScriptLogs = scriptLogs
+	}
+
+	// Close the lifecycle before persistence so cancellation has a single,
+	// truthful outcome: either it won and this response is cancelled, or the
+	// registry was closed and CancelRequest reports false for this completion.
+	if finishExecution() || requestContextCancelled(executionContext) {
+		markRequestCancelled(&response)
 	}
 
 	a.mu.Lock()
@@ -6142,6 +6287,9 @@ func (a *App) sendRequestWithControls(collectionID, itemID, environmentID string
 		})
 	} else {
 		item.Timeline = append(item.Timeline, mainRequestTimelineItem(*item, requestCopy, response))
+		if requestCopy.Type == "http" || requestCopy.Type == "graphql" {
+			item.Timeline = append(item.Timeline, httpTimingTimelineItems(*item, response)...)
+		}
 		if requestCopy.Type == "grpc" {
 			grpcTimelineRequest := requestCopy
 			grpcTimelineRequest.ID = item.ID
@@ -6611,7 +6759,11 @@ func (a *App) runScriptedCollectionRequest(collectionID, targetRef, environmentI
 	if shouldSendCookies && jar != nil {
 		attachCookieHeader(&requestCopy, jar.snapshot(), requestURL)
 	}
-	response = a.executeHTTP(collectionID, collectionCopy, requestCopy, nestedVariables.Combined, preState, recordTimeline)
+	func() {
+		executionContext, finishExecution := a.startCancellableRequest(collectionID, requestCopy.ID, requestCopy.Type)
+		defer finishExecution()
+		response = a.executeHTTP(executionContext, collectionID, collectionCopy, requestCopy, nestedVariables.Combined, preState, recordTimeline)
+	}()
 	if jar != nil {
 		jar.upsertAll(response.Cookies)
 	}
@@ -6716,28 +6868,47 @@ func (a *App) RunCollectionWithOptions(collectionID, environmentID string, optio
 	items := filterRunnerItems(append([]RequestItem(nil), collection.Items...), options.SelectedItemIDs)
 	delayMs := normalizeRunnerDelayMs(options.DelayMs)
 	a.mu.Unlock()
+	runContext, finishRun := a.startCancellableCollectionRun(collectionID)
+	defer finishRun()
 
 	results := make([]RunResult, 0, len(items))
 	currentRequestIndex := 0
 	jumps := 0
 	for currentRequestIndex < len(items) {
 		item := items[currentRequestIndex]
+		if requestContextCancelled(runContext) {
+			results = append(results, cancelledRunResult(item))
+			break
+		}
 		if item.Type != "http" && item.Type != "graphql" && item.Type != "grpc" {
 			results = append(results, RunResult{ItemID: item.ID, Name: item.Name, Status: "skipped", At: time.Now(), Error: "protocol runner is not implemented yet"})
-			sleepRunnerDelay(delayMs, currentRequestIndex, len(items))
+			if !sleepRunnerDelay(runContext, delayMs, currentRequestIndex, len(items)) {
+				currentRequestIndex++
+				continue
+			}
 			currentRequestIndex++
 			continue
 		}
 		if prompts := promptVariablesForRequest(globalEnvs, &collectionCopy, environmentID, item); len(prompts) > 0 {
 			results = append(results, RunResult{ItemID: item.ID, Name: item.Name, Status: "skipped", At: time.Now(), Error: runnerPromptVariableSkipMessage(prompts)})
-			sleepRunnerDelay(delayMs, currentRequestIndex, len(items))
+			if !sleepRunnerDelay(runContext, delayMs, currentRequestIndex, len(items)) {
+				currentRequestIndex++
+				continue
+			}
 			currentRequestIndex++
 			continue
 		}
-		state, controls, err := a.sendRequestWithControls(collectionID, item.ID, environmentID, nil)
+		state, controls, err := a.sendRequestWithControlsContext(runContext, collectionID, item.ID, environmentID, nil)
 		if err != nil {
+			if requestContextCancelled(runContext) {
+				results = append(results, cancelledRunResult(item))
+				break
+			}
 			results = append(results, RunResult{ItemID: item.ID, Name: item.Name, Status: "failed", Error: err.Error(), At: time.Now()})
-			sleepRunnerDelay(delayMs, currentRequestIndex, len(items))
+			if !sleepRunnerDelay(runContext, delayMs, currentRequestIndex, len(items)) {
+				currentRequestIndex++
+				continue
+			}
 			currentRequestIndex++
 			continue
 		}
@@ -6751,14 +6922,23 @@ func (a *App) RunCollectionWithOptions(collectionID, environmentID string, optio
 			code = res.Status
 			duration = res.DurationMs
 			errText = res.Error
-			if res.Error != "" || res.Status >= 400 {
+			if res.Cancelled {
+				status = "cancelled"
+			} else if res.Error != "" || res.Status >= 400 {
 				status = "failed"
 			}
 		}
-		if controls.SkipRequest {
+		if requestContextCancelled(runContext) {
+			status = "cancelled"
+			errText = "collection run cancelled"
+		}
+		if controls.SkipRequest && status != "cancelled" {
 			status = "skipped"
 		}
 		results = append(results, RunResult{ItemID: item.ID, Name: item.Name, Status: status, Code: code, DurationMs: duration, Error: errText, At: time.Now()})
+		if status == "cancelled" {
+			break
+		}
 		if controls.StopExecution {
 			break
 		}
@@ -6779,17 +6959,32 @@ func (a *App) RunCollectionWithOptions(collectionID, environmentID string, optio
 			}
 			if nextRequestIndex >= 0 {
 				if nextRequestIndex != currentRequestIndex {
-					time.Sleep(time.Duration(delayMs) * time.Millisecond)
+					currentRequestIndex = nextRequestIndex
+					if !sleepRunnerDelay(runContext, delayMs, 0, 2) {
+						continue
+					}
+					continue
 				}
 				currentRequestIndex = nextRequestIndex
 			} else {
-				sleepRunnerDelay(delayMs, currentRequestIndex, len(items))
+				if !sleepRunnerDelay(runContext, delayMs, currentRequestIndex, len(items)) {
+					currentRequestIndex++
+					continue
+				}
 				currentRequestIndex++
 			}
 			continue
 		}
-		sleepRunnerDelay(delayMs, currentRequestIndex, len(items))
+		if !sleepRunnerDelay(runContext, delayMs, currentRequestIndex, len(items)) {
+			currentRequestIndex++
+			continue
+		}
 		currentRequestIndex++
+	}
+	if finishRun() || requestContextCancelled(runContext) {
+		if len(results) == 0 || results[len(results)-1].Status != "cancelled" {
+			results = append(results, RunResult{Name: "Collection run", Status: "cancelled", Error: "collection run cancelled", At: time.Now()})
+		}
 	}
 
 	a.mu.Lock()
@@ -6801,6 +6996,8 @@ func (a *App) RunCollectionWithOptions(collectionID, environmentID string, optio
 			snapshot.Passed++
 		case "skipped":
 			snapshot.Skipped++
+		case "cancelled":
+			snapshot.Cancelled++
 		default:
 			snapshot.Failed++
 		}
@@ -6839,9 +7036,21 @@ func normalizeRunnerDelayMs(delayMs int) int {
 	return delayMs
 }
 
-func sleepRunnerDelay(delayMs, currentIndex, total int) {
-	if delayMs > 0 && currentIndex+1 < total {
-		time.Sleep(time.Duration(delayMs) * time.Millisecond)
+func cancelledRunResult(item RequestItem) RunResult {
+	return RunResult{ItemID: item.ID, Name: item.Name, Status: "cancelled", Error: "collection run cancelled", At: time.Now()}
+}
+
+func sleepRunnerDelay(ctx context.Context, delayMs, currentIndex, total int) bool {
+	if delayMs <= 0 || currentIndex+1 >= total {
+		return !requestContextCancelled(ctx)
+	}
+	timer := time.NewTimer(time.Duration(delayMs) * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 
@@ -6859,7 +7068,23 @@ func (a *App) ImportCollection(workspaceID string, payload ImportPayload) (AppSt
 	if err != nil {
 		return AppState{}, err
 	}
-	collection.Path = filepath.Join(ws.Path, sanitizeFilename(collection.Name))
+	before, err := cloneCollectionImportState(a.state)
+	if err != nil {
+		return AppState{}, err
+	}
+	watchFingerprints := map[string]string{}
+	for key, value := range a.collectionWatchFingerprints {
+		watchFingerprints[key] = value
+	}
+	mutations := []collectionImportMutation{}
+	rollback := func() {
+		rollbackCollectionImportMutations(a, mutations)
+		a.state = before
+		a.collectionWatchFingerprints = watchFingerprints
+		if payload.OpenAPISync && strings.EqualFold(strings.TrimSpace(payload.Kind), "openapi") && collection.Path != "" {
+			a.cleanupOpenAPISyncSpecLocked(collection.Path)
+		}
+	}
 	if payload.OpenAPISync && strings.EqualFold(strings.TrimSpace(payload.Kind), "openapi") {
 		hash, doc, err := validateOpenAPISyncSpec(payload.Content)
 		if err != nil {
@@ -6869,16 +7094,32 @@ func (a *App) ImportCollection(workspaceID string, payload ImportPayload) (AppSt
 		if doc.Info.Title != "" {
 			collection.Name = firstNonEmpty(collection.Name, doc.Info.Title)
 		}
+	}
+	if err := a.applyImportedCollectionLocked(ws, &collection, ws.Path, "", &mutations); err != nil {
+		rollback()
+		return AppState{}, err
+	}
+	if payload.OpenAPISync && strings.EqualFold(strings.TrimSpace(payload.Kind), "openapi") {
 		if err := a.saveOpenAPISyncSpecLocked(collection.Path, payload.SourceURL, payload.Content); err != nil {
-			return AppState{}, err
-		}
-		if err := a.writeCollectionFilesLocked(&collection); err != nil {
+			rollback()
 			return AppState{}, err
 		}
 	}
-	ws.Collections = append(ws.Collections, collection)
 	a.notify("success", "Imported "+collection.Name)
-	return a.state, a.persistLocked()
+	persist := a.persistLocked
+	if a.collectionImportHooks != nil && a.collectionImportHooks.persist != nil {
+		persist = func() error { return a.collectionImportHooks.persist(a) }
+	}
+	if err := persist(); err != nil {
+		rollback()
+		return AppState{}, err
+	}
+	for _, mutation := range mutations {
+		if mutation.backup != "" {
+			_ = removeCollectionImportPath(a, mutation.backup)
+		}
+	}
+	return a.state, nil
 }
 
 func (a *App) ConnectOpenAPISync(collectionID string, options OpenAPISyncOptions) (AppState, error) {
@@ -6975,7 +7216,7 @@ func (a *App) GetOpenAPISyncSpec(collectionID string) (OpenAPISyncSpecViewResult
 		return result, nil
 	}
 	if strings.TrimSpace(sourceURL) == "" {
-		return result, errors.New("Spec file not found. Sync your collection first.")
+		return result, errors.New("spec file not found; sync your collection first")
 	}
 	fetched, err := fetchOpenAPISyncContent(collectionPath, sourceURL, client)
 	if err != nil {
@@ -7349,7 +7590,13 @@ func (a *App) StringifyBru(item RequestItem) string {
 func (a *App) ResetDemoData() (AppState, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.workspaceRuntime != nil {
+		return AppState{}, errors.New("reset demo data is unavailable from a scoped workspace window")
+	}
 	a.state = defaultState(a.dataDir)
+	if err := a.writeFreshDefaultCollectionFilesLocked(); err != nil {
+		return AppState{}, err
+	}
 	a.oauth2Mu.Lock()
 	a.oauth2 = map[string]oauth2TokenResponse{}
 	a.oauth2Mu.Unlock()
@@ -7363,6 +7610,18 @@ func (a *App) ensureReady() error {
 }
 
 func (a *App) ensureReadyLocked() error {
+	if a.workspaceRuntime != nil {
+		if len(a.state.Workspaces) != 1 || a.state.ActiveWorkspaceID != a.workspaceRuntime.intent.WorkspaceID || a.state.Workspaces[0].ID != a.workspaceRuntime.intent.WorkspaceID {
+			return errors.New("scoped workspace runtime state is invalid")
+		}
+		if err := a.workspaceRuntime.heartbeat(); err != nil {
+			return fmt.Errorf("workspace ownership was lost: %w", err)
+		}
+		if len(a.state.FeatureLedger) == 0 {
+			a.state.FeatureLedger = defaultFeatures()
+		}
+		return nil
+	}
 	if a.dataDir == "" {
 		a.dataDir = defaultDataDir()
 	}
@@ -7371,6 +7630,9 @@ func (a *App) ensureReadyLocked() error {
 	}
 	if len(a.state.Workspaces) == 0 {
 		a.state = defaultState(a.dataDir)
+		if err := a.writeFreshDefaultCollectionFilesLocked(); err != nil {
+			return err
+		}
 		if _, err := a.ensureScratchCollectionsLocked(); err != nil {
 			return err
 		}
@@ -7379,7 +7641,18 @@ func (a *App) ensureReadyLocked() error {
 	if len(a.state.FeatureLedger) == 0 {
 		a.state.FeatureLedger = defaultFeatures()
 	}
+	_, stateFileErr := os.Stat(filepath.Join(a.dataDir, "state.json"))
+	freshState := errors.Is(stateFileErr, os.ErrNotExist)
+	if stateFileErr != nil && !freshState {
+		return stateFileErr
+	}
 	changed := a.normalizeStateLocked()
+	if freshState {
+		if err := a.writeFreshDefaultCollectionFilesLocked(); err != nil {
+			return err
+		}
+		changed = true
+	}
 	scratchChanged, err := a.ensureScratchCollectionsLocked()
 	if err != nil {
 		return err
@@ -7400,6 +7673,33 @@ func (a *App) ensureReadyLocked() error {
 	}
 	a.refreshGitCollectionAvailabilityLocked()
 	a.pruneExpiredCookiesLocked()
+	return nil
+}
+
+// NewAppWithDir starts with an in-memory sample so the first frame is useful.
+// On a genuinely fresh state directory, materialize that sample before state
+// persistence so its SAVED label and filesystem/recovery actions are truthful.
+func (a *App) writeFreshDefaultCollectionFilesLocked() error {
+	for wi := range a.state.Workspaces {
+		for ci := range a.state.Workspaces[wi].Collections {
+			collection := &a.state.Workspaces[wi].Collections[ci]
+			if collection.Scratch || collection.NotFoundLocally || strings.TrimSpace(collection.Path) == "" || !pathInside(a.dataDir, collection.Path) {
+				continue
+			}
+			if info, err := os.Stat(collection.Path); err == nil {
+				if !info.IsDir() {
+					return fmt.Errorf("default collection path %s is not a directory", collection.Path)
+				}
+				continue
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			if err := a.writeCollectionFilesLocked(collection); err != nil {
+				return fmt.Errorf("write default collection %s: %w", collection.Name, err)
+			}
+			a.seedCollectionWatchFingerprintLocked(collection.Path)
+		}
+	}
 	return nil
 }
 
@@ -7764,6 +8064,7 @@ func normalizeGeneralPreferences(preferences GeneralPreferences, legacyDefaultCo
 	if len(preferences.DefaultWorkspacePath) > 1024 {
 		preferences.DefaultWorkspacePath = preferences.DefaultWorkspacePath[:1024]
 	}
+	preferences.LastImportDirectory = normalizeCollectionImportDirectory(preferences.LastImportDirectory)
 	return preferences
 }
 
@@ -8081,6 +8382,9 @@ func preferenceProxyMode(proxy ProxyPreferences) string {
 }
 
 func (a *App) persistLocked() error {
+	if a.workspaceRuntime != nil {
+		return a.persistWorkspaceRuntimeLocked()
+	}
 	if err := os.MkdirAll(a.dataDir, 0o755); err != nil {
 		return err
 	}
@@ -8574,7 +8878,7 @@ func stateWithoutScratchCollections(state AppState) AppState {
 		if workspace.ScratchCollectionID != "" {
 			scratchIDs[workspace.ScratchCollectionID] = true
 		}
-		nextCollections := workspace.Collections[:0]
+		nextCollections := make([]Collection, 0, len(workspace.Collections))
 		for _, collection := range workspace.Collections {
 			if collection.Scratch {
 				scratchIDs[collection.ID] = true
@@ -8587,7 +8891,7 @@ func stateWithoutScratchCollections(state AppState) AppState {
 		workspace.ScratchTempDirectory = ""
 	}
 	if len(state.OpenTabs) > 0 {
-		nextTabs := state.OpenTabs[:0]
+		nextTabs := make([]OpenTab, 0, len(state.OpenTabs))
 		for _, tab := range state.OpenTabs {
 			if tab.Transient || scratchIDs[tab.CollectionID] {
 				continue
@@ -8611,7 +8915,7 @@ func stateWithoutScratchCollections(state AppState) AppState {
 		}
 	}
 	if len(state.ClosedTabs) > 0 {
-		nextClosedTabs := state.ClosedTabs[:0]
+		nextClosedTabs := make([]OpenTab, 0, len(state.ClosedTabs))
 		for _, tab := range state.ClosedTabs {
 			if tab.Transient || scratchIDs[tab.CollectionID] {
 				continue
@@ -8705,14 +9009,21 @@ func scrubEnvironmentSecretValues(environments []Environment) []Environment {
 	return environments
 }
 
-func (a *App) executeHTTP(collectionID string, collection Collection, item RequestItem, vars map[string]string, onFailState *scriptRequestState, recordTimeline func(TimelineItem)) Response {
+func (a *App) executeHTTP(ctx context.Context, collectionID string, collection Collection, item RequestItem, vars map[string]string, onFailState *scriptRequestState, recordTimeline func(TimelineItem)) Response {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	start := time.Now()
 	result := Response{SentAt: start, Headers: map[string]string{}, PreviewMode: "auto"}
 	if item.Type == "websocket" {
 		return a.executeWebSocket(collectionID, item, vars)
 	}
 	if item.Type == "grpc" {
-		return a.executeGRPC(collection, item, vars)
+		response := a.executeGRPC(ctx, collection, item, vars)
+		if requestContextCancelled(ctx) {
+			markRequestCancelled(&response)
+		}
+		return response
 	}
 	if item.Type != "http" && item.Type != "graphql" {
 		result.Error = item.Type + " execution is registered for UI parity but not wired to a protocol client yet"
@@ -8744,12 +9055,14 @@ func (a *App) executeHTTP(collectionID string, collection Collection, item Reque
 		bodyReader = strings.NewReader(string(b))
 		contentType = "application/json"
 	}
-	req, err := http.NewRequest(method, targetURL, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, targetURL, bodyReader)
 	if err != nil {
 		result.Error = err.Error()
 		result.DurationMs = time.Since(start).Milliseconds()
 		return result
 	}
+	timingTrace := newResponseTimingTrace(start)
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), timingTrace.trace()))
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
@@ -8790,7 +9103,7 @@ func (a *App) executeHTTP(collectionID string, collection Collection, item Reque
 	}
 	proxyResolution := a.collectionProxyResolution(collectionID)
 	var proxyErr error
-	baseTransport, proxyErr = transportWithProxyResolution(baseTransport, proxyResolution, targetURL, vars)
+	baseTransport, proxyErr = a.transportWithProxyResolution(baseTransport, proxyResolution, targetURL, vars)
 	if proxyErr != nil {
 		result.Error = proxyErr.Error()
 		result.DurationMs = time.Since(start).Milliseconds()
@@ -8804,11 +9117,13 @@ func (a *App) executeHTTP(collectionID string, collection Collection, item Reque
 	client.Timeout = time.Duration(timeout) * time.Millisecond
 	if !item.Settings.FollowRedirects {
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			timingTrace.redirect()
 			return http.ErrUseLastResponse
 		}
 	} else if item.Settings.MaxRedirects > 0 {
 		max := item.Settings.MaxRedirects
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			timingTrace.redirect()
 			if len(via) >= max {
 				return http.ErrUseLastResponse
 			}
@@ -8817,17 +9132,23 @@ func (a *App) executeHTTP(collectionID string, collection Collection, item Reque
 		}
 	} else {
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			timingTrace.redirect()
 			attachCookiesToHTTPRequest(req, redirectCookies.snapshot())
 			return nil
 		}
 	}
 	res, err := client.Do(req)
 	if err != nil {
-		result.Error = err.Error()
+		if requestContextCancelled(ctx) {
+			markRequestCancelled(&result)
+		} else {
+			result.Error = err.Error()
+		}
 		if onFailErr := runRequestOnFail(onFailState, err); onFailErr != nil {
 			result.Error = result.Error + "; onFail: " + onFailErr.Error()
 		}
 		result.DurationMs = time.Since(start).Milliseconds()
+		result.Timings = timingTrace.finalize(time.Now())
 		return result
 	}
 	if shouldRetryDigest(res, item.Auth) {
@@ -8837,32 +9158,49 @@ func (a *App) executeHTTP(collectionID string, collection Collection, item Reque
 		if retryErr != nil {
 			result.Error = retryErr.Error()
 			result.DurationMs = time.Since(start).Milliseconds()
+			result.Timings = timingTrace.finalize(time.Now())
 			return result
 		}
 		attachCookiesToHTTPRequest(retryReq, redirectCookies.snapshot())
 		res, err = client.Do(retryReq)
 		if err != nil {
-			result.Error = err.Error()
+			if requestContextCancelled(ctx) {
+				markRequestCancelled(&result)
+			} else {
+				result.Error = err.Error()
+			}
 			if onFailErr := runRequestOnFail(onFailState, err); onFailErr != nil {
 				result.Error = result.Error + "; onFail: " + onFailErr.Error()
 			}
 			result.DurationMs = time.Since(start).Milliseconds()
+			result.Timings = timingTrace.finalize(time.Now())
 			return result
 		}
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		result.Error = err.Error()
+		if requestContextCancelled(ctx) {
+			markRequestCancelled(&result)
+		} else {
+			result.Error = err.Error()
+		}
 	}
 	result.Status = res.StatusCode
 	result.StatusText = res.Status
+	if result.Cancelled {
+		result.StatusText = "Cancelled"
+	}
 	result.Size = len(body)
 	result.Body = string(body)
 	result.BodyBase64 = base64.StdEncoding.EncodeToString(body)
 	result.DurationMs = time.Since(start).Milliseconds()
+	result.Timings = timingTrace.finalize(time.Now())
 	for name, values := range res.Header {
 		result.Headers[name] = strings.Join(values, ", ")
+		for _, value := range values {
+			result.HeaderEntries = append(result.HeaderEntries, KeyValue{Name: name, Value: value, Enabled: true})
+		}
 	}
 	result.Cookies = redirectCookies.snapshot()
 	result.PreviewMode = previewModeFromHeaders(result.Headers)
@@ -8912,6 +9250,11 @@ func requestTimeoutMilliseconds(itemTimeout int, preferences RequestPreferences)
 }
 
 func transportWithAppTLSSettings(base http.RoundTripper, settings appTLSSettings, verifyTLS bool) (http.RoundTripper, error) {
+	// Keep the caller's shared transport for the normal verified path so HTTP
+	// keep-alive reuse remains observable by httptrace.
+	if verifyTLS && !settings.Request.CustomCaCertificate.Enabled {
+		return base, nil
+	}
 	transport := cloneHTTPTransport(base)
 	tlsConfig := transport.TLSClientConfig
 	if tlsConfig == nil {
@@ -9169,6 +9512,26 @@ func transportWithProxyResolution(base http.RoundTripper, resolution proxyResolu
 	default:
 		return transportWithoutProxy(base), nil
 	}
+}
+
+func (a *App) transportWithProxyResolution(base http.RoundTripper, resolution proxyResolution, requestURL string, vars map[string]string) (http.RoundTripper, error) {
+	if strings.EqualFold(strings.TrimSpace(resolution.Mode), "system") && base == http.DefaultTransport {
+		a.systemProxyMu.Lock()
+		defer a.systemProxyMu.Unlock()
+		if a.systemProxyTransport == nil {
+			transport := cloneHTTPTransport(base)
+			transport.Proxy = func(req *http.Request) (*url.URL, error) {
+				target := requestURL
+				if req != nil && req.URL != nil {
+					target = req.URL.String()
+				}
+				return systemProxyURLForRequest(target)
+			}
+			a.systemProxyTransport = transport
+		}
+		return a.systemProxyTransport, nil
+	}
+	return transportWithProxyResolution(base, resolution, requestURL, vars)
 }
 
 func cloneHTTPTransport(base http.RoundTripper) *http.Transport {
@@ -9432,7 +9795,7 @@ func loadPACSource(pacSource string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		if res.StatusCode < 200 || res.StatusCode >= 300 {
 			return "", fmt.Errorf("fetch PAC file: %s", res.Status)
 		}
@@ -9467,7 +9830,7 @@ func pacProxyURLFromContent(content, requestURL string) (*url.URL, bool, error) 
 		}
 		kind := strings.ToUpper(parts[0])
 		hostPort := parts[1]
-		scheme := "http"
+		var scheme string
 		switch kind {
 		case "PROXY":
 			scheme = "http"
@@ -9658,7 +10021,7 @@ func pacIsInNet(host, pattern, mask string) bool {
 func pacLocalIPAddress() string {
 	conn, err := net.DialTimeout("udp", "8.8.8.8:80", 100*time.Millisecond)
 	if err == nil {
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		if local, ok := conn.LocalAddr().(*net.UDPAddr); ok && local.IP != nil {
 			return local.IP.String()
 		}
@@ -9925,13 +10288,6 @@ func normalizeProxyConfig(proxy ProxyConfig) ProxyConfig {
 	return proxy
 }
 
-func normalizeCollectionProxyConfig(proxy ProxyConfig) ProxyConfig {
-	if proxyConfigUnset(proxy) {
-		return normalizeProxyConfig(ProxyConfig{Inherit: true, Protocol: "http"})
-	}
-	return normalizeProxyConfig(proxy)
-}
-
 func proxyConfigUnset(proxy ProxyConfig) bool {
 	return !proxy.Inherit && !proxy.Disabled &&
 		strings.TrimSpace(proxy.Protocol) == "" &&
@@ -9941,11 +10297,6 @@ func proxyConfigUnset(proxy ProxyConfig) bool {
 		strings.TrimSpace(proxy.Auth.Username) == "" &&
 		strings.TrimSpace(proxy.Auth.Password) == "" &&
 		!proxy.Auth.Disabled
-}
-
-func manualProxyEnabled(proxy ProxyConfig) bool {
-	proxy = normalizeProxyConfig(proxy)
-	return !proxy.Disabled && !proxy.Inherit && strings.TrimSpace(proxy.Hostname) != ""
 }
 
 func hasProxyConfig(proxy ProxyConfig) bool {
@@ -10093,10 +10444,6 @@ func collectionJSSandboxMode(collection Collection) string {
 	return normalizeJSSandboxMode(collection.SecurityConfig.JSSandboxMode)
 }
 
-func collectionIsSafeMode(collection Collection) bool {
-	return collectionJSSandboxMode(collection) != "developer"
-}
-
 func collectionProtobufPathExists(collectionPath, rawPath string, wantDir bool) bool {
 	path := strings.TrimSpace(rawPath)
 	if path == "" {
@@ -10187,7 +10534,7 @@ func (config grpcDialConfig) dialOptions() []grpc.DialOption {
 	return options
 }
 
-func (a *App) executeGRPC(collection Collection, item RequestItem, vars map[string]string) Response {
+func (a *App) executeGRPC(parent context.Context, collection Collection, item RequestItem, vars map[string]string) Response {
 	start := time.Now()
 	result := Response{SentAt: start, Headers: map[string]string{}, PreviewMode: "json"}
 	targetURL := interpolate(item.URL, vars)
@@ -10200,7 +10547,10 @@ func (a *App) executeGRPC(collection Collection, item RequestItem, vars map[stri
 		return result
 	}
 	timeout := requestTimeoutMilliseconds(item.Settings.TimeoutMs, a.appTLSSettingsSnapshot().Request)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Millisecond)
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, time.Duration(timeout)*time.Millisecond)
 	defer cancel()
 
 	conn, err := grpc.NewClient(dialConfig.Target, dialConfig.dialOptions()...)
@@ -10209,7 +10559,7 @@ func (a *App) executeGRPC(collection Collection, item RequestItem, vars map[stri
 		result.DurationMs = time.Since(start).Milliseconds()
 		return result
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ctx, err = grpcOutgoingContext(ctx, item, vars, a.fetchOAuth2Token)
 	if err != nil {
@@ -11660,7 +12010,8 @@ func grpcReflectionRequest(ctx context.Context, conn grpc.ClientConnInterface, r
 	if err != nil {
 		return nil, fmt.Errorf("open gRPC reflection stream: %w", err)
 	}
-	defer stream.CloseSend()
+	// Half-closing an already-drained reflection stream has no recoverable failure.
+	defer func() { _ = stream.CloseSend() }()
 	if err := stream.Send(req); err != nil {
 		return nil, fmt.Errorf("send gRPC reflection request: %w", err)
 	}
@@ -12536,7 +12887,7 @@ func (a *App) executeWebSocket(collectionID string, item RequestItem, vars map[s
 		result.DurationMs = time.Since(start).Milliseconds()
 		return result
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	messages := websocketOutboundMessages(item, vars)
 	if len(messages) == 0 {
@@ -12810,6 +13161,8 @@ func buildBody(body RequestBody, vars map[string]string, basePath ...string) (io
 		return strings.NewReader(interpolate(body.JSON, vars)), "application/json", nil
 	case "xml":
 		return strings.NewReader(interpolate(body.XML, vars)), "application/xml", nil
+	case "graphql":
+		return strings.NewReader(graphqlRequestBodySnapshot(body, vars)), "application/json", nil
 	case "text", "sparql":
 		return strings.NewReader(interpolate(body.Text, vars)), "text/plain", nil
 	case "formUrlEncoded":
@@ -13145,7 +13498,7 @@ func oauth1BodyString(req *http.Request) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		defer body.Close()
+		defer func() { _ = body.Close() }()
 		data, err := io.ReadAll(body)
 		if err != nil {
 			return "", err
@@ -13231,7 +13584,8 @@ func oauth1BaseURL(u *url.URL) string {
 	scheme := strings.ToLower(u.Scheme)
 	host := strings.ToLower(u.Hostname())
 	port := u.Port()
-	if port != "" && !((scheme == "http" && port == "80") || (scheme == "https" && port == "443")) {
+	isDefaultPort := (scheme == "http" && port == "80") || (scheme == "https" && port == "443")
+	if port != "" && !isDefaultPort {
 		host += ":" + port
 	}
 	path := u.EscapedPath()
@@ -13459,6 +13813,8 @@ type oauth2TokenStorage struct {
 	ExpiresAt    int64                  `json:"expiresAt,omitempty"`
 }
 
+var oauth2CredentialsRemove = os.Remove
+
 func (response oauth2TokenResponse) expired(now time.Time) bool {
 	return !response.ExpiresAt.IsZero() && !now.Before(response.ExpiresAt)
 }
@@ -13491,49 +13847,115 @@ func (a *App) loadOAuth2Credentials() error {
 		}
 		response, err := decryptOAuth2TokenResponse(a.dataDir, entry.Data)
 		if err != nil {
-			continue
+			return fmt.Errorf("decrypt OAuth2 credential %s: %w", cacheKey, err)
 		}
 		next[cacheKey] = response
 	}
 	a.oauth2Mu.Lock()
 	a.oauth2 = next
+	a.oauth2Baseline = cloneOAuth2TokenMap(next)
 	a.oauth2Mu.Unlock()
 	return nil
 }
 
 func (a *App) storeOAuth2Credentials() error {
 	a.oauth2Mu.Lock()
-	keys := make([]string, 0, len(a.oauth2))
-	for key := range a.oauth2 {
+	local := map[string]oauth2TokenResponse{}
+	for key, value := range a.oauth2 {
+		local[key] = value
+	}
+	baseline := cloneOAuth2TokenMap(a.oauth2Baseline)
+	a.oauth2Mu.Unlock()
+	disk := map[string]oauth2TokenResponse{}
+	if data, err := os.ReadFile(a.oauth2CredentialsPath()); err == nil {
+		var stored oauth2CredentialsFile
+		if err := json.Unmarshal(data, &stored); err != nil {
+			return fmt.Errorf("parse oauth2.json: %w", err)
+		}
+		for _, entry := range stored.Credentials {
+			value, err := decryptOAuth2TokenResponse(a.dataDir, entry.Data)
+			if err != nil {
+				return fmt.Errorf("decrypt OAuth2 credential %s: %w", entry.CacheKey, err)
+			}
+			disk[entry.CacheKey] = value
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	merged := mergeOAuth2TokenDelta(baseline, local, disk)
+	keys := make([]string, 0, len(merged))
+	for key := range merged {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 	entries := make([]oauth2CredentialEntry, 0, len(keys))
 	for _, key := range keys {
-		encoded, err := encryptOAuth2TokenResponse(a.dataDir, a.oauth2[key])
+		encoded, err := encryptOAuth2TokenResponse(a.dataDir, merged[key])
 		if err != nil {
-			a.oauth2Mu.Unlock()
 			return err
 		}
 		entries = append(entries, oauth2CredentialEntry{CacheKey: key, Data: encoded})
 	}
-	a.oauth2Mu.Unlock()
 
 	if len(entries) == 0 {
-		err := os.Remove(a.oauth2CredentialsPath())
-		if err == nil || errors.Is(err, os.ErrNotExist) {
-			return nil
+		path := a.oauth2CredentialsPath()
+		if err := oauth2CredentialsRemove(path); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		} else {
+			directory, err := os.Open(filepath.Dir(path))
+			if err != nil {
+				return err
+			}
+			syncErr := directory.Sync()
+			closeErr := directory.Close()
+			if syncErr != nil {
+				return syncErr
+			}
+			if closeErr != nil {
+				return closeErr
+			}
 		}
-		return err
+	} else {
+		data, err := json.MarshalIndent(oauth2CredentialsFile{Credentials: entries}, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := writePrivateAtomic(a.oauth2CredentialsPath(), data); err != nil {
+			return err
+		}
 	}
-	if err := os.MkdirAll(a.dataDir, 0o755); err != nil {
-		return err
+	a.oauth2Mu.Lock()
+	a.oauth2 = cloneOAuth2TokenMap(merged)
+	a.oauth2Baseline = cloneOAuth2TokenMap(merged)
+	a.oauth2Mu.Unlock()
+	return nil
+}
+
+func cloneOAuth2TokenMap(values map[string]oauth2TokenResponse) map[string]oauth2TokenResponse {
+	out := map[string]oauth2TokenResponse{}
+	for k, v := range values {
+		out[k] = v
 	}
-	data, err := json.MarshalIndent(oauth2CredentialsFile{Credentials: entries}, "", "  ")
-	if err != nil {
-		return err
+	return out
+}
+func mergeOAuth2TokenDelta(base, current, disk map[string]oauth2TokenResponse) map[string]oauth2TokenResponse {
+	out := cloneOAuth2TokenMap(disk)
+	for k, b := range base {
+		c, ok := current[k]
+		if !ok {
+			delete(out, k)
+		} else if !reflect.DeepEqual(b, c) {
+			out[k] = c
+		}
 	}
-	return os.WriteFile(a.oauth2CredentialsPath(), data, 0o600)
+	for k, c := range current {
+		if _, ok := base[k]; !ok {
+			out[k] = c
+		}
+	}
+	return out
 }
 
 func encryptOAuth2TokenResponse(dataDir string, response oauth2TokenResponse) (string, error) {
@@ -13678,14 +14100,6 @@ func requestOAuth2TokenWithTimeline(cfg OAuth2Auth) (oauth2TokenResponse, *Timel
 	return requestOAuth2TokenWithGrantTimeline(cfg, strings.TrimSpace(cfg.GrantType), "")
 }
 
-func requestOAuth2RefreshToken(cfg OAuth2Auth, refreshToken string) (oauth2TokenResponse, error) {
-	response, _, err := requestOAuth2RefreshTokenWithTimeline(cfg, refreshToken)
-	if err != nil {
-		return oauth2TokenResponse{}, err
-	}
-	return response, nil
-}
-
 func requestOAuth2RefreshTokenWithTimeline(cfg OAuth2Auth, refreshToken string) (oauth2TokenResponse, *TimelineItem, error) {
 	response, timelineEntry, err := requestOAuth2TokenWithGrantTimeline(cfg, "refresh_token", refreshToken)
 	if err != nil {
@@ -13699,11 +14113,6 @@ func requestOAuth2RefreshTokenWithTimeline(cfg OAuth2Auth, refreshToken string) 
 		response.Values["refresh_token"] = refreshToken
 	}
 	return response, timelineEntry, nil
-}
-
-func requestOAuth2TokenWithGrant(cfg OAuth2Auth, grantType, refreshToken string) (oauth2TokenResponse, error) {
-	response, _, err := requestOAuth2TokenWithGrantTimeline(cfg, grantType, refreshToken)
-	return response, err
 }
 
 func requestOAuth2TokenWithGrantTimeline(cfg OAuth2Auth, grantType, refreshToken string) (oauth2TokenResponse, *TimelineItem, error) {
@@ -13805,7 +14214,7 @@ func requestOAuth2TokenFormWithTimeline(cfg OAuth2Auth, tokenURL string, form ur
 		timelineEntry := oauth2TimelineItemFromRequest(tokenReq, nil, duration, err)
 		return oauth2TokenResponse{}, &timelineEntry, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, readErr := io.ReadAll(res.Body)
 	if readErr != nil {
 		timelineEntry := oauth2TimelineItemFromRequest(tokenReq, res, duration, readErr)
@@ -14734,7 +15143,7 @@ func oauth2ImplicitTokenResponse(payload map[string]interface{}, cfg OAuth2Auth)
 	}
 	response := parseOAuth2TokenResponse(payload, time.Now())
 	if response.AccessToken == "" {
-		return oauth2TokenResponse{}, errors.New("No access token received from authorization server")
+		return oauth2TokenResponse{}, errors.New("no access token received from authorization server")
 	}
 	if oauth2TokenValue(response, cfg.TokenSource) == "" {
 		return oauth2TokenResponse{}, fmt.Errorf("OAuth2 token response did not include %s", firstNonEmpty(cfg.TokenSource, "access_token"))
@@ -15334,7 +15743,7 @@ func assumeAWSV4Role(profileName string, profile map[string]string, source awsV4
 	if err != nil {
 		return awsV4ProfileCredentials{}, fmt.Errorf("call AWS STS AssumeRole: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, readErr := io.ReadAll(res.Body)
 	if readErr != nil {
 		return awsV4ProfileCredentials{}, fmt.Errorf("read AWS STS AssumeRole response: %w", readErr)
@@ -15435,7 +15844,7 @@ func assumeAWSV4RoleWithWebIdentity(profileName string, profile map[string]strin
 	if err != nil {
 		return awsV4ProfileCredentials{}, fmt.Errorf("call AWS STS AssumeRoleWithWebIdentity: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, readErr := io.ReadAll(res.Body)
 	if readErr != nil {
 		return awsV4ProfileCredentials{}, fmt.Errorf("read AWS STS AssumeRoleWithWebIdentity response: %w", readErr)
@@ -15694,7 +16103,7 @@ func refreshAWSV4SSOToken(payload awsV4SSOTokenCachePayload, ssoProfile awsV4SSO
 	if err != nil {
 		return awsV4SSOTokenCachePayload{}, awsV4SSOToken{}, fmt.Errorf("call AWS SSO OIDC token refresh: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	responseBody, readErr := io.ReadAll(res.Body)
 	if readErr != nil {
 		return awsV4SSOTokenCachePayload{}, awsV4SSOToken{}, fmt.Errorf("read AWS SSO OIDC token refresh response: %w", readErr)
@@ -15795,7 +16204,7 @@ func requestAWSV4SSORoleCredentials(profile awsV4SSOProfile, rawProfile map[stri
 	if err != nil {
 		return awsV4ProfileCredentials{}, fmt.Errorf("call AWS SSO GetRoleCredentials: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, readErr := io.ReadAll(res.Body)
 	if readErr != nil {
 		return awsV4ProfileCredentials{}, fmt.Errorf("read AWS SSO GetRoleCredentials response: %w", readErr)
@@ -15869,25 +16278,6 @@ func parseAWSV4SSORoleCredentials(body []byte) (awsV4ProfileCredentials, error) 
 		return awsV4ProfileCredentials{}, errors.New("AWS SSO GetRoleCredentials response did not include accessKeyId and secretAccessKey")
 	}
 	return credentials, nil
-}
-
-func mergeAWSProfileCredentials(credentials awsV4ProfileCredentials, sections map[string]map[string]string, candidates []string) awsV4ProfileCredentials {
-	for _, section := range candidates {
-		values, ok := sections[section]
-		if !ok {
-			continue
-		}
-		if value := strings.TrimSpace(values["aws_access_key_id"]); value != "" {
-			credentials.AccessKeyID = value
-		}
-		if value := strings.TrimSpace(values["aws_secret_access_key"]); value != "" {
-			credentials.SecretAccessKey = value
-		}
-		if value := strings.TrimSpace(values["aws_session_token"]); value != "" {
-			credentials.SessionToken = value
-		}
-	}
-	return credentials
 }
 
 type awsV4CredentialProcessResponse struct {
@@ -16038,7 +16428,7 @@ func requestPayloadSHA256(req *http.Request) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		defer body.Close()
+		defer func() { _ = body.Close() }()
 		data, err := io.ReadAll(body)
 		if err != nil {
 			return "", err
@@ -16203,7 +16593,7 @@ func cloneRequestForDigest(req *http.Request, auth AuthConfig, vars map[string]s
 		if err != nil {
 			return nil, err
 		}
-		defer rc.Close()
+		defer func() { _ = rc.Close() }()
 		data, err := io.ReadAll(rc)
 		if err != nil {
 			return nil, err
@@ -16214,7 +16604,7 @@ func cloneRequestForDigest(req *http.Request, auth AuthConfig, vars map[string]s
 	} else {
 		return nil, errors.New("digest auth retry requires a rewindable request body")
 	}
-	retry, err := http.NewRequest(req.Method, req.URL.String(), body)
+	retry, err := http.NewRequestWithContext(req.Context(), req.Method, req.URL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -16768,19 +17158,6 @@ func scriptPostResponseVariableResponseParser(runtime *goja.Runtime, response Re
 	return resValue
 }
 
-func evaluateRuntimeTests(script string, response Response, item RequestItem, vars map[string]string, cookies []CookieEntry, logs ...*[]ScriptLog) []TestResult {
-	return evaluateRuntimeTestsWithJar(script, response, item, vars, newScriptCookieJar(cookies), logs...)
-}
-
-func evaluateRuntimeTestsWithJar(script string, response Response, item RequestItem, vars map[string]string, jar *scriptCookieJar, logs ...*[]ScriptLog) []TestResult {
-	results, _ := evaluateRuntimeTestsWithJarState(script, response, item, vars, jar, logs...)
-	return results
-}
-
-func evaluateRuntimeTestsWithJarState(script string, response Response, item RequestItem, vars map[string]string, jar *scriptCookieJar, logs ...*[]ScriptLog) ([]TestResult, *scriptRequestState) {
-	return evaluateRuntimeTestsWithJarStateMeta(script, response, item, vars, jar, scriptRuntimeMeta{}, logs...)
-}
-
 func evaluateRuntimeTestsWithJarStateMeta(script string, response Response, item RequestItem, vars map[string]string, jar *scriptCookieJar, meta scriptRuntimeMeta, logs ...*[]ScriptLog) ([]TestResult, *scriptRequestState) {
 	results := evaluateScriptTests(script, response)
 	js := javascriptFromTests(script)
@@ -16820,10 +17197,6 @@ func isLegacyExpectLine(line string) bool {
 	}
 	parts := strings.Fields(line)
 	return len(parts) >= 4 && parts[1] == "status"
-}
-
-func newScriptRuntime(item RequestItem, response Response, vars map[string]string, testResults *[]TestResult, scriptLogs *[]ScriptLog, jar *scriptCookieJar) (*goja.Runtime, *goja.Object, *scriptRequestState, *goja.Object) {
-	return newScriptRuntimeWithMeta(item, response, vars, testResults, scriptLogs, jar, scriptRuntimeMeta{})
 }
 
 func newScriptRuntimeWithMeta(item RequestItem, response Response, vars map[string]string, testResults *[]TestResult, scriptLogs *[]ScriptLog, jar *scriptCookieJar, meta scriptRuntimeMeta) (*goja.Runtime, *goja.Object, *scriptRequestState, *goja.Object) {
@@ -17338,7 +17711,7 @@ func newScriptRuntimeWithMeta(item RequestItem, response Response, vars map[stri
 
 func scriptMinifyJSON(runtime *goja.Runtime, value goja.Value) goja.Value {
 	if goja.IsUndefined(value) || goja.IsNull(value) {
-		panic(runtime.NewGoError(errors.New("Failed to minify")))
+		panic(runtime.NewGoError(errors.New("failed to minify")))
 	}
 
 	if text, ok := value.Export().(string); ok {
@@ -17348,11 +17721,11 @@ func scriptMinifyJSON(runtime *goja.Runtime, value goja.Value) goja.Value {
 		}
 		var decoded interface{}
 		if err := json.Unmarshal([]byte(trimmed), &decoded); err != nil {
-			panic(runtime.NewGoError(fmt.Errorf("Failed to minify: %s", err.Error())))
+			panic(runtime.NewGoError(fmt.Errorf("failed to minify: %s", err.Error())))
 		}
 		raw, err := json.Marshal(decoded)
 		if err != nil {
-			panic(runtime.NewGoError(fmt.Errorf("Failed to minify: %s", err.Error())))
+			panic(runtime.NewGoError(fmt.Errorf("failed to minify: %s", err.Error())))
 		}
 		return runtime.ToValue(string(raw))
 	}
@@ -17363,7 +17736,7 @@ func scriptMinifyJSON(runtime *goja.Runtime, value goja.Value) goja.Value {
 		case reflect.Array, reflect.Map, reflect.Slice, reflect.Struct:
 			raw, err := json.Marshal(value.Export())
 			if err != nil {
-				panic(runtime.NewGoError(fmt.Errorf("Failed to minify: %s", err.Error())))
+				panic(runtime.NewGoError(fmt.Errorf("failed to minify: %s", err.Error())))
 			}
 			return runtime.ToValue(string(raw))
 		}
@@ -17374,7 +17747,7 @@ func scriptMinifyJSON(runtime *goja.Runtime, value goja.Value) goja.Value {
 
 func scriptMinifyXML(runtime *goja.Runtime, value goja.Value) goja.Value {
 	if goja.IsUndefined(value) || goja.IsNull(value) {
-		panic(runtime.NewGoError(errors.New("Failed to minify")))
+		panic(runtime.NewGoError(errors.New("failed to minify")))
 	}
 	text, ok := value.Export().(string)
 	if !ok {
@@ -17382,7 +17755,7 @@ func scriptMinifyXML(runtime *goja.Runtime, value goja.Value) goja.Value {
 	}
 	minified, err := minifyXMLString(text)
 	if err != nil {
-		panic(runtime.NewGoError(fmt.Errorf("Failed to minify: %s", err.Error())))
+		panic(runtime.NewGoError(fmt.Errorf("failed to minify: %s", err.Error())))
 	}
 	return runtime.ToValue(minified)
 }
@@ -18630,7 +19003,7 @@ func scriptSendRequest(runtime *goja.Runtime, configValue goja.Value, vars map[s
 		timelineEntry.Message = fmt.Sprintf("%s %s -> %s", timelineEntry.Method, timelineEntry.URL, err.Error())
 		return nil, scriptSendRequestError(runtime, 0, err.Error(), nil), timelineEntry, nil
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		timelineEntry.Error = err.Error()
@@ -20370,7 +20743,8 @@ func newScriptFSObject(runtime *goja.Runtime, collectionPath, sandboxMode string
 			} else {
 				err = os.RemoveAll(path)
 			}
-			if err != nil && !(force && os.IsNotExist(err)) {
+			ignorableMissing := force && os.IsNotExist(err)
+			if err != nil && !ignorableMissing {
 				return nil, err
 			}
 			return goja.Undefined(), nil
@@ -21379,10 +21753,6 @@ func scriptWin32PathCWD() string {
 
 func scriptWin32NormalizeSeparators(value string) string {
 	return strings.ReplaceAll(value, "/", "\\")
-}
-
-func scriptWin32IsPathSeparator(value byte) bool {
-	return value == '\\' || value == '/'
 }
 
 func scriptWin32PathSplitRoot(value string) (root, rest string, absolute bool) {
@@ -23538,7 +23908,8 @@ func newScriptStreamPromisesObject(runtime *goja.Runtime, streamObject goja.Valu
 	const streamGlobal = "__liteapi_stream_for_promises__"
 	global := runtime.GlobalObject()
 	_ = global.Set(streamGlobal, streamObject)
-	defer global.Delete(streamGlobal)
+	// Removing a global we just set cannot meaningfully fail.
+	defer func() { _ = global.Delete(streamGlobal) }()
 	script := `(function (stream) {
   function cleanup(stream, listeners) {
     if (!stream) return;
@@ -26570,7 +26941,7 @@ func newScriptCookieJarObject(runtime *goja.Runtime, jar *scriptCookieJar, inter
 	_ = object.Set("setCookie", func(call goja.FunctionCall) goja.Value {
 		rawURL := call.Argument(0).String()
 		nameOrCookie := call.Argument(1).Export()
-		callback := goja.Undefined()
+		var callback goja.Value
 		values := []string{}
 		if data, ok := nameOrCookie.(map[string]interface{}); ok && data != nil {
 			callback = call.Argument(2)
@@ -26633,7 +27004,7 @@ func scriptCookieInvokeCallback(runtime *goja.Runtime, callbackValue goja.Value,
 	if !ok {
 		return false
 	}
-	var errArg goja.Value = goja.Null()
+	errArg := goja.Null()
 	resultArg := result
 	if err != nil {
 		errArg = runtime.NewGoError(err)
@@ -26818,14 +27189,6 @@ func cloneCookieEntries(cookies []CookieEntry) []CookieEntry {
 	out := make([]CookieEntry, len(cookies))
 	copy(out, cookies)
 	return out
-}
-
-func scriptCookieRows(cookies []CookieEntry) []map[string]interface{} {
-	rows := make([]map[string]interface{}, 0, len(cookies))
-	for _, cookie := range cookies {
-		rows = append(rows, scriptCookieRow(cookie))
-	}
-	return rows
 }
 
 func scriptCookieRow(cookie CookieEntry) map[string]interface{} {
@@ -27450,7 +27813,7 @@ func ensureSupportedJSONSchema(schema interface{}, strict bool) error {
 	}
 	if rawSchema, ok := schemaObject["$schema"].(string); ok && rawSchema != "" {
 		if rawSchema != "http://json-schema.org/draft-07/schema#" && rawSchema != "http://json-schema.org/draft-07/schema" {
-			return fmt.Errorf("Unsupported JSON Schema version: %q", rawSchema)
+			return fmt.Errorf("unsupported JSON Schema version: %q", rawSchema)
 		}
 	}
 	if strict {
@@ -28548,17 +28911,6 @@ func scriptDrainRuntime(runtime *goja.Runtime, value goja.Value, deadline time.T
 			return err
 		}
 	}
-}
-
-func scriptPromiseResultError(runtime *goja.Runtime, value goja.Value) error {
-	pending, err := scriptPromisePendingOrError(runtime, value)
-	if err != nil {
-		return err
-	}
-	if pending {
-		return errors.New("script promise did not settle")
-	}
-	return nil
 }
 
 func scriptPromiseRejectionMessage(runtime *goja.Runtime, value goja.Value) string {
@@ -30698,40 +31050,6 @@ func applyPatch(item *RequestItem, patch RequestPatch) {
 	}
 }
 
-func (a *App) findWorkspaceLocked(id string) (*Workspace, error) {
-	if id == "" {
-		id = a.state.ActiveWorkspaceID
-	}
-	for i := range a.state.Workspaces {
-		if a.state.Workspaces[i].ID == id {
-			return &a.state.Workspaces[i], nil
-		}
-	}
-	return nil, fmt.Errorf("workspace %s not found", id)
-}
-
-func (a *App) findCollectionLocked(id string) (*Collection, error) {
-	for wi := range a.state.Workspaces {
-		for ci := range a.state.Workspaces[wi].Collections {
-			if a.state.Workspaces[wi].Collections[ci].ID == id {
-				return &a.state.Workspaces[wi].Collections[ci], nil
-			}
-		}
-	}
-	return nil, fmt.Errorf("collection %s not found", id)
-}
-
-func (a *App) findCollectionWithWorkspaceLocked(id string) (*Workspace, *Collection, error) {
-	for wi := range a.state.Workspaces {
-		for ci := range a.state.Workspaces[wi].Collections {
-			if a.state.Workspaces[wi].Collections[ci].ID == id {
-				return &a.state.Workspaces[wi], &a.state.Workspaces[wi].Collections[ci], nil
-			}
-		}
-	}
-	return nil, nil, fmt.Errorf("collection %s not found", id)
-}
-
 func findFolderConfig(collection *Collection, folderPath string) (*FolderConfig, error) {
 	index, err := findFolderConfigIndex(collection, folderPath)
 	if err != nil {
@@ -31284,7 +31602,7 @@ func validRequestPaneTab(value string) bool {
 
 func validResponsePaneTab(value string) bool {
 	switch value {
-	case "response", "headers", "timeline", "console", "tests", "examples":
+	case "response", "headers", "metadata", "trailers", "timeline", "console", "tests", "examples":
 		return true
 	default:
 		return false
@@ -31320,15 +31638,11 @@ func (a *App) isTransientRequestLocked(collectionID, itemID string) bool {
 			if collection.ID != collectionID {
 				continue
 			}
-			if collection.Scratch {
-				return true
-			}
-			for ii := range collection.Items {
-				if collection.Items[ii].ID == itemID {
-					return collection.Items[ii].Transient
-				}
-			}
-			return false
+			// Tab transience is a persistence concern and belongs only to the
+			// ephemeral Scratch collection. A never-saved normal request uses the
+			// item Transient flag for discard/export behavior, but its tab and
+			// draft must survive a crash/restart until the user resolves it.
+			return collection.Scratch
 		}
 	}
 	return false
@@ -31417,7 +31731,8 @@ func (a *App) syncResponseExampleTabLocked(collectionID, itemID string, example 
 	tabID := responseExampleTabID(collectionID, itemID, example.ID)
 	for i := range a.state.OpenTabs {
 		tab := &a.state.OpenTabs[i]
-		if tab.ID != tabID && !(tab.Kind == "response-example" && tab.CollectionID == collectionID && tab.ItemID == itemID && tab.ExampleID == example.ID) {
+		isSameExampleTab := tab.Kind == "response-example" && tab.CollectionID == collectionID && tab.ItemID == itemID && tab.ExampleID == example.ID
+		if tab.ID != tabID && !isSameExampleTab {
 			continue
 		}
 		tab.ID = tabID
@@ -31620,11 +31935,11 @@ func (a *App) writeCollectionFilesLocked(collection *Collection) error {
 	if err := os.MkdirAll(collection.Path, 0o755); err != nil {
 		return err
 	}
+	ensureRequestFilePaths(collection, requestFileExtensionForCollection(*collection))
 	if err := a.storeCollectionEnvironmentSecretsLocked(collection); err != nil {
 		return err
 	}
 	if collection.Format == "yml" {
-		ensureRequestFilePaths(collection, ".yml")
 		if err := os.WriteFile(filepath.Join(collection.Path, "opencollection.yml"), []byte(stringifyYAMLCollection(*collection)), 0o600); err != nil {
 			return err
 		}
@@ -31641,6 +31956,7 @@ func (a *App) writeCollectionFilesLocked(collection *Collection) error {
 				return err
 			}
 		}
+		a.seedCollectionWatchFingerprintLocked(collection.Path)
 		return nil
 	}
 	config := map[string]interface{}{
@@ -31686,7 +32002,6 @@ func (a *App) writeCollectionFilesLocked(collection *Collection) error {
 			}
 		}
 	}
-	ensureRequestFilePaths(collection, ".bru")
 	for _, item := range collection.Items {
 		content := stringifyBru(item)
 		target := requestFilePath(*collection, item, ".bru")
@@ -31697,6 +32012,7 @@ func (a *App) writeCollectionFilesLocked(collection *Collection) error {
 			return err
 		}
 	}
+	a.seedCollectionWatchFingerprintLocked(collection.Path)
 	return nil
 }
 
@@ -31707,10 +32023,16 @@ func (a *App) writeCollectionNameMetadataLocked(collection *Collection) error {
 	if err := os.MkdirAll(collection.Path, 0o755); err != nil {
 		return err
 	}
+	var err error
 	if strings.EqualFold(collection.Format, "yml") || strings.EqualFold(collection.Format, "yaml") || fileExists(filepath.Join(collection.Path, "opencollection.yml")) {
-		return writeYAMLCollectionNameMetadata(collection)
+		err = writeYAMLCollectionNameMetadata(collection)
+	} else {
+		err = writeBruCollectionNameMetadata(collection)
 	}
-	return writeBruCollectionNameMetadata(collection)
+	if err == nil {
+		a.seedCollectionWatchFingerprintLocked(collection.Path)
+	}
+	return err
 }
 
 func writeYAMLCollectionNameMetadata(collection *Collection) error {
@@ -31891,10 +32213,10 @@ func copyCollectionFormatFiles(sourcePath, targetPath, format string) error {
 	})
 }
 
-func copyCollectionFile(sourcePath, targetPath string) error {
-	info, err := os.Stat(sourcePath)
-	if err != nil {
-		return err
+func copyCollectionFile(sourcePath, targetPath string) (err error) {
+	info, statErr := os.Stat(sourcePath)
+	if statErr != nil {
+		return statErr
 	}
 	if !info.Mode().IsRegular() {
 		return nil
@@ -31906,12 +32228,20 @@ func copyCollectionFile(sourcePath, targetPath string) error {
 	if err != nil {
 		return err
 	}
-	defer source.Close()
+	// Read-only handle: a failed close cannot lose data.
+	defer func() { _ = source.Close() }()
 	target, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode().Perm())
 	if err != nil {
 		return err
 	}
-	defer target.Close()
+	// The write handle's close error must surface: it is where a deferred
+	// write failure (ENOSPC, EDQUOT, a failing network filesystem) is reported,
+	// and dropping it would report a truncated collection copy as a success.
+	defer func() {
+		if closeErr := target.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
 	_, err = io.Copy(target, source)
 	return err
 }
@@ -31941,7 +32271,11 @@ func (a *App) writeFolderConfigLocked(collection *Collection, folder FolderConfi
 	} else {
 		content = stringifyBruFolder(folder)
 	}
-	return os.WriteFile(target, []byte(content), 0o600)
+	if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+		return err
+	}
+	a.seedCollectionWatchFingerprintLocked(collection.Path)
+	return nil
 }
 
 func folderMetadataWritePath(collection Collection, targetDir string) string {
@@ -32116,10 +32450,10 @@ func pathInside(root, candidate string) bool {
 func normalizeGitRemoteURL(raw string) (string, error) {
 	remote := strings.TrimSpace(raw)
 	if remote == "" {
-		return "", errors.New("Git remote URL is required")
+		return "", errors.New("git remote URL is required")
 	}
 	if strings.ContainsAny(remote, "\r\n\t ") {
-		return "", errors.New("Git remote URL cannot contain whitespace")
+		return "", errors.New("git remote URL cannot contain whitespace")
 	}
 	if strings.Contains(remote, "://") {
 		parsed, err := url.Parse(remote)
@@ -32129,7 +32463,7 @@ func normalizeGitRemoteURL(raw string) (string, error) {
 		switch parsed.Scheme {
 		case "https", "http", "ssh", "git":
 			if parsed.Host == "" || parsed.Path == "" || parsed.Path == "/" {
-				return "", errors.New("Git remote URL must include host and repository path")
+				return "", errors.New("git remote URL must include host and repository path")
 			}
 		case "file":
 			if parsed.Path == "" || parsed.Path == "/" {
@@ -32139,7 +32473,7 @@ func normalizeGitRemoteURL(raw string) (string, error) {
 			return "", fmt.Errorf("unsupported Git remote URL scheme %q", parsed.Scheme)
 		}
 		if parsed.User != nil {
-			return "", errors.New("Git remote URL must not embed credentials")
+			return "", errors.New("git remote URL must not embed credentials")
 		}
 		return remote, nil
 	}
@@ -32148,13 +32482,13 @@ func normalizeGitRemoteURL(raw string) (string, error) {
 	}
 	colon := strings.Index(remote, ":")
 	if colon <= 0 || colon == len(remote)-1 {
-		return "", errors.New("Git remote URL must be https://, ssh://, file://, or git@host:path")
+		return "", errors.New("git remote URL must be https://, ssh://, file://, or git@host:path")
 	}
 	userHost := remote[:colon]
 	repoPath := remote[colon+1:]
 	at := strings.Index(userHost, "@")
 	if at <= 0 || at == len(userHost)-1 || strings.Contains(repoPath, ":") || strings.HasPrefix(repoPath, "/") {
-		return "", errors.New("Git remote URL must be https://, ssh://, file://, or git@host:path")
+		return "", errors.New("git remote URL must be https://, ssh://, file://, or git@host:path")
 	}
 	return remote, nil
 }
@@ -32289,38 +32623,7 @@ func looksLikeCollectionDir(path string) bool {
 }
 
 func updateManagedGitIgnore(workspacePath, collectionPath string, add bool) error {
-	if strings.TrimSpace(workspacePath) == "" || strings.TrimSpace(collectionPath) == "" || !pathInside(workspacePath, collectionPath) {
-		return nil
-	}
-	rel, err := filepath.Rel(filepath.Clean(workspacePath), filepath.Clean(collectionPath))
-	if err != nil || rel == "." || rel == "" {
-		return nil
-	}
-	entry := "/" + filepath.ToSlash(rel)
-	if err := os.MkdirAll(workspacePath, 0o755); err != nil {
-		return err
-	}
-	path := filepath.Join(workspacePath, ".gitignore")
-	content := ""
-	if data, err := os.ReadFile(path); err == nil {
-		content = string(data)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	entries := managedGitIgnoreEntries(content)
-	if add {
-		entries[entry] = true
-	} else {
-		delete(entries, entry)
-	}
-	next := replaceManagedGitIgnoreBlock(content, entries)
-	if strings.TrimSpace(next) == "" {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		return nil
-	}
-	return os.WriteFile(path, []byte(next), 0o600)
+	return updateManagedGitIgnoreSecure(workspacePath, collectionPath, add)
 }
 
 func managedGitIgnoreEntries(content string) map[string]bool {
@@ -32426,6 +32729,9 @@ func collectionFromImport(payload ImportPayload) (Collection, error) {
 		return importInsomnia(payload.Content, name)
 	case "openapi":
 		return importOpenAPI(payload.Content, name, payload.GroupBy)
+	case "curl":
+		collection, _, err := collectionFromCurlImport(payload.Content, name)
+		return collection, err
 	default:
 		return Collection{}, fmt.Errorf("unsupported import kind %q", payload.Kind)
 	}
@@ -32550,7 +32856,7 @@ func validateOpenAPISyncSource(sourceURL string) error {
 		case "http", "https", "file":
 			return nil
 		default:
-			return errors.New("Invalid source: only http/https URLs and local file paths are allowed")
+			return errors.New("invalid source: only http/https URLs and local file paths are allowed")
 		}
 	}
 	return nil
@@ -32586,7 +32892,7 @@ func fetchOpenAPISyncContent(collectionPath, sourceURL string, client *http.Clie
 			if err != nil {
 				return "", fmt.Errorf("could not reach %s: %w", sourceURL, err)
 			}
-			defer res.Body.Close()
+			defer func() { _ = res.Body.Close() }()
 			if res.StatusCode < 200 || res.StatusCode >= 300 {
 				return "", fmt.Errorf("failed to fetch spec: %d %s", res.StatusCode, http.StatusText(res.StatusCode))
 			}
@@ -32598,7 +32904,7 @@ func fetchOpenAPISyncContent(collectionPath, sourceURL string, client *http.Clie
 		case "file":
 			sourceURL = parsed.Path
 		default:
-			return "", errors.New("Invalid source: only http/https URLs and local file paths are allowed")
+			return "", errors.New("invalid source: only http/https URLs and local file paths are allowed")
 		}
 	}
 	path := sourceURL
@@ -32608,7 +32914,7 @@ func fetchOpenAPISyncContent(collectionPath, sourceURL string, client *http.Clie
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("Spec file not found at: %s", sourceURL)
+			return "", fmt.Errorf("spec file not found at: %s", sourceURL)
 		}
 		return "", err
 	}
@@ -34079,9 +34385,13 @@ func readCollectionFromDisk(collectionPath string) (Collection, error) {
 			version = configValue
 		}
 	}
-	if _, err := os.Stat(filepath.Join(collectionPath, "opencollection.yml")); err == nil {
+	openCollectionConfig := filepath.Join(collectionPath, "opencollection.yml")
+	if _, err := os.Stat(openCollectionConfig); err != nil {
+		openCollectionConfig = filepath.Join(collectionPath, "opencollection.yaml")
+	}
+	if _, err := os.Stat(openCollectionConfig); err == nil {
 		format = "yml"
-		if root, err := parseYAMLMapFile(filepath.Join(collectionPath, "opencollection.yml")); err == nil {
+		if root, err := parseYAMLMapFile(openCollectionConfig); err == nil {
 			if value, ok := nestedString(root, "info", "name"); ok {
 				name = value
 				rootConfigHasName = true
@@ -34127,7 +34437,7 @@ func readCollectionFromDisk(collectionPath string) (Collection, error) {
 		}
 	}
 	if format == "yml" {
-		if err := hydrateYAMLCollectionMetadata(&collection, filepath.Join(collectionPath, "opencollection.yml")); err != nil {
+		if err := hydrateYAMLCollectionMetadata(&collection, openCollectionConfig); err != nil {
 			return Collection{}, err
 		}
 	}
@@ -35633,16 +35943,16 @@ func openAPIExampleRawValue(raw interface{}) (interface{}, bool) {
 	for name := range examples {
 		names = append(names, name)
 	}
+	// Map iteration order is random, so pick the lowest-sorting name to make the
+	// chosen example deterministic across runs.
 	sort.Strings(names)
-	for _, name := range names {
-		if valueMap, ok := mapValue(examples[name]); ok {
-			if value, ok := valueMap["value"]; ok {
-				return value, true
-			}
+	first := examples[names[0]]
+	if valueMap, ok := mapValue(first); ok {
+		if value, ok := valueMap["value"]; ok {
+			return value, true
 		}
-		return examples[name], true
 	}
-	return nil, false
+	return first, true
 }
 
 func openAPISchemaTemplate(raw interface{}, root map[string]interface{}, seen map[string]bool) interface{} {
@@ -40376,6 +40686,9 @@ func applyBruExampleRequest(example *ResponseExample, lines []string) {
 
 func applyBruExampleResponse(example *ResponseExample, lines []string) {
 	values := parseBruScalarMapDedented(lines)
+	if duration, err := strconv.ParseInt(firstNonEmpty(values["duration"], values["durationMs"]), 10, 64); err == nil && duration >= 0 {
+		example.Response.DurationMs = duration
+	}
 	if statusText := strings.TrimSpace(values["statusText"]); statusText != "" {
 		example.Response.StatusText = statusText
 	}
@@ -41835,6 +42148,9 @@ func writeBruExample(b *strings.Builder, example ResponseExample) {
 	}
 	b.WriteString("    }\n")
 	writeIndentedKeyValues(b, "headers", example.Response.Headers, "    ")
+	if example.Response.DurationMs > 0 {
+		fmt.Fprintf(b, "    duration: %d\n", example.Response.DurationMs)
+	}
 	writeExampleContentBlock(b, "body", firstNonEmpty(example.Response.BodyType, "text"), example.Response.Body, "    ")
 	b.WriteString("  }\n")
 	b.WriteString("}\n")
@@ -41999,10 +42315,10 @@ func defaultFeatures() []Feature {
 			features[i].Description = strings.Replace(features[i].Description, "with merged collection/folder/request post-response variables evaluated before post-response scripts/tests", "with merged collection/folder/request post-response variables evaluated before post-response scripts/tests plus editable folder scripts/tests save-back", 1)
 			features[i].Tests = append(features[i].Tests, "TestUpdateFolderSettingsWritesFolderBruAndAffectsRequests", "Browser UI smoke: folder settings editor")
 			features[i].Description = strings.Replace(features[i].Description, "Fetch API globals (fetch, Request, Response, Headers, AbortController, FormData, Blob) backed by the HTTP bridge", "Fetch API globals (fetch, Request, Response, Headers, AbortController, FormData, Blob) backed by the HTTP bridge plus node-fetch/node-fetch/commonjs module aliases", 1)
-				features[i].Description = strings.Replace(features[i].Description, "uuid v1/v3/v4/v5/v6/v7/parse/stringify/validate helpers, nanoid", "uuid v1/v3/v4/v5/v6/v7/parse/stringify/validate helpers, lodash/underscore get/set/cloneDeep/isEqual/chain/collection helpers plus lodash/<helper> subpath imports, nanoid", 1)
-				features[i].Description = strings.Replace(features[i].Description, "nanoid, path/node:path", "nanoid, path/node:path plus Developer Mode path/posix/node:path/posix and path/win32/node:path/win32", 1)
-				features[i].Description = strings.Replace(features[i].Description, "stream/node:stream basic constructor/pipeline helpers", "stream/node:stream basic constructor/pipeline helpers plus Developer Mode stream/promises/node:stream/promises pipeline/finished promises", 1)
-				features[i].Description = strings.Replace(features[i].Description, "global Buffer plus buffer/node:buffer, util/node:util", "global Buffer plus buffer/node:buffer, util/node:util plus Developer Mode util/types/node:util/types", 1)
+			features[i].Description = strings.Replace(features[i].Description, "uuid v1/v3/v4/v5/v6/v7/parse/stringify/validate helpers, nanoid", "uuid v1/v3/v4/v5/v6/v7/parse/stringify/validate helpers, lodash/underscore get/set/cloneDeep/isEqual/chain/collection helpers plus lodash/<helper> subpath imports, nanoid", 1)
+			features[i].Description = strings.Replace(features[i].Description, "nanoid, path/node:path", "nanoid, path/node:path plus Developer Mode path/posix/node:path/posix and path/win32/node:path/win32", 1)
+			features[i].Description = strings.Replace(features[i].Description, "stream/node:stream basic constructor/pipeline helpers", "stream/node:stream basic constructor/pipeline helpers plus Developer Mode stream/promises/node:stream/promises pipeline/finished promises", 1)
+			features[i].Description = strings.Replace(features[i].Description, "global Buffer plus buffer/node:buffer, util/node:util", "global Buffer plus buffer/node:buffer, util/node:util plus Developer Mode util/types/node:util/types", 1)
 			features[i].Description = strings.Replace(features[i].Description, "crypto-js AES/hash/HMAC helpers, moment", "crypto-js AES/hash/HMAC helpers, xml-formatter pretty/minify helpers, moment", 1)
 			features[i].Description = strings.Replace(features[i].Description, "xml-formatter pretty/minify helpers, moment", "xml-formatter pretty/minify helpers, yaml parse/stringify/parseDocument helpers, moment", 1)
 			features[i].Description = strings.Replace(features[i].Description, "xml-formatter pretty/minify helpers, yaml parse/stringify/parseDocument helpers, moment", "xml-formatter pretty/minify helpers, xml2js parseString/Parser helpers, yaml parse/stringify/parseDocument helpers, moment", 1)
@@ -42020,7 +42336,7 @@ func defaultFeatures() []Feature {
 			features[i].Tests = append(features[i].Tests, "UI smoke: cheerio")
 			features[i].Tests = append(features[i].Tests, "UI smoke: xml2js")
 			features[i].Tests = append(features[i].Tests, "UI smoke: yaml")
-				features[i].Tests = append(features[i].Tests, "TestJavaScriptRuntimeSupportsDeveloperTimerGlobals", "TestJavaScriptRuntimeSafeModeHidesProcessGlobal", "TestJavaScriptRuntimeDeveloperModeSupportsFSBuiltin", "TestJavaScriptRuntimeDeveloperModeSupportsFSPromisesBuiltin", "TestJavaScriptRuntimeDeveloperModeSupportsPathSubmodules", "TestJavaScriptRuntimeDeveloperModeSupportsStreamPromisesBuiltin", "TestJavaScriptRuntimeDeveloperModeSupportsUtilTypesBuiltin", "TestJavaScriptRuntimeDeveloperModeSupportsProcessBuiltin", "TestJavaScriptRuntimeDeveloperModeSupportsConsoleBuiltin", "TestJavaScriptRuntimeDeveloperModeSupportsTimersBuiltins", "TestJavaScriptRuntimeDeveloperModeSupportsAssertBuiltin", "TestJavaScriptRuntimeDeveloperModeSupportsDNSBuiltin", "TestJavaScriptRuntimeDeveloperModeSupportsHTTPBuiltins", "TestJavaScriptRuntimeDeveloperModeSupportsPackageRequire", "Browser UI smoke: JavaScript sandbox mode", "Browser UI smoke: Safe/Developer process globals", "Browser UI smoke: Developer Mode fs", "Browser UI smoke: Developer Mode fs/promises", "Browser UI smoke: Developer Mode path submodules", "Browser UI smoke: Developer Mode stream/promises", "Browser UI smoke: Developer Mode util/types", "Browser UI smoke: Developer Mode process builtin", "Browser UI smoke: Developer Mode console", "Browser UI smoke: Developer Mode timers", "Browser UI smoke: Developer Mode assert", "Browser UI smoke: Developer Mode dns", "Browser UI smoke: Developer Mode http/https builtins")
+			features[i].Tests = append(features[i].Tests, "TestJavaScriptRuntimeSupportsDeveloperTimerGlobals", "TestJavaScriptRuntimeSafeModeHidesProcessGlobal", "TestJavaScriptRuntimeDeveloperModeSupportsFSBuiltin", "TestJavaScriptRuntimeDeveloperModeSupportsFSPromisesBuiltin", "TestJavaScriptRuntimeDeveloperModeSupportsPathSubmodules", "TestJavaScriptRuntimeDeveloperModeSupportsStreamPromisesBuiltin", "TestJavaScriptRuntimeDeveloperModeSupportsUtilTypesBuiltin", "TestJavaScriptRuntimeDeveloperModeSupportsProcessBuiltin", "TestJavaScriptRuntimeDeveloperModeSupportsConsoleBuiltin", "TestJavaScriptRuntimeDeveloperModeSupportsTimersBuiltins", "TestJavaScriptRuntimeDeveloperModeSupportsAssertBuiltin", "TestJavaScriptRuntimeDeveloperModeSupportsDNSBuiltin", "TestJavaScriptRuntimeDeveloperModeSupportsHTTPBuiltins", "TestJavaScriptRuntimeDeveloperModeSupportsPackageRequire", "Browser UI smoke: JavaScript sandbox mode", "Browser UI smoke: Safe/Developer process globals", "Browser UI smoke: Developer Mode fs", "Browser UI smoke: Developer Mode fs/promises", "Browser UI smoke: Developer Mode path submodules", "Browser UI smoke: Developer Mode stream/promises", "Browser UI smoke: Developer Mode util/types", "Browser UI smoke: Developer Mode process builtin", "Browser UI smoke: Developer Mode console", "Browser UI smoke: Developer Mode timers", "Browser UI smoke: Developer Mode assert", "Browser UI smoke: Developer Mode dns", "Browser UI smoke: Developer Mode http/https builtins")
 			break
 		}
 	}
@@ -42123,10 +42439,4 @@ func brunoWorkspaceEnvironmentUIDForPath(path string) string {
 		return uid
 	}
 	return uid + strings.Repeat("0", 21-len(uid))
-}
-
-func sortCollections(collections []Collection) {
-	sort.SliceStable(collections, func(i, j int) bool {
-		return strings.ToLower(collections[i].Name) < strings.ToLower(collections[j].Name)
-	})
 }

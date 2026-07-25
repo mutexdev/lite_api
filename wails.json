@@ -2,11 +2,16 @@
   "$schema": "https://wails.io/schemas/config.v2.json",
   "name": "LiteAPI",
   "outputfilename": "LiteAPI",
-  "frontend:install": "npm install",
+  "frontend:install": "npm ci",
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "info": {
+    "companyName": "mutexdev",
+    "productName": "LiteAPI",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright © 2026 mutexdev",
+    "comments": "Local-first desktop API client",
     "protocols": [
       {
         "scheme": "liteapi",
@@ -21,7 +26,7 @@
     ]
   },
   "author": {
-    "name": "",
+    "name": "mutexdev",
     "email": ""
   }
 }

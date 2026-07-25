@@ -1,0 +1,1582 @@
+{
+  "project": "LiteAPI v2",
+  "branchName": "ralph/postman-switchable-v2",
+  "description": "Make a Postman user able to switch to LiteAPI in an afternoon, make the app measurably faster than Postman, and move the codebase onto modern Go/Svelte idiom without regressing the Bruno parity banked in PARITY.md. Full spec, orchestration protocol and evidence: improvement_v2.md.",
+  "spec": "improvement_v2.md",
+  "protocol": "improvement_v2.md#4-loop-protocol",
+  "reviewerKey": {
+    "R1": "feature-dev:code-reviewer (RESIDENT — continue via SendMessage across rounds)",
+    "R2": "general-purpose — performance, go test -bench vs .ralph/baseline/bench.txt",
+    "R3": "general-purpose + chrome MCP — computer-use QA against wails dev on http://localhost:34115",
+    "R4": "pr-review-toolkit:silent-failure-hunter",
+    "R5": "pr-review-toolkit:pr-test-analyzer"
+  },
+  "standingGates": [
+    "go build ./...",
+    "go vet ./...",
+    "go test ./...",
+    "go test -race ./...",
+    "cd frontend && npm run check && npm run build && npm test"
+  ],
+  "lanes": {
+    "backend": "SERIAL — every story touches app.go",
+    "frontend": "parallel with backend; internally serial once US-026 lands",
+    "tooling": "parallel with both"
+  },
+  "maxReviewRounds": 3,
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "PR CI workflow",
+      "description": "As a maintainer, I want CI to run on pull requests so that regressions are caught before merge instead of after a release build.",
+      "acceptanceCriteria": [
+        "New .github/workflows/ci.yml triggers on pull_request (release.yml currently triggers only on push to main)",
+        "Runs go build, go vet, go test ./..., go test -race ./...",
+        "Runs npm run check, npm run build, npm test",
+        "A deliberately broken PR fails the workflow",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "lane": "tooling",
+      "reviewers": [
+        "R1"
+      ],
+      "passes": false,
+      "notes": "Implemented and actionlint-clean; 3 jobs on pull_request. OPEN: \"a deliberately broken PR fails the workflow\" requires a real GitHub Actions run. Not performed - outward-facing action on a live repo, awaiting maintainer go-ahead. Local proxy evidence only. See .ralph/plans/US-001.md."
+    },
+    {
+      "id": "US-002",
+      "title": "Wire frontend tests into npm",
+      "description": "As a developer, I want the existing frontend tests to run from npm so that CI can execute them.",
+      "acceptanceCriteria": [
+        "frontend/package.json gains \"test\": \"node --test test/*.mts\"",
+        "The 3 existing files in frontend/test/ (7 cases) pass via npm test",
+        "npm test is invoked by the US-001 CI workflow",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 2,
+      "lane": "tooling",
+      "reviewers": [
+        "R1",
+        "R5"
+      ],
+      "passes": true,
+      "notes": "node --test test/*.mts wired. Verified: 7/7 exit 0; deliberately broken test exits 1; restored exits 0."
+    },
+    {
+      "id": "US-003",
+      "title": "Go linter",
+      "description": "As a maintainer, I want a Go linter in CI so that code quality is enforced rather than reviewed by hand.",
+      "acceptanceCriteria": [
+        ".golangci.yml enables govet, staticcheck, errcheck, ineffassign, unused",
+        "CI step added to the US-001 workflow",
+        "Repo passes cleanly, or each exclusion carries a written reason",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "lane": "tooling",
+      "reviewers": [
+        "R1"
+      ],
+      "passes": true,
+      "notes": "golangci-lint v2.12.2. Real census was 203, not the 107 first reported (default caps truncate). 178 fixed, 25 excluded with reasons, verified by unconfigured negative-control run. Fixed a real bug: copyCollectionFile dropped write-handle close errors."
+    },
+    {
+      "id": "US-004",
+      "title": "Frontend linter",
+      "description": "As a developer, I want ESLint with Svelte support so that frontend issues svelte-check does not catch are surfaced.",
+      "acceptanceCriteria": [
+        "eslint.config.js added with eslint-plugin-svelte",
+        "frontend/package.json gains a lint script",
+        "npm run lint passes",
+        "CI step added",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "lane": "tooling",
+      "reviewers": [
+        "R1"
+      ],
+      "passes": true,
+      "notes": "eslint flat config. 200-finding census. Fixed a real staleness bug in ResponseInspector.svelte ($: statements with no reactive dependencies). NOTE: eslint-plugin-svelte v3 ships zero a11y rules; compensated with svelte/valid-compile."
+    },
+    {
+      "id": "US-005",
+      "title": "Go benchmarks for the five hot paths",
+      "description": "As a maintainer, I want benchmarks for the known hot paths so that Phase 1 performance claims are measured rather than asserted.",
+      "acceptanceCriteria": [
+        "bench_test.go benchmarks persistLocked (app.go:8393)",
+        "Benchmarks writeCollectionFilesLocked (app.go:32023)",
+        "Benchmarks interpolate (app.go:30920)",
+        "Benchmarks newScriptRuntimeWithMeta (app.go:17274)",
+        "Benchmarks executeHTTP (app.go:9021) against qa/responsefixture",
+        "go test -bench=. -benchmem -run=^$ output committed to .ralph/baseline/bench.txt",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 5,
+      "lane": "tooling",
+      "reviewers": [
+        "R1",
+        "R2"
+      ],
+      "passes": true,
+      "notes": "Baseline in .ralph/baseline/bench.txt. PersistLocked = 225.7ms/op, 221MB/op on a 500-request workspace. Same-host comparison only."
+    },
+    {
+      "id": "US-006",
+      "title": "Large-workspace perf fixture",
+      "description": "As a maintainer, I want a large synthetic workspace so that keystroke-latency and state-size claims are reproducible.",
+      "acceptanceCriteria": [
+        "Generator produces 500 requests across 10 collections",
+        "At least 3 requests carry a cached 5 MB response",
+        "Fixture is consumed by the US-005 benchmarks",
+        "Generation is deterministic (fixed seed)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 6,
+      "lane": "tooling",
+      "reviewers": [
+        "R1",
+        "R2"
+      ],
+      "passes": true,
+      "notes": "workspace_fixture.go - 500 requests / 10 collections / 3x5MiB, seeded and epoch-fixed. Lives in root package main because bench targets are unexported; cannot be a qa/ subpackage."
+    },
+    {
+      "id": "US-007",
+      "title": "Resolve the Wails version pin",
+      "description": "As a maintainer, I want one authoritative Wails version so that CI packaging matches what QA validated.",
+      "acceptanceCriteria": [
+        "CI pins WAILS_VERSION v2.10.2 (release.yml:16) while QA docs record packaging with v2.12.0 — pick one",
+        "go.mod and CI agree on the chosen version",
+        "wails build -nocolour succeeds on the chosen version",
+        "Regenerated bindings produce no unintended diff in frontend/wailsjs/",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "lane": "tooling",
+      "reviewers": [
+        "R1"
+      ],
+      "passes": true,
+      "notes": "Wails v2.10.2 -> v2.12.0 in go.mod + release.yml; dead replace line removed. wails build packaged and self-signed; binary valid arm64, signature verified. Bindings regenerated, frontend re-gated clean."
+    },
+    {
+      "id": "US-008",
+      "title": "Add AppState.Revision",
+      "description": "As the frontend, I want a monotonic revision on AppState so that I can detect when my local copy has diverged and needs a full refetch.",
+      "acceptanceCriteria": [
+        "Revision int64 added to AppState (app.go:197)",
+        "Bumped exactly once per mutation, never on a read",
+        "GetState returns the current revision",
+        "All 456 existing tests pass unchanged",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 8,
+      "lane": "backend",
+      "reviewers": [
+        "R1"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Move response bodies out of AppState",
+      "description": "As a user, I want large responses to stop being re-serialized on every keystroke so that typing stays responsive in collections with cached responses.",
+      "acceptanceCriteria": [
+        "New responseStore: in-memory LRU spilling to <dataDir>/responses/",
+        "Response.Body and Response.BodyBase64 (app.go:631-632) replaced with BodyHandle string, Size, and an inline head of ~8 KB",
+        "BodyBase64 is deleted, not retained — base64 is derived on demand",
+        "Versioned state.json migration following the workspace_migration.go pattern",
+        "Loading a pre-migration state.json succeeds and preserves visible responses",
+        "Saved response examples and response export still work",
+        "All 456 existing tests pass",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 9,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R2",
+        "R4",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "ReadResponseBody binding",
+      "description": "As the response inspector, I want to fetch body slices on demand so that I can render large responses without holding them in app state.",
+      "acceptanceCriteria": [
+        "New binding ReadResponseBody(handle string, offset int, length int) returns raw and base64",
+        "response.ts Render full (ResponseInspector.svelte:231) calls it",
+        "response.ts Load more (ResponseInspector.svelte:233) calls it",
+        "Tiered limits in response.ts unchanged: 128 KB automatic, 512 KB embedded, 1 MB full",
+        "UTF-8 boundary and Base64 quartet slicing behavior preserved",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 10,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R2",
+        "R3",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Bound response reads",
+      "description": "As a user, I want a huge download not to exhaust memory so that the app survives an accidental large response.",
+      "acceptanceCriteria": [
+        "io.ReadAll at app.go:9190 replaced with io.LimitReader, default cap 100 MB, configurable in preferences",
+        "Bodies above a memory threshold stream directly to the US-009 spill file",
+        "Truncation is surfaced in the UI, not silent",
+        "50 MB fixture response: RSS does not grow by ~2.3x the body size",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 11,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R2",
+        "R4"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Async coalesced atomic persistence",
+      "description": "As a user, I want typing not to block on a full disk write so that the editor stays responsive and a crash cannot corrupt my state.",
+      "acceptanceCriteria": [
+        "All 83 persistLocked() call sites replaced with a.markDirty(scope)",
+        "A single background writer goroutine coalesces on a ~250 ms debounce",
+        "Force-flush on beforeClose, shutdown, and window blur",
+        "json.Marshal replaces json.MarshalIndent",
+        "Write goes to a temp file then os.Rename for atomicity",
+        "Killing the process mid-write leaves a state.json that still parses",
+        "No mutation is lost across a force-flush boundary",
+        "persistLocked benchmark improves against .ralph/baseline/bench.txt",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 12,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R2",
+        "R4",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "Split dirty scopes for secrets and OAuth files",
+      "description": "As a user, I want unchanged secret files not to be re-encrypted and rewritten on every mutation so that disk churn and key operations drop.",
+      "acceptanceCriteria": [
+        "state.json, secrets.json and the OAuth2 token file each get an independent dirty flag",
+        "storeStateEnvironmentSecretsLocked and storeOAuth2Credentials run only when their scope is dirty",
+        "Secret round-trip and recovery_store_security_test.go tests pass",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 13,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R4"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "Narrow-return mutators",
+      "description": "As the frontend, I want hot mutators to return only what changed so that a keystroke does not ship the whole workspace across the bridge.",
+      "acceptanceCriteria": [
+        "UpdateRequest, UpdateOpenTabPanes, SetActiveTab and MoveOpenTab gain variants returning {Revision, Item} or {Revision, Tabs}",
+        "Frontend applies the narrow result locally instead of replacing state",
+        "GetState() is called only on boot, on watcher-driven change, and on a revision gap",
+        "Existing full-AppState methods keep working for callers not yet migrated",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 14,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R2",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "Dirty-set collection file writes",
+      "description": "As a user, I want saving one request to write one file so that saving in a large collection is not O(collection).",
+      "acceptanceCriteria": [
+        "writeCollectionFilesLocked (app.go:32023) writes only changed request and environment files",
+        "Content is hash-compared before write; unchanged files are skipped",
+        "Saving one request no longer rewrites bruno.json, collection.bru, every env file and every request file",
+        "Bru and YAML round-trip tests pass unchanged",
+        "writeCollectionFilesLocked benchmark improves against baseline",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 15,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R2",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "Keyed HTTP transport cache",
+      "description": "As a user, I want connection keep-alive to work behind a proxy or client certificate so that repeated sends do not pay a fresh TCP and TLS handshake each time.",
+      "acceptanceCriteria": [
+        "Keyed map[string]*http.Transport behind an RWMutex, key derived from TLS settings, matched client cert, proxy resolution and verifyTLS",
+        "cloneHTTPTransport (app.go:9546) no longer called per request on the hot path",
+        "transportWithoutProxy (app.go:9557) no longer allocates a transport for the no-proxy case",
+        "Idle transports are evicted",
+        "Proof: qa/platformfixture with proxy plus client cert, N sequential sends, exactly one TCP connection observed",
+        "All proxy mode tests (manual, system, PAC, inherit, bypass) and mTLS tests pass",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 16,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R2",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "Consolidate one-off HTTP clients",
+      "description": "As a maintainer, I want auxiliary HTTP calls to share the pooled transport so that OAuth and AWS flows also get keep-alive.",
+      "acceptanceCriteria": [
+        "The six http.Client{Timeout: 30s} literals at app.go:14246, 15777, 15878, 16137, 16238, 19068 use the US-016 cache",
+        "Per-call timeouts are preserved",
+        "OAuth2, AWS SigV4 credential chain and script fetch tests pass",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 17,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R2"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-018",
+      "title": "Cache compiled goja programs",
+      "description": "As a user, I want scripted requests to start fast so that pre-request and test scripts do not pay a full library recompile every time.",
+      "acceptanceCriteria": [
+        "The 25 JS shim sources are compiled once via goja.Compile behind sync.OnceValue",
+        "newScriptRuntimeWithMeta (app.go:17274) uses RunProgram instead of RunString",
+        "newScriptRuntimeWithMeta benchmark improves by at least 5x against baseline",
+        "All ~60 JS-runtime tests pass unchanged",
+        "chai, axios, moment, crypto-js, uuid, node builtin shims all still resolve",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 18,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R2",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-019",
+      "title": "goja runtime pool and shared-scope reuse",
+      "description": "As a user, I want a request with scripts to build one JS runtime instead of four so that per-request script overhead drops.",
+      "acceptanceCriteria": [
+        "sync.Pool of pre-warmed runtimes, reset between uses",
+        "One runtime instead of four where pre-request, post-response, tests and response-vars share scope (app.go:17055-17229)",
+        "Safe mode still strips process, fs and unrestricted timers; developer mode still exposes them",
+        "No variable or cookie state leaks between requests — explicit test",
+        "All JS-runtime and sandbox-mode tests pass",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 19,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R2",
+        "R4",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-020",
+      "title": "Convert the global mutex to RWMutex",
+      "description": "As a user, I want concurrent reads not to block each other so that the UI stays responsive while a request is in flight.",
+      "acceptanceCriteria": [
+        "a.mu (app.go:134) becomes sync.RWMutex",
+        "GetState (app.go:1386) and other read-only paths take RLock",
+        "All 112 existing Lock() sites audited; write paths keep Lock()",
+        "go test -race ./... is clean",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 20,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R2",
+        "R4"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-021",
+      "title": "Push WebSocket session events",
+      "description": "As a user, I want live WebSocket events streamed to the UI so that a long session does not get slower with every message.",
+      "acceptanceCriteria": [
+        "Incremental ws:event emitted via runtime.EventsEmit",
+        "Frontend appends events instead of replacing the log",
+        "The json.MarshalIndent(session.events) poll path at app.go:10881 is removed",
+        "A 1000-message session shows flat per-message cost, not quadratic",
+        "WebSocket binary base64/hex, keep-alive ping and proxy tests pass",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 21,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R2",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-022",
+      "title": "Push gRPC session events",
+      "description": "As a user, I want live gRPC stream events streamed to the UI so that long streams stay responsive.",
+      "acceptanceCriteria": [
+        "Incremental grpc:event emitted via runtime.EventsEmit",
+        "Frontend appends events instead of replacing the log",
+        "Timeline stream request/response counts unchanged",
+        "Server, client and bidi streaming tests pass",
+        "Metadata and trailers still render in their separate tabs",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 22,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R2",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-023",
+      "title": "Single-pass interpolation",
+      "description": "As a user, I want variable substitution to scale with body size rather than with variable count so that large bodies interpolate quickly.",
+      "acceptanceCriteria": [
+        "interpolate (app.go:30920) replaced with one compiled-regex scan plus one strings.Builder",
+        "The up-to-8-passes-times-every-variable ReplaceAll loop is gone",
+        "Variable precedence from buildVariableMap (app.go:30115) is unchanged: global env, collection vars, environment, folder chain, request vars, runtime vars, process env",
+        "Nested and recursive variable references behave as before",
+        "interpolate benchmark improves by at least 10x at 50 variables",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 23,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R2",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-024",
+      "title": "ID to index lookup maps",
+      "description": "As a user, I want a collection run over a large collection to stay linear so that the runner does not slow down as collections grow.",
+      "acceptanceCriteria": [
+        "ID-to-index maps replace linear scans in findCollectionLocked, findItem and findItemInState",
+        "Maps are kept consistent across add, delete, move and rename",
+        "Runner over the US-006 500-request fixture is no longer quadratic",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 24,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R2"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-025",
+      "title": "Extract inlined modals from App.svelte",
+      "description": "As a developer, I want the 30 inlined dialogs as components so that App.svelte shrinks and modals become independently testable.",
+      "acceptanceCriteria": [
+        "The 30 role=dialog blocks at App.svelte:11852-13165 become components under frontend/src/lib/modals/",
+        "Focus traps, inert app-shell blocking, returnFocus with preventScroll, aria-modal and aria-labelledby all intact",
+        "Escape-to-close and Tab/Shift-Tab wrap still work in each dialog",
+        "svelte-check stays 0 errors 0 warnings",
+        "Typecheck passes",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 25,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-026",
+      "title": "Introduce a rune store layer",
+      "description": "As a developer, I want shared state in stores so that components read what they need instead of receiving hand-flattened props.",
+      "acceptanceCriteria": [
+        "New .svelte.ts rune modules: workspaceStore, requestStore, responseStore, devToolsStore, uiStore",
+        "WorkspaceCommandBar's 22 props (App.svelte:8390-8413) collapse to store reads",
+        "KeyValueTable's 33 export let props reduced to store reads plus genuinely local props",
+        "No per-render .map() allocations remain in the prop-passing path",
+        "svelte-check stays 0/0",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 26,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R3",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-027",
+      "title": "Runes migration: lib components",
+      "description": "As a developer, I want lib/ components on Svelte 5 runes so that the codebase stops running on deprecated idiom.",
+      "acceptanceCriteria": [
+        "FileBodyTable, KeyValueTable, MultipartTable, OAuth2AdditionalParams and VariableTextOverlay migrated",
+        "export let becomes $props(); two-way bindings become $bindable",
+        "Callback props are preserved (no createEventDispatcher introduced)",
+        "svelte-check stays 0/0",
+        "Typecheck passes",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 27,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-028",
+      "title": "Runes migration: workbench components",
+      "description": "As a developer, I want workbench components on runes so that the response and command surfaces use modern reactivity.",
+      "acceptanceCriteria": [
+        "All 9 components under lib/workbench/ migrated",
+        "ResponseInspector.svelte's 42 reactive statements become $derived or $effect as appropriate",
+        "CodeEditor.svelte's 6 reactive statements migrated without changing CodeMirror reconfigure semantics",
+        "svelte-check stays 0/0",
+        "Typecheck passes",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 28,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-029",
+      "title": "Runes migration: App.svelte",
+      "description": "As a developer, I want App.svelte on runes so that the last and largest legacy surface is migrated, handling the spots where semantics change.",
+      "acceptanceCriteria": [
+        "All 110 reactive statements in App.svelte migrated",
+        "Self-referential filter on generateDocsDeselectedEnvIds (App.svelte:1006) handled explicitly — legal under $: but not under $derived",
+        "DOM .indeterminate write (App.svelte:1011) becomes $effect",
+        "applyThemeToDocument, applyZoomToDocument and applyCodeFontToDocument side effects (App.svelte:1091, 1126-1128) become $effect",
+        "svelte:fragment slot usages (App.svelte:8415, 8778) become snippets",
+        "Each of the five spots lands as its own commit with svelte-check 0/0 after it",
+        "Theme switching across all 12 themes still works, including system-preference following",
+        "Typecheck passes",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 29,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R3",
+        "R4"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-030",
+      "title": "Key every each block",
+      "description": "As a user, I want list updates to reuse DOM nodes so that editing does not destroy and rebuild rows.",
+      "acceptanceCriteria": [
+        "All 106 {#each} blocks are keyed (currently 13)",
+        "Priority keyed first: collection tree App.svelte:8177, 8211, 8282; tab bar :8439; DevTools console :8496; network log :8559",
+        "Keys are stable identities, not array indices",
+        "Input focus is not lost mid-edit when a list re-renders",
+        "svelte-check stays 0/0",
+        "Typecheck passes",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 30,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-031",
+      "title": "Virtualize the collection tree",
+      "description": "As a user with a large collection, I want the sidebar to render only visible rows so that scrolling and typing stay smooth.",
+      "acceptanceCriteria": [
+        "Collection tree virtualized (App.svelte:8177-8360, currently ~15-20 DOM nodes per request row)",
+        "Against the US-006 500-request fixture, DOM node count is bounded and independent of collection size",
+        "Keyboard navigation, expand/collapse, context menus and rename all still work",
+        "Menus still render above the scroller and are not clipped",
+        "aria-expanded on chevrons preserved",
+        "Typecheck passes",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 31,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-032",
+      "title": "Virtualize the DevTools network log",
+      "description": "As a user, I want the network log to stay fast after many requests so that DevTools does not degrade during a long session.",
+      "acceptanceCriteria": [
+        "DevTools network table (App.svelte:8518-8660) virtualized",
+        "aria-sort, persisted column widths, method filters and sort order all preserved",
+        "Row selection and the Request Details panel still work",
+        "DOM node count bounded regardless of log length",
+        "Typecheck passes",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 32,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-033",
+      "title": "Remove per-keystroke work in CodeEditor",
+      "description": "As a user editing a large body, I want typing not to re-encode the whole document so that the editor stays responsive.",
+      "acceptanceCriteria": [
+        "CodeEditor.svelte:42 full-document TextEncoder().encode() replaced with incremental length from the CodeMirror transaction",
+        "variableSignature (CodeEditor.svelte:44-45, :234) memoized on a stable key so it does not rebuild per keystroke",
+        "The 1 MB largeDocumentBytes guard still drops language extensions, linting and decorations above threshold",
+        "500 KB body: no half-megabyte allocation per keystroke, confirmed by a performance trace",
+        "Typecheck passes",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 33,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R2",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-034",
+      "title": "Memoize expensive derivations",
+      "description": "As a user, I want derived UI data recomputed only when its inputs change so that unrelated state updates are cheap.",
+      "acceptanceCriteria": [
+        "variableTooltipsForRequest (App.svelte:1104 calling the ~300-line function at :1454) memoized on request id plus revision",
+        "groupedItems (App.svelte:8178, inline @const rebuilding a Map per collection per render) becomes $derived keyed on collection revision",
+        "DevTools network filter and sort (App.svelte:1082, 1084) computed once rather than per method and per state change",
+        "Performance trace shows no long task on keystroke",
+        "Typecheck passes",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 34,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R2",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-035",
+      "title": "Debounce patchRequest with optimistic state",
+      "description": "As a user, I want typing to update the UI immediately and hit the backend at most every 120 ms so that keystrokes are not IPC round trips.",
+      "acceptanceCriteria": [
+        "patchRequest (App.svelte:5338) debounced at ~120 ms",
+        "Local state updates optimistically so the input never lags",
+        "Disk autosave debounce (App.svelte:6213-6229) remains independent and unchanged",
+        "Typing rapidly then immediately pressing Send loses no keystrokes and sends the latest value",
+        "Switching tabs mid-debounce flushes the pending patch",
+        "Typecheck passes",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 35,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R2",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-036",
+      "title": "Split the frontend bundle",
+      "description": "As a user, I want the app to start faster so that cold launch does not parse a megabyte of JavaScript I may never use.",
+      "acceptanceCriteria": [
+        "vite.config.ts gains manualChunks (currently a bare defineConfig with only the svelte plugin)",
+        "DevTools, Runner, Import, Preferences, OpenAPI-sync and CodeMirror are dynamically imported",
+        "Initial JS chunk under 500 KB, down from the current 1,159,933 bytes",
+        "Sizes recorded in .ralph/baseline/bundle.txt",
+        "No lazy surface regresses: each still opens and functions",
+        "Typecheck passes",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 36,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R2",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-037",
+      "title": "Add spacing and type token scales",
+      "description": "As a designer, I want spacing and typography tokenized like color already is so that density and scale are consistent and adjustable.",
+      "acceptanceCriteria": [
+        "--space-*, --font-size-* and --radius-* scales added to style.css",
+        "The 1,183 raw px literals migrated to tokens",
+        "The existing 74 color tokens and 12 named themes are untouched",
+        "All 12 themes render identically before and after, confirmed by screenshot diff against .ralph/baseline/",
+        "prefers-reduced-motion and prefers-contrast handling preserved",
+        "Typecheck passes",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 37,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-038",
+      "title": "Test response.ts",
+      "description": "As a maintainer, I want the response-slicing module covered so that the most correctness-sensitive frontend code is not untested.",
+      "acceptanceCriteria": [
+        "Vitest and @testing-library/svelte added and wired to npm test",
+        "sliceUtf8 covered including multi-byte boundary cases",
+        "sliceBase64Bytes covered including quartet alignment",
+        "boundedLines, lineDiff and findMatches covered including the 500-match cap",
+        "Hex dump output covered",
+        "The 128 KB / 512 KB / 1 MB tier boundaries covered",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 38,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-039",
+      "title": "Live pm object: core",
+      "description": "As a Postman user, I want pm.test and pm.expect to work in a pasted script so that my existing tests run without rewriting.",
+      "acceptanceCriteria": [
+        "A live pm object exists in the goja runtime alongside bru",
+        "pm.test(name, fn) registers and reports a test result, backed by the existing test helper",
+        "pm.expect is backed by the existing Chai shim",
+        "pm.info exposes requestName, iteration index and iteration count",
+        "A pasted Postman script using only pm.test and pm.expect runs unmodified",
+        "Existing bru.* scripts are unaffected",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 39,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R4",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-040",
+      "title": "Live pm object: variable scopes",
+      "description": "As a Postman user, I want each pm variable scope to map to the right LiteAPI scope so that my scripts do not silently write to the wrong place.",
+      "acceptanceCriteria": [
+        "pm.environment.get/set/unset/has/toObject maps to bru env-var scope",
+        "pm.collectionVariables.* maps to collection scope",
+        "pm.globals.* maps to global environment scope",
+        "pm.variables.get resolves through the precedence chain from buildVariableMap (app.go:30115)",
+        "Each scope is distinct — this is the bug being fixed, since the import table at app.go:36739-36754 collapses all four to bru.setVar",
+        "Test proves writing via pm.environment.set does not appear in collection variables and vice versa",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 40,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R4",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-041",
+      "title": "Live pm object: request and response",
+      "description": "As a Postman user, I want pm.request and pm.response to expose what Postman exposes so that assertions against the response work unchanged.",
+      "acceptanceCriteria": [
+        "pm.request backed by the existing req helper (app.go:17420): url, method, headers, body",
+        "pm.response backed by the existing res helper (app.go:17482): code, status, statusText, json(), text(), headers",
+        "pm.response.responseTime and pm.response.responseSize available",
+        "pm.response.to.have.status / .header / .jsonBody chains work through the Chai shim",
+        "Response headers remain read-only and throw on write, matching current behavior",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 41,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-042",
+      "title": "Live pm object: side effects",
+      "description": "As a Postman user, I want pm.sendRequest, pm.cookies and setNextRequest to work so that scripts that drive flow control and nested calls run unchanged.",
+      "acceptanceCriteria": [
+        "pm.sendRequest supports both callback and promise forms, backed by bru.sendRequest",
+        "pm.cookies get/has/toObject backed by bru.cookies",
+        "pm.execution.setNextRequest backed by bru.setNextRequest (app.go:17712), including the 10,000-jump guard",
+        "postman.setNextRequest legacy alias also works",
+        "Runner honors setNextRequest issued from a pm script",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 42,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R4",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-043",
+      "title": "Live pm object: iterationData and vault",
+      "description": "As a Postman user, I want pm.iterationData and pm.vault so that data-driven runs and secret access work as they do in Postman.",
+      "acceptanceCriteria": [
+        "pm.iterationData.get/has/toObject reads the current runner data row from US-046",
+        "pm.iterationData is empty rather than undefined outside a data-driven run",
+        "pm.vault.get reads from the existing secrets.json layer",
+        "pm.vault access is denied in safe sandbox mode unless explicitly allowed",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 43,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R4",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-044",
+      "title": "Fix and demote the import-time script translator",
+      "description": "As a Postman user, I want my scripts left as pm.* by default so that they keep working and are not mangled by a lossy rewrite.",
+      "acceptanceCriteria": [
+        "postmanTranslateScript (app.go:36734) no longer collapses the four variable scopes to bru.setVar (app.go:36739-36754)",
+        "Translation becomes opt-in at import time; the default is to keep pm.* and run it natively",
+        "The import UI surfaces the choice",
+        "Existing TestImportPostmanHeaderListScriptTranslation still passes in translate mode",
+        "A collection imported without translation runs its scripts correctly",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 44,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-045",
+      "title": "Runner iterations",
+      "description": "As a user, I want to run a collection N times so that I can exercise a flow repeatedly.",
+      "acceptanceCriteria": [
+        "RunnerOptions (app.go:1133) gains Iterations int, default 1",
+        "RunnerSnapshot records per-iteration result rows",
+        "Runtime variables carry across requests within an iteration per existing behavior",
+        "Runner UI exposes the iteration count and shows current iteration progress",
+        "Cancellation stops mid-iteration and reports cancelled rows",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 45,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R3",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-046",
+      "title": "Runner data files",
+      "description": "As a Postman user, I want CSV and JSON data files driving my run so that data-driven testing works after switching.",
+      "acceptanceCriteria": [
+        "RunnerOptions gains DataFile string",
+        "CSV parsed with a header row into per-iteration key/value rows",
+        "JSON array of objects parsed into per-iteration rows",
+        "Iteration count defaults to the row count when a data file is supplied",
+        "Each row is bound to pm.iterationData and available to {{var}} interpolation",
+        "Malformed data files produce a clear error, not a silent empty run",
+        "Runner UI exposes file selection and previews the parsed rows",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 46,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R3",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-047",
+      "title": "Runner bail on failure",
+      "description": "As a user, I want a failing run to stop early so that I do not wait through a long run after the first failure.",
+      "acceptanceCriteria": [
+        "RunnerOptions gains BailOnFailure bool",
+        "A failed assertion or transport error short-circuits the run when enabled",
+        "Unrun requests are marked as such in the result rows, distinct from skipped and cancelled",
+        "Existing stopExecution and skipRequest controls are unaffected",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 47,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-048",
+      "title": "Request history store",
+      "description": "As a Postman user, I want every sent request recorded so that I can find and re-run something I did not save to a collection.",
+      "acceptanceCriteria": [
+        "Persisted, capped, searchable send history stored outside state.json",
+        "Response bodies reuse the US-009 body store so history costs nothing on the hot path",
+        "Bindings for list, search, get, delete and clear",
+        "Cap is configurable in preferences with a sane default",
+        "History survives restart",
+        "Secrets and auth values are not persisted in plaintext",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 48,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R2",
+        "R4",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-049",
+      "title": "Request history sidebar",
+      "description": "As a Postman user, I want a History surface in the sidebar so that the feature I relied on daily is where I expect it.",
+      "acceptanceCriteria": [
+        "History appears as a sidebar surface alongside collections",
+        "Entries show method, URL, status and time; list is filterable",
+        "Open in tab restores the request into a new tab",
+        "Save to collection promotes a history entry into a collection",
+        "Clear history is available and confirms first",
+        "List is virtualized and keyed",
+        "Keyboard navigable with visible focus",
+        "Typecheck passes",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 49,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-050",
+      "title": "Postman dynamic variables",
+      "description": "As a Postman user, I want the dynamic variables I use in requests to resolve so that imported collections do not break on unresolved placeholders.",
+      "acceptanceCriteria": [
+        "Beyond the existing $timestamp and $isoTimestamp (app.go:30936), add at minimum $guid, $randomUUID, $randomInt, $randomFirstName, $randomLastName, $randomFullName, $randomEmail, $randomIP, $randomPhoneNumber, $randomCity, $randomCountry, $randomStreetAddress, $randomCompanyName, $randomJobTitle, $randomUserName, $randomPassword, $randomUrl, $randomDomainName, $randomColor, $randomBoolean",
+        "Each resolves per occurrence, not once per request",
+        "Unknown $ variables are left literal rather than resolving to empty",
+        "Resolution works in URL, params, headers, body and scripts",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 50,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-051",
+      "title": "HAR import",
+      "description": "As a user, I want to import a browser HAR file so that I can turn captured traffic into a collection.",
+      "acceptanceCriteria": [
+        "HAR detected in detectCollectionImport (collection_import.go:538)",
+        "Entries converted to requests preserving method, URL, query params, headers and body",
+        "Requests grouped by host or path prefix into folders",
+        "Cookie and auth headers handled without leaking credentials into the saved collection unmarked",
+        "A HAR fixture added to docs/qa/import-fixtures/",
+        "Malformed HAR reports a row-scoped error rather than failing the whole import",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 51,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-052",
+      "title": "Swagger 2 import",
+      "description": "As a user, I want Swagger 2 specs to import so that older API definitions are not rejected outright.",
+      "acceptanceCriteria": [
+        "Swagger 2 is no longer rejected at collection_import.go:553",
+        "Spec converted to OpenAPI 3 then handed to the existing OpenAPI importer",
+        "Paths, operations, parameters, security schemes and definitions carry over",
+        "The existing Swagger 2 fixture in docs/qa/import-fixtures/ now imports successfully",
+        "Conversion losses are reported to the user, not silent",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 52,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-053",
+      "title": "Postman export fidelity",
+      "description": "As a user, I want Postman export to round-trip so that I can move work back out without losing scripts or auth.",
+      "acceptanceCriteria": [
+        "ExportCollectionWithOptions (app.go:7432) emits pre-request and test scripts as v2.1 event blocks",
+        "Auth configuration exports for every supported type",
+        "Folder structure, variables and disabled rows preserved",
+        "Import to export to import is idempotent for HTTP and GraphQL requests",
+        "WebSocket and gRPC requests remain explicitly skipped with a visible warning, as today",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 53,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-054",
+      "title": "Code generation targets",
+      "description": "As a Postman user, I want the code snippets I relied on so that copying a request into my language of choice still works.",
+      "acceptanceCriteria": [
+        "Beyond the existing curl and fetch (app.go:4111), add Python requests, Node axios, Go net/http, Java, C#, PHP, Ruby, HTTPie and PowerShell",
+        "Each target handles all body types: json, xml, text, form-urlencoded, multipart and binary",
+        "Each target emits headers, query params and the configured auth",
+        "Generated snippets are syntactically valid — verified by a test per target",
+        "Target selection persists",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 54,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R3",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-055",
+      "title": "Command palette",
+      "description": "As a user, I want a command palette so that I can run any action from the keyboard without memorizing shortcuts.",
+      "acceptanceCriteria": [
+        "Cmd/Ctrl+Shift+P opens a command palette, distinct from the existing Cmd+K object search",
+        "Covers New, Send, Save, Save All, Run, Change Orientation, Collapse Sidebar, open Preferences, Import, Environments, Terminal and DevTools",
+        "Fuzzy search over command names with keyboard navigation and Enter to run",
+        "Shows the bound shortcut next to each command",
+        "Fully keyboard operable with a visible focus state; Escape closes and restores focus",
+        "Specified at docs/ux/2026-07-19-pre-implementation-audit.md:153 and never built",
+        "Typecheck passes",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 55,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-056",
+      "title": "Bulk edit for headers and params",
+      "description": "As a Postman user, I want to paste key:value text into headers and params so that bulk editing works the way I am used to.",
+      "acceptanceCriteria": [
+        "A text-mode toggle on the headers, query params and form-urlencoded tables",
+        "Round-trips rows to text and back without losing disabled state or ordering",
+        "Accepts both key:value and key=value input",
+        "Comment lines prefixed with // map to disabled rows",
+        "Invalid lines are reported, not silently dropped",
+        "Typecheck passes",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 56,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-057",
+      "title": "Postman keybinding preset",
+      "description": "As a Postman user, I want a Postman shortcut preset so that my muscle memory transfers.",
+      "acceptanceCriteria": [
+        "A selectable Postman preset layered on the existing customizable keybinding system",
+        "Preset can be applied and reset without losing user customizations made afterward",
+        "Collision rejection still applies, as it does today",
+        "Preset choice persists across restart",
+        "Typecheck passes",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 57,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-058",
+      "title": "Response visualizer",
+      "description": "As a Postman user, I want pm.visualizer to render so that my custom response views work after switching.",
+      "acceptanceCriteria": [
+        "pm.visualizer.set(template, data) accepted in post-response and test scripts",
+        "A Visualizer tab appears in the response pane only when a template was set",
+        "Rendered in a sandboxed iframe with a strict CSP — no network access, no parent access",
+        "Handlebars-style template substitution supported",
+        "A malicious template cannot reach app state, the filesystem or the Wails bridge — explicit security test",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 58,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R3",
+        "R4"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-059",
+      "title": "Postman parity ledger",
+      "description": "As a maintainer, I want Postman parity tracked with the same evidence discipline as Bruno parity so that claims stay honest.",
+      "acceptanceCriteria": [
+        "POSTMAN-PARITY.md created in the same evidence style as PARITY.md",
+        "Every Phase 3 story recorded with the test names and smokes backing it",
+        "The in-code Feature ledger (app.go:42331) gains Postman-scoped rows tagged by reference",
+        "PARITY.md and its Bruno rows are retained unchanged",
+        "Known gaps are listed explicitly rather than omitted",
+        "Typecheck passes"
+      ],
+      "priority": 59,
+      "lane": "tooling",
+      "reviewers": [
+        "R1"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-060",
+      "title": "Extract types package",
+      "description": "As a developer, I want domain types in their own package so that other extractions have something to depend on.",
+      "acceptanceCriteria": [
+        "Domain types from app.go:132-1210 moved to a types package",
+        "Pure refactor: no behavior change",
+        "All 456 existing tests pass unchanged",
+        "wails build succeeds",
+        "Regenerated bindings produce no unintended diff in frontend/wailsjs/",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 60,
+      "lane": "backend",
+      "reviewers": [
+        "R1"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-063",
+      "title": "Extract grpcexec package",
+      "description": "As a developer, I want gRPC execution isolated so that app.go shrinks and gRPC is independently testable.",
+      "acceptanceCriteria": [
+        "gRPC execution from app.go:10540-12520 moved to a grpcexec package",
+        "App delegates rather than implements",
+        "Pure refactor: no behavior change",
+        "All gRPC tests (unary, server/client/bidi streaming, reflection, mTLS, unix socket, grpcurl generation) pass unchanged",
+        "wails build succeeds; no unintended bindings diff",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 61,
+      "lane": "backend",
+      "reviewers": [
+        "R1"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-064",
+      "title": "Extract wsexec package",
+      "description": "As a developer, I want WebSocket execution isolated so that app.go shrinks and WebSocket is independently testable.",
+      "acceptanceCriteria": [
+        "WebSocket execution from app.go:12520-13350 moved to a wsexec package",
+        "App delegates rather than implements",
+        "Pure refactor: no behavior change",
+        "All WebSocket tests (persistent sessions, named messages, keep-alive, binary base64/hex, proxy, client certs) pass unchanged",
+        "wails build succeeds; no unintended bindings diff",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 62,
+      "lane": "backend",
+      "reviewers": [
+        "R1"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-065",
+      "title": "Extract auth package",
+      "description": "As a developer, I want the simple auth schemes isolated so that auth logic is testable outside the App struct.",
+      "acceptanceCriteria": [
+        "basic, bearer, apikey, digest, wsse and ntlm from app.go:13350-13800 and 16630-16880 moved to an auth package",
+        "Collection to folder to request inheritance behavior unchanged",
+        "Pure refactor: no behavior change",
+        "All auth tests pass unchanged",
+        "wails build succeeds; no unintended bindings diff",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 63,
+      "lane": "backend",
+      "reviewers": [
+        "R1"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-066",
+      "title": "Extract auth/oauth package",
+      "description": "As a developer, I want OAuth1 and OAuth2 isolated so that the largest auth surface is independently testable.",
+      "acceptanceCriteria": [
+        "OAuth1 and OAuth2 from app.go:13600-15570 moved to an auth/oauth package",
+        "All OAuth2 grants preserved: client_credentials, password, refresh_token, authorization_code with PKCE, implicit",
+        "Encrypted token storage behavior unchanged",
+        "Pure refactor: no behavior change; all OAuth tests pass unchanged",
+        "wails build succeeds; no unintended bindings diff",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 64,
+      "lane": "backend",
+      "reviewers": [
+        "R1"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-067",
+      "title": "Extract auth/awsv4 package",
+      "description": "As a developer, I want AWS SigV4 and its credential chain isolated so that a complex, security-sensitive area is separately testable.",
+      "acceptanceCriteria": [
+        "SigV4 and the credential chain from app.go:15570-16630 moved to an auth/awsv4 package",
+        "Static, environment, profile, assume_role with STS and MFA, SSO/OIDC token cache and credential_process all preserved",
+        "Pure refactor: no behavior change; all AWS tests pass unchanged",
+        "wails build succeeds; no unintended bindings diff",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 65,
+      "lane": "backend",
+      "reviewers": [
+        "R1"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-070",
+      "title": "Extract store/bru and store/yaml packages",
+      "description": "As a developer, I want on-disk format handling isolated so that the storage layer is testable without the App struct.",
+      "acceptanceCriteria": [
+        "Bru and YAML parse, stringify and disk layout from app.go:31000-34900 and 38200-41500 moved to store/bru and store/yaml",
+        "Pure refactor: no behavior change",
+        "All round-trip tests pass unchanged, including the ParseBru and StringifyBru bindings",
+        "wails build succeeds; no unintended bindings diff",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 66,
+      "lane": "backend",
+      "reviewers": [
+        "R1"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-071",
+      "title": "Extract importers packages",
+      "description": "As a developer, I want each importer isolated so that adding a format does not touch app.go.",
+      "acceptanceCriteria": [
+        "OpenAPI (app.go:34986-36350), Postman (36353-37040) and Insomnia (37042-37300) moved to importers/openapi, importers/postman and importers/insomnia",
+        "collection_import.go detection continues to dispatch to them",
+        "Pure refactor: no behavior change",
+        "All import tests and the docs/qa/import-fixtures/ matrix pass unchanged",
+        "wails build succeeds; no unintended bindings diff",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 67,
+      "lane": "backend",
+      "reviewers": [
+        "R1"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-072",
+      "title": "Local mock server core",
+      "description": "As a user, I want to serve my saved response examples over HTTP so that I can develop against a mock without a cloud service.",
+      "acceptanceCriteria": [
+        "Per-collection local HTTP listener, loopback only",
+        "Incoming method plus path matched against the collection tree",
+        "Replies from RequestItem.Examples (app.go:377), which already has full CRUD",
+        "Example selected by an x-mock-response-name header, falling back to first match",
+        "Unmatched routes return a clear 404 body naming what was tried",
+        "Listener shuts down cleanly on collection close and app quit",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 68,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R4",
+        "R5"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-073",
+      "title": "Mock server UI",
+      "description": "As a user, I want to start and configure a mock from the UI so that the feature is usable without editing config.",
+      "acceptanceCriteria": [
+        "Per-collection enable toggle and configurable port",
+        "Running state and the mock base URL are visible and copyable",
+        "Mock calls are logged into the existing DevTools network panel",
+        "Port conflicts are reported clearly rather than failing silently",
+        "Self-test: send a request from LiteAPI to its own mock and see the saved example returned",
+        "Typecheck passes",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 69,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-074",
+      "title": "In-app documentation viewer",
+      "description": "As a user, I want to browse my collection docs in the app so that I do not have to export to read them.",
+      "acceptanceCriteria": [
+        "A docs tab renders the output of GenerateCollectionDocs (app.go:7559), which already emits an HTML plus YAML bundle",
+        "Local preview server serves the bundle for browsing",
+        "Docs update when collection, folder or request docs change",
+        "Rendered content is sandboxed — collection docs are untrusted input",
+        "Typecheck passes",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 70,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R3"
+      ],
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}

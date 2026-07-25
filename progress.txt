@@ -1,0 +1,251 @@
+LiteAPI v2 — Postman-switchable, modernized, faster
+Branch: ralph/postman-switchable-v2
+Spec: improvement_v2.md
+Protocol: improvement_v2.md §4 (Planner → resident Worker → parallel Reviewers → Synthesise → Pass gate → Plan Reviewer)
+
+Baseline verified 2026-07-25 on main @ fe54084:
+  go build ./...      pass
+  go vet ./...        pass, clean
+  go test ./...       pass — 456 tests, 23.2s
+  npm run check       0 errors, 0 warnings
+  bundle              1,159,933 B JS + 113,999 B CSS (single chunk)
+
+70 stories. Phase 0 (US-001..007) gates everything.
+Lanes: backend SERIAL, frontend parallel, tooling parallel.
+Max 3 review rounds per story, then escalate to .ralph/blocked/.
+
+=== RUN LOG ===
+
+--- Iteration 1 — Phase 0 start ---
+Branch ralph/postman-switchable-v2 created off main (working tree carried over uncommitted).
+
+Standing gates re-verified on this branch before any change:
+  go build ./...                    pass (exit 0)
+  go vet ./...                      pass, clean (exit 0)
+  go test ./...                     pass — LiteAPI 22.667s, qa/platformfixture ok, qa/responsefixture ok
+  svelte-check                      151 files, 0 errors, 0 warnings
+  node --test frontend/test/*.mts   pass — 7/7 cases (already works locally; US-002 only needs wiring)
+  npm run build                     pass — 1,159,933 B JS + 113,999 B CSS, single chunk
+  go test -race ./...               pass, clean — LiteAPI 42.104s (exit 0)
+
+Bundle baseline written to .ralph/baseline/bundle.txt — matches improvement_v2.md §2 exactly.
+
+Planner dispatched for US-001..US-007.
+
+US-002 IMPLEMENTED — frontend/package.json gains "test": "node --test test/*.mts".
+  Evidence: npm test -> 7/7 pass, exit 0. Deliberately broken test -> exit 1. After removal -> exit 0.
+  Node 22.23 locally strips types with no flag; CI pins Node 24 where this is stable.
+
+Toolchain resolved:
+  golangci-lint v1.64.8 (built go1.23.6) was present and unusable against a go 1.25.0 module.
+  Installed golangci-lint v2.12.2 (built go1.25.1). NOTE: v2 config schema, not v1.
+  eslint 10.8.0 + @eslint/js 10.0.1 + eslint-plugin-svelte 3.22.0 + typescript-eslint 8.65.0 + globals 17.7.0 installed.
+
+US-003 census (measured, pre-fix): 107 findings across the repo.
+  errcheck 49 | staticcheck 35 | unused 17 | ineffassign 6 | govet 0
+  staticcheck: SA1019 x21, ST1005 x4, QF1012 x3, QF1001 x3, QF1008 x2, SA4004 x1, QF1011 x1
+  Concentrated in app.go (58), app_test.go (12), recovery_store.go (11).
+  17 of the 21 SA1019 are grpc/reflection/v1alpha - deliberate back-compat, exclude with reason.
+
+US-005 targets located; line numbers match improvement_v2.md exactly:
+  app.go:8393  func (a *App) persistLocked() error
+  app.go:9021  func (a *App) executeHTTP(ctx, collectionID, collection, item, vars, onFailState, recordTimeline) Response
+  app.go:17274 func newScriptRuntimeWithMeta(item, response, vars, testResults, scriptLogs, jar, meta) (...)
+  app.go:30920 func interpolate(input string, vars map[string]string) string
+  app.go:32023 func (a *App) writeCollectionFilesLocked(collection *Collection) error
+  Canonical test App constructor: NewAppWithDir(t.TempDir())  (app.go:1220). No Benchmark funcs exist yet.
+  Constraint: these are unexported, so bench_test.go must live in package main at repo root.
+  US-006 must therefore also be root-package Go, not a qa/ subpackage - a subpackage cannot
+  import package main to reach AppState/Collection/RequestItem.
+
+US-007 resolved (decision, not yet applied):
+  go.mod requires wails v2.10.2; release.yml pins CLI v2.10.2; local CLI is v2.10.2.
+  All QA evidence in docs/ was produced with CLI v2.12.0 via `wails build -m -nosyncgomod`,
+  which is exactly why go.mod was never bumped. docs/ux/2026-07-19-pre-implementation-audit.md:101
+  flags the mismatch as release-blocking. docs/ui-redesign-milestone-ledger.md:94 states the
+  multi-process window model depends on v2.12 one-window-per-process behaviour.
+  DECISION: converge on v2.12.0 (not v2.13.0 - that would invalidate all banked QA evidence).
+  Also delete the dead `// replace ... => /Users/mou/go/pkg/mod` line at go.mod:55.
+  Deferred until the US-003 worker finishes, to avoid a concurrent go.mod/go.sum conflict.
+
+US-001 IMPLEMENTED — .github/workflows/ci.yml, 3 parallel jobs on pull_request:
+  go        : build, vet, test, test -race    (all with -tags webkit2_41 + GTK/WebKit apt deps,
+                                               mirroring release.yml; without the tag CI would
+                                               compile a different binary than we ship)
+  go-lint   : golangci-lint pinned v2.12.2
+  frontend  : check, lint, build, test
+  Verified: yaml.safe_load parses; actionlint reports 0 findings; actionlint proven non-vacuous by
+  feeding it a bad runner label, which it rejects.
+  NOT DEMONSTRATED: "a deliberately broken PR fails the workflow" needs a real push to
+  github.com/mutexdev/lite_api. Outward-facing on a live repo -> not done without maintainer
+  go-ahead. Local proxy evidence only (npm test exits 1 on a broken case). Recorded in
+  .ralph/plans/US-001.md with the exact 4-command sequence to close it.
+
+Plans written: .ralph/plans/US-001.md, US-005.md, US-006.md, US-007.md.
+  The dispatched Planner agent was STOPPED after ~50 min / 747 KB of transcript with zero files
+  written - it never progressed past reading context. All seven stories' facts were derived
+  directly instead. Do not re-dispatch a broad multi-story planner against this repo; app.go at
+  42.5k lines appears to exhaust a planning agent's context before it produces output. Plan
+  per-story, or hand the agent pre-extracted facts.
+
+US-004 IMPLEMENTED + INDEPENDENTLY VERIFIED — frontend/eslint.config.js + "lint": "eslint ."
+  Gates re-run by orchestrator, not taken on trust:
+    npm run lint  -> exit 0
+    npm run check -> 151 FILES 0 ERRORS 0 WARNINGS
+    npm test      -> 7/7 pass
+  Raw census before tuning (full recommended presets, 29 files): 200 findings, not "thousands".
+    116 svelte/require-each-key | 21 @typescript-eslint/no-unused-vars | 21 no-useless-assignment
+    20 svelte/infinite-reactive-loop | 9 svelte/prefer-svelte-reactivity | 9 no-control-regex
+    3 svelte/no-immutable-reactive-statements | 1 no-useless-escape
+  Every clean rule stays enabled as an error. Each disable carries its count + owning story.
+
+  SPEC CORRECTION: eslint-plugin-svelte v3 ships ZERO svelte/a11y-* rules (removed upstream;
+  a11y now comes from the Svelte compiler). US-004's implied a11y coverage does not exist via
+  the plugin. Compensated by enabling svelte/valid-compile, which surfaces compiler a11y
+  warnings as lint errors - verified non-vacuous by a negative-control probe that made it fire
+  a11y_missing_attribute / a11y_click_events_have_key_events / a11y_no_static_element_interactions.
+
+  REAL BUG FOUND AND FIXED — frontend/src/lib/workbench/ResponseInspector.svelte:76-78.
+    $: wsEvents = websocketEvents()   // and grpcEvents(), parsedJson()
+    Svelte's legacy $: tracks only variables referenced syntactically inside the statement, not
+    variables read inside a called function. These three referenced only the immutable function
+    binding, so they had NO reactive dependencies and ran once at mount. With no {#key} wrapper
+    (App.svelte:9485), the JSON tree view, WebSocket event log and gRPC stream log kept showing
+    the FIRST response for the lifetime of the component.
+    Fixed by threading (response, bytes) as parameters. Verified in source: all three now
+    declare (response: main.Response | undefined, size: number). Rule kept enabled.
+    Cost: +32 B JS, attributed by controlled revert/rebuild/restore (1,159,965 vs 1,159,933).
+
+  Note: frontend/src/lib/workbench/ is UNTRACKED, so `git diff` shows nothing for these files.
+  Review must read the files directly. This is a consequence of the diff-attribution issue below.
+
+US-003 IMPLEMENTED + INDEPENDENTLY VERIFIED — .golangci.yml (v2 schema) + go-lint CI job.
+  Gates re-run by orchestrator:
+    golangci-lint run --timeout 15m ./...   0 issues, exit 0
+    go build ./...                          exit 0
+    go vet ./...                            exit 0
+    go test -count=1 ./...                  ok LiteAPI 22.676s
+    go test -race -count=1 ./...            ok LiteAPI 47.415s, clean
+    test funcs removed from tracked tests   0   (added: 4; total collected: 461)
+
+  CENSUS CORRECTION — the orchestrator's own brief was WRONG.
+    Reported to the worker: 107 findings. Actual: 203.
+    golangci-lint truncates by default (max-issues-per-linter: 50, max-same-issues: 3).
+    Any census in this program MUST set both to 0 or it silently under-reports.
+      errcheck     49 briefed -> 81 actual, all 81 fixed
+      staticcheck  35 briefed -> 99 actual (ST1005 alone was 66, not 4)
+      unused       17, all deleted        ineffassign 6, all fixed        govet 0
+    Net: 178 genuinely FIXED, 25 excluded.
+
+  Exclusions proven honest by negative control: running the linter UNCONFIGURED against the
+  post-fix tree returns exactly 25 issues, every one inside a documented exclusion
+  (17 grpc v1alpha, 2 x509 legacy PEM, 3 ST1005 "Cannot find module", 1 pkcs12, 2 govet in
+  vendored frontend/node_modules/flatted/golang). Zero errcheck / ineffassign / unused / SA4004
+  remain -> nothing is hidden beyond what the config names.
+
+  SA4004 investigated, NOT a bug: openAPIExampleRawValue sorted example names then looped, but
+  every path returned on iteration 1 - a "lowest-sorting key" idiom written as a loop, with an
+  unreachable trailing return. Rewritten as a direct index; sort kept (with a comment) because it
+  is what makes selection deterministic over Go's randomised map order.
+
+  REAL BUG FOUND AND FIXED — copyCollectionFile (collection clone) held `defer target.Close()` on
+  the WRITE handle. io.Copy succeeding returned nil, so a close-time failure (ENOSPC, over-quota,
+  failing network FS) was silently discarded and a TRUNCATED COLLECTION COPY REPORTED SUCCESS.
+  Now propagated via named return. Exactly the failure class that makes R4 mandatory for US-012.
+
+  Worker correctly REFUSED an orchestrator instruction: told to exclude screen.Width if Wails
+  v2.10.2 needed it, it verified the claim was false (all three backends populate Size), and
+  deleted the dead fallback instead. Corroborated independently by the US-007 module diff.
+
+US-005 + US-006 COMPLETE — benchmarks executed, baseline captured.
+  Gates after install: go build 0 | go vet 0 | go test 22.582s 0 | go test -race 41.127s 0
+  Baseline written to .ralph/baseline/bench.txt (Apple M1 Max, darwin/arm64, go1.25.0).
+
+  HEADLINE: BenchmarkPersistLocked = 225,684,108 ns/op  221,066,295 B/op  6,127 allocs/op
+  One keystroke on a 500-request workspace costs ~226 ms of blocking work under the global
+  exclusive mutex, and allocates 221 MB.
+
+  The small-state control makes it airtight:
+    PersistLockedSmallState = 541,867 ns/op  247,712 B/op  79 allocs/op
+    => fixed overhead is 0.24% of time and 0.11% of allocation. The cost is the state
+       payload itself and scales with cached response bodies, exactly as §2.1.B predicts.
+    => 221 MB allocated for a ~37 MB fixture is ~6x amplification from MarshalIndent
+       indentation + string escaping + buffer growth.
+
+  Other targets, with the Phase 1 numbers they now make concrete:
+    WriteCollectionFilesLocked   4,161,412 ns/op for ONE 50-request collection   -> US-015
+    Interpolate vars=10/50/200   6,188 / 14,583 / 92,892 ns/op (superlinear)     -> US-023
+       US-023 must reach <=1,458 ns/op at 50 vars to satisfy its ">=10x" criterion.
+    NewScriptRuntimeWithMeta     5,473,367 ns/op  4,049,912 B/op  66,119 allocs  -> US-018
+       Runs up to 4x per request => ~22 ms and ~264k allocs of setup before any user
+       script line executes. US-018 must reach <=1,094,673 ns/op for its ">=5x".
+    ExecuteHTTP                  310,179 ns/op  (hermetic httptest loopback)     -> US-016/017
+
+US-007 COMPLETE — packaged build CONFIRMED:
+  wails build -nocolour  -> Done. Packaged + self-signed in 43.774s, exit 0.
+  build/bin/LiteAPI.app/Contents/MacOS/LiteAPI : Mach-O 64-bit executable arm64
+  codesign --verify : "valid on disk", "satisfies its Designated Requirement"
+  Bindings REGENERATED by the v2.12.0 CLI (frontend/wailsjs/go/main/App.d.ts, App.js, models.ts).
+  Frontend re-gated after regeneration - models.ts is imported by app code, so this was the
+  real risk: npm run check 151 FILES 0 ERRORS 0 WARNINGS | npm run lint exit 0 | npm test 7/7.
+  Build-log noise "Not found: time.Time" is the Wails binding generator declining to map
+  time.Time; pre-existing generator behaviour, not an error - build exit was 0.
+
+(detail) US-007 COMPLETE (pending packaged-build confirmation):
+  go.mod        github.com/wailsapp/wails/v2 v2.10.2 -> v2.12.0
+  go.mod:56     dead `// replace ... => /Users/mou/go/pkg/mod` line DELETED
+  release.yml   WAILS_VERSION "v2.10.2" -> "v2.12.0" (used by all three platform jobs)
+  Wails CLI     v2.12.0 installed locally; go.mod, CI and CLI now agree.
+  Gates on v2.12.0: go mod tidy 0 | build 0 | vet 0 | test 22.347s 0 | race 40.950s 0 |
+                    golangci-lint 0 issues
+  Corroboration: `go mod tidy` returned go.sum to EXACTLY its committed state, which already
+  carried v2.12.0 hashes and zero v2.10.2 hashes. v2.12.0 was always the intended target;
+  only go.mod lagged, because `wails build -m -nosyncgomod` suppresses the go.mod sync.
+
+(superseded note, kept for history) US-005 / US-006 CODE INSTALLED (verification pending):
+  workspace_fixture.go  — 500 requests / 10 collections / 3 x 5 MiB, seeded + epoch-fixed.
+  bench_test.go         — 6 benchmarks covering all 5 named targets.
+  gopls resolves every symbol in both files with correct types; no type errors.
+  NOT YET RUN: go build / vet / test / -race / -bench. The Bash safety classifier
+  (claude-sonnet-5[1m]) went unavailable mid-story, so no command could be executed. These two
+  files are therefore TYPE-CHECKED BUT UNEXECUTED. Do not treat US-005/US-006 as done until the
+  benchmarks have actually run and .ralph/baseline/bench.txt exists.
+
+SPEC CLAIM §2.1.B — now VERIFIED end-to-end by reading, not assumed:
+  persistLocked (app.go:8384) -> json.MarshalIndent(stateForStorage(a.state, a.dataDir)) ->
+    single non-atomic os.WriteFile. Confirmed.
+  stateForStorage (app.go:8863) does NOT strip response bodies. It only removes collection
+    environment secrets, drops scratch collections, and encrypts cookie values. So BOTH
+    Response.Body AND Response.BodyBase64 are serialised into state.json on EVERY persist.
+    The "5 MB response costs ~11.7 MB and is re-serialised on every keystroke" claim is real.
+  Fixture collections are non-scratch, so nothing is stripped -> the full ~37 MB is marshalled
+    per persistLocked call. The benchmark measures the intended pathological path.
+
+  Benchmark-validity check: persistLocked branches at :8385 —
+    if a.workspaceRuntime != nil { return a.persistWorkspaceRuntimeLocked() }
+  workspaceRuntime is assigned ONLY at workspace_window_runtime.go:241 (multi-window launch)
+  and in workspace_window_runtime_test.go. NewAppWithDir leaves it nil, so the benchmark
+  exercises the main path. Worth re-checking if US-012 changes that branch.
+
+  No deadlock risk: storeOAuth2Credentials takes a.oauth2Mu, not a.mu, so the benchmark
+  holding a.mu across persistLocked is safe.
+
+TOOLING OUTAGE (this session): the Bash safety classifier (claude-sonnet-5[1m]) went
+  unavailable and stayed down for 9+ consecutive attempts. Allowlisted read-only commands
+  (grep) still execute; `go` and `npm` do not. All verification above was done with
+  Read/LSP/grep only. US-005/US-006/US-007 cannot be closed until a shell returns.
+
+US-007 IN PROGRESS — go.mod NOT yet bumped; `go get ...@v2.12.0` blocked by the same outage.
+  API-compatibility already proven by module diff: zero removed lines across every imported
+  package. See .ralph/plans/US-007.md.
+
+KNOWN ISSUE — diff attribution:
+  The working tree already carried substantial uncommitted work when this branch was cut
+  (app.go modified + ~50 untracked .go files, all pre-existing). `git diff app.go` therefore
+  mixes pre-existing work with story changes and cannot be used alone to review a story.
+  Mitigation: take each worker's own file manifest as the story diff, and commit the
+  pre-existing tree separately. Cutting the branch without a baseline commit first was a
+  sequencing mistake; do not repeat it for Phase 1.
+
+
+

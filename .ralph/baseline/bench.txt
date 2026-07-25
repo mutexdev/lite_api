@@ -1,0 +1,99 @@
+# Benchmark baseline — US-005
+#
+# Captured on branch ralph/postman-switchable-v2 after US-003's linter cleanup.
+# Command:
+#   go test -bench=. -benchmem -run='^$' -benchtime=10x .
+#
+# -benchtime=10x, not the 1s default: BenchmarkPersistLocked serialises ~37 MB and
+# writes it to disk per iteration, so the default would run for minutes and thrash
+# the disk without adding signal.
+#
+# ---------------------------------------------------------------------------
+# COMPARISONS MUST BE SAME-HOST.
+# improvement_v2.md §5.1 prescribes "no regression >5% on any benchmark". That gate
+# is only meaningful against numbers captured on this machine. A laptop baseline
+# compared against a CI runner will produce both false failures and false passes.
+# Re-capture on the comparison host before judging any Phase 1 story.
+# ---------------------------------------------------------------------------
+#
+# Host:     Apple M1 Max, darwin/arm64, 10 logical CPUs
+# Go:       go1.25.0
+# Fixture:  workspace_fixture.go — 500 requests / 10 collections / 3 x 5 MiB cached
+#           responses, seeded (20260725) and epoch-fixed for byte-identical reruns.
+
+goos: darwin
+goarch: arm64
+pkg: LiteAPI
+cpu: Apple M1 Max
+BenchmarkPersistLocked-10                 	      10	 225684108 ns/op	221066295 B/op	    6127 allocs/op
+BenchmarkPersistLockedSmallState-10       	      10	    541867 ns/op	  247712 B/op	      79 allocs/op
+BenchmarkWriteCollectionFilesLocked-10    	      10	   4161412 ns/op	  268508 B/op	    2649 allocs/op
+BenchmarkInterpolate/vars=10-10           	      10	      6188 ns/op	   10073 B/op	      21 allocs/op
+BenchmarkInterpolate/vars=50-10           	      10	     14583 ns/op	   13609 B/op	      29 allocs/op
+BenchmarkInterpolate/vars=200-10          	      10	     92892 ns/op	   55369 B/op	      59 allocs/op
+BenchmarkNewScriptRuntimeWithMeta-10      	      10	   5473367 ns/op	 4049912 B/op	   66119 allocs/op
+BenchmarkExecuteHTTP-10                   	      10	    310179 ns/op	  110933 B/op	     312 allocs/op
+PASS
+ok  	LiteAPI	3.503s
+
+
+# ===========================================================================
+# What these numbers establish
+# ===========================================================================
+#
+# BenchmarkPersistLocked — 225.7 ms/op, 221 MB allocated, per call.
+#   This is the keystroke path. UpdateRequest fires persistLocked on every
+#   keystroke (improvement_v2.md §2.1.B), so on a 500-request workspace a single
+#   character typed costs ~226 ms of blocking work under the global exclusive
+#   mutex and allocates 221 MB.
+#
+#   Against BenchmarkPersistLockedSmallState (0.54 ms, 248 KB) the split is stark:
+#   fixed overhead — MkdirAll, secrets, OAuth2 credential storage — is 0.24% of the
+#   time and 0.11% of the allocation. Everything else is the state payload itself.
+#   So the cost is not incidental; it scales with cached response bodies, exactly
+#   as §2.1.B predicts.
+#
+#   221 MB allocated for a ~37 MB fixture is ~6x amplification, from
+#   json.MarshalIndent's indentation, string escaping and buffer growth. US-012's
+#   switch to json.Marshal attacks part of this; US-009 (moving bodies out of
+#   AppState) attacks the rest.
+#
+#   Gates: US-009, US-012, US-013.
+#
+# BenchmarkWriteCollectionFilesLocked — 4.16 ms/op for ONE 50-request collection.
+#   Saving a single request currently rewrites the whole collection. Gates US-015.
+#
+# BenchmarkInterpolate — superlinear in variable count, as the up-to-8-pass x
+#   every-var x ReplaceAll implementation implies:
+#       10 vars ->  6.2 us
+#       50 vars -> 14.6 us   (5x the vars, 2.4x the time)
+#      200 vars -> 92.9 us   (4x more vars again, 6.4x the time)
+#   The vars=50 case is the one US-023 is graded on (">=10x at 50 vars"), i.e. a
+#   target of <=1.46 us/op. Note interpolate runs per header, per param and per
+#   body segment, so this multiplies out per request.
+#
+# BenchmarkNewScriptRuntimeWithMeta — 5.47 ms/op, 4.0 MB, 66,119 allocs.
+#   That is the cost of RunString'ing 25 JS shims with no *goja.Program cache.
+#   §2.1 notes this runs up to 4x per request, so ~22 ms and ~264k allocations of
+#   pure setup before a single line of user script executes.
+#   US-018 targets >=5x here, i.e. <=1.09 ms/op.
+#
+# BenchmarkExecuteHTTP — 310 us/op against a loopback httptest server, including
+#   transport setup. Hermetic by design: no external process. The proxy/mTLS
+#   connection-reuse proof belongs to US-016 (one TCP connection over N sends).
+#
+# ===========================================================================
+# Caveats
+# ===========================================================================
+#
+# * b.N loops, not Go 1.24's b.Loop(). b.Loop() additionally prevents dead-code
+#   elimination of the benchmark body. Switching is a real improvement but would
+#   invalidate comparability with these numbers, so it must happen BEFORE Phase 1
+#   starts or not at all. Logged in .ralph/backlog.md.
+# * BenchmarkWriteCollectionFilesLocked performs one untimed warm-up call. The
+#   collection is a shallow copy whose Items slice is shared, and
+#   ensureRequestFilePaths rewrites every FilePath on first call; without the
+#   warm-up, iteration 1 does work iterations 2+ skip and skews a 10x run by ~10%.
+# * persistLocked branches to persistWorkspaceRuntimeLocked when
+#   a.workspaceRuntime != nil. NewAppWithDir leaves it nil, so these numbers cover
+#   the main path. Re-check if US-012 changes that branch.

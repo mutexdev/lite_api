@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="LiteAPI application icon">
+  <defs>
+    <linearGradient id="bg" x1="120" y1="80" x2="900" y2="960" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1c2936"/>
+      <stop offset="1" stop-color="#0b121b"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="300" y1="250" x2="760" y2="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff9b58"/>
+      <stop offset="1" stop-color="#e85d2a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="#0b121b"/>
+  <rect width="1024" height="1024" rx="236" fill="url(#bg)"/>
+  <rect x="82" y="82" width="860" height="860" rx="184" fill="none" stroke="#ffffff" stroke-opacity=".1" stroke-width="18"/>
+  <path d="M378 294 244 512l134 218" fill="none" stroke="#e8eff5" stroke-linecap="round" stroke-linejoin="round" stroke-width="74"/>
+  <path d="m646 294 134 218-134 218" fill="none" stroke="#e8eff5" stroke-linecap="round" stroke-linejoin="round" stroke-width="74"/>
+  <path d="M446 676 578 348" fill="none" stroke="url(#signal)" stroke-linecap="round" stroke-width="62"/>
+  <circle cx="512" cy="512" r="78" fill="#111d29" stroke="url(#signal)" stroke-width="34"/>
+  <path d="M488 512h48M512 488v48" stroke="#ffb37d" stroke-linecap="round" stroke-width="22"/>
+</svg>

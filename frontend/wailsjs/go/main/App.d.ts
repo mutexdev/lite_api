@@ -4,17 +4,29 @@ import {main} from '../models';
 
 export function AddCookieFromHeader(arg1:string,arg2:string):Promise<main.AppState>;
 
+export function ApplyCollectionImport(arg1:main.CollectionImportApplyRequest):Promise<main.CollectionImportApplyResult>;
+
 export function ApplyOpenAPILocalDrift(arg1:string,arg2:main.OpenAPILocalDriftOptions):Promise<main.AppState>;
 
 export function ApplyOpenAPISync(arg1:string,arg2:main.OpenAPISyncOptions):Promise<main.AppState>;
 
+export function CancelCollectionRun(arg1:string):Promise<boolean>;
+
 export function CancelGRPCStream(arg1:string,arg2:string):Promise<main.AppState>;
+
+export function CancelRequest(arg1:string,arg2:string):Promise<boolean>;
 
 export function CheckOpenAPILocalDrift(arg1:string):Promise<main.OpenAPILocalDriftResult>;
 
 export function CheckOpenAPISync(arg1:string,arg2:main.OpenAPISyncOptions):Promise<main.OpenAPISyncResult>;
 
 export function CheckOpenAPIUpdates(arg1:string):Promise<main.OpenAPISyncUpdateCheckResult>;
+
+export function CheckoutCollectionGitBranch(arg1:string,arg2:string):Promise<main.CollectionGitOperationResult>;
+
+export function ChooseCollectionImportFiles():Promise<main.CollectionImportPickerResult>;
+
+export function ChooseCollectionImportFolder():Promise<main.CollectionImportPickerResult>;
 
 export function ClearCookies():Promise<main.AppState>;
 
@@ -40,6 +52,8 @@ export function CloseAllTabs():Promise<main.AppState>;
 
 export function CloseTab(arg1:string):Promise<main.AppState>;
 
+export function CommitCollectionGit(arg1:string,arg2:string):Promise<main.CollectionGitOperationResult>;
+
 export function CompleteOAuth2Callback(arg1:string):Promise<boolean>;
 
 export function ConnectCollectionGitRemote(arg1:string,arg2:string):Promise<main.AppState>;
@@ -59,6 +73,8 @@ export function CopyGlobalEnvironment(arg1:string,arg2:string):Promise<main.AppS
 export function CopyGlobalEnvironmentAs(arg1:string,arg2:string,arg3:string):Promise<main.AppState>;
 
 export function CreateCollection(arg1:string,arg2:string,arg3:string):Promise<main.AppState>;
+
+export function CreateCollectionGitBranch(arg1:string,arg2:string,arg3:boolean):Promise<main.CollectionGitOperationResult>;
 
 export function CreateEnvironment(arg1:string,arg2:string):Promise<main.AppState>;
 
@@ -80,11 +96,21 @@ export function DeleteDotEnvFile(arg1:string,arg2:string,arg3:string,arg4:string
 
 export function DeleteFolder(arg1:string,arg2:string):Promise<main.AppState>;
 
+export function DeleteFolderRecoverable(arg1:string,arg2:string):Promise<main.RecoverableDeleteResult>;
+
 export function DeleteGlobalEnvironment(arg1:string,arg2:string):Promise<main.AppState>;
 
 export function DeleteRequest(arg1:string,arg2:string):Promise<main.AppState>;
 
+export function DeleteRequestRecoverable(arg1:string,arg2:string):Promise<main.RecoverableDeleteResult>;
+
 export function DeleteResponseExample(arg1:string,arg2:string,arg3:string):Promise<main.AppState>;
+
+export function DiscardRecoveryEntry(arg1:string):Promise<boolean>;
+
+export function DiscardRequestDraft(arg1:string,arg2:string):Promise<main.AppState>;
+
+export function DiscardUnsavedDrafts(arg1:Array<main.UnsavedDraft>):Promise<main.AppState>;
 
 export function DisconnectCollectionGitRemote(arg1:string):Promise<main.AppState>;
 
@@ -102,6 +128,8 @@ export function ExportGlobalEnvironment(arg1:string,arg2:string):Promise<string>
 
 export function ExportGlobalEnvironments(arg1:string,arg2:Array<string>,arg3:string):Promise<main.GlobalEnvironmentExportResult>;
 
+export function FetchCollectionGit(arg1:string,arg2:string):Promise<main.CollectionGitOperationResult>;
+
 export function GenerateCollectionDocs(arg1:string,arg2:main.GenerateCollectionDocsOptions):Promise<main.GenerateCollectionDocsResult>;
 
 export function GenerateGRPCMessage(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
@@ -111,6 +139,10 @@ export function GenerateGrpcurlCommand(arg1:string,arg2:string,arg3:string):Prom
 export function GenerateRequestCode(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
 export function GenerateResponseExampleCode(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
+
+export function GetCollectionGitDiff(arg1:string,arg2:string,arg3:boolean):Promise<main.CollectionGitDiff>;
+
+export function GetCollectionGitStatus(arg1:string):Promise<main.CollectionGitSnapshot>;
 
 export function GetDevToolsSnapshot():Promise<main.DevToolsSnapshot>;
 
@@ -124,11 +156,15 @@ export function GetState():Promise<main.AppState>;
 
 export function GetTerminalSession(arg1:string):Promise<main.TerminalSession>;
 
+export function GetWebStorageScope():Promise<string>;
+
 export function GitVersion():Promise<string>;
 
 export function ImportCollection(arg1:string,arg2:main.ImportPayload):Promise<main.AppState>;
 
 export function ImportGlobalEnvironment(arg1:string,arg2:string):Promise<main.AppState>;
+
+export function InitializeCollectionGit(arg1:string):Promise<main.CollectionGitOperationResult>;
 
 export function KillTerminalSession(arg1:string):Promise<void>;
 
@@ -136,7 +172,13 @@ export function ListDotEnvFiles(arg1:string,arg2:string):Promise<Array<main.DotE
 
 export function ListGRPCMethods(arg1:string,arg2:string,arg3:string):Promise<Array<main.GRPCMethodInfo>>;
 
+export function ListRecoveryEntries():Promise<Array<main.RecoveryEntry>>;
+
 export function ListTerminalSessions():Promise<Array<main.TerminalSession>>;
+
+export function ListUnsavedDrafts():Promise<Array<main.UnsavedDraft>>;
+
+export function ListWorkspaceWindowTargets():Promise<Array<main.WorkspaceWindowTarget>>;
 
 export function MarkAllNotificationsRead():Promise<main.AppState>;
 
@@ -148,17 +190,29 @@ export function OpenCollection(arg1:string,arg2:string):Promise<main.AppState>;
 
 export function OpenGitCollections(arg1:string,arg2:Array<string>,arg3:string):Promise<main.AppState>;
 
+export function OpenNewWindow():Promise<main.WorkspaceWindowTarget>;
+
 export function OpenRequestTab(arg1:string,arg2:string):Promise<main.AppState>;
 
 export function OpenResponseExampleTab(arg1:string,arg2:string,arg3:string):Promise<main.AppState>;
 
+export function OpenWorkspaceInNewWindow(arg1:string):Promise<main.WorkspaceWindowTarget>;
+
 export function ParseBru(arg1:string):Promise<main.RequestItem>;
+
+export function PreviewCollectionImport(arg1:main.CollectionImportPreviewRequest):Promise<main.CollectionImportPreview>;
+
+export function PullCollectionGit(arg1:string,arg2:string,arg3:string):Promise<main.CollectionGitOperationResult>;
+
+export function PushCollectionGit(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<main.CollectionGitOperationResult>;
 
 export function RefreshChangedCollections():Promise<main.CollectionWatchRefreshResult>;
 
 export function RefreshCollection(arg1:string):Promise<main.AppState>;
 
 export function RemoveCollection(arg1:string):Promise<main.AppState>;
+
+export function RemoveCollectionRecoverable(arg1:string):Promise<main.RecoverableDeleteResult>;
 
 export function RenameCollection(arg1:string,arg2:string):Promise<main.AppState>;
 
@@ -177,6 +231,8 @@ export function ResizeTerminalSession(arg1:string,arg2:number,arg3:number):Promi
 export function ResolveCollectionFolderPath(arg1:string,arg2:string):Promise<string>;
 
 export function ResolveProcessEnvValues(arg1:string,arg2:Array<string>):Promise<Record<string, string>>;
+
+export function RestoreRecoveryEntry(arg1:string):Promise<main.AppState>;
 
 export function RevealCollectionFolderInFolder(arg1:string,arg2:string):Promise<void>;
 
@@ -200,7 +256,13 @@ export function SaveGlobalEnvironmentExport(arg1:string,arg2:Array<string>,arg3:
 
 export function SaveRequest(arg1:string,arg2:string):Promise<main.AppState>;
 
+export function SaveResponseBody(arg1:string,arg2:string,arg3:string):Promise<main.ResponseBodySaveResult>;
+
 export function SaveResponseExample(arg1:string,arg2:string,arg3:string):Promise<main.AppState>;
+
+export function SaveResponseTimeline(arg1:string,arg2:string,arg3:string):Promise<main.ResponseTimelineSaveResult>;
+
+export function SaveUnsavedDrafts(arg1:Array<main.UnsavedDraft>):Promise<main.AppState>;
 
 export function ScanGitCollections(arg1:string):Promise<Array<main.GitCollectionCandidate>>;
 
@@ -224,7 +286,15 @@ export function SetActiveGlobalEnvironment(arg1:string,arg2:string):Promise<main
 
 export function SetActiveTab(arg1:string):Promise<main.AppState>;
 
+export function SetActiveWorkspace(arg1:string):Promise<main.AppState>;
+
+export function SetCollectionGitRemote(arg1:string,arg2:string,arg3:string):Promise<main.CollectionGitOperationResult>;
+
+export function StageCollectionGitPaths(arg1:string,arg2:Array<string>):Promise<main.CollectionGitOperationResult>;
+
 export function StringifyBru(arg1:main.RequestItem):Promise<string>;
+
+export function UnstageCollectionGitPaths(arg1:string,arg2:Array<string>):Promise<main.CollectionGitOperationResult>;
 
 export function UpdateCollectionAuth(arg1:string,arg2:main.AuthConfig):Promise<main.AppState>;
 

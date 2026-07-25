@@ -1,0 +1,17 @@
+meta {
+  name: Nested Post
+  type: http
+  seq: 2
+}
+
+post {
+  url: http://127.0.0.1:18487/json
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "source": "bruno folder fixture"
+  }
+}
