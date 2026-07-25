@@ -9,6 +9,28 @@
 # the disk without adding signal.
 #
 # ---------------------------------------------------------------------------
+# !! -benchtime=10x IS ONLY VALID FOR SLOW BENCHMARKS. Read this before judging
+# any Phase 1 story against these numbers.
+#
+# 10 iterations of a sub-microsecond function is ~7 us of measured work, so one
+# scheduling hiccup moves the result by 2x. Demonstrated on US-023: fifteen 10x
+# samples of Interpolate/vars=50 after the rewrite ranged 708..1554 ns/op
+# (median 1054), while the steady state (-benchtime=200000x -count=3) is a tight
+# 647..669 ns/op. The 10x spread straddles the story's own <=1458 ns/op
+# acceptance threshold, so a passing change could be recorded as a failure, or a
+# regression missed, on noise alone.
+#
+# The ORIGINAL numbers below are trustworthy at 10x because the original code was
+# slow enough (14.6 us at vars=50) for 10 iterations to be representative. That
+# stops being true the moment a story makes something fast.
+#
+# RULE: compare slow benchmarks (PersistLocked, WriteCollectionFilesLocked,
+# NewScriptRuntimeWithMeta) at 10x; compare fast ones (Interpolate, ExecuteHTTP)
+# at -benchtime=200000x -count=3 and quote the median. Applying §5.1's ">5%
+# regression" gate to a 10x sample of a fast benchmark is not a measurement.
+# ---------------------------------------------------------------------------
+#
+# ---------------------------------------------------------------------------
 # COMPARISONS MUST BE SAME-HOST.
 # improvement_v2.md §5.1 prescribes "no regression >5% on any benchmark". That gate
 # is only meaningful against numbers captured on this machine. A laptop baseline
