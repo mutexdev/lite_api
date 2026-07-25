@@ -414,8 +414,8 @@
         "R2",
         "R5"
       ],
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "21 built-in shim sources compiled once behind sync.Once and run via RunProgram. Verified by orchestrator on the US-005 host: 10x = 813,946 ns/op (target <=1,094,673); steady state 1000x x3 = 443k..535k ns/op vs 5,473,367 baseline, ~10x. Allocations 66,119 -> 8,070 (8.2x), bytes 4,049,912 -> 701,050 (5.8x) - deterministic across every run, which is the honest signal here. Gates: build 0, vet 0, test 23.497s 0, race 38.398s clean, golangci-lint 0. Test count 468 -> 474. Uses sync.Once rather than the story's sync.OnceValue: OnceValue needs a niladic func, and all 21 sources are function-local literals, 8 of them mid-function; hoisting ~15,000 lines of JS to package scope would have been an unreviewable diff for zero gain. CORRECTS THE ORCHESTRATOR'S BRIEFING: the eager/lazy split was wrong. installScriptRequire (app.go:17680) eagerly builds the entire module table regardless of what the user script require()s, so ALL 21 are eager - 15 in safe mode (the benchmark's mode), 6 more in developer mode, worth a further 1.77 ms/runtime there."
     },
     {
       "id": "US-019",

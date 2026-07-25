@@ -17199,6 +17199,94 @@ func isLegacyExpectLine(line string) bool {
 	return len(parts) >= 4 && parts[1] == "status"
 }
 
+// scriptShimProgram caches the compiled form of one built-in JavaScript shim.
+//
+// Every shim source is a compile-time-constant raw string literal, but each new
+// goja.Runtime used to re-parse and re-compile all of them: goja's
+// Runtime.RunString(src) is Runtime.RunScript("", src), which calls
+// compile(name, src, strict=false, inGlobal=true) and then RunProgram on the
+// result (goja runtime.go, RunString/RunScript). Parsing dominated
+// newScriptRuntimeWithMeta, and newScriptRuntimeWithMeta runs up to four times
+// per request.
+//
+// goja.Compile's own documentation states the returned *Program "is not linked
+// to a runtime in any way and can be run in multiple runtimes (possibly at the
+// same time)", so one compilation can be shared by every runtime process-wide.
+// A *Program is immutable bytecode; all mutable state a shim creates lives in
+// the goja.Runtime that runs it, and goja.Runtime is emphatically not shared.
+type scriptShimProgram struct {
+	name string
+	once sync.Once
+	prog *goja.Program
+}
+
+func newScriptShimProgram(name string) *scriptShimProgram {
+	return &scriptShimProgram{name: name}
+}
+
+// compiled compiles src on first use and returns the same *goja.Program on
+// every later call. src must be the same constant string for a given
+// scriptShimProgram; the parameter exists only so the shim sources can stay
+// beside the Go code that installs them.
+//
+// The compile arguments deliberately mirror RunString exactly: an empty program
+// name (so any stack trace a shim produces keeps the anonymous source name it
+// had before) and strict=false (RunString hard-codes strict=false, and
+// compiling these shims in strict mode would change their semantics).
+//
+// A compile failure here is a programmer error, not a runtime condition: the
+// sources are constants, so either they all compile or the very first runtime
+// construction in the process fails. There is no caller-recoverable outcome and
+// no per-call context to attach, so this panics with an identifying message
+// rather than threading an error that can never be non-nil in a correct build.
+// Runtime errors thrown by a shim are unaffected -- RunProgram still returns
+// those to the existing error handling at each call site.
+func (s *scriptShimProgram) compiled(src string) *goja.Program {
+	s.once.Do(func() {
+		program, err := goja.Compile("", src, false)
+		if err != nil {
+			panic(fmt.Errorf("liteapi: built-in script shim %q failed to compile: %w", s.name, err))
+		}
+		s.prog = program
+	})
+	return s.prog
+}
+
+// Compiled-once program caches for the built-in shim sources. Every one of
+// these is reached during newScriptRuntimeWithMeta -- the eight developer-only
+// entries via installScriptRequire when the collection runs in "developer"
+// sandbox mode, the rest unconditionally -- so caching them removes the whole
+// per-runtime parse cost. Caching changes nothing about which shims get
+// installed in which sandbox mode: the mode gates remain where they were, and a
+// cache slot is only consulted from the call site that already ran that source.
+//
+// The user script itself, require()'d user module files, and dynamically built
+// assertion expressions are deliberately absent: their sources are not fixed,
+// so they are not cacheable by this mechanism.
+var (
+	scriptConsoleModuleShim  = newScriptShimProgram("console")
+	scriptBufferShim         = newScriptShimProgram("buffer")
+	scriptTimersPromisesShim = newScriptShimProgram("timers/promises")
+	scriptAssertShim         = newScriptShimProgram("assert")
+	scriptUtilShim           = newScriptShimProgram("util")
+	scriptAjvShim            = newScriptShimProgram("ajv")
+	scriptAxiosShim          = newScriptShimProgram("axios")
+	scriptLodashShim         = newScriptShimProgram("lodash")
+	scriptQueryStringShim    = newScriptShimProgram("querystring")
+	scriptZlibShim           = newScriptShimProgram("zlib")
+	scriptDNSShim            = newScriptShimProgram("dns")
+	scriptHTTPShim           = newScriptShimProgram("http")
+	scriptEventsShim         = newScriptShimProgram("events")
+	scriptStreamShim         = newScriptShimProgram("stream")
+	scriptStreamPromisesShim = newScriptShimProgram("stream/promises")
+	scriptURLShim            = newScriptShimProgram("url")
+	scriptMomentShim         = newScriptShimProgram("moment")
+	scriptCryptoJSShim       = newScriptShimProgram("crypto-js")
+	scriptEventTargetShim    = newScriptShimProgram("EventTarget")
+	scriptEncodingShim       = newScriptShimProgram("TextEncoder/TextDecoder")
+	scriptFetchShim          = newScriptShimProgram("fetch")
+)
+
 func newScriptRuntimeWithMeta(item RequestItem, response Response, vars map[string]string, testResults *[]TestResult, scriptLogs *[]ScriptLog, jar *scriptCookieJar, meta scriptRuntimeMeta) (*goja.Runtime, *goja.Object, *scriptRequestState, *goja.Object) {
 	runtime := goja.New()
 	sandboxMode := normalizeJSSandboxMode(meta.JSSandboxMode)
@@ -18930,7 +19018,7 @@ func newScriptConsoleModuleObject(runtime *goja.Runtime) goja.Value {
   module.default = module;
   return module;
 })()`
-	value, err := runtime.RunString(script)
+	value, err := runtime.RunProgram(scriptConsoleModuleShim.compiled(script))
 	if err != nil {
 		panic(runtime.NewGoError(err))
 	}
@@ -19675,7 +19763,7 @@ func installScriptBuffer(runtime *goja.Runtime) goja.Value {
   globalThis.Buffer = Buffer;
   return { Buffer };
 })()`
-	value, err := runtime.RunString(script)
+	value, err := runtime.RunProgram(scriptBufferShim.compiled(script))
 	if err != nil {
 		panic(runtime.NewGoError(err))
 	}
@@ -19844,7 +19932,7 @@ func newScriptTimersPromisesObject(runtime *goja.Runtime) goja.Value {
   timersPromises.default = timersPromises;
   return timersPromises;
 })()`
-	value, err := runtime.RunString(script)
+	value, err := runtime.RunProgram(scriptTimersPromisesShim.compiled(script))
 	if err != nil {
 		panic(runtime.NewGoError(err))
 	}
@@ -20076,7 +20164,7 @@ func newScriptAssertObject(runtime *goja.Runtime) goja.Value {
   assert.default = assert;
   return assert;
 })()`
-	value, err := runtime.RunString(script)
+	value, err := runtime.RunProgram(scriptAssertShim.compiled(script))
 	if err != nil {
 		panic(runtime.NewGoError(err))
 	}
@@ -20351,7 +20439,7 @@ func newScriptUtilObject(runtime *goja.Runtime) goja.Value {
     }
   };
 })()`
-	value, err := runtime.RunString(script)
+	value, err := runtime.RunProgram(scriptUtilShim.compiled(script))
 	if err != nil {
 		panic(runtime.NewGoError(err))
 	}
@@ -20430,7 +20518,7 @@ func installScriptAjv(runtime *goja.Runtime) goja.Value {
   globalThis.Ajv = Ajv;
   return Ajv;
 })()`
-	value, err := runtime.RunString(script)
+	value, err := runtime.RunProgram(scriptAjvShim.compiled(script))
 	if err != nil {
 		panic(runtime.NewGoError(err))
 	}
@@ -20480,7 +20568,7 @@ func installScriptAxios(runtime *goja.Runtime) goja.Value {
   axios.default = axios;
   return axios;
 })()`
-	value, err := runtime.RunString(script)
+	value, err := runtime.RunProgram(scriptAxiosShim.compiled(script))
 	if err != nil {
 		panic(runtime.NewGoError(err))
 	}
@@ -21386,7 +21474,7 @@ func newScriptLodashObject(runtime *goja.Runtime) goja.Value {
   lodash.default = lodash;
   return lodash;
 })()`
-	value, err := runtime.RunString(script)
+	value, err := runtime.RunProgram(scriptLodashShim.compiled(script))
 	if err != nil {
 		panic(runtime.NewGoError(err))
 	}
@@ -22129,7 +22217,7 @@ func newScriptQueryStringObject(runtime *goja.Runtime) goja.Value {
 
   return { parse, decode: parse, stringify, encode: stringify, escape, unescape };
 })()`
-	value, err := runtime.RunString(script)
+	value, err := runtime.RunProgram(scriptQueryStringShim.compiled(script))
 	if err != nil {
 		panic(runtime.NewGoError(err))
 	}
@@ -22505,7 +22593,7 @@ func newScriptZlibObject(runtime *goja.Runtime) goja.Value {
   }
   return module;
 })()`
-	value, err := runtime.RunString(script)
+	value, err := runtime.RunProgram(scriptZlibShim.compiled(script))
 	if err != nil {
 		panic(runtime.NewGoError(err))
 	}
@@ -22751,7 +22839,7 @@ func newScriptDNSObject(runtime *goja.Runtime) goja.Value {
     promises
   };
 })()`
-	value, err := runtime.RunString(script)
+	value, err := runtime.RunProgram(scriptDNSShim.compiled(script))
 	if err != nil {
 		panic(runtime.NewGoError(err))
 	}
@@ -23255,7 +23343,7 @@ func newScriptHTTPObject(runtime *goja.Runtime, eventsObject goja.Value, secure 
     createServer: function () { throw new Error("http.createServer is not available in LiteAPI scripts"); }
   };
 })()`
-	value, err := runtime.RunString(script)
+	value, err := runtime.RunProgram(scriptHTTPShim.compiled(script))
 	if err != nil {
 		panic(runtime.NewGoError(err))
 	}
@@ -23694,7 +23782,7 @@ func newScriptEventsObject(runtime *goja.Runtime) goja.Value {
 
   return EventEmitter;
 })()`
-	value, err := runtime.RunString(script)
+	value, err := runtime.RunProgram(scriptEventsShim.compiled(script))
 	if err != nil {
 		panic(runtime.NewGoError(err))
 	}
@@ -23897,7 +23985,7 @@ func newScriptStreamObject(runtime *goja.Runtime) goja.Value {
 
   return { Stream: StreamBase, Readable, Writable, Duplex, Transform, pipeline };
 })()`
-	value, err := runtime.RunString(script)
+	value, err := runtime.RunProgram(scriptStreamShim.compiled(script))
 	if err != nil {
 		panic(runtime.NewGoError(err))
 	}
@@ -23978,7 +24066,7 @@ func newScriptStreamPromisesObject(runtime *goja.Runtime, streamObject goja.Valu
   promises.default = promises;
   return promises;
 })(globalThis.__liteapi_stream_for_promises__)`
-	value, err := runtime.RunString(script)
+	value, err := runtime.RunProgram(scriptStreamPromisesShim.compiled(script))
 	if err != nil {
 		panic(runtime.NewGoError(err))
 	}
@@ -24248,7 +24336,7 @@ func newScriptURLObject(runtime *goja.Runtime) goja.Value {
   globalThis.URLSearchParams = URLSearchParams;
   return module;
 })()`
-	value, err := runtime.RunString(script)
+	value, err := runtime.RunProgram(scriptURLShim.compiled(script))
 	if err != nil {
 		panic(runtime.NewGoError(err))
 	}
@@ -25327,7 +25415,7 @@ func newScriptMomentObject(runtime *goja.Runtime) goja.Value {
   moment.fn = Moment.prototype;
   return moment;
 })()`
-	value, err := runtime.RunString(script)
+	value, err := runtime.RunProgram(scriptMomentShim.compiled(script))
 	if err != nil {
 		panic(runtime.NewGoError(err))
 	}
@@ -25548,7 +25636,7 @@ func newScriptCryptoJSObject(runtime *goja.Runtime) *goja.Object {
   };
   return CryptoJS;
 })`
-	value, err := runtime.RunString(script)
+	value, err := runtime.RunProgram(scriptCryptoJSShim.compiled(script))
 	if err != nil {
 		panic(runtime.NewGoError(err))
 	}
@@ -28198,7 +28286,7 @@ func installScriptEventTarget(runtime *goja.Runtime) {
   globalThis.CustomEvent = CustomEvent;
   globalThis.EventTarget = EventTarget;
 })()`
-	if _, err := runtime.RunString(script); err != nil {
+	if _, err := runtime.RunProgram(scriptEventTargetShim.compiled(script)); err != nil {
 		panic(runtime.NewGoError(err))
 	}
 }
@@ -28306,7 +28394,7 @@ func installScriptEncoding(runtime *goja.Runtime) {
   globalThis.TextEncoder = TextEncoder;
   globalThis.TextDecoder = TextDecoder;
 })()`
-	if _, err := runtime.RunString(script); err != nil {
+	if _, err := runtime.RunProgram(scriptEncodingShim.compiled(script)); err != nil {
 		panic(runtime.NewGoError(err))
 	}
 }
@@ -28627,7 +28715,7 @@ func installScriptFetch(runtime *goja.Runtime, vars map[string]string) {
   globalThis.Blob = Blob;
   globalThis.fetch = fetch;
 })()`
-	if _, err := runtime.RunString(script); err != nil {
+	if _, err := runtime.RunProgram(scriptFetchShim.compiled(script)); err != nil {
 		panic(runtime.NewGoError(err))
 	}
 	_ = runtime.Set("__liteApiFetchSend", goja.Undefined())
