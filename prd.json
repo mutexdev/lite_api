@@ -281,8 +281,8 @@
         "R4",
         "R5"
       ],
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "markDirty(scope) replaces 80 persistLocked() call sites; background writer, debounce 250ms + lastWriteDuration (a fixed interval would let the writer monopolise a.mu, which persistLocked holds for its whole ~82ms duration). Atomic writeFileAtomic: temp in same dir, Chmod, Write, Sync, checked Close, Rename. json.Marshal replaces MarshalIndent. VERIFIED BY ORCHESTRATOR: BenchmarkMarkDirty 573,933 ns/op / 3,354 B/op vs the 225,684,108 ns / 221,066,295 B keystroke baseline = 393x faster, 65,900x fewer bytes. persistLocked itself 225.7ms -> 81.1ms. Gates: build 0, vet 0, test 32.897s 0, race 63.130s clean, golangci-lint 0. Test count 474 -> 483. Kill-mid-write proven: TestPersistStateJSONSurvivesSIGKILL re-execs the binary, SIGKILLs at 8 offsets, parses after each; worker demonstrated BOTH durability tests FAIL against the old os.WriteFile writer. Write errors: dirty flag stays set (retry, backoff to 5s), parked in a.persistErr and returned by the next markDirty (which has a caller), notification on first failure of a streak only, plus log. ACCEPTED REGRESSION: PersistLockedSmallState 542us -> 5.5ms, entirely the mandated fsync (~4.7ms on APFS); kept deliberately for durability - see .ralph/baseline/bench.txt. FOLLOW-UPS: blur flush needs FlushPendingWrites bound in regenerated frontend/wailsjs (out of scope); 21 persistLocked calls remain sync by design (3 bootstrap in ensureReadyLocked, 2 rollback function values, 16 in recovery/draft/import/git outside scope); persistLocked still holds a.mu for the whole write - getting I/O off the mutex belongs with US-020."
     },
     {
       "id": "US-013",

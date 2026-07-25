@@ -109,6 +109,9 @@ func TestProductionMarkerLaunchRejectsStaleLegacyAndCorruptMarker(t *testing.T) 
 	if app.state.Workspaces[0].Name != "scoped truth" {
 		t.Fatalf("relaunch read stale legacy: %+v", app.state.Workspaces[0])
 	}
+	// Mirrors shutdown: release() gives up the ownership lease that
+	// persistWorkspaceRuntimeLocked needs, so pending state must land first.
+	flushPersistForTest(t, app)
 	app.workspaceRuntime.release()
 	if err := os.WriteFile(workspaceMigrationMarkerPath(dir), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
@@ -138,6 +141,9 @@ func TestProductionRelaunchAcceptsMutableArtifactsButRejectsCorruption(t *testin
 	if err := app.persistWorkspaceRuntimeLocked(); err != nil {
 		t.Fatal(err)
 	}
+	// Mirrors shutdown: release() gives up the ownership lease that
+	// persistWorkspaceRuntimeLocked needs, so pending state must land first.
+	flushPersistForTest(t, app)
 	app.workspaceRuntime.release()
 	reloaded, err := newProductionApp(dir, nil)
 	if err != nil {
@@ -146,6 +152,9 @@ func TestProductionRelaunchAcceptsMutableArtifactsButRejectsCorruption(t *testin
 	if reloaded.state.Workspaces[0].Name != "Edited Workspace" || reloaded.state.Preferences.Theme != "dark" || reloaded.state.ActiveTabID != "edited-tab" {
 		t.Fatalf("mutable state did not reload: %+v", reloaded.state)
 	}
+	// Mirrors shutdown: release() gives up the ownership lease that
+	// persistWorkspaceRuntimeLocked needs, so pending state must land first.
+	flushPersistForTest(t, reloaded)
 	reloaded.workspaceRuntime.release()
 	if err := os.WriteFile(sharedAppStatePath(dir), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
@@ -189,6 +198,9 @@ func TestProductionRelaunchHydratesNewEmptyCollections(t *testing.T) {
 			if info, err := os.Stat(filepath.Join(created.Path, rootMetadata)); err != nil || !info.Mode().IsRegular() {
 				t.Fatalf("empty collection root was not materialized: path=%s info=%v err=%v", created.Path, info, err)
 			}
+			// Mirrors shutdown: release() gives up the ownership lease that
+			// persistWorkspaceRuntimeLocked needs, so pending state must land first.
+			flushPersistForTest(t, app)
 			app.workspaceRuntime.release()
 
 			reloaded, err := newProductionApp(dir, nil)
@@ -241,6 +253,9 @@ func TestScopedRuntimePersistenceKeepsOtherWorkspaceAndLegacyUntouched(t *testin
 	if err := app.persistWorkspaceRuntimeLocked(); err != nil {
 		t.Fatal(err)
 	}
+	// Mirrors shutdown: release() gives up the ownership lease that
+	// persistWorkspaceRuntimeLocked needs, so pending state must land first.
+	flushPersistForTest(t, app)
 	app.workspaceRuntime.release()
 	afterB, err := os.ReadFile(workspaceScopedStatePath(dir, "b"))
 	if err != nil || fileChecksum(beforeB) != fileChecksum(afterB) {
@@ -286,6 +301,9 @@ func TestReplacedWorkspaceOwnerCannotHeartbeatPersistOrReleaseReplacement(t *tes
 	if err := app.persistWorkspaceRuntimeLocked(); err == nil {
 		t.Fatal("replaced owner persisted")
 	}
+	// Mirrors shutdown: release() gives up the ownership lease that
+	// persistWorkspaceRuntimeLocked needs, so pending state must land first.
+	flushPersistForTest(t, app)
 	app.workspaceRuntime.release()
 	if _, err := locks.Heartbeat(replacement); err != nil {
 		t.Fatalf("release removed replacement: %v", err)
@@ -347,6 +365,9 @@ func TestWorkspaceSessionReuseRestoresWorkspaceStateAndMainSession(t *testing.T)
 		secondArgs = append([]string(nil), args...)
 		return nil
 	}
+	// Mirrors shutdown: release() gives up the ownership lease that
+	// persistWorkspaceRuntimeLocked needs, so pending state must land first.
+	flushPersistForTest(t, a)
 	a.workspaceRuntime.release()
 	if _, err := b.OpenWorkspaceInNewWindow("a"); err != nil {
 		t.Fatal(err)
@@ -354,6 +375,9 @@ func TestWorkspaceSessionReuseRestoresWorkspaceStateAndMainSession(t *testing.T)
 	if secondArgs[1] != "main-window" {
 		t.Fatalf("main workspace session was not reused: %v", secondArgs)
 	}
+	// Mirrors shutdown: release() gives up the ownership lease that
+	// persistWorkspaceRuntimeLocked needs, so pending state must land first.
+	flushPersistForTest(t, b)
 	b.workspaceRuntime.release()
 }
 
@@ -381,6 +405,9 @@ func TestWorkspaceSessionIdentityFilteringAndOrientationRestore(t *testing.T) {
 	if len(app.state.OpenTabs) != 1 || app.state.ActiveTabID != "allowed-tab" || len(app.state.ClosedTabs) != 0 || app.state.Preferences.Layout.ResponsePaneOrientation != "vertical" {
 		t.Fatalf("session was not sanitized/restored: %+v", app.state)
 	}
+	// Mirrors shutdown: release() gives up the ownership lease that
+	// persistWorkspaceRuntimeLocked needs, so pending state must land first.
+	flushPersistForTest(t, app)
 	app.workspaceRuntime.release()
 	session.WorkspaceID = ""
 	session.WorkspacePath = filepath.Join(dir, "wrong")

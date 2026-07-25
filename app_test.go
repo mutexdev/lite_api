@@ -2151,6 +2151,7 @@ func TestWorkspaceScratchCollectionIsTransientAndFileBacked(t *testing.T) {
 	if _, err := os.Stat(item.FilePath); err != nil {
 		t.Fatalf("scratch request file was not written: %v", err)
 	}
+	flushPersistForTest(t, app)
 	stored, err := os.ReadFile(filepath.Join(dir, "state.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -2182,6 +2183,7 @@ func TestWorkspaceScratchCollectionIsTransientAndFileBacked(t *testing.T) {
 		}
 	}
 
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
@@ -2228,6 +2230,7 @@ func TestSetActiveWorkspacePersistsSelection(t *testing.T) {
 		t.Fatalf("active workspace was not updated: got %q want %q", state.ActiveWorkspaceID, initialWorkspaceID)
 	}
 
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
@@ -2257,6 +2260,7 @@ func TestSetActiveWorkspaceRejectsUnknownIDWithoutMutation(t *testing.T) {
 		t.Fatalf("invalid workspace selection mutated state: got %q want %q", state.ActiveWorkspaceID, initialWorkspaceID)
 	}
 
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
@@ -2286,6 +2290,7 @@ func TestPreferencesThemeModeAndVariantsPersist(t *testing.T) {
 		t.Fatalf("theme preferences were not stored: %#v", state.Preferences)
 	}
 
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
@@ -2340,6 +2345,7 @@ func TestPreferencesKeybindingsPersistAndNormalize(t *testing.T) {
 		t.Fatalf("send request shortcut not stored: %q", got)
 	}
 
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
@@ -2409,6 +2415,7 @@ func TestPreferencesDevToolsPersistAndNormalize(t *testing.T) {
 		t.Fatalf("network column widths were not stored: %#v", state.Preferences.DevTools.Network.ColumnWidths)
 	}
 
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
@@ -2471,6 +2478,7 @@ func TestPreferencesLayoutPersistAndNormalize(t *testing.T) {
 		t.Fatalf("response pane orientation was not stored: %#v", state.Preferences.Layout)
 	}
 
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
@@ -2512,6 +2520,7 @@ func TestPreferencesDisplayZoomPersistAndNormalize(t *testing.T) {
 		t.Fatalf("display zoom was not stored: %#v", state.Preferences.Display)
 	}
 
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
@@ -2564,6 +2573,7 @@ func TestPreferencesFontPersistAndNormalize(t *testing.T) {
 		t.Fatalf("font preferences were not stored and mirrored: %#v", state.Preferences)
 	}
 
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
@@ -2669,6 +2679,7 @@ func TestPreferencesGeneralRequestAutoSaveCachePersistAndNormalize(t *testing.T)
 		t.Fatalf("file cache preference was not stored: %#v", state.Preferences.Cache)
 	}
 
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
@@ -2709,6 +2720,7 @@ func TestPreferencesOAuth2UseSystemBrowserPersists(t *testing.T) {
 		t.Fatalf("OAuth2 system-browser preference was not stored: %#v", state.Preferences)
 	}
 
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
@@ -9524,6 +9536,7 @@ func TestWorkspaceGlobalEnvironmentSelectionPrecedenceSecretsAndDiskRoundTrip(t 
 	if strings.Contains(string(envData), "hidden-global") {
 		t.Fatalf("global environment yaml leaked secret value: %s", envData)
 	}
+	flushPersistForTest(t, app)
 	secretsData, err := os.ReadFile(filepath.Join(dir, "secrets.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -9539,6 +9552,7 @@ func TestWorkspaceGlobalEnvironmentSelectionPrecedenceSecretsAndDiskRoundTrip(t 
 		t.Fatalf("state.json leaked global secret value: %s", stateData)
 	}
 
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(dir)
 	_, _, vars, err := reloaded.effectiveRequestContextForExecution(collection.ID, item.ID, envID)
 	if err != nil {
@@ -9616,6 +9630,7 @@ docs: ''
 		t.Fatal(err)
 	}
 
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(app.dataDir)
 	state, err = reloaded.GetState()
 	if err != nil {
@@ -9633,6 +9648,7 @@ docs: ''
 	if strings.Contains(string(updatedConfig), "activeEnvironmentUid") {
 		t.Fatalf("workspace.yml was not migrated: %s", updatedConfig)
 	}
+	flushPersistForTest(t, reloaded)
 	stateData, err := os.ReadFile(filepath.Join(app.dataDir, "state.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -9641,6 +9657,7 @@ docs: ''
 		t.Fatalf("migrated active global environment was not persisted: %s", stateData)
 	}
 
+	flushPersistForTest(t, reloaded)
 	restarted := NewAppWithDir(app.dataDir)
 	restartedState, err := restarted.GetState()
 	if err != nil {
@@ -9724,6 +9741,7 @@ func TestGlobalEnvironmentCopyImportExportScrubsSecretsAndRoundTrips(t *testing.
 	if strings.Contains(string(copyData), "hidden") {
 		t.Fatalf("copied global environment yaml leaked secret value: %s", copyData)
 	}
+	flushPersistForTest(t, app)
 	secretsData, err := os.ReadFile(filepath.Join(dir, "secrets.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -9732,6 +9750,7 @@ func TestGlobalEnvironmentCopyImportExportScrubsSecretsAndRoundTrips(t *testing.
 		t.Fatalf("copied global environment secret was not encrypted: %s", secretsData)
 	}
 
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
@@ -9805,6 +9824,7 @@ func TestGlobalEnvironmentCopyImportExportScrubsSecretsAndRoundTrips(t *testing.
 	if postmanVars["postman_secret"].Value != "postman-hidden" || !postmanVars["postman_secret"].Secret {
 		t.Fatalf("postman secret variable was not imported before persistence: %#v", postmanVars)
 	}
+	flushPersistForTest(t, reloaded)
 	reloadedAgain := NewAppWithDir(dir)
 	reloadedAgainState, err := reloadedAgain.GetState()
 	if err != nil {
@@ -11110,6 +11130,7 @@ func TestCookiePersistenceEncryptsValuesAndHydrates(t *testing.T) {
 	if len(state.Cookies) != 1 || state.Cookies[0].Value != "plain-cookie-secret" {
 		t.Fatalf("cookie should remain plaintext in runtime state: %#v", state.Cookies)
 	}
+	flushPersistForTest(t, app)
 	stateData, err := os.ReadFile(filepath.Join(dir, "state.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -11117,6 +11138,7 @@ func TestCookiePersistenceEncryptsValuesAndHydrates(t *testing.T) {
 	if strings.Contains(string(stateData), "plain-cookie-secret") || !strings.Contains(string(stateData), "$01:") {
 		t.Fatalf("state.json did not encrypt cookie value: %s", stateData)
 	}
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
@@ -11636,6 +11658,7 @@ func TestNotificationsMarkReadAndClearPersist(t *testing.T) {
 		t.Fatalf("notification was not marked read: %#v", state.Notifications[0])
 	}
 
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
@@ -11787,6 +11810,7 @@ func TestUpdateOpenTabPanesPersistsPaneSelection(t *testing.T) {
 	if _, err := app.UpdateOpenTabPanes(tabID, "params", "bogus"); err == nil {
 		t.Fatalf("expected invalid response pane tab to fail")
 	}
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(app.dataDir)
 	state, err = reloaded.GetState()
 	if err != nil {
@@ -11847,6 +11871,7 @@ func TestOpenTabManagementPersistsOrderAndActiveState(t *testing.T) {
 	if got := []string{state.OpenTabs[0].ID, state.OpenTabs[1].ID, state.OpenTabs[2].ID}; !reflect.DeepEqual(got, []string{thirdTabID, firstTabID, secondTabID}) {
 		t.Fatalf("moving active tab to start failed: %#v", state.OpenTabs)
 	}
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(app.dataDir)
 	state, err = reloaded.GetState()
 	if err != nil {
@@ -16023,6 +16048,7 @@ func TestInternalSaveKeepsRequestAndTabIdentityAcrossWatcherAndRestart(t *testin
 		t.Fatalf("watcher poll changed the active request tab: %q", result.State.ActiveTabID)
 	}
 
+	flushPersistForTest(t, app)
 	restarted := NewAppWithDir(dataDir)
 	restartedState, err := restarted.GetState()
 	if err != nil {
@@ -17856,6 +17882,7 @@ func TestGitRemoteMetadataManagedIgnoreAndGhostRows(t *testing.T) {
 		t.Fatalf("managed .gitignore entry missing:\n%s", ignore)
 	}
 
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(dataDir)
 	if err := os.RemoveAll(collection.Path); err != nil {
 		t.Fatal(err)
@@ -19176,6 +19203,7 @@ headers {
 	if strings.Contains(string(envFile), "super-secret-token") || !strings.Contains(string(envFile), "vars:secret") || !strings.Contains(string(envFile), "apiToken") {
 		t.Fatalf("environment file leaked or lost secret marker:\n%s", envFile)
 	}
+	flushPersistForTest(t, app)
 	stateFile, err := os.ReadFile(filepath.Join(appDir, "state.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -19214,6 +19242,7 @@ headers {
 		t.Fatalf("secret store did not encrypt apiToken with Bruno AES fallback format: %#v", store)
 	}
 
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(appDir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
@@ -19273,6 +19302,9 @@ func TestCollectionEnvironmentSecretsHydrateBrunoEncryptedFallbacks(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Flush before planting the fixture: a later flush would overwrite the
+	// hand-written store with the app's own view of it.
+	flushPersistForTest(t, app)
 	if err := os.WriteFile(filepath.Join(appDir, "secrets.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -19359,6 +19391,7 @@ headers {
 		t.Fatal(err)
 	}
 
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(appDir)
 	state, err = reloaded.GetState()
 	if err != nil {
@@ -20771,6 +20804,7 @@ func TestOAuth2CredentialStoreEncryptsAndHydrates(t *testing.T) {
 	if !ok || item.Response == nil || item.Response.Status != http.StatusOK {
 		t.Fatalf("OAuth2 persistence request failed: %#v", item.Response)
 	}
+	flushPersistForTest(t, app)
 	storeData, err := os.ReadFile(filepath.Join(dir, "oauth2.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -20779,6 +20813,7 @@ func TestOAuth2CredentialStoreEncryptsAndHydrates(t *testing.T) {
 		t.Fatalf("oauth2.json did not encrypt OAuth2 credentials: %s", storeData)
 	}
 
+	flushPersistForTest(t, app)
 	reloaded := NewAppWithDir(dir)
 	vars := reloaded.oauth2CredentialVariablesSnapshot()
 	if vars["$oauth2.persisted.access_token"] != accessToken || vars["$oauth2.persisted.refresh_token"] != refreshToken {

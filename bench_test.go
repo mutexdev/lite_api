@@ -66,6 +66,25 @@ func BenchmarkPersistLockedSmallState(b *testing.B) {
 	}
 }
 
+// BenchmarkMarkDirty measures what the keystroke path actually costs after
+// US-012: a mutator now calls markDirty instead of persistLocked. It is the
+// number BenchmarkPersistLocked should be read against — persistLocked still
+// exists and is still expensive, it just no longer runs per typed character.
+func BenchmarkMarkDirty(b *testing.B) {
+	app := newLargeWorkspaceApp(b.TempDir(), benchFixtureOptions())
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		app.mu.Lock()
+		err := app.markDirty(persistScopeState)
+		app.mu.Unlock()
+		if err != nil {
+			b.Fatalf("markDirty: %v", err)
+		}
+	}
+}
+
 // BenchmarkWriteCollectionFilesLocked measures rewriting an entire 50-request
 // collection to disk, which is what currently happens when a single request is
 // saved. Target of US-015 (dirty-set collection writes).

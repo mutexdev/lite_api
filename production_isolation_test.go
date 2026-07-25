@@ -36,6 +36,9 @@ func TestProductionDataDirectoriesDoNotShareSavedRequestsOrOpenTabs(t *testing.T
 	if _, err := first.SaveRequest(collectionID, requestID); err != nil {
 		t.Fatal(err)
 	}
+	// Mirrors shutdown: release() gives up the ownership lease that
+	// persistWorkspaceRuntimeLocked needs, so pending state must land first.
+	flushPersistForTest(t, first)
 	first.workspaceRuntime.release()
 
 	reloadedFirst, err := newProductionApp(firstDir, nil)
@@ -49,6 +52,9 @@ func TestProductionDataDirectoriesDoNotShareSavedRequestsOrOpenTabs(t *testing.T
 	if !stateHasRequestNamed(firstReloadedState, requestName) || !stateHasOpenTabForRequest(firstReloadedState, requestID) {
 		t.Fatalf("same-directory production relaunch lost request/tab: %+v", firstReloadedState)
 	}
+	// Mirrors shutdown: release() gives up the ownership lease that
+	// persistWorkspaceRuntimeLocked needs, so pending state must land first.
+	flushPersistForTest(t, reloadedFirst)
 	reloadedFirst.workspaceRuntime.release()
 
 	second, err := newProductionApp(secondDir, nil)

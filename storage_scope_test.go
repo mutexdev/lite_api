@@ -13,6 +13,9 @@ func TestWebStorageScopeIsStablePerDataDirectoryAndIsolatedAcrossDirectories(t *
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Mirrors shutdown: release() gives up the ownership lease that
+	// persistWorkspaceRuntimeLocked needs, so pending state must land first.
+	flushPersistForTest(t, first)
 	first.workspaceRuntime.release()
 	reloaded, err := newProductionApp(firstDir, nil)
 	if err != nil {

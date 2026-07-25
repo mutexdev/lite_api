@@ -60,6 +60,37 @@ ok  	LiteAPI	3.503s
 
 
 # ===========================================================================
+# ACCEPTED REGRESSION — BenchmarkPersistLockedSmallState, US-012
+# ===========================================================================
+#
+# 541,867 -> ~5,537,842 ns/op (+920%). This is NOT a defect and must not be
+# "fixed" by a later story without reading this.
+#
+# Cause: writeFileAtomic fsyncs the temp file before os.Rename. Measured on this
+# APFS volume each fsync costs ~4.7 ms; with the Sync() removed and nothing else
+# changed the same benchmark runs at ~400,058 ns/op, i.e. FASTER than the
+# original. The cost is entirely durability, not overhead.
+#
+# Accepted deliberately:
+#   * The pre-US-012 code had neither fsync nor atomic rename — a crash could
+#     leave a truncated state.json. This is strictly more durable than what
+#     shipped.
+#   * Dropping the fsync would keep SIGKILL survival (rename alone gives that)
+#     but lose durability against power loss or kernel panic. LiteAPI is
+#     local-first; the user's collections and workspace state are the product.
+#   * Frequency inverted. The writer ran ~20x/s in the FOREGROUND under the
+#     global exclusive mutex (once per keystroke); it now runs at most 4x/s in
+#     the BACKGROUND. Total fsync cost ~19 ms/s of background I/O against
+#     ~11 ms/s of foreground I/O before.
+#
+# The keystroke path is what actually regressed or improved for a user, and it
+# is now measured by BenchmarkMarkDirty, not by BenchmarkPersistLocked:
+#
+#   BenchmarkMarkDirty   573,933 ns/op   3,354 B/op   27 allocs/op
+#   (was BenchmarkPersistLocked 225,684,108 ns/op  221,066,295 B/op)
+#   -> 393x faster, 65,900x fewer bytes per typed character.
+#
+# ===========================================================================
 # What these numbers establish
 # ===========================================================================
 #

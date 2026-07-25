@@ -31,6 +31,7 @@ import (
 	"hash"
 	"html"
 	"io"
+	"log"
 	"math"
 	"mime"
 	"mime/multipart"
@@ -166,6 +167,16 @@ type App struct {
 	collectionImportHooks       *collectionImportHooks
 	gitWorkbenchExecutable      string
 	gitWorkbenchPersist         func() error
+
+	// Coalesced persistence (US-012). persistMu is a leaf lock: it is never
+	// held while acquiring a.mu, so markDirty stays safe to call from the
+	// keystroke path with a.mu already held.
+	persistMu       sync.Mutex
+	persistDirty    bool
+	persistRunning  bool
+	persistErr      error
+	persistFailures int
+	persistWrites   uint64
 }
 
 type TerminalSession struct {
@@ -1337,6 +1348,12 @@ func (a *App) handleSecondInstanceArgs(args []string) {
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	// Force-flush first: state still inside the debounce window is data loss
+	// once the process exits, and the workspace runtime release below gives up
+	// the ownership lease persistWorkspaceRuntimeLocked needs.
+	if err := a.flushPersist(); err != nil {
+		a.logPersistError("Could not save workspace state on exit: " + err.Error())
+	}
 	if a.workspaceRuntime != nil {
 		a.workspaceRuntime.captureGeometry(ctx)
 		a.workspaceRuntime.release()
@@ -1714,7 +1731,7 @@ func (a *App) CreateWorkspace(name string) (AppState, error) {
 	}
 	a.state.ActiveWorkspaceID = id
 	a.notify("info", "Workspace created: "+ws.Name)
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) SetActiveWorkspace(workspaceID string) (AppState, error) {
@@ -1735,7 +1752,7 @@ func (a *App) SetActiveWorkspace(workspaceID string) (AppState, error) {
 		return AppState{}, err
 	}
 	a.state.ActiveWorkspaceID = workspace.ID
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) CreateCollection(workspaceID, name, format string) (AppState, error) {
@@ -1791,7 +1808,7 @@ func (a *App) CreateCollection(workspaceID, name, format string) (AppState, erro
 	ws.UpdatedAt = now
 	a.state.ActiveWorkspaceID = ws.ID
 	a.notify("info", "Collection created: "+collection.Name)
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func defaultCollectionRoot(preferences Preferences, workspacePath string) string {
@@ -1853,7 +1870,7 @@ func (a *App) OpenCollection(workspaceID, collectionPath string) (AppState, erro
 			a.seedCollectionWatchFingerprintLocked(collection.Path)
 			a.openFirstCollectionItemLocked(collection)
 			a.notify("success", "Refreshed "+collection.Name)
-			return a.state, a.persistLocked()
+			return a.state, a.markDirty(persistScopeState)
 		}
 	}
 	ws.Collections = append(ws.Collections, collection)
@@ -1861,7 +1878,7 @@ func (a *App) OpenCollection(workspaceID, collectionPath string) (AppState, erro
 	a.seedCollectionWatchFingerprintLocked(collection.Path)
 	a.openFirstCollectionItemLocked(collection)
 	a.notify("success", "Opened "+collection.Name)
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) RefreshCollection(collectionID string) (AppState, error) {
@@ -1884,7 +1901,7 @@ func (a *App) RefreshCollection(collectionID string) (AppState, error) {
 					a.clearCollectionWatchFingerprintLocked(a.state.Workspaces[wi].Collections[ci].Path)
 					a.removeOpenTabsForCollectionLocked(collectionID)
 					a.notify("warn", a.state.Workspaces[wi].Collections[ci].Name+" is not cloned locally")
-					return a.state, a.persistLocked()
+					return a.state, a.markDirty(persistScopeState)
 				}
 				return AppState{}, err
 			}
@@ -1898,7 +1915,7 @@ func (a *App) RefreshCollection(collectionID string) (AppState, error) {
 			a.seedCollectionWatchFingerprintLocked(refreshed.Path)
 			a.openFirstCollectionItemLocked(refreshed)
 			a.notify("success", "Refreshed "+refreshed.Name)
-			return a.state, a.persistLocked()
+			return a.state, a.markDirty(persistScopeState)
 		}
 	}
 	return AppState{}, fmt.Errorf("collection %s not found", collectionID)
@@ -1977,7 +1994,7 @@ func (a *App) RefreshChangedCollections() (CollectionWatchRefreshResult, error) 
 		}
 	}
 	if result.Changed {
-		if err := a.persistLocked(); err != nil {
+		if err := a.markDirty(persistScopeState); err != nil {
 			return CollectionWatchRefreshResult{}, err
 		}
 	}
@@ -2122,7 +2139,7 @@ func (a *App) RemoveCollection(collectionID string) (AppState, error) {
 			ws.UpdatedAt = time.Now()
 			a.removeOpenTabsForCollectionLocked(collectionID)
 			a.notify("success", "Removed collection: "+collection.Name)
-			return a.state, a.persistLocked()
+			return a.state, a.markDirty(persistScopeState)
 		}
 	}
 	return AppState{}, fmt.Errorf("collection %s not found", collectionID)
@@ -2158,7 +2175,7 @@ func (a *App) RenameCollection(collectionID, name string) (AppState, error) {
 		return AppState{}, err
 	}
 	a.notify("success", "Renamed collection: "+collection.Name)
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) CloneCollection(collectionID, collectionName, collectionFolderName, collectionLocation string) (AppState, error) {
@@ -2251,7 +2268,7 @@ func (a *App) CloneCollection(collectionID, collectionName, collectionFolderName
 	a.state.ActiveWorkspaceID = ws.ID
 	a.openFirstCollectionItemLocked(cloned)
 	a.notify("success", "Collection created!")
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) ConnectCollectionGitRemote(collectionID, remoteURL string) (AppState, error) {
@@ -2283,7 +2300,7 @@ func (a *App) ConnectCollectionGitRemote(collectionID, remoteURL string) (AppSta
 		return AppState{}, err
 	}
 	a.notify("success", "Connected "+collection.Name+" to Git")
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) DisconnectCollectionGitRemote(collectionID string) (AppState, error) {
@@ -2317,7 +2334,7 @@ func (a *App) DisconnectCollectionGitRemote(collectionID string) (AppState, erro
 			}
 			ws.UpdatedAt = time.Now()
 			a.notify("info", "Removed Git remote from "+collectionName)
-			return a.state, a.persistLocked()
+			return a.state, a.markDirty(persistScopeState)
 		}
 	}
 	return AppState{}, fmt.Errorf("collection %s not found", collectionID)
@@ -2526,7 +2543,7 @@ func (a *App) OpenGitCollections(workspaceID string, collectionPaths []string, r
 		a.openFirstCollectionItemLocked(firstOpened)
 	}
 	a.notify("success", fmt.Sprintf("Opened %d Git collection%s", opened, pluralSuffix(opened)))
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) CreateRequest(collectionID, requestType, name string) (AppState, error) {
@@ -2580,7 +2597,7 @@ func (a *App) CreateRequest(collectionID, requestType, name string) (AppState, e
 	}
 	a.openTabLocked(collection.ID, item.ID, "request")
 	a.notify("info", "Request created: "+item.Name)
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) CreateFolder(collectionID, parentFolderPath, folderName, directoryName string) (AppState, error) {
@@ -2656,7 +2673,7 @@ func (a *App) CreateFolder(collectionID, parentFolderPath, folderName, directory
 	collection.UpdatedAt = now
 	ws.UpdatedAt = now
 	a.notify("success", "New folder created!")
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) RenameFolder(collectionID, folderPath, folderName, directoryName string) (AppState, error) {
@@ -2756,7 +2773,7 @@ func (a *App) RenameFolder(collectionID, folderPath, folderName, directoryName s
 	collection.UpdatedAt = now
 	ws.UpdatedAt = now
 	a.notify("success", "Item renamed successfully")
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) DeleteFolder(collectionID, folderPath string) (AppState, error) {
@@ -2840,7 +2857,7 @@ func (a *App) DeleteFolder(collectionID, folderPath string) (AppState, error) {
 	collection.UpdatedAt = now
 	ws.UpdatedAt = now
 	a.notify("info", "Deleted folder "+firstNonEmpty(folder.Name, pathBaseSlash(oldDisplayPath), pathBaseSlash(oldPath)))
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) DeleteRequest(collectionID, itemID string) (AppState, error) {
@@ -2914,7 +2931,7 @@ func (a *App) DeleteRequest(collectionID, itemID string) (AppState, error) {
 			return AppState{}, err
 		}
 	}
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) CloneFolder(collectionID, folderPath, folderName, directoryName string) (AppState, error) {
@@ -3057,7 +3074,7 @@ func (a *App) CloneFolder(collectionID, folderPath, folderName, directoryName st
 		return AppState{}, err
 	}
 	a.notify("success", "Request cloned!")
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) CloneRequest(collectionID, itemID, requestName, filename string) (AppState, error) {
@@ -3157,7 +3174,7 @@ func (a *App) CloneRequest(collectionID, itemID, requestName, filename string) (
 	}
 	a.openTabLocked(collection.ID, cloned.ID, "request")
 	a.notify("success", "Request cloned!")
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) RenameRequest(collectionID, itemID, requestName, filename string) (AppState, error) {
@@ -3272,7 +3289,7 @@ func (a *App) RenameRequest(collectionID, itemID, requestName, filename string) 
 		}
 	}
 	a.notify("success", "Item renamed successfully")
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func cloneFolderCopiesRequestType(requestType string) bool {
@@ -3373,7 +3390,7 @@ func (a *App) UpdateRequest(collectionID, itemID string, patch RequestPatch) (Ap
 	applyPatch(item, patch)
 	item.Draft = true
 	item.UpdatedAt = time.Now()
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) ListGRPCMethods(collectionID, itemID, environmentID string) ([]GRPCMethodInfo, error) {
@@ -3503,7 +3520,7 @@ func (a *App) SaveRequest(collectionID, itemID string) (AppState, error) {
 		}
 	}
 	a.notify("success", "Saved "+item.Name)
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) SaveAllTabs(collectionID string) (AppState, error) {
@@ -3568,7 +3585,7 @@ func (a *App) SaveAllTabs(collectionID string) (AppState, error) {
 	if saved > 0 {
 		a.notify("success", fmt.Sprintf("Saved %d tab%s", saved, pluralSuffix(saved)))
 	}
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) SaveResponseExample(collectionID, itemID, name string) (AppState, error) {
@@ -3603,7 +3620,7 @@ func (a *App) SaveResponseExample(collectionID, itemID, name string) (AppState, 
 		return AppState{}, err
 	}
 	a.notify("success", "Saved response example "+example.Name)
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) CreateResponseExample(collectionID, itemID, name, description string) (AppState, error) {
@@ -3633,7 +3650,7 @@ func (a *App) CreateResponseExample(collectionID, itemID, name, description stri
 		return AppState{}, err
 	}
 	a.notify("success", "Created response example "+example.Name)
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) RenameResponseExample(collectionID, itemID, exampleID, name string) (AppState, error) {
@@ -3666,7 +3683,7 @@ func (a *App) RenameResponseExample(collectionID, itemID, exampleID, name string
 		return AppState{}, err
 	}
 	a.notify("success", "Renamed response example "+name)
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) CloneResponseExample(collectionID, itemID, exampleID string) (AppState, error) {
@@ -3698,7 +3715,7 @@ func (a *App) CloneResponseExample(collectionID, itemID, exampleID string) (AppS
 		return AppState{}, err
 	}
 	a.notify("success", "Cloned response example "+cloned.Name)
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) DeleteResponseExample(collectionID, itemID, exampleID string) (AppState, error) {
@@ -3729,7 +3746,7 @@ func (a *App) DeleteResponseExample(collectionID, itemID, exampleID string) (App
 		return AppState{}, err
 	}
 	a.notify("info", "Deleted response example "+deletedName)
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) UpdateResponseExample(collectionID, itemID, exampleID string, updated ResponseExample) (AppState, error) {
@@ -3762,7 +3779,7 @@ func (a *App) UpdateResponseExample(collectionID, itemID, exampleID string, upda
 		return AppState{}, err
 	}
 	a.notify("success", "Updated response example "+normalized.Name)
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) GenerateResponseExampleCode(collectionID, itemID, exampleID, language string) (string, error) {
@@ -3806,7 +3823,7 @@ func (a *App) DeleteCookie(cookieID string) (AppState, error) {
 	}
 	a.state.Cookies = next
 	a.notify("info", "Cookie deleted")
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) SaveCookie(input CookieInput) (AppState, error) {
@@ -3843,7 +3860,7 @@ func (a *App) SaveCookie(input CookieInput) (AppState, error) {
 	a.state.Cookies = append(next, normalized)
 	a.pruneExpiredCookiesLocked()
 	a.notify("success", "Cookie saved")
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) AddCookieFromHeader(rawHeader, sourceURL string) (AppState, error) {
@@ -3871,7 +3888,7 @@ func (a *App) AddCookieFromHeader(rawHeader, sourceURL string) (AppState, error)
 	}
 	a.storeResponseCookiesLocked(cookies)
 	a.notify("success", fmt.Sprintf("Imported %d cookie%s", len(cookies), pluralSuffix(len(cookies))))
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) ClearDomainCookies(domain string) (AppState, error) {
@@ -3898,7 +3915,7 @@ func (a *App) ClearDomainCookies(domain string) (AppState, error) {
 	}
 	a.state.Cookies = next
 	a.notify("info", fmt.Sprintf("Cleared %d cookie%s for %s", removed, pluralSuffix(removed), domain))
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) ClearCookies() (AppState, error) {
@@ -3909,7 +3926,7 @@ func (a *App) ClearCookies() (AppState, error) {
 	}
 	a.state.Cookies = []CookieEntry{}
 	a.notify("info", "Cookies cleared")
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) MarkNotificationRead(notificationID string) (AppState, error) {
@@ -3921,7 +3938,7 @@ func (a *App) MarkNotificationRead(notificationID string) (AppState, error) {
 	for i := range a.state.Notifications {
 		if a.state.Notifications[i].ID == notificationID {
 			a.state.Notifications[i].Read = true
-			return a.state, a.persistLocked()
+			return a.state, a.markDirty(persistScopeState)
 		}
 	}
 	return AppState{}, fmt.Errorf("notification %s not found", notificationID)
@@ -3936,7 +3953,7 @@ func (a *App) MarkAllNotificationsRead() (AppState, error) {
 	for i := range a.state.Notifications {
 		a.state.Notifications[i].Read = true
 	}
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) ClearNotifications() (AppState, error) {
@@ -3946,7 +3963,7 @@ func (a *App) ClearNotifications() (AppState, error) {
 		return AppState{}, err
 	}
 	a.state.Notifications = []Notification{}
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func responseExampleFromItem(item RequestItem, name string) ResponseExample {
@@ -5243,7 +5260,7 @@ func (a *App) SetActiveTab(tabID string) (AppState, error) {
 	for _, tab := range a.state.OpenTabs {
 		if tab.ID == tabID {
 			a.state.ActiveTabID = tabID
-			return a.state, a.persistLocked()
+			return a.state, a.markDirty(persistScopeState)
 		}
 	}
 	return AppState{}, fmt.Errorf("tab %s not found", tabID)
@@ -5272,7 +5289,7 @@ func (a *App) UpdateOpenTabPanes(tabID, requestPaneTab, responseTab string) (App
 		if responseTab != "" {
 			a.state.OpenTabs[i].ResponseTab = responseTab
 		}
-		return a.state, a.persistLocked()
+		return a.state, a.markDirty(persistScopeState)
 	}
 	return AppState{}, fmt.Errorf("tab %s not found", tabID)
 }
@@ -5291,7 +5308,7 @@ func (a *App) OpenRequestTab(collectionID, itemID string) (AppState, error) {
 		return AppState{}, err
 	}
 	a.openTabLocked(collectionID, itemID, "request")
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) OpenResponseExampleTab(collectionID, itemID, exampleID string) (AppState, error) {
@@ -5313,7 +5330,7 @@ func (a *App) OpenResponseExampleTab(collectionID, itemID, exampleID string) (Ap
 		return AppState{}, err
 	}
 	a.openResponseExampleTabLocked(collectionID, itemID, *example)
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) CloseTab(tabID string) (AppState, error) {
@@ -5341,7 +5358,7 @@ func (a *App) CloseTab(tabID string) (AppState, error) {
 			a.state.ActiveTabID = a.state.OpenTabs[len(a.state.OpenTabs)-1].ID
 		}
 	}
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) CloseAllTabs() (AppState, error) {
@@ -5352,7 +5369,7 @@ func (a *App) CloseAllTabs() (AppState, error) {
 	}
 	a.state.OpenTabs = []OpenTab{}
 	a.state.ActiveTabID = ""
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) ReopenLastClosedTab(collectionID string) (AppState, error) {
@@ -5372,7 +5389,7 @@ func (a *App) ReopenLastClosedTab(collectionID string) (AppState, error) {
 		for i := range a.state.OpenTabs {
 			if a.state.OpenTabs[i].ID == tab.ID {
 				a.state.ActiveTabID = tab.ID
-				return a.state, a.persistLocked()
+				return a.state, a.markDirty(persistScopeState)
 			}
 		}
 		if tab.RequestPaneTab == "" {
@@ -5383,9 +5400,9 @@ func (a *App) ReopenLastClosedTab(collectionID string) (AppState, error) {
 		}
 		a.state.OpenTabs = append(a.state.OpenTabs, tab)
 		a.state.ActiveTabID = tab.ID
-		return a.state, a.persistLocked()
+		return a.state, a.markDirty(persistScopeState)
 	}
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) MoveOpenTab(tabID string, offset int) (AppState, error) {
@@ -5415,7 +5432,7 @@ func (a *App) MoveOpenTab(tabID string, offset int) (AppState, error) {
 		copy(a.state.OpenTabs[index:target], a.state.OpenTabs[index+1:target+1])
 	}
 	a.state.OpenTabs[target] = tab
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) CreateEnvironment(collectionID, name string) (AppState, error) {
@@ -5448,7 +5465,7 @@ func (a *App) CreateEnvironment(collectionID, name string) (AppState, error) {
 		}
 	}
 	a.notify("success", "Environment created: "+env.Name)
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) CreateGlobalEnvironment(workspaceID, name string) (AppState, error) {
@@ -5478,7 +5495,7 @@ func (a *App) CreateGlobalEnvironment(workspaceID, name string) (AppState, error
 		return AppState{}, err
 	}
 	a.notify("success", "Global environment created: "+env.Name)
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) SetActiveGlobalEnvironment(workspaceID, environmentID string) (AppState, error) {
@@ -5496,7 +5513,7 @@ func (a *App) SetActiveGlobalEnvironment(workspaceID, environmentID string) (App
 	}
 	ws.ActiveGlobalEnvironmentID = environmentID
 	ws.UpdatedAt = time.Now()
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) UpdateGlobalEnvironment(workspaceID, environmentID, name, color string) (AppState, error) {
@@ -5523,7 +5540,7 @@ func (a *App) UpdateGlobalEnvironment(workspaceID, environmentID, name, color st
 		if err := a.writeWorkspaceGlobalEnvironmentFilesLocked(ws); err != nil {
 			return AppState{}, err
 		}
-		return a.state, a.persistLocked()
+		return a.state, a.markDirty(persistScopeState)
 	}
 	return AppState{}, fmt.Errorf("global environment %s not found", environmentID)
 }
@@ -5547,7 +5564,7 @@ func (a *App) UpdateGlobalEnvironmentVariables(workspaceID, environmentID string
 		if err := a.writeWorkspaceGlobalEnvironmentFilesLocked(ws); err != nil {
 			return AppState{}, err
 		}
-		return a.state, a.persistLocked()
+		return a.state, a.markDirty(persistScopeState)
 	}
 	return AppState{}, fmt.Errorf("global environment %s not found", environmentID)
 }
@@ -5586,7 +5603,7 @@ func (a *App) DeleteGlobalEnvironment(workspaceID, environmentID string) (AppSta
 		return AppState{}, err
 	}
 	a.notify("info", "Global environment deleted")
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) CopyGlobalEnvironment(workspaceID, environmentID string) (AppState, error) {
@@ -5621,7 +5638,7 @@ func (a *App) CopyGlobalEnvironmentAs(workspaceID, environmentID, name string) (
 			return AppState{}, err
 		}
 		a.notify("success", "Copied global environment: "+copyEnv.Name)
-		return a.state, a.persistLocked()
+		return a.state, a.markDirty(persistScopeState)
 	}
 	return AppState{}, fmt.Errorf("global environment %s not found", environmentID)
 }
@@ -5782,7 +5799,7 @@ func (a *App) ImportGlobalEnvironment(workspaceID, content string) (AppState, er
 	} else {
 		a.notify("success", fmt.Sprintf("Imported %d global environments", len(environments)))
 	}
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) ListDotEnvFiles(workspaceID, collectionID string) ([]DotEnvFile, error) {
@@ -5883,7 +5900,7 @@ func (a *App) UpdateCollectionVariables(collectionID string, vars []Variable) (A
 	}
 	collection.Variables = vars
 	collection.UpdatedAt = time.Now()
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) UpdateEnvironmentVariables(collectionID, environmentID string, vars []Variable) (AppState, error) {
@@ -5907,7 +5924,7 @@ func (a *App) UpdateEnvironmentVariables(collectionID, environmentID string, var
 				return AppState{}, err
 			}
 		}
-		return a.state, a.persistLocked()
+		return a.state, a.markDirty(persistScopeState)
 	}
 	return AppState{}, fmt.Errorf("environment %s not found", environmentID)
 }
@@ -5921,7 +5938,7 @@ func (a *App) UpdateCollectionHeaders(collectionID string, headers []KeyValue) (
 	}
 	collection.Headers = headers
 	collection.UpdatedAt = time.Now()
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) UpdateCollectionAuth(collectionID string, auth AuthConfig) (AppState, error) {
@@ -5933,7 +5950,7 @@ func (a *App) UpdateCollectionAuth(collectionID string, auth AuthConfig) (AppSta
 	}
 	collection.Auth = auth
 	collection.UpdatedAt = time.Now()
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) UpdateCollectionProxy(collectionID string, proxy ProxyConfig) (AppState, error) {
@@ -5945,7 +5962,7 @@ func (a *App) UpdateCollectionProxy(collectionID string, proxy ProxyConfig) (App
 	}
 	collection.Proxy = normalizeProxyConfig(proxy)
 	collection.UpdatedAt = time.Now()
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) UpdateCollectionSecurityConfig(collectionID string, config CollectionSecurityConfig) (AppState, error) {
@@ -5957,7 +5974,7 @@ func (a *App) UpdateCollectionSecurityConfig(collectionID string, config Collect
 	}
 	collection.SecurityConfig = normalizeCollectionSecurityConfig(config)
 	collection.UpdatedAt = time.Now()
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) UpdatePreferences(preferences Preferences) (AppState, error) {
@@ -5971,7 +5988,7 @@ func (a *App) UpdatePreferences(preferences Preferences) (AppState, error) {
 		a.tlsSessionCache = nil
 	}
 	a.state.Preferences = next
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) ClearSSLSessionCache() (AppState, error) {
@@ -6038,7 +6055,7 @@ func (a *App) UpdateCollectionClientCertificates(collectionID string, certs []Cl
 	}
 	collection.ClientCertificates = normalizeClientCertificateRows(certs)
 	collection.UpdatedAt = time.Now()
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) UpdateCollectionPresets(collectionID string, presets CollectionPresets) (AppState, error) {
@@ -6050,7 +6067,7 @@ func (a *App) UpdateCollectionPresets(collectionID string, presets CollectionPre
 	}
 	collection.Presets = normalizeCollectionPresets(presets)
 	collection.UpdatedAt = time.Now()
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) UpdateCollectionProtobuf(collectionID string, protobuf CollectionProtobufConfig) (AppState, error) {
@@ -6062,7 +6079,7 @@ func (a *App) UpdateCollectionProtobuf(collectionID string, protobuf CollectionP
 	}
 	collection.Protobuf = normalizeCollectionProtobuf(collection.Path, protobuf)
 	collection.UpdatedAt = time.Now()
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) UpdateCollectionDocs(collectionID string, docs string) (AppState, error) {
@@ -6074,7 +6091,7 @@ func (a *App) UpdateCollectionDocs(collectionID string, docs string) (AppState, 
 	}
 	collection.Docs = docs
 	collection.UpdatedAt = time.Now()
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) UpdateCollectionScripts(collectionID string, preScript, postScript, tests string) (AppState, error) {
@@ -6088,7 +6105,7 @@ func (a *App) UpdateCollectionScripts(collectionID string, preScript, postScript
 	collection.PostScript = postScript
 	collection.Tests = tests
 	collection.UpdatedAt = time.Now()
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) UpdateFolderSettings(collectionID, folderPath string, updated FolderConfig) (AppState, error) {
@@ -6111,7 +6128,7 @@ func (a *App) UpdateFolderSettings(collectionID, folderPath string, updated Fold
 		return AppState{}, err
 	}
 	a.notify("success", "Saved folder settings for "+firstNonEmpty(folder.DisplayPath, folder.Name, folder.Path))
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) SendRequest(collectionID, itemID, environmentID string) (AppState, error) {
@@ -6300,7 +6317,7 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 			a.state.NetworkLog = a.state.NetworkLog[:100]
 		}
 	}
-	return a.state, controls, a.persistLocked()
+	return a.state, controls, a.markDirty(persistScopeState)
 }
 
 func mainRequestTimelineItem(item RequestItem, requestCopy RequestItem, response Response) TimelineItem {
@@ -7003,7 +7020,7 @@ func (a *App) RunCollectionWithOptions(collectionID, environmentID string, optio
 		}
 	}
 	a.state.Runner = snapshot
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func filterRunnerItems(items []RequestItem, selectedItemIDs []string) []RequestItem {
@@ -7148,7 +7165,7 @@ func (a *App) ConnectOpenAPISync(collectionID string, options OpenAPISyncOptions
 		return AppState{}, err
 	}
 	a.notify("success", "OpenAPI sync connected")
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) CheckOpenAPISync(collectionID string, options OpenAPISyncOptions) (OpenAPISyncResult, error) {
@@ -7305,7 +7322,7 @@ func (a *App) UpdateOpenAPISyncConfig(collectionID string, config OpenAPISyncCon
 		return AppState{}, err
 	}
 	a.notify("success", "OpenAPI sync settings saved")
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) ApplyOpenAPISync(collectionID string, options OpenAPISyncOptions) (AppState, error) {
@@ -7336,7 +7353,7 @@ func (a *App) ApplyOpenAPISync(collectionID string, options OpenAPISyncOptions) 
 		return AppState{}, err
 	}
 	a.notify("success", "OpenAPI sync applied")
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) CheckOpenAPILocalDrift(collectionID string) (OpenAPILocalDriftResult, error) {
@@ -7390,7 +7407,7 @@ func (a *App) ApplyOpenAPILocalDrift(collectionID string, options OpenAPILocalDr
 		return AppState{}, err
 	}
 	a.notify("success", "OpenAPI collection changes applied")
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) DisconnectOpenAPISync(collectionID string) (AppState, error) {
@@ -7409,7 +7426,7 @@ func (a *App) DisconnectOpenAPISync(collectionID string) (AppState, error) {
 		return AppState{}, err
 	}
 	a.notify("success", "OpenAPI sync disconnected")
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) ExportCollection(collectionID string) (string, error) {
@@ -7600,7 +7617,7 @@ func (a *App) ResetDemoData() (AppState, error) {
 	a.oauth2Mu.Lock()
 	a.oauth2 = map[string]oauth2TokenResponse{}
 	a.oauth2Mu.Unlock()
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) ensureReady() error {
@@ -8394,11 +8411,292 @@ func (a *App) persistLocked() error {
 	if err := a.storeOAuth2Credentials(); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(stateForStorage(a.state, a.dataDir), "", "  ")
+	// json.Marshal, not MarshalIndent: indentation runs a second formatting
+	// pass over the whole document and roughly doubles the bytes written, and
+	// nothing reads state.json by eye (improvement_v2.md §2.1.B).
+	data, err := json.Marshal(stateForStorage(a.state, a.dataDir))
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(a.dataDir, "state.json"), data, 0o600)
+	return writeFileAtomic(filepath.Join(a.dataDir, "state.json"), data, 0o600)
+}
+
+// writeFileAtomic writes data through a temporary file in the same directory,
+// fsyncs it, then renames it into place. os.Rename within one filesystem is
+// atomic, so a process killed at any point leaves either the previous file or
+// the complete new one — never the truncated file a bare os.WriteFile can leave
+// behind. Unlike writePrivateAtomic it does not create or re-chmod the parent
+// directory, so it can be used on directories whose mode is already meaningful.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	closed := false
+	renamed := false
+	defer func() {
+		if !closed {
+			_ = f.Close()
+		}
+		if !renamed {
+			_ = os.Remove(tmp)
+		}
+	}()
+	if err := f.Chmod(perm); err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	// Close is checked rather than deferred-and-ignored: US-003 found a
+	// truncated copy reported as success because a write handle's Close error
+	// was dropped.
+	if err := f.Close(); err != nil {
+		closed = true
+		return err
+	}
+	closed = true
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	renamed = true
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// US-012 — coalesced asynchronous persistence
+//
+// persistLocked above is still the only thing that writes state.json; what
+// changed is who calls it. Mutators call markDirty, and a single background
+// writer collapses a burst of marks into one write after a quiet period.
+// UpdateRequest fires on every keystroke, so the synchronous version serialised
+// and wrote the entire workspace — cached response bodies included — per typed
+// character, while holding the global mutex.
+//
+// markDirty is not free: it still writes the environment secret store, because
+// that file is the only home of values the rest of the app re-reads
+// immediately. See persistEnvironmentSecretsLocked. What it defers is the part
+// that scales with workspace size.
+// ---------------------------------------------------------------------------
+
+// persistScope names the on-disk artifact a mutation invalidated. US-013 gives
+// each scope an independent dirty flag so unchanged files are not rewritten or
+// re-encrypted; until then every scope resolves to the single state writer, but
+// call sites already record what they actually changed.
+type persistScope uint8
+
+const (
+	// persistScopeState covers state.json together with the secrets and OAuth2
+	// credential files persistLocked writes alongside it.
+	persistScopeState persistScope = iota
+)
+
+const (
+	// persistDebounceInterval is the quiet period a mark waits before the
+	// background writer serialises state. Keystrokes arrive an order of
+	// magnitude faster, so a burst of typing collapses into one write.
+	persistDebounceInterval = 250 * time.Millisecond
+	// persistRetryCeiling bounds the exponential backoff applied to a failing
+	// write so a permanently unwritable data directory does not spin.
+	persistRetryCeiling = 5 * time.Second
+)
+
+// markDirty records that in-memory state has diverged from disk and ensures a
+// background writer is scheduled. Like persistLocked, which it replaces at
+// every mutation site, it must be called with a.mu held.
+//
+// The expensive half of persistence — serialising the whole AppState, cached
+// response bodies included, and writing it — is what gets deferred. The
+// environment secret store is not deferred; see persistEnvironmentSecrets.
+//
+// The returned error is the *previous* background write failure, if any. A
+// background write has no caller to return to, so rather than dropping the
+// error (improvement_v2.md §8 risk 4) it is parked and handed to the next
+// mutation, which does have a caller — the Wails binding, and through it the
+// user. Reading it clears it, so a single failure is reported once.
+func (a *App) markDirty(scope persistScope) error {
+	_ = scope
+	secretsErr := a.persistEnvironmentSecretsLocked()
+
+	a.persistMu.Lock()
+	a.persistDirty = true
+	if !a.persistRunning {
+		a.persistRunning = true
+		go a.persistWriterLoop()
+	}
+	previous := a.persistErr
+	a.persistErr = nil
+	a.persistMu.Unlock()
+
+	if secretsErr != nil {
+		return secretsErr
+	}
+	return previous
+}
+
+// persistEnvironmentSecretsLocked writes secrets.json synchronously, and is the
+// one part of persistLocked that must not be deferred.
+//
+// Collection and workspace environment files on disk are written with their
+// secret values scrubbed out; the values live only in secrets.json.
+// ensureReadyLocked re-reads those files and re-hydrates from secrets.json on
+// the very next binding call, so a deferred secret write does not delay the
+// values reaching disk — it loses them outright. It is also cheap: it scales
+// with the number of environment variables, not with cached response bodies,
+// and is a rounding error against the state serialisation it now runs beside.
+func (a *App) persistEnvironmentSecretsLocked() error {
+	if a.workspaceRuntime != nil {
+		// Multiple windows share this file, so take the same cross-process
+		// guard persistWorkspaceRuntimeLocked uses.
+		return withSharedWorkspacePersistenceGuard(a.dataDir, a.storeStateEnvironmentSecretsLocked)
+	}
+	if err := os.MkdirAll(a.dataDir, 0o755); err != nil {
+		return err
+	}
+	return a.storeStateEnvironmentSecretsLocked()
+}
+
+// persistWriterLoop is the background writer. At most one runs per App: it is
+// started by the first markDirty and exits once it observes a clean state, so
+// an idle App holds no goroutine.
+func (a *App) persistWriterLoop() {
+	delay := persistDebounceInterval
+	for {
+		time.Sleep(delay)
+
+		a.persistMu.Lock()
+		if !a.persistDirty {
+			a.persistRunning = false
+			a.persistMu.Unlock()
+			return
+		}
+		// Cleared before the state snapshot is taken, never after: a mutation
+		// landing while this write is in flight re-sets the flag and is picked
+		// up by the next cycle instead of being marked clean by a write that
+		// predates it.
+		a.persistDirty = false
+		a.persistMu.Unlock()
+
+		started := time.Now()
+		err := a.persistOnce()
+		elapsed := time.Since(started)
+
+		a.persistMu.Lock()
+		if err != nil {
+			// Leave the state dirty so the next cycle retries. A transient
+			// failure (full disk, unmounted volume, lost workspace ownership)
+			// must not quietly become a lost write.
+			a.persistDirty = true
+			a.persistFailures++
+			a.persistErr = err
+			delay = persistBackoff(a.persistFailures)
+		} else {
+			a.persistFailures = 0
+			a.persistWrites++
+			// Wait out at least one debounce beyond however long the write
+			// took. persistLocked holds a.mu for its whole duration, and a
+			// large workspace takes longer to serialise than the debounce, so
+			// a fixed interval would let the writer monopolise the mutex.
+			delay = persistDebounceInterval + elapsed
+		}
+		a.persistMu.Unlock()
+	}
+}
+
+func persistBackoff(failures int) time.Duration {
+	delay := persistDebounceInterval
+	for i := 1; i < failures && delay < persistRetryCeiling; i++ {
+		delay *= 2
+	}
+	if delay > persistRetryCeiling {
+		delay = persistRetryCeiling
+	}
+	return delay
+}
+
+// persistOnce performs one background write under a.mu.
+func (a *App) persistOnce() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	err := a.persistLocked()
+	if err != nil {
+		a.reportPersistFailureLocked(err)
+	}
+	return err
+}
+
+// reportPersistFailureLocked surfaces a background write failure everywhere it
+// can be seen without a caller: the Wails log, and a notification the frontend
+// already renders. It fires only on the first failure of a streak so a
+// permanently unwritable directory does not flood the (20-entry) notification
+// list and evict everything else.
+func (a *App) reportPersistFailureLocked(err error) {
+	a.persistMu.Lock()
+	first := a.persistFailures == 0
+	a.persistMu.Unlock()
+	if !first {
+		return
+	}
+	message := "Could not save workspace state: " + err.Error()
+	a.logPersistError(message)
+	a.notify("error", message)
+}
+
+// logPersistError routes a persistence failure to the Wails log once the window
+// exists, and to stderr before and after it does. a.ctx is the only context
+// known to carry the Wails logger; a bare context.Background() does not.
+func (a *App) logPersistError(message string) {
+	if a.ctx != nil {
+		wailsruntime.LogError(a.ctx, message)
+		return
+	}
+	log.Printf("liteapi: %s", message)
+}
+
+// flushPersist force-writes any pending state synchronously. This is the
+// explicit "the data must be on disk now" call: shutdown, beforeClose, window
+// blur, and any test whose assertion is that a mutation reached disk.
+func (a *App) flushPersist() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.flushPersistLocked()
+}
+
+// flushPersistLocked is flushPersist for callers already holding a.mu.
+//
+// Because the whole flush happens under a.mu it also waits out any background
+// write already in flight, and no mutation can interleave between the dirty
+// check and the write — nothing is lost across a flush boundary.
+func (a *App) flushPersistLocked() error {
+	a.persistMu.Lock()
+	dirty := a.persistDirty
+	a.persistDirty = false
+	pending := a.persistErr
+	a.persistErr = nil
+	a.persistMu.Unlock()
+
+	if !dirty {
+		return pending
+	}
+	if err := a.persistLocked(); err != nil {
+		a.persistMu.Lock()
+		a.persistDirty = true
+		a.persistMu.Unlock()
+		return err
+	}
+	return pending
+}
+
+// FlushPendingWrites is the frontend-facing force-flush. The workbench calls it
+// when the window loses focus, so state that is still inside the debounce
+// window is on disk before the user switches away or the machine sleeps.
+func (a *App) FlushPendingWrites() error {
+	return a.flushPersist()
 }
 
 func (a *App) environmentSecretsPath() string {
@@ -8441,7 +8739,17 @@ func (a *App) writeEnvironmentSecretsLocked(store environmentSecretsFile) error 
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(a.environmentSecretsPath(), data, 0o600)
+	path := a.environmentSecretsPath()
+	// Skip unchanged content. persistEnvironmentSecretsLocked runs on the
+	// keystroke path, where secrets never change, and this turns that into a
+	// small read and a compare instead of a write plus two fsyncs. (US-013
+	// generalises this to every persisted artifact.)
+	if existing, readErr := os.ReadFile(path); readErr == nil && bytes.Equal(existing, data) {
+		return nil
+	}
+	// Atomic for the same reason state.json is: a half-written secrets.json is
+	// every environment secret in the workspace, unrecoverable.
+	return writeFileAtomic(path, data, 0o600)
 }
 
 func (a *App) prepareWorkspaceGlobalEnvironmentsLocked() (bool, error) {
@@ -11102,7 +11410,7 @@ func (a *App) applyGRPCStreamResponse(collectionID, itemID string, response Resp
 			item.Timeline = append(item.Timeline, timeline)
 		}
 	}
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) ConnectGRPCStream(collectionID, itemID, environmentID string) (AppState, error) {
@@ -12663,7 +12971,7 @@ func (a *App) applyWebSocketResponse(collectionID, itemID string, response Respo
 	if timeline.ID != "" {
 		item.Timeline = append(item.Timeline, timeline)
 	}
-	return a.state, a.persistLocked()
+	return a.state, a.markDirty(persistScopeState)
 }
 
 func (a *App) ConnectWebSocket(collectionID, itemID, environmentID string) (AppState, error) {

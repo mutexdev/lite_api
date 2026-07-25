@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"fmt"
 	"os"
 	"strings"
 
@@ -46,8 +47,21 @@ func main() {
 			app.startup(ctx)
 			installNativeApplicationMenu(app)
 		},
-		OnBeforeClose: app.beforeClose,
-		OnShutdown:    app.shutdown,
+		OnBeforeClose: func(ctx context.Context) (prevent bool) {
+			if app.beforeClose(ctx) {
+				return true
+			}
+			// Persistence is coalesced (US-012), so a mutation made in the
+			// last ~250 ms may still be in memory only. Anything that lets the
+			// window close must force it out first, and a failure here is a
+			// refusal to quit rather than silent data loss.
+			if err := app.flushPersist(); err != nil {
+				showNativeCloseError(ctx, fmt.Errorf("save workspace state: %w", err))
+				return true
+			}
+			return false
+		},
+		OnShutdown: app.shutdown,
 		Mac: &mac.Options{
 			About:     &mac.AboutInfo{Title: "LiteAPI"},
 			OnUrlOpen: app.handleOpenURL,
