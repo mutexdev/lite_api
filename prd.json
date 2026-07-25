@@ -551,8 +551,8 @@
         "R1",
         "R2"
       ],
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Scoped runner_lookup_index built per run and dropped when the run returns - NOT cached on App. Two reasons: (1) an App-level cache adds a permanent invalidation obligation to every mutation site across 6+ files, and a stale index silently returns the WRONG request because findItem returns &collection.Items[i]; (2) US-020 made it a data race one commit earlier - app.go:9677/9707 call findCollectionLocked under RLock precisely because its tree is read-only, so making it write a cache would break both. Scoping alone is insufficient since a run releases a.mu around each request's I/O, so EVERY hit is verified against the live slice before use (the element must still carry the requested ID). Stronger than a revision counter - validates against the data, not a proxy for it. VERIFIED BY ORCHESTRATOR, scaling not a single number: linear arm 60,756 -> 240,784 -> 779,057 ns (12.8x for 5x N = quadratic); indexed arm 10,426 -> 23,736 -> 46,104 ns (4.42x for 5x N = linear). 16.9x faster absolute at N=500. Also deleted the runner's findItemInState call entirely - sendRequestWithControlsContext already had the *Response and now returns it, which also closes a window where a concurrent delete made the runner record a request as passed with code 0. Gates: build 0, vet 0, test 32.9s 0, race 63.680s clean, golangci-lint 0. Test count 486 -> 496. SCOPE LIMIT stated plainly: the other 42 findCollectionLocked and 24 findItem call sites remain linear scans by choice; making those O(1) needs an index outliving a lock release, i.e. the unsafe design. A user with many collections still pays O(WxC) per Wails call - needs US-008."
     },
     {
       "id": "US-025",

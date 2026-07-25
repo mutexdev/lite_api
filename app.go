@@ -6146,25 +6146,35 @@ func (a *App) SendRequestWithPromptValues(collectionID, itemID, environmentID st
 }
 
 func (a *App) sendRequestWithControls(collectionID, itemID, environmentID string, promptValues map[string]string) (AppState, scriptControls, error) {
-	return a.sendRequestWithControlsContext(context.Background(), collectionID, itemID, environmentID, promptValues)
+	state, controls, _, err := a.sendRequestWithControlsContext(context.Background(), collectionID, itemID, environmentID, promptValues, nil)
+	return state, controls, err
 }
 
-func (a *App) sendRequestWithControlsContext(parent context.Context, collectionID, itemID, environmentID string, promptValues map[string]string) (AppState, scriptControls, error) {
+// sendRequestWithControlsContext resolves collectionID/itemID twice: once on
+// entry, and again on the tail because a.mu is released across the network I/O
+// and the request may have moved or gone in that window. index (US-024) is an
+// optional per-run lookup hint that makes both resolutions O(1); it is verified
+// against live state on every use, and nil restores the plain linear scans.
+//
+// The fourth return value is the *Response this call stored on the item. The
+// collection runner used to re-find the item in the returned state purely to
+// read it back, which was another linear scan per request.
+func (a *App) sendRequestWithControlsContext(parent context.Context, collectionID, itemID, environmentID string, promptValues map[string]string, index *runnerLookupIndex) (AppState, scriptControls, *Response, error) {
 	controls := scriptControls{}
 	a.mu.Lock()
 	if err := a.ensureReadyLocked(); err != nil {
 		a.mu.Unlock()
-		return AppState{}, controls, err
+		return AppState{}, controls, nil, err
 	}
-	ws, collection, err := a.findCollectionWithWorkspaceLocked(collectionID)
+	ws, collection, err := a.findCollectionWithWorkspaceIndexedLocked(index, collectionID)
 	if err != nil {
 		a.mu.Unlock()
-		return AppState{}, controls, err
+		return AppState{}, controls, nil, err
 	}
-	item, err := findItem(collection, itemID)
+	item, err := index.findItemIndexed(collectionID, collection, itemID)
 	if err != nil {
 		a.mu.Unlock()
-		return AppState{}, controls, err
+		return AppState{}, controls, nil, err
 	}
 	collectionCopy := *collection
 	requestCopy := effectiveRequest(collectionCopy, *item)
@@ -6278,13 +6288,13 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	collection, err = a.findCollectionLocked(collectionID)
+	_, collection, err = a.findCollectionWithWorkspaceIndexedLocked(index, collectionID)
 	if err != nil {
-		return AppState{}, controls, err
+		return AppState{}, controls, nil, err
 	}
-	item, err = findItem(collection, itemID)
+	item, err = index.findItemIndexed(collectionID, collection, itemID)
 	if err != nil {
-		return AppState{}, controls, err
+		return AppState{}, controls, nil, err
 	}
 	if shouldStoreCookies {
 		a.state.Cookies = mergeScriptCookieJar(a.state.Cookies, initialCookies, scriptCookieJar.snapshot())
@@ -6321,7 +6331,7 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 			a.state.NetworkLog = a.state.NetworkLog[:100]
 		}
 	}
-	return a.state, controls, a.markDirty(persistScopeState)
+	return a.state, controls, item.Response, a.markDirty(persistScopeState)
 }
 
 func mainRequestTimelineItem(item RequestItem, requestCopy RequestItem, response Response) TimelineItem {
@@ -6888,7 +6898,13 @@ func (a *App) RunCollectionWithOptions(collectionID, environmentID string, optio
 	collectionCopy := *collection
 	items := filterRunnerItems(append([]RequestItem(nil), collection.Items...), options.SelectedItemIDs)
 	delayMs := normalizeRunnerDelayMs(options.DelayMs)
+	// US-024: one lookup hint for this run, discarded when it returns. See
+	// runner_lookup_index.go for why it is scoped rather than cached on App.
+	lookupIndex := newRunnerLookupIndex(&a.state)
 	a.mu.Unlock()
+	// items is this run's private, never-mutated copy, so a name→index map over
+	// it cannot go stale and needs no verification.
+	itemsByName := runnerItemNameIndex(items)
 	runContext, finishRun := a.startCancellableCollectionRun(collectionID)
 	defer finishRun()
 
@@ -6919,7 +6935,7 @@ func (a *App) RunCollectionWithOptions(collectionID, environmentID string, optio
 			currentRequestIndex++
 			continue
 		}
-		state, controls, err := a.sendRequestWithControlsContext(runContext, collectionID, item.ID, environmentID, nil)
+		state, controls, res, err := a.sendRequestWithControlsContext(runContext, collectionID, item.ID, environmentID, nil, lookupIndex)
 		if err != nil {
 			if requestContextCancelled(runContext) {
 				results = append(results, cancelledRunResult(item))
@@ -6933,8 +6949,9 @@ func (a *App) RunCollectionWithOptions(collectionID, environmentID string, optio
 			currentRequestIndex++
 			continue
 		}
-		updated, _ := findItemInState(state, collectionID, item.ID)
-		res := updated.Response
+		// res is the *Response sendRequestWithControlsContext just stored on this
+		// item, returned directly instead of being re-found by scanning the
+		// state for the item that call had already resolved.
 		status := "passed"
 		errText := ""
 		code := 0
@@ -6972,11 +6989,8 @@ func (a *App) RunCollectionWithOptions(collectionID, environmentID string, optio
 				break
 			}
 			nextRequestIndex := -1
-			for index, candidate := range items {
-				if candidate.Name == *controls.NextRequestName {
-					nextRequestIndex = index
-					break
-				}
+			if index, ok := itemsByName[*controls.NextRequestName]; ok {
+				nextRequestIndex = index
 			}
 			if nextRequestIndex >= 0 {
 				if nextRequestIndex != currentRequestIndex {

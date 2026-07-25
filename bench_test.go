@@ -224,3 +224,120 @@ func BenchmarkExecuteHTTP(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkRunnerLookups — US-024.
+//
+// The runner cannot be benchmarked end to end: RunCollectionWithOptions does a
+// real network send plus a markDirty (~574 us) and a persistLocked (~226 ms on
+// the fixture) per request, so 500 requests is minutes of I/O per iteration and
+// the ID lookups would be invisible under it. This benchmark therefore isolates
+// exactly the lookup sequence the runner performs per request, and nothing
+// else. It models a full run of every request in the fixture, so the iteration
+// count scales with the fixture's request count rather than with one
+// collection's share of it.
+//
+// Two arms, so the complexity claim stays checkable after the story is closed
+// rather than resting on numbers captured against deleted code:
+//
+//	linear  — the pre-US-024 sequence, five linear scans per request:
+//	          findCollectionWithWorkspaceLocked + findItem on entry to
+//	          sendRequestWithControlsContext, findCollectionLocked + findItem on
+//	          its tail, and findItemInState back in the runner loop.
+//	indexed — what the runner does now: the same two resolutions through the
+//	          scoped runnerLookupIndex, and no re-find at all in the loop.
+//
+// The acceptance evidence is the ns/op RATIO across N, not any single number.
+// Every scan in the linear arm is O(C) or O(N/C), so its total work is
+// O(N * (C + N/C)) — at C=10, 5x the requests costs well over 5x the time. The
+// indexed arm is O(N) once the per-collection maps are built, so it should
+// track ~5x.
+//
+// a.mu is taken once around the timed loop rather than per request. The *Locked
+// helpers require it and this is single-goroutine, so per-call locking would
+// only add a constant that is not what is being measured.
+//
+// Run with -benchtime=2000x (see the methodology note in
+// .ralph/baseline/bench.txt): one op is 10..800 us here, so the 10x used for
+// the slow benchmarks would be pure scheduling noise, while the 1s default
+// would spend minutes on the linear arm.
+func BenchmarkRunnerLookups(b *testing.B) {
+	type target struct{ collectionID, itemID string }
+
+	for _, requests := range []int{100, 250, 500} {
+		opts := benchFixtureOptions()
+		opts.RequestsPerColl = requests / opts.Collections
+		// Cached bodies are irrelevant to ID lookups and cost ~30 MB per
+		// sub-benchmark to build. Shape (collections x requests) is what this
+		// benchmark varies.
+		opts.LargeResponses = 0
+		app := newLargeWorkspaceApp(b.TempDir(), opts)
+
+		targets := []target{}
+		app.mu.Lock()
+		for _, collection := range app.state.Workspaces[0].Collections {
+			for _, item := range collection.Items {
+				targets = append(targets, target{collection.ID, item.ID})
+			}
+		}
+		app.mu.Unlock()
+		if len(targets) != requests {
+			b.Fatalf("fixture built %d requests, want %d", len(targets), requests)
+		}
+
+		b.Run(fmt.Sprintf("mode=linear/requests=%d", requests), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				app.mu.Lock()
+				for _, t := range targets {
+					_, collection, err := app.findCollectionWithWorkspaceLocked(t.collectionID)
+					if err != nil {
+						b.Fatalf("findCollectionWithWorkspaceLocked: %v", err)
+					}
+					if _, err := findItem(collection, t.itemID); err != nil {
+						b.Fatalf("findItem (entry): %v", err)
+					}
+					collection, err = app.findCollectionLocked(t.collectionID)
+					if err != nil {
+						b.Fatalf("findCollectionLocked: %v", err)
+					}
+					if _, err := findItem(collection, t.itemID); err != nil {
+						b.Fatalf("findItem (tail): %v", err)
+					}
+					if _, ok := findItemInState(app.state, t.collectionID, t.itemID); !ok {
+						b.Fatalf("findItemInState: %s/%s not found", t.collectionID, t.itemID)
+					}
+				}
+				app.mu.Unlock()
+			}
+		})
+
+		b.Run(fmt.Sprintf("mode=indexed/requests=%d", requests), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				app.mu.Lock()
+				// Built once per simulated run, exactly as the runner does, so
+				// the arm pays for its own index construction.
+				index := newRunnerLookupIndex(&app.state)
+				for _, t := range targets {
+					_, collection, err := app.findCollectionWithWorkspaceIndexedLocked(index, t.collectionID)
+					if err != nil {
+						b.Fatalf("indexed collection (entry): %v", err)
+					}
+					if _, err := index.findItemIndexed(t.collectionID, collection, t.itemID); err != nil {
+						b.Fatalf("indexed item (entry): %v", err)
+					}
+					_, collection, err = app.findCollectionWithWorkspaceIndexedLocked(index, t.collectionID)
+					if err != nil {
+						b.Fatalf("indexed collection (tail): %v", err)
+					}
+					if _, err := index.findItemIndexed(t.collectionID, collection, t.itemID); err != nil {
+						b.Fatalf("indexed item (tail): %v", err)
+					}
+				}
+				app.mu.Unlock()
+			}
+		})
+	}
+}

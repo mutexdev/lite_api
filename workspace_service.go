@@ -21,13 +21,15 @@ func (a *App) findCollectionLocked(id string) (*Collection, error) {
 	return collection, err
 }
 
+// The scan lives in lookupCollectionPosition (runner_lookup_index.go) so that
+// the runner's O(1) index and this fallback cannot disagree about which
+// collection wins when IDs repeat. Behaviour here is unchanged: first match, and
+// the same error text.
 func (a *App) findCollectionWithWorkspaceLocked(id string) (*Workspace, *Collection, error) {
-	for wi := range a.state.Workspaces {
-		for ci := range a.state.Workspaces[wi].Collections {
-			if a.state.Workspaces[wi].Collections[ci].ID == id {
-				return &a.state.Workspaces[wi], &a.state.Workspaces[wi].Collections[ci], nil
-			}
-		}
+	position, ok := lookupCollectionPosition(&a.state, id)
+	if !ok {
+		return nil, nil, fmt.Errorf("collection %s not found", id)
 	}
-	return nil, nil, fmt.Errorf("collection %s not found", id)
+	workspace := &a.state.Workspaces[position.workspace]
+	return workspace, &workspace.Collections[position.collection], nil
 }
