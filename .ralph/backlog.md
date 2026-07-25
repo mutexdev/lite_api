@@ -53,6 +53,22 @@ Format:
   evidence for no stated benefit. A v2.13.0 bump is a legitimate follow-up **with its own QA pass**.
   (raised by R1, round 1)
 
+- [QA/computer-use] **Top toolbar does not lay out at 1200px viewport.** Found by driving the
+  running app at `http://localhost:34115` (Playwright), measured via `getBoundingClientRect` and
+  `scrollWidth > clientWidth`, not eyeballed:
+  * `Development` (env selector) ends at x=666 and `Cookies` starts at x=655 — **11px overlap
+    between sibling elements**, visible as collided text.
+  * Three labels are clipped: `My Workspace`, `Sample API`, `R7 Persist`. The breadcrumb
+    `Sample API / R7 Persist` is compressed into 80px (x=716..796).
+  Reference capture: `.ralph/baseline/phase0-main-window.png`.
+  Not owned by any existing story. Closest is **US-037** (spacing/type tokens), but this is a
+  responsive-overflow defect rather than a token migration — likely wants its own story.
+  (raised by R3, Phase 0)
+
+- [QA/computer-use] `GET http://localhost:34115/favicon.ico` returns **404** on every load — the
+  only console error in a clean session. Cosmetic, but it means "zero console errors" cannot be
+  used as a QA assertion until it is fixed. (raised by R3, Phase 0)
+
 - [general] `improvement_v2.md` §5.1 prescribes `du -b`, which is a GNU coreutils flag and fails on
   macOS. Use `stat -f "%z %N"` locally, or `wc -c`. (raised by R1, round 1)
 
