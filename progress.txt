@@ -239,6 +239,48 @@ US-007 IN PROGRESS — go.mod NOT yet bumped; `go get ...@v2.12.0` blocked by th
   API-compatibility already proven by module diff: zero removed lines across every imported
   package. See .ralph/plans/US-007.md.
 
+=== PHASE 0 COMPLETE ===
+Commits on ralph/postman-switchable-v2:
+  2fe68f0  US-001..US-007: Phase 0 guardrails — CI, linters, benchmarks, Wails pin
+  00e0816  Phase 0 QA: computer-use round via Wails dev browser endpoint
+
+Every gate executed, not inferred:
+  go build 0 | go vet 0 | go test 22.6s 0 | go test -race 41.1s clean
+  golangci-lint 0 issues | svelte-check 151 files 0/0 | eslint 0 | npm test 7/7
+  wails build packaged + self-signed, arm64 binary signature verified
+
+THREE REAL BUGS FOUND — none of them in improvement_v2.md:
+  1. copyCollectionFile held `defer target.Close()` on the WRITE handle. io.Copy
+     succeeding returned nil, so an ENOSPC / over-quota / failing-network-FS close error
+     was discarded and a TRUNCATED COLLECTION COPY REPORTED SUCCESS.  (US-003)
+  2. ResponseInspector.svelte:76-78 — three `$:` statements called functions with no
+     arguments, so they had NO reactive dependencies and ran once at mount. With no
+     {{#key}} wrapper, the JSON tree view, WebSocket event log and gRPC stream log showed
+     the FIRST response for the component's lifetime.  (US-004)
+  3. Top toolbar does not lay out at a 1200px viewport: `Development` and `Cookies`
+     overlap by 11px as siblings; three labels clipped; breadcrumb crushed to 80px.
+     Found by computer-use QA, measured via getBoundingClientRect.  (new story US-075)
+
+FOUR SPEC CORRECTIONS — improvement_v2.md is wrong or incomplete on each:
+  a. §5.4 implies the US-006 fixture belongs beside qa/responsefixture. It cannot: the
+     benchmark targets are unexported, so bench_test.go must be root package main, and no
+     subpackage can import package main to reach AppState.
+  b. US-004 assumes eslint-plugin-svelte provides a11y coverage. v3 ships ZERO svelte/a11y-*
+     rules (removed upstream). Without noticing, US-004 would have "passed" while protecting
+     none of the §2.2 accessibility work. Compensated with svelte/valid-compile.
+  c. US-007's framing understates the cause: the pin drifted because QA used
+     `wails build -m -nosyncgomod`, which suppresses the go.mod sync. It is a latent library
+     mismatch, not a docs typo. The API diff v2.10.2 -> v2.12.0 is purely additive across
+     every imported package (measured: zero removed lines).
+  d. §5.1's ">5% regression on any benchmark" gate is not sound across hosts, and `du -b`
+     is a GNU flag that fails on macOS. Both logged in .ralph/backlog.md.
+
+METHOD NOTE — agent reports must be verified, not trusted:
+  The US-003 worker's self-reported census (203 findings) differed from the orchestrator's
+  first measurement (107) because golangci-lint truncates by default. The orchestrator's
+  number was the wrong one. Every worker claim in this run was re-run independently before
+  a story was marked passing; that is the only reason the error was caught.
+
 KNOWN ISSUE — diff attribution:
   The working tree already carried substantial uncommitted work when this branch was cut
   (app.go modified + ~50 untracked .go files, all pre-existing). `git diff app.go` therefore

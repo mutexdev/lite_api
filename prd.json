@@ -531,8 +531,8 @@
         "R2",
         "R5"
       ],
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Single regex-free scan + strings.Builder. Verified by orchestrator on the US-005 baseline host: vars=50 14,583 -> 875 ns/op (16.7x, target was >=10x / <=1458); vars=10 6,188 -> 450; vars=200 92,892 -> 2,667 (34.8x). Allocations 29 -> 1 per call, 13,609 -> 320 B. Semantics pinned by a 40+ case characterisation suite written against the OLD implementation before the rewrite (interpolate_test.go): nested fixed-point resolution to interpolateMaxPasses=8, cycle termination, unknown tokens verbatim, absent-vs-empty, braced keys, {{{a}}} -> {V}, process.env precedence over OS env, and buildVariableMap precedence via the real function. Each case runs 50x to expose map-iteration-order dependence. Gates: build 0, vet 0, test 25.560s 0, race 44.222s clean, golangci-lint 0 issues. Test count 461 -> 468."
     },
     {
       "id": "US-024",
@@ -1577,6 +1577,28 @@
       ],
       "passes": false,
       "notes": ""
+    },
+    {
+      "id": "US-075",
+      "title": "Fix top toolbar overflow at narrow-to-normal widths",
+      "description": "As a user with a 1200px-wide window, I want the top toolbar to lay out without overlapping or clipping text, so that I can read the active environment, workspace and breadcrumb.",
+      "acceptanceCriteria": [
+        "At a 1200px viewport the env selector ('Development') and 'Cookies' no longer overlap; measured via getBoundingClientRect, adjacent siblings must not intersect",
+        "'My Workspace', 'Sample API' and 'R7 Persist' are no longer clipped (scrollWidth <= clientWidth), or are truncated with an explicit ellipsis and a title/aria-label carrying the full text",
+        "The breadcrumb is legible rather than compressed into ~80px; it may collapse or ellipsize deliberately, but not silently clip",
+        "Verified at 1024px, 1200px and 1440px viewport widths",
+        "No regression to the 74 semantic colour tokens or the 12 themes (improvement_v2.md §2.2)",
+        "Typecheck passes",
+        "Verify in browser using browser tools"
+      ],
+      "priority": 2,
+      "lane": "frontend",
+      "reviewers": [
+        "R1",
+        "R3"
+      ],
+      "passes": false,
+      "notes": "Found by Reviewer 3 computer-use QA against commit 2fe68f0; see .ralph/reviews/phase0-qa-round-1.md and .ralph/baseline/phase0-main-window.png. Not covered by US-037 (that is a spacing/type token migration, this is a responsive-overflow defect). Evidence: 'Development' ends x=666 while 'Cookies' starts x=655 (11px sibling overlap); breadcrumb compressed to x=716..796."
     }
   ]
 }
