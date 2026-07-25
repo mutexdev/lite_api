@@ -460,8 +460,8 @@
         "R2",
         "R4"
       ],
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "a.mu is now sync.RWMutex. 7 audited RLock conversions, 15+ rejected with reasons. DELIBERATELY DOES NOT MEET THE STORY'S LETTER: GetState stays on Lock. ensureReadyLocked is a readiness REPAIR, not a check, and mutates unconditionally even in steady state - refreshGitCollectionAvailabilityLocked assigns NotFoundLocally=false as a straight assignment (not compare-then-set) and pruneExpiredCookiesLocked rewrites the cookie backing array even when nothing expired. Writing the same value is still a write. The worker PROVED this by temporarily flipping GetState to RLock and capturing a real race trace (refreshGitCollectionAvailabilityLocked <- ensureReadyLocked <- GetState). A safe fast path needs ensureReadyLocked split into inspect/apply across six helpers plus a decision on what the workspace ownership heartbeat means on a read path - a separate, riskier story. Converted sites sit on executeHTTP's per-request path (collectionProxyResolution, collectionClientCertificateConfig, oauth2ShouldUseSystemBrowser, appTLSSettingsSnapshot), which were serialising every request in a parallel run against every other. appTLSSettingsSnapshot uses double-checked locking: fully RUnlocks before Lock (no upgrade) and re-reads preferences after the gap, because ClearSSLSessionCache and UpdatePreferences can both nil the cache while the lock is released. Slice aliasing of the returned AppState is pre-existing and NOT widened: no converted site returns anything aliasing live state, so the concurrent-alias multiplier stays 1 - which is why three read-only `return a.state, nil` branches were rejected. Gates verified by orchestrator: build 0, vet 0, test 33.2s 0, race -count=3 193.973s clean, golangci-lint 0. Test count 483 -> 486. Benchmarks flat (MarkDirty 666k ns/op, PersistLocked 83.1ms - within noise of the 573k / 81.1ms baseline)."
     },
     {
       "id": "US-021",

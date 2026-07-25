@@ -212,9 +212,11 @@ func (a *App) ChooseCollectionImportFolder() (CollectionImportPickerResult, erro
 	return result, err
 }
 
+// Read-only: normalizeCollectionImportDirectory takes a string and only stats
+// the filesystem.
 func (a *App) collectionImportDefaultDirectory() string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return normalizeCollectionImportDirectory(a.state.Preferences.General.LastImportDirectory)
 }
 
@@ -439,9 +441,10 @@ func fetchCollectionImportURL(raw string, client *http.Client) (string, string, 
 }
 
 func (a *App) resolveCollectionImportSources(sources []CollectionImportSource) ([]CollectionImportSource, error) {
-	a.mu.Lock()
+	// Read-only: the guarded region is a single field read.
+	a.mu.RLock()
 	client := a.httpClient
-	a.mu.Unlock()
+	a.mu.RUnlock()
 	resolved := append([]CollectionImportSource(nil), sources...)
 	for index := range resolved {
 		if strings.TrimSpace(resolved[index].URL) == "" {

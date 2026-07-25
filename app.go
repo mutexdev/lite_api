@@ -131,8 +131,12 @@ var devToolsNetworkSortKeys = map[string]bool{
 }
 
 type App struct {
-	ctx                         context.Context
-	mu                          sync.Mutex
+	ctx context.Context
+	// mu guards state and every field derived from it. It is an RWMutex, but
+	// RLock is reserved for call sites whose *entire* dynamic call tree is
+	// provably read-only. Note that ensureReadyLocked mutates unconditionally
+	// (see its comment), so any path that calls it must take the write lock.
+	mu                          sync.RWMutex
 	oauth2Mu                    sync.Mutex
 	websocketMu                 sync.Mutex
 	grpcStreamMu                sync.Mutex
@@ -7626,6 +7630,16 @@ func (a *App) ensureReady() error {
 	return a.ensureReadyLocked()
 }
 
+// ensureReadyLocked requires the WRITE lock on a.mu, on every call, including
+// calls against an already-initialised App. It is not a readiness *check*: the
+// steady-state path still runs refreshGitCollectionAvailabilityLocked (which
+// unconditionally assigns collection.NotFoundLocally for every collection) and
+// pruneExpiredCookiesLocked (which unconditionally reassigns a.state.Cookies
+// and rewrites its backing array in place), and the scoped-workspace path
+// still calls workspaceRuntime.heartbeat, which renews the on-disk ownership
+// lease. There is therefore no side-effect-free predicate that could serve as
+// the fast path of a double-checked RLock, which is why GetState and every
+// other caller of this function hold Lock rather than RLock.
 func (a *App) ensureReadyLocked() error {
 	if a.workspaceRuntime != nil {
 		if len(a.state.Workspaces) != 1 || a.state.ActiveWorkspaceID != a.workspaceRuntime.intent.WorkspaceID || a.state.Workspaces[0].ID != a.workspaceRuntime.intent.WorkspaceID {
@@ -9526,10 +9540,30 @@ type appTLSSettings struct {
 	ClientSessionCache tls.ClientSessionCache
 }
 
+// appTLSSettingsSnapshot runs once per outbound request, so it is on the
+// hot path of a parallel collection run. Everything it needs is read-only
+// except the lazy construction of the shared TLS session cache, so it uses
+// double-checked locking: the fast path reads under RLock and returns; only
+// the first call (or the first after ClearSSLSessionCache) drops to the write
+// lock. The slow path re-reads preferences and re-tests tlsSessionCache
+// because the lock is released between the two sections and another goroutine
+// may have created the cache — or disabled it — in the gap.
 func (a *App) appTLSSettingsSnapshot() appTLSSettings {
+	a.mu.RLock()
+	preferences := normalizePreferences(a.state.Preferences)
+	if !preferences.Cache.SSLSession.Enabled {
+		a.mu.RUnlock()
+		return appTLSSettings{Request: preferences.Request}
+	}
+	if cache := a.tlsSessionCache; cache != nil {
+		a.mu.RUnlock()
+		return appTLSSettings{Request: preferences.Request, ClientSessionCache: cache}
+	}
+	a.mu.RUnlock()
+
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	preferences := normalizePreferences(a.state.Preferences)
+	preferences = normalizePreferences(a.state.Preferences)
 	var clientSessionCache tls.ClientSessionCache
 	if preferences.Cache.SSLSession.Enabled {
 		if a.tlsSessionCache == nil {
@@ -9635,9 +9669,13 @@ type proxyResolution struct {
 	PACSource string
 }
 
+// Read-only: findCollectionLocked only walks state, and every normalize*
+// helper below takes its argument by value and returns a new value. The
+// returned proxyResolution holds ProxyConfig, whose fields are all strings and
+// bools, so nothing in the result aliases live state.
 func (a *App) collectionProxyResolution(collectionID string) proxyResolution {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	collection, err := a.findCollectionLocked(collectionID)
 	if err != nil {
 		return proxyResolution{Mode: "off"}
@@ -9663,9 +9701,11 @@ func (a *App) collectionProxyResolution(collectionID string) proxyResolution {
 	}
 }
 
+// Read-only: the returned slice is freshly allocated and
+// ClientCertificateConfig contains only strings, so the copy is deep.
 func (a *App) collectionClientCertificateConfig(collectionID string) (string, []ClientCertificateConfig, bool) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	collection, err := a.findCollectionLocked(collectionID)
 	if err != nil || len(collection.ClientCertificates) == 0 {
 		return "", nil, false
@@ -14588,9 +14628,10 @@ type oauth2ImplicitWaiter struct {
 	Shutdown    func(context.Context) error
 }
 
+// Read-only: normalizePreferences copies its argument and returns a bool.
 func (a *App) oauth2ShouldUseSystemBrowser() bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return normalizePreferences(a.state.Preferences).OAuth2UseSystemBrowser
 }
 

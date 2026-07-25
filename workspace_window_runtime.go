@@ -420,9 +420,13 @@ func (r *workspaceWindowRuntime) release() {
 	})
 }
 
+// Read-only: reads a.dataDir, then parses the on-disk registry into a fresh
+// slice. Unlike OpenNewWindow it does not need mutual exclusion, because it
+// neither writes App fields nor takes any action whose effect depends on
+// another goroutine not doing the same thing concurrently.
 func (a *App) ListWorkspaceWindowTargets() ([]WorkspaceWindowTarget, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	registry, err := ReadWorkspaceRegistry(a.dataDir)
 	if err != nil {
 		return nil, err
