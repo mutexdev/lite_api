@@ -12028,43 +12028,17 @@
 {/if}
 
 {#if globalSearchOpen}
-  <Modal labelledBy="global-search-title" onClose={closeGlobalSearch} dialogClass="global-search-modal">
-      <header>
-        <div>
-          <h2 id="global-search-title">Global Search</h2>
-        </div>
-        <button type="button" class="icon-button" title="Close" on:click={closeGlobalSearch}>x</button>
-      </header>
-      <input
-        class="global-search-input"
-        aria-label="Global search"
-        placeholder="Search collections and requests"
-        bind:this={globalSearchInput}
-        bind:value={globalSearchQuery}
-        on:keydown={handleGlobalSearchKeydown}
-      />
-      {#if globalSearchResults.length === 0}
-        <div class="empty-state">No results found</div>
-      {:else}
-        <div class="global-search-results">
-          {#each globalSearchResults as result, index (result.id)}
-            <button
-              type="button"
-              class:active={index === globalSearchIndex}
-              on:mousemove={() => (globalSearchIndex = index)}
-              on:click={() => selectGlobalSearchResult(result)}
-            >
-              <span class="global-search-type">{result.type}</span>
-              <span class="global-search-main">
-                <strong>{result.name}</strong>
-                <small>{result.subtitle}</small>
-              </span>
-              <span class="global-search-meta">{result.meta}</span>
-            </button>
-          {/each}
-        </div>
-      {/if}
-  </Modal>
+  {#await import('./lib/modals/search/GlobalSearchModal.svelte') then GlobalSearchModal}
+    <svelte:component this={GlobalSearchModal.default}
+      bind:globalSearchQuery
+      bind:globalSearchIndex
+      bind:globalSearchInput
+      {globalSearchResults}
+      {handleGlobalSearchKeydown}
+      {selectGlobalSearchResult}
+      {closeGlobalSearch}
+    />
+  {/await}
 {/if}
 
 {#if notificationsOpen}
@@ -12132,38 +12106,16 @@
 {/if}
 
 {#if creatingResponseExample && activeRequest}
-  <Modal labelledBy="create-example-title" onClose={cancelCreateResponseExample} dialogClass="prompt-dialog create-example-dialog">
-      <form on:submit|preventDefault={createResponseExample}>
-        <header>
-          <h2 id="create-example-title">Create Response Example</h2>
-          <button type="button" class="icon-button" title="Cancel" on:click={cancelCreateResponseExample}>x</button>
-        </header>
-        <div class="prompt-fields">
-          <label>
-            <span>Example Name</span>
-            <input
-              bind:this={createResponseExampleInput}
-              aria-label="Create example name"
-              value={createResponseExampleName}
-              on:input={(event) => (createResponseExampleName = event.currentTarget.value)}
-            />
-          </label>
-          <label>
-            <span>Description</span>
-            <textarea
-              aria-label="Create example description"
-              rows="3"
-              value={createResponseExampleDescription}
-              on:input={(event) => (createResponseExampleDescription = event.currentTarget.value)}
-            ></textarea>
-          </label>
-        </div>
-        <div class="button-row">
-          <button type="button" on:click={cancelCreateResponseExample}>Cancel</button>
-          <button class="primary" type="submit" disabled={busy !== '' || !createResponseExampleName.trim()}>Create Example</button>
-        </div>
-      </form>
-  </Modal>
+  {#await import('./lib/modals/confirm/CreateExampleModal.svelte') then CreateExampleModal}
+    <svelte:component this={CreateExampleModal.default}
+      bind:createResponseExampleName
+      bind:createResponseExampleDescription
+      bind:createResponseExampleInput
+      {busy}
+      {createResponseExample}
+      {cancelCreateResponseExample}
+    />
+  {/await}
 {/if}
 
 {#if showShareCollectionModal && activeCollection}
@@ -12378,27 +12330,14 @@
 		{/if}
 
 		{#if openAPISpecViewerOpen && openAPISpecViewerResult}
-		  <Modal labelledBy="openapi-spec-title" onClose={closeOpenAPISyncSpecViewer} dialogClass="prompt-dialog openapi-spec-dialog" testId="openapi-spec-viewer-modal">
-		      <header>
-		        <h2 id="openapi-spec-title">API Spec</h2>
-		        <button type="button" class="icon-button" title="Close" on:click={closeOpenAPISyncSpecViewer}>x</button>
-		      </header>
-		      <div class="openapi-spec-meta">
-		        {#if openAPISpecViewerResult.sourceUrl}
-		          <span data-testid="openapi-spec-viewer-source">{openAPISpecViewerResult.sourceUrl}</span>
-		        {/if}
-		        {#if openAPISpecViewerResult.fetched}
-		          <small data-testid="openapi-spec-viewer-origin">Showing spec file from source.</small>
-		        {:else}
-		          <small data-testid="openapi-spec-viewer-origin">Stored spec from last sync.</small>
-		        {/if}
-		      </div>
-		      <pre class="openapi-spec-viewer" aria-label="OpenAPI spec content" data-testid="openapi-spec-viewer-content">{formattedOpenAPISpecContent(openAPISpecViewerResult.content)}</pre>
-		      <div class="button-row">
-		        <button type="button" data-testid="openapi-spec-viewer-close" on:click={closeOpenAPISyncSpecViewer}>Close</button>
-		        <button class="primary" type="button" data-testid="openapi-spec-viewer-copy" on:click={copyOpenAPISyncSpec}>Copy</button>
-		      </div>
-		  </Modal>
+  {#await import('./lib/modals/openapi/SpecViewerModal.svelte') then SpecViewerModal}
+    <svelte:component this={SpecViewerModal.default}
+      {openAPISpecViewerResult}
+      {formattedOpenAPISpecContent}
+      {copyOpenAPISyncSpec}
+      {closeOpenAPISyncSpecViewer}
+    />
+  {/await}
 		{/if}
 
 		{#if openAPISpecDiffOpen && openAPISpecDiffResult}

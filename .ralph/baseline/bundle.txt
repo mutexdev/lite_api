@@ -295,3 +295,27 @@ frontend/dist/assets/index-*.css        113609
 #     lint rule pushed toward the better answer rather than merely a stricter one.
 #
 # Running total: 1,159,933 -> 505,029 (56.5% smaller). 5,029 above target.
+
+# Hand extractions #22-24 — global-search, create-example, openapi-spec-viewer:
+#   initial chunk 505,029 -> 502,519  (-2,510)
+#
+# Type corrections, both from writing a structural type instead of the real one:
+#   * globalSearchResults needed App.svelte's GlobalSearchResult mirrored in
+#     full. A narrower {id,type,name,subtitle,meta} was rejected at the call
+#     site, because selectGlobalSearchResult is typed against the whole record
+#     and a narrower PARAMETER type is not assignable (contravariance).
+#   * formattedOpenAPISpecContent is a FUNCTION (content?: string) => string,
+#     not a string. I guessed from the name.
+#
+# ATTEMPTED AND REVERTED in the same pass: command-palette. Its action carries
+# App.svelte's WorkbenchCommandID union, and runCommandPaletteAction is typed
+# against it, so the same contravariance problem applies and cannot be solved by
+# widening the component's parameter to `string`. It needs either the union
+# mirrored or the id left opaque; do that deliberately rather than in a batch.
+#
+# PROCESS WARNING, learned expensively: `git checkout frontend/src/App.svelte`
+# to undo one bad extraction ALSO reverts every other uncommitted extraction in
+# the same file, orphaning their component files. Commit each batch before
+# starting the next, or revert by re-editing rather than by checkout.
+#
+# Running total: 1,159,933 -> 502,519 (56.7% smaller). 2,519 above target.
