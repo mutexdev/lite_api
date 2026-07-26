@@ -55,6 +55,38 @@ evidence for each story; this file carries the cross-story findings.
     US-077 (internal/ layout) MUST land BEFORE Phase 4 (US-060..US-071), or
     all nine package extractions get moved twice.
 
+--- US-030 — ANALYSED, NOT APPLIED. Table in .ralph/plans/US-030.md ---
+  Census measured, not taken from the story: 116 unkeyed {#each} blocks, not the
+  106 the story states. 95 in App.svelte, 14 in ResponseInspector, 7 elsewhere.
+  93 distinct (expression, binding) pairs.
+
+  WHY THIS WAS NOT APPLIED IN ONE PASS. Svelte throws on DUPLICATE KEYS at
+  RUNTIME, and neither svelte-check nor eslint nor the production build can see
+  it. A wrongly-keyed list is strictly worse than an unkeyed one, so every list
+  needs its element shape established before a key is chosen — about 30 distinct
+  lists across 9 files. Applying 116 edits on guessed keys would have looked
+  green in every gate this program runs and crashed a panel for a user.
+
+  THE LANDMINE, found while classifying and worth the whole exercise:
+    devToolsNetworkColumnWidths = [80, 70, 180, 300, 110, 100, 80]
+  The value 80 appears TWICE. Keying by value crashes the DevTools network panel
+  on render. That list is positional configuration with no identity other than
+  position, so index IS the correct key there — the story's "stable identities,
+  not array indices" rule is about lists of entities, and this is not one.
+  Same class of trap: HTTP header rows. Repeated header names are legal
+  (Set-Cookie routinely repeats), so those need a composite key, not the name.
+
+  The plan file carries the full key-selection table derived from reading the
+  actual declarations: which lists key by value (verified-unique string
+  constants), which by .id, which by a different identity field
+  (devToolsNetworkColumns has `key`, keyBindingSections has `heading`), which
+  need composites, and the ~30 whose shape still has to be established.
+
+  It also records that re-enabling svelte/require-each-key in eslint.config.js
+  is part of this story — US-004 disabled it and named US-030 as the owner —
+  and that browser verification is NON-NEGOTIABLE here rather than a formality,
+  because the failure mode is invisible to every other gate.
+
 --- US-075 — top toolbar overflow at 1200px (FIXED, verified in browser) ---
   The Phase 0 report reproduced EXACTLY, to the pixel: "Development" ended at
   x=666 while "Cookies" started at x=655 — an 11px overlap at a 1200px viewport.
