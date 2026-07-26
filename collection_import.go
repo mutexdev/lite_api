@@ -1,6 +1,7 @@
 package main
 
 import (
+	"LiteAPI/internal/openapisync"
 	"LiteAPI/internal/types"
 	"crypto/sha256"
 	"encoding/hex"
@@ -603,7 +604,7 @@ func detectCollectionImport(content, name, override string) (string, Collection,
 		return "swagger-2", Collection{}, nil, errors.New("only Swagger 2.0 can be converted; this document declares an older version")
 	}
 	if _, ok := raw["openapi"]; ok {
-		if _, _, err := validateOpenAPISyncSpec(content); err != nil {
+		if _, _, err := openapisync.ValidateOpenAPISyncSpec(content); err != nil {
 			return "openapi", Collection{}, nil, errors.New("OpenAPI document is invalid or unsupported")
 		}
 		collection, err := collectionFromImport(ImportPayload{Kind: "openapi", Name: strings.TrimSuffix(name, filepath.Ext(name)), Content: content})

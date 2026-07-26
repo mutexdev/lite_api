@@ -7,6 +7,7 @@ import (
 	"LiteAPI/internal/codegen"
 	"LiteAPI/internal/grpcexec"
 	"LiteAPI/internal/importers"
+	"LiteAPI/internal/openapisync"
 	"LiteAPI/internal/scripting"
 	brustore "LiteAPI/internal/store/bru"
 	"LiteAPI/internal/store/yamlstore"
@@ -23723,7 +23724,7 @@ paths:
 	collection := state.Workspaces[0].Collections[len(state.Workspaces[0].Collections)-1]
 	var pets, legacy RequestItem
 	for _, item := range collection.Items {
-		switch openAPIEndpointID(item) {
+		switch openapisync.OpenAPIEndpointID(item) {
 		case "GET:/pets":
 			pets = item
 		case "GET:/legacy":
@@ -23790,7 +23791,7 @@ paths:
 	}
 	var restoredLegacy, removedLocal bool
 	for _, item := range collection.Items {
-		switch openAPIEndpointID(item) {
+		switch openapisync.OpenAPIEndpointID(item) {
 		case "GET:/pets":
 			if len(item.Params) != 1 || item.Params[0].Name != "page" {
 				t.Fatalf("pets request was not reset to spec params: %#v", item.Params)
@@ -23849,7 +23850,7 @@ paths:
 	collection := state.Workspaces[0].Collections[len(state.Workspaces[0].Collections)-1]
 	var pet RequestItem
 	for _, item := range collection.Items {
-		if openAPIEndpointID(item) == "POST:/pets" {
+		if openapisync.OpenAPIEndpointID(item) == "POST:/pets" {
 			pet = item
 			break
 		}

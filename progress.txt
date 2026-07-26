@@ -3610,3 +3610,36 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Gates: go build, go vet, go test ok across 16 packages; svelte-check 209/0/0;
   eslint 0; npm test 223/223; vite build ok.
+
+--- internal/openapisync (DONE) — US-034 follow-on ---
+
+  1,011 lines of OpenAPI spec re-sync out of app.go, including the merge rules.
+  app.go: 19,701 -> 18,657.
+
+  The merge rules are the reason this is worth isolating. A re-sync must pick up
+  the spec's STRUCTURAL changes without discarding the VALUES the user typed
+  into the request. Getting that backwards silently reverts someone's work, and
+  the request still looks fine.
+
+  Controls confirm both directions are covered: discarding user values on
+  re-sync fails 1 test, discarding JSON body edits fails 1.
+
+  internal/types stays a leaf, again. AssignExampleIDs needed deterministicID,
+  so types now carries a local copy alongside firstNonEmpty and newIDLocal.
+  That is three small duplications to keep the dependency graph acyclic, and it
+  is the right trade: types is imported by every other package, and putting
+  scalar underneath it would put a package between types and everything else.
+
+  RUNNING TOTAL for the whole extraction effort:
+    app.go   ~44,000 -> 18,657 lines   (down 58%)
+    266 *App methods remain, which is the natural floor: a method cannot move
+    to another package without its receiver, and App is what Wails binds.
+
+    internal/scripting   14,829     internal/importers    2,632
+    internal/auth/awsv4   1,797     internal/types        ~1,400
+    internal/transport    1,116     internal/store/bru    ~1,065
+    internal/openapisync  1,011     internal/grpcexec       912
+    internal/store/yamlstore 649    internal/cookiejar      442
+    internal/interp        ~400     internal/codegen       ~380
+    internal/scalar         220     internal/auth/oauth1    407
+    internal/auth/digest    159     internal/auth/wsse       41

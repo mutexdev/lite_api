@@ -5,8 +5,11 @@
 package types
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -254,4 +257,18 @@ func SetKeyValue(values []KeyValue, name, value string) []KeyValue {
 		}
 	}
 	return append(values, KeyValue{Name: name, Value: value, Enabled: true})
+}
+
+func AssignExampleIDs(item *RequestItem) {
+	seed := firstNonEmpty(item.FilePath, item.ID, item.Name)
+	for index := range item.Examples {
+		item.Examples[index].ID = deterministicIDLocal("example", seed+"#example#"+strconv.Itoa(index))
+	}
+}
+
+// deterministicIDLocal mirrors scalar.DeterministicID. See the note on
+// firstNonEmpty for why types keeps its own copy rather than importing.
+func deterministicIDLocal(prefix, input string) string {
+	sum := sha1.Sum([]byte(input))
+	return prefix + "-" + hex.EncodeToString(sum[:8])
 }
