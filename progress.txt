@@ -4303,3 +4303,32 @@ US-026 - Store layer. DONE. Both named collapses complete.
   edit can corrupt data the compiler does not check, the remedy is a CHECK that
   runs forever, not a more careful pass. I wrote three careful passes. The
   check found what all three missed.
+
+--- Was the FRONTEND corrupted the same way? No, and the reason generalises. ---
+
+  The same extraction rewrote ~637 frontend references, so the same question
+  applies. Checked against the BUILT BUNDLE rather than the source, because the
+  bundle is what ships:
+
+      types.X inside any string literal in dist/assets/*.js:  0
+
+  THE ASYMMETRY IS THE LESSON. The two rewrites were not equally dangerous:
+
+      Go:        Collection      -> types.Collection        (BARE WORD)
+      frontend:  main.Collection -> types.Collection        (ANCHORED)
+
+  The Go rewrite matched a common English word, so it hit "Untitled Collection",
+  "Insomnia Collection", "Imported Environment" — real prose. The frontend
+  rewrite required the literal prefix `main.`, which appears in TypeScript and
+  essentially never in UI text. It could not corrupt a label even in principle.
+
+  So: an anchored rename is qualitatively safer than a bare-word rename, not
+  just marginally. When a mechanical edit must match a bare identifier that is
+  also an ordinary word, that is the moment to reach for a scanner instead of a
+  regex — or to accept that a tripwire will be needed afterwards.
+
+  I ALSO MADE THE SAME SCANNING MISTAKE A THIRD TIME while checking this: my
+  first frontend scan reported 138 "hits" that were TypeScript code between two
+  quotes, exactly like the 167 and 39 false positives earlier. Checking the
+  built artifact sidestepped the parsing problem entirely, which is what I
+  should have reached for first.
