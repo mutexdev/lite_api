@@ -88,6 +88,7 @@
     sanitizeCollectionFolderName,
     slashPathBase
   } from './lib/filesystemNames'
+  import { resolveShortcut, shortcutTabNumber } from './lib/shortcuts'
   import { workspaceStore } from './lib/stores/workspaceStore.svelte'
   import { variableTooltips } from './lib/stores/variableTooltipStore.svelte'
   import {
@@ -7362,161 +7363,62 @@
   }
 
   function shortcut(event: KeyboardEvent) {
-    if (event.key === 'Escape' && commandPaletteOpen) {
-      event.preventDefault()
-      closeCommandPalette()
+    const action = resolveShortcut(event, {
+      commandPaletteOpen,
+      // Getters, not values: the dispatcher runs on every keystroke including
+      // ordinary typing, and these two selectors only matter on Escape. Reading
+      // them eagerly would put two document-wide queries in the path of every
+      // character the user types.
+      get requestActionMenuOpen() { return Boolean(document.querySelector('details.request-actions[open]')) },
+      get modalOpen() { return Boolean(document.querySelector('[role="dialog"][aria-modal="true"]')) },
+      activeView,
+      canCancel: requestCommand.canCancel || hasActiveHTTPTransport || Boolean(activeCollectionRun),
+      keybindingsEnabled: Boolean(appState) && keybindingsAreEnabled(appState?.preferences),
+      matches: (candidate) => keyBindingEventMatches(event, candidate)
+    })
+    if (!action) return
+    event.preventDefault()
+    const tabNumber = shortcutTabNumber(action)
+    if (tabNumber !== undefined) {
+      void switchToOpenTabAt(tabNumber - 1)
       return
     }
-    if (event.key === 'Escape' && document.querySelector('details.request-actions[open]')) {
-      event.preventDefault()
-      closeRequestActionMenus()
-      return
-    }
-    const hasCommandModifier = event.metaKey || event.ctrlKey
-    if (hasCommandModifier && event.key.toLowerCase() === 'l' && activeView === 'request') {
-      event.preventDefault()
-      requestURLInput?.focus()
-      requestURLInput?.select()
-      return
-    }
-    if (event.key === 'Escape' && (requestCommand.canCancel || hasActiveHTTPTransport || activeCollectionRun)) {
-      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
-      event.preventDefault()
-      void cancelActiveRequest()
-      return
-    }
-    if (!appState || !keybindingsAreEnabled(appState.preferences)) return
-    if (keyBindingEventMatches(event, 'commandPalette')) {
-      event.preventDefault()
-      openCommandPalette()
-      return
-    }
-    if (keyBindingEventMatches(event, 'globalSearch')) {
-      event.preventDefault()
-      openGlobalSearch()
-      return
-    }
-    if (keyBindingEventMatches(event, 'sidebarSearch')) {
-      event.preventDefault()
-      requestSearchInput?.focus()
-      requestSearchInput?.select()
-      return
-    }
-    if (keyBindingEventMatches(event, 'collapseSidebar')) {
-      event.preventDefault()
-      toggleSidebarCollapse()
-      return
-    }
-    if (keyBindingEventMatches(event, 'closeAllTabs')) {
-      event.preventDefault()
-      void closeAllOpenTabs()
-      return
-    }
-    if (keyBindingEventMatches(event, 'reopenLastClosedTab')) {
-      event.preventDefault()
-      void reopenLastClosedTab()
-      return
-    }
-    if (keyBindingEventMatches(event, 'closeTab')) {
-      event.preventDefault()
-      void closeActiveTab()
-      return
-    }
-    if (keyBindingEventMatches(event, 'switchToPreviousTab')) {
-      event.preventDefault()
-      void switchToRelativeOpenTab(-1)
-      return
-    }
-    if (keyBindingEventMatches(event, 'switchToNextTab')) {
-      event.preventDefault()
-      void switchToRelativeOpenTab(1)
-      return
-    }
-    if (keyBindingEventMatches(event, 'switchToLastTab')) {
-      event.preventDefault()
-      void switchToOpenTabAt((appState.openTabs?.length ?? 0) - 1)
-      return
-    }
-    for (let index = 1; index <= 8; index += 1) {
-      if (keyBindingEventMatches(event, `switchToTab${index}`)) {
-        event.preventDefault()
-        void switchToOpenTabAt(index - 1)
+    switch (action) {
+      case 'closeCommandPalette': closeCommandPalette(); return
+      case 'closeRequestActionMenus': closeRequestActionMenus(); return
+      case 'focusURL':
+        requestURLInput?.focus()
+        requestURLInput?.select()
         return
-      }
-    }
-    if (keyBindingEventMatches(event, 'moveTabLeft')) {
-      event.preventDefault()
-      void moveActiveTab(-1)
-      return
-    }
-    if (keyBindingEventMatches(event, 'moveTabRight')) {
-      event.preventDefault()
-      void moveActiveTab(1)
-      return
-    }
-    if (keyBindingEventMatches(event, 'newRequest')) {
-      event.preventDefault()
-      createRequest()
-      return
-    }
-    if (keyBindingEventMatches(event, 'importCollection')) {
-      event.preventDefault()
-      activeView = 'import'
-      return
-    }
-    if (keyBindingEventMatches(event, 'editEnvironment')) {
-      event.preventDefault()
-      activeView = 'environments'
-      return
-    }
-    if (keyBindingEventMatches(event, 'openPreferences')) {
-      event.preventDefault()
-      activeView = 'preferences'
-      return
-    }
-    if (keyBindingEventMatches(event, 'openTerminal')) {
-      event.preventDefault()
-      void openDevTools('terminal')
-      return
-    }
-    if (keyBindingEventMatches(event, 'sendRequest')) {
-      event.preventDefault()
-      sendRequest()
-      return
-    }
-    if (keyBindingEventMatches(event, 'changeLayout')) {
-      event.preventDefault()
-      void toggleResponsePaneOrientation()
-      return
-    }
-    if (keyBindingEventMatches(event, 'zoomIn')) {
-      event.preventDefault()
-      void incrementZoomPercentage(zoomStepPercentage)
-      return
-    }
-    if (keyBindingEventMatches(event, 'zoomOut')) {
-      event.preventDefault()
-      void incrementZoomPercentage(-zoomStepPercentage)
-      return
-    }
-    if (keyBindingEventMatches(event, 'resetZoom')) {
-      event.preventDefault()
-      void resetZoomPercentage()
-      return
-    }
-    if (keyBindingEventMatches(event, 'closeBruno')) {
-      event.preventDefault()
-      closeApplication()
-      return
-    }
-    if (keyBindingEventMatches(event, 'save')) {
-      event.preventDefault()
-      saveRequest()
-      return
-    }
-    if (keyBindingEventMatches(event, 'saveAllTabs')) {
-      event.preventDefault()
-      void saveAllOpenTabs()
+      case 'cancelActiveRequest': void cancelActiveRequest(); return
+      case 'commandPalette': openCommandPalette(); return
+      case 'globalSearch': openGlobalSearch(); return
+      case 'sidebarSearch':
+        requestSearchInput?.focus()
+        requestSearchInput?.select()
+        return
+      case 'collapseSidebar': toggleSidebarCollapse(); return
+      case 'closeAllTabs': void closeAllOpenTabs(); return
+      case 'reopenLastClosedTab': void reopenLastClosedTab(); return
+      case 'closeTab': void closeActiveTab(); return
+      case 'switchToPreviousTab': void switchToRelativeOpenTab(-1); return
+      case 'switchToNextTab': void switchToRelativeOpenTab(1); return
+      case 'switchToLastTab': void switchToOpenTabAt((appState?.openTabs?.length ?? 0) - 1); return
+      case 'moveTabLeft': void moveActiveTab(-1); return
+      case 'moveTabRight': void moveActiveTab(1); return
+      case 'newRequest': createRequest(); return
+      case 'importCollection': activeView = 'import'; return
+      case 'editEnvironment': activeView = 'environments'; return
+      case 'openPreferences': activeView = 'preferences'; return
+      case 'openTerminal': void openDevTools('terminal'); return
+      case 'sendRequest': sendRequest(); return
+      case 'changeLayout': void toggleResponsePaneOrientation(); return
+      case 'zoomIn': void incrementZoomPercentage(zoomStepPercentage); return
+      case 'zoomOut': void incrementZoomPercentage(-zoomStepPercentage); return
+      case 'resetZoom': void resetZoomPercentage(); return
+      case 'closeBruno': closeApplication(); return
+      case 'save': saveRequest(); return
+      case 'saveAllTabs': void saveAllOpenTabs(); return
     }
   }
 

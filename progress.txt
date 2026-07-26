@@ -7084,3 +7084,40 @@ US-026 - Store layer. DONE. Both named collapses complete.
       does not become a path when the user accepts the default unedited.
 
   Twelve controls, twelve failures.
+
+=== PHASE 6 — the keyboard dispatcher ===
+
+  New src/lib/shortcuts.ts, 19 tests. The 158-line `shortcut` function — the
+  largest left in the file — becomes a resolve step plus a switch.
+  App.svelte 11,150 -> 11,052. Suite 574 -> 593.
+
+  THE ORDER OF THE CHECKS IS THE WHOLE BEHAVIOUR, and order is invisible in a
+  chain of early-returning ifs. Every property below is a statement about which
+  check runs before which, and not one of them errors when it changes — the
+  wrong thing simply happens on a keypress.
+
+  Pinned:
+    - ESCAPE CLOSES THE PALETTE BEFORE ANYTHING ELSE CAN CLAIM IT. Reached by a
+      lower handler first, the palette stays open with its input focused,
+      swallowing every subsequent key. Control fails 2.
+    - THE FOUR FIXED KEYS RUN BEFORE THE KEYBINDINGS-ENABLED GATE. Turning
+      custom keybindings off must not leave the user unable to dismiss the
+      palette or stop a running request — those keys are not configurable, so
+      they are not the user's to disable. Control fails 1.
+    - a modal OWNS Escape while open, and the guard RETURNS rather than falling
+      through: Escape in a dialog must do exactly one thing, and also matching a
+      user binding is how a dialog closes and fires an unrelated action on the
+      same keypress. Controls fail 3 and 1.
+    - switchToLastTab is matched BEFORE the numbered tabs. The two can be bound
+      to overlapping combos and whichever is checked first wins. Control fails 2.
+    - the action list is the behaviour; a dropped entry produces no error, the
+      key just stops working and reads as a binding the user mis-set. Fails 1.
+
+  A REGRESSION I INTRODUCED AND CAUGHT IN THE SAME SLICE. Building the context
+  eagerly moved two document-wide querySelectors OUT of the Escape branch and
+  INTO the path of every keystroke, ordinary typing included. The original only
+  ran them on Escape. Fixed with getters, and the laziness is now pinned by two
+  tests that count reads — because a property of the CALL SITE is worthless if
+  the resolver stops honouring it. Control fails 2.
+
+  Ten controls, ten failures.
