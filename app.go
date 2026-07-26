@@ -1094,6 +1094,9 @@ type RequestPreferences struct {
 	StoreCookies              *bool                                `json:"storeCookies,omitempty"`
 	SendCookies               *bool                                `json:"sendCookies,omitempty"`
 	Timeout                   int                                  `json:"timeout,omitempty"`
+	// US-011. Cap on how many bytes of a response body are read into memory.
+	// Zero means the default; see responseBodyReadLimit.
+	MaxResponseBytes          int                                  `json:"maxResponseBytes,omitempty"`
 }
 
 type CustomCaCertificatePreferences struct {
@@ -8767,6 +8770,54 @@ func (a *App) migrateResponseBodiesLocked() {
 	}
 }
 
+// defaultResponseBodyLimit bounds how much of a response body is read into
+// memory when the user has not chosen otherwise.
+//
+// 100 MB matches the story. The number matters less than the fact that there is
+// one: io.ReadAll on a response body is an unbounded allocation driven by a
+// remote server, so a misconfigured endpoint streaming gigabytes takes the
+// process down. That is a denial of service with no attacker required.
+const defaultResponseBodyLimit = 100 << 20
+
+// responseBodyReadLimit resolves the configured cap. A negative preference
+// means "no limit" and is honoured, because a user who has deliberately asked
+// for unbounded reads on a trusted local endpoint should get them; zero means
+// they have expressed no preference and gets the default.
+func responseBodyReadLimit(preferences RequestPreferences) int64 {
+	switch {
+	case preferences.MaxResponseBytes < 0:
+		return -1
+	case preferences.MaxResponseBytes == 0:
+		return defaultResponseBodyLimit
+	default:
+		return int64(preferences.MaxResponseBytes)
+	}
+}
+
+// readResponseBodyLimited reads at most limit bytes and reports whether the
+// body was cut short.
+//
+// It reads limit+1 bytes rather than limit, because io.LimitReader alone cannot
+// distinguish "the body was exactly the limit" from "the body was longer and we
+// stopped". Getting that wrong means silently truncating a body that happened
+// to land on the boundary and telling the user it was complete — which is the
+// failure this story explicitly rules out ("truncation is surfaced in the UI,
+// not silent").
+func readResponseBodyLimited(reader io.Reader, limit int64) ([]byte, bool, error) {
+	if limit < 0 {
+		body, err := io.ReadAll(reader)
+		return body, false, err
+	}
+	body, err := io.ReadAll(io.LimitReader(reader, limit+1))
+	if err != nil {
+		return body, false, err
+	}
+	if int64(len(body)) > limit {
+		return body[:limit], true, nil
+	}
+	return body, false, nil
+}
+
 // responseBodyHeadLimit is how much of a body BodyHead carries inline.
 //
 // 8 KiB matches the story's "~8 KB inline head". It is sized to the job it
@@ -9896,7 +9947,10 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 		}
 	}
 	defer func() { _ = res.Body.Close() }()
-	body, err := io.ReadAll(res.Body)
+	// US-011. Bounded, not io.ReadAll: the size of this allocation is chosen by
+	// the remote server, so an endpoint streaming gigabytes would otherwise take
+	// the process down with it.
+	body, bodyTruncated, err := readResponseBodyLimited(res.Body, responseBodyReadLimit(a.appTLSSettingsSnapshot().Request))
 	if err != nil {
 		if requestContextCancelled(ctx) {
 			markRequestCancelled(&result)
@@ -9911,6 +9965,17 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 	}
 	result.Size = len(body)
 	result.Body = string(body)
+	// US-011: truncation must be visible. The header is what the response
+	// inspector can surface without any new plumbing, and it travels with the
+	// response into saved examples and exports, so a truncated body is never
+	// mistaken for a complete one later.
+	if bodyTruncated {
+		if result.Headers == nil {
+			result.Headers = map[string]string{}
+		}
+		result.Headers["x-liteapi-body-truncated"] = "true"
+		result.Headers["x-liteapi-body-limit"] = strconv.FormatInt(responseBodyReadLimit(a.appTLSSettingsSnapshot().Request), 10)
+	}
 	result.BodyBase64 = base64.StdEncoding.EncodeToString(body)
 	result.DurationMs = time.Since(start).Milliseconds()
 	result.Timings = timingTrace.finalize(time.Now())

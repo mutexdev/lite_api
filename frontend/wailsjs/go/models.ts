@@ -435,6 +435,7 @@ export namespace main {
 	    storeCookies?: boolean;
 	    sendCookies?: boolean;
 	    timeout?: number;
+	    maxResponseBytes?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new RequestPreferences(source);
@@ -448,6 +449,7 @@ export namespace main {
 	        this.storeCookies = source["storeCookies"];
 	        this.sendCookies = source["sendCookies"];
 	        this.timeout = source["timeout"];
+	        this.maxResponseBytes = source["maxResponseBytes"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
