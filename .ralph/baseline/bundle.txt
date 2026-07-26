@@ -209,3 +209,14 @@ frontend/dist/assets/index-*.css        113609
 # merely collide with an App.svelte local.
 #
 # Running total: 1,159,933 -> 519,273 (55.2% smaller). 19,273 above target.
+
+# Hand extraction #8 — new-folder (3,337 B of source):
+#   initial chunk 519,273 -> 517,593  (-1,680)
+#
+# The grep heuristic is a starting point, not an oracle: it missed
+# collectionFolderNameIsValid and newFolderDirectoryIsReservedRoot, both used
+# inside {#if} conditions rather than on an attribute line. svelte-check named
+# both immediately, which is the point — the workflow is "grep to draft the prop
+# list, let svelte-check finish it", and the compiler is what makes that safe.
+#
+# Running total: 1,159,933 -> 517,593 (55.4% smaller). 17,593 above target.
