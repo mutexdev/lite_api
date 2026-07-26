@@ -12312,49 +12312,26 @@
 {/if}
 
 {#if deleteRequestTarget}
-  <Modal labelledBy="delete-request-title" onClose={cancelDeleteRequestModal} closeOnBackdrop={false}>
-      <form on:submit|preventDefault={confirmDeleteRequest}>
-        <header>
-          <h2 id="delete-request-title">Delete Request</h2>
-          <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={cancelDeleteRequestModal}>x</button>
-        </header>
-        <div class="prompt-fields">
-          <p>Delete <span class="font-medium">{deleteRequestTarget.request.name}</span>? {deleteRequestTarget.request.transient ? 'This unsaved request will be discarded without a recovery copy.' : 'A temporary recovery copy will be kept so it can be restored.'}</p>
-        </div>
-        <div class="button-row">
-          <button type="button" on:click={cancelDeleteRequestModal}>Cancel</button>
-          <button
-            class="danger-button"
-            type="submit"
-            data-testid="modal-submit-btn"
-            disabled={busy !== ''}
-          >{busy === 'delete request' ? 'Deleting...' : 'Delete'}</button>
-        </div>
-      </form>
-  </Modal>
+  {#await import('./lib/modals/confirm/DeleteRequestModal.svelte') then DeleteRequestModal}
+    <svelte:component this={DeleteRequestModal.default}
+      {deleteRequestTarget}
+      {busy}
+      {confirmDeleteRequest}
+      {cancelDeleteRequestModal}
+    />
+  {/await}
 {/if}
 
 {#if deleteFolderTarget}
-  <Modal labelledBy="delete-folder-title" onClose={cancelDeleteFolderModal} closeOnBackdrop={false}>
-      <form on:submit|preventDefault={confirmDeleteFolder}>
-        <header>
-          <h2 id="delete-folder-title">Delete Folder</h2>
-          <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={cancelDeleteFolderModal}>x</button>
-        </header>
-        <div class="prompt-fields">
-          <p>Delete <span class="font-medium">{deleteFolderTarget.folder.name || slashPathBase(deleteFolderTarget.folder.displayPath || deleteFolderTarget.folder.path)}</span>? A temporary recovery copy will be kept so it can be restored.</p>
-        </div>
-        <div class="button-row">
-          <button type="button" on:click={cancelDeleteFolderModal}>Cancel</button>
-          <button
-            class="danger-button"
-            type="submit"
-            data-testid="modal-submit-btn"
-            disabled={busy !== ''}
-          >{busy === 'delete folder' ? 'Deleting...' : 'Delete'}</button>
-        </div>
-      </form>
-  </Modal>
+  {#await import('./lib/modals/confirm/DeleteFolderModal.svelte') then DeleteFolderModal}
+    <svelte:component this={DeleteFolderModal.default}
+      {deleteFolderTarget}
+      {busy}
+      {slashPathBase}
+      {confirmDeleteFolder}
+      {cancelDeleteFolderModal}
+    />
+  {/await}
 {/if}
 
 {#if cloneCollectionTarget}
@@ -12388,18 +12365,14 @@
 {/if}
 
 {#if removeCollectionTarget}
-  <Modal labelledBy="remove-collection-title" onClose={cancelRemoveCollectionModal} testId="remove-collection-modal" closeOnBackdrop={false}>
-      <header>
-        <h2 id="remove-collection-title">Remove Collection</h2>
-        <button type="button" class="icon-button" title="Cancel" on:click={cancelRemoveCollectionModal}>x</button>
-      </header>
-      <p>Remove {removeCollectionTarget.name} from this workspace. A temporary recovery copy will be kept so it can be restored.</p>
-      <code>{removeCollectionTarget.path}</code>
-      <div class="button-row">
-        <button type="button" data-testid="remove-collection-cancel" on:click={cancelRemoveCollectionModal}>Cancel</button>
-        <button class="primary" type="button" data-testid="remove-collection-confirm" on:click={confirmRemoveCollection} disabled={busy !== ''}>{busy === 'remove collection' ? 'Removing...' : 'Remove'}</button>
-      </div>
-  </Modal>
+  {#await import('./lib/modals/confirm/RemoveCollectionModal.svelte') then RemoveCollectionModal}
+    <svelte:component this={RemoveCollectionModal.default}
+      {removeCollectionTarget}
+      {busy}
+      {confirmRemoveCollection}
+      {cancelRemoveCollectionModal}
+    />
+  {/await}
 {/if}
 
 	{#if showGenerateDocsModal && activeCollection}
@@ -12553,16 +12526,9 @@
 {/if}
 
 {#if gitNotFoundMessage}
-  <Modal labelledBy="git-not-found-title" onClose={() => (gitNotFoundMessage = '')} dialogClass="prompt-dialog git-not-found-dialog">
-      <header>
-        <h2 id="git-not-found-title">Git Required</h2>
-        <button type="button" class="icon-button" title="Close" on:click={() => (gitNotFoundMessage = '')}>x</button>
-      </header>
-      <p>{gitNotFoundMessage}</p>
-      <div class="button-row">
-        <button class="primary" type="button" on:click={() => (gitNotFoundMessage = '')}>Close</button>
-      </div>
-  </Modal>
+  {#await import('./lib/modals/confirm/GitNotFoundModal.svelte') then GitNotFoundModal}
+    <svelte:component this={GitNotFoundModal.default} bind:gitNotFoundMessage />
+  {/await}
 {/if}
 
 {#if generatedGrpcurlCommand}

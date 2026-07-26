@@ -265,3 +265,18 @@ frontend/dist/assets/index-*.css        113609
 # numbers first. Splicing the earlier block first shifts every index after it.
 #
 # Running total: 1,159,933 -> 511,007 (55.9% smaller). 11,007 above target.
+
+# Hand extractions #13-16 — the four confirmation dialogs
+# (delete-request, delete-folder, remove-collection, git-not-found; 3,585 B src):
+#   initial chunk 511,007 -> 508,561  (-2,446)
+#
+# Two corrections svelte-check and eslint made, both the kind that a generated
+# component would have carried silently:
+#   * deleteFolderTarget.folder needed main.FolderConfig, not a hand-written
+#     {name?, path} — the body also reads displayPath.
+#   * GitNotFoundModal imports no types at all, so the boilerplate `import type
+#     { main }` became an unused-import error.
+# Boilerplate generation is fine ONCE the prop list is known; it still has to be
+# checked per component.
+#
+# Running total: 1,159,933 -> 508,561 (56.2% smaller). 8,561 above target.
