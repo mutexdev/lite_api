@@ -342,3 +342,30 @@ frontend/dist/assets/index-*.css        113609
 # out of App.svelte behind a dynamic import placed INSIDE the {#if} that gates
 # it. Static imports would have achieved nothing.
 # ===========================================================================
+
+# ---------------------------------------------------------------------------
+# THE FOUR VIEW PANELS — measured, not yet extracted. This is US-036's
+# remaining criterion ("DevTools, Runner, Import, Preferences ... dynamically
+# imported"), distinct from the 27 DIALOG bodies already done.
+#
+#   runner       lines ~10745-11236   ~35,622 B of source
+#   import       lines ~11237-11338   ~10,953 B
+#   devtools     lines ~11339-11453    ~6,016 B
+#   preferences  lines ~11454-11503    ~2,465 B
+#                                    ~55,000 B total
+#
+# Extracting these would give real headroom above the current 82-byte margin —
+# far more than the dialogs did — but they are harder in a specific way, and an
+# attempt on the SMALLEST of them (preferences) failed and was reverted:
+#
+#   They are {:else if activeView === '...'} branches in one long chain, not
+#   self-contained {#if} blocks. Slicing "from the branch line to the next
+#   branch line" cuts through nested {#if}/{#each} blocks that open inside the
+#   branch and close after the slice boundary — svelte-check reported
+#   "Block was left open". The bounds have to be found by tracking block depth
+#   across {#if}/{#each}/{#await} and their closers, the way the dialog
+#   extractions tracked <Modal> depth, NOT by line ranges between branches.
+#
+# The runner panel at 35 KB will also carry a large prop surface; expect it to
+# need the most care of anything remaining in this story.
+# ---------------------------------------------------------------------------
