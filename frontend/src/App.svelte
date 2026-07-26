@@ -222,6 +222,17 @@
     UpdateResponseExample
   } from '../wailsjs/go/main/App'
   import type { gitworkbench, history, localserver, main, types } from '../wailsjs/go/models'
+  import {
+    displayTooltipValue,
+    findTooltipVariable,
+    folderChainForRequest,
+    isValidVariableName,
+    pathParamTooltipInfo,
+    resolveTooltipValue,
+    resolveVariableTooltip,
+    type VariableTooltipInfo,
+    type VariableTooltipSource
+  } from './lib/variableResolution'
   import { BrowserOpenURL, EventsOn, OnFileDrop, OnFileDropOff, Quit } from '../wailsjs/runtime/runtime'
 
   type View = 'request' | 'collection' | 'git' | 'runner' | 'environments' | 'import' | 'features' | 'network' | 'cookies' | 'history' | 'preferences' | 'devtools'
@@ -284,29 +295,9 @@
   type KeyBindingDefinition = import('./lib/keybindings').KeyBindingDefinition
   type KeyBindingSection = import('./lib/keybindings').KeyBindingSection
   type BodyTextField = 'json' | 'xml' | 'text' | 'graphqlQuery' | 'graphqlVariables'
-  type VariableTooltipSource = 'global' | 'collection' | 'environment' | 'folder' | 'request' | 'runtime' | 'process' | 'path' | 'missing' | 'invalid'
   type IndexedVariable = {
     variable: types.Variable
     index: number
-  }
-  type TooltipResolution = {
-    value: string
-    containsSecret: boolean
-  }
-  type VariableTooltipInfo = {
-    name: string
-    scope: string
-    rawValue: string
-    resolvedValue: string
-    secret: boolean
-    readOnly: boolean
-    found: boolean
-    editable: boolean
-    validName: boolean
-    source: VariableTooltipSource
-    index: number
-    environmentId?: string
-    globalEnvironmentId?: string
   }
 	  type URLVariableSegment =
 	    | {
@@ -1872,25 +1863,6 @@
     }
   }
 
-  function pathParamTooltipInfo(name: string, pathParams: types.KeyValue[]): VariableTooltipInfo {
-    const validName = isValidVariableName(name)
-    const index = pathParams.findIndex((param) => param.name === name)
-    const row = index >= 0 ? pathParams[index] : undefined
-    const rawValue = String(row?.value ?? '')
-    return {
-      name,
-      scope: 'Path Param',
-      rawValue,
-      resolvedValue: rawValue,
-      secret: false,
-      readOnly: !validName,
-      found: Boolean(row && row.enabled !== false && rawValue.trim() !== ''),
-      editable: validName && Boolean(row),
-      validName,
-      source: validName ? 'path' : 'invalid',
-      index
-    }
-  }
 
   function pathParamNamesFromURL(rawURL: string) {
     if (!rawURL) return []
@@ -2006,132 +1978,10 @@
 	    }
 	  }
 
-  function resolveVariableTooltip(name: string, workspace: types.Workspace, collection: types.Collection, request: types.RequestItem, environmentId: string, processEnvValues: Record<string, string>): VariableTooltipInfo {
-    const validName = isValidVariableName(name)
-    if (!validName) {
-      return {
-        name,
-        scope: 'Request',
-        rawValue: '',
-        resolvedValue: '',
-        secret: false,
-        readOnly: true,
-        found: false,
-        editable: false,
-        validName: false,
-        source: 'invalid',
-        index: -1
-      }
-    }
 
-    if (name.startsWith('process.env.')) {
-      const loaded = Object.prototype.hasOwnProperty.call(processEnvValues, name)
-      return {
-        name,
-        scope: 'Process Env',
-        rawValue: '',
-        resolvedValue: loaded ? processEnvValues[name] : 'Loading...',
-        secret: false,
-        readOnly: true,
-        found: true,
-        editable: false,
-        validName,
-        source: 'process',
-        index: -1
-      }
-    }
 
-    const match = findTooltipVariable(name, workspace, collection, request, environmentId)
-    if (!match) {
-      return {
-        name,
-        scope: 'Request',
-        rawValue: '',
-        resolvedValue: '',
-        secret: false,
-        readOnly: false,
-        found: false,
-        editable: true,
-        validName,
-        source: 'missing',
-        index: -1
-      }
-    }
-    const readOnly = match.source === 'folder' || match.source === 'runtime'
-    const rawValue = String(match.variable.value ?? '')
-    const resolution = resolveTooltipValue(rawValue, workspace, collection, request, environmentId, processEnvValues, new Set([name]))
-    return {
-      name,
-      scope: match.scope,
-      rawValue,
-      resolvedValue: resolution.value,
-      secret: Boolean(match.variable.secret) || resolution.containsSecret,
-      readOnly,
-      found: true,
-      editable: !readOnly,
-      validName,
-      source: match.source,
-      index: match.index,
-      environmentId: match.environmentId,
-      globalEnvironmentId: match.globalEnvironmentId
-    }
-  }
 
-  function findTooltipVariable(name: string, workspace: types.Workspace, collection: types.Collection, request: types.RequestItem, environmentId: string) {
-    let found: { variable: types.Variable; scope: string; source: VariableTooltipSource; index: number; environmentId?: string; globalEnvironmentId?: string } | undefined
-    const consider = (variables: types.Variable[] | undefined, scope: string, source: VariableTooltipSource, sourceId = '') => {
-      for (const [index, variable] of (variables ?? []).entries()) {
-        if (variable.enabled === false || variable.name !== name) continue
-        found = {
-          variable,
-          scope,
-          source,
-          index,
-          environmentId: source === 'environment' ? sourceId : undefined,
-          globalEnvironmentId: source === 'global' ? sourceId : undefined
-        }
-      }
-    }
-    const activeGlobal = workspace.globalEnvironments?.find((env) => env.id === workspace.activeGlobalEnvironmentId)
-    consider(activeGlobal?.variables, 'Global', 'global', activeGlobal?.id)
-    consider(collection.variables, 'Collection', 'collection')
-    const environment = collection.environments?.find((env) => env.id === environmentId)
-    consider(environment?.variables, 'Environment', 'environment', environment?.id)
-    for (const folder of folderChainForRequest(collection, request)) {
-      consider(folder.variables, 'Folder', 'folder', folder.path)
-    }
-    consider(request.vars?.req, 'Request', 'request')
-    consider(collection.runtimeVariables, 'Runtime', 'runtime')
-    return found
-  }
 
-  function isValidVariableName(name: string) {
-    return /^[\w.-]+$/.test(name)
-  }
-
-  function resolveTooltipValue(value: string, workspace: types.Workspace, collection: types.Collection, request: types.RequestItem, environmentId: string, processEnvValues: Record<string, string>, seen: Set<string>): TooltipResolution {
-    let containsSecret = false
-    const resolvedValue = value.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (_match, rawName: string) => {
-      const name = rawName.trim()
-      if (!name || name.startsWith('?') || seen.has(name)) return ''
-      if (name.startsWith('process.env.')) return processEnvValues[name] ?? ''
-      const match = findTooltipVariable(name, workspace, collection, request, environmentId)
-      if (!match) return ''
-      containsSecret = containsSecret || Boolean(match.variable.secret)
-      seen.add(name)
-      const resolved = resolveTooltipValue(String(match.variable.value ?? ''), workspace, collection, request, environmentId, processEnvValues, seen)
-      seen.delete(name)
-      containsSecret = containsSecret || resolved.containsSecret
-      return resolved.value
-    })
-    return { value: resolvedValue, containsSecret }
-  }
-
-  function displayTooltipValue(info: VariableTooltipInfo, revealed: boolean) {
-    if (!info.found && info.source !== 'path') return 'Not defined'
-    if (info.secret && !revealed) return '********'
-    return info.resolvedValue
-  }
 
   function toggleTooltipSecret(name: string) {
     variableTooltips.toggleRevealed(name)
@@ -2462,13 +2312,6 @@
 	    }
   }
 
-  function folderChainForRequest(collection: types.Collection, request: types.RequestItem) {
-    const folderPath = request.folderPath ?? ''
-    if (!folderPath) return []
-    return [...(collection.folders ?? [])]
-      .filter((folder) => folder.path === folderPath || folderPath.startsWith(`${folder.path}/`))
-      .sort((left, right) => left.path.length - right.path.length)
-  }
 
   function promptForVariables(prompts: string[]) {
     return new Promise<Record<string, string> | null>((resolve) => {

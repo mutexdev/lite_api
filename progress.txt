@@ -5930,3 +5930,42 @@ US-026 - Store layer. DONE. Both named collapses complete.
   the embedded JS. The lesson is not "regexes are bad" but that the raw-string
   hazard is specific and checkable: before a blanket rename, ask whether the
   identifier is also a JavaScript API name.
+
+=== RESTRUCTURE PHASE 6 — first slice of App.svelte ===
+
+  src/lib/variableResolution.ts — the {{variable}} resolution cluster, ~280
+  lines pulled out of App.svelte (12,320 -> 12,163) with 18 tests where there
+  were none. Frontend suite 254 -> 272.
+
+  Follows the pattern the repo already proves (sidebarTree.ts, patchQueue.ts,
+  variableTooltipState.ts): pure logic in a plain .ts module that node --test
+  can exercise, with the .svelte file as the reactive shell. Nothing here was
+  reactive; it was 280 lines of state-in/value-out sitting where no test could
+  reach it.
+
+  Three properties worth the tests, all silent when wrong:
+    - PRECEDENCE. Six scopes can define one name, last-write-wins, order is
+      global < collection < environment < folder < request < runtime. Get it
+      wrong and the tooltip states one value while the request sends another —
+      the feature whose only job is explaining the value lies about it.
+    - SECRET PROPAGATION. A value is secret if it is marked secret OR if
+      anything it interpolates is.
+    - CYCLES. {{a}}->{{b}}->{{a}} terminates via a seen-set that is added before
+      recursing and REMOVED after, so {{x}}-{{x}} still resolves twice.
+
+  A CONTROL FOUND A GAP AT TWO LEVELS OF INDIRECTION. Deleting
+  `containsSecret = containsSecret || resolved.containsSecret` failed nothing.
+  One hop is already caught before recursing, by the matched variable's own
+  secret flag, so my test (authHeader -> token) passed either way. The deleted
+  line only matters at two hops: outer -> middle -> deep, where `middle` is not
+  itself secret. Without it, a secret reached through an intermediate variable
+  renders IN CLEARTEXT in the tooltip. Test added, control now fails 1.
+
+  Also deleted the duplicate type declarations. Importing VariableTooltipInfo
+  and VariableTooltipSource while ALSO declaring them locally left the local
+  ones shadowing the imports — svelte-check was perfectly happy, and the two
+  copies would have drifted apart with nothing to say so.
+
+  App.svelte is still 12,163 lines. This is one cluster of several; the same
+  treatment applies to the prompt scanning, URL/path-param and global-search
+  clusters identified alongside it.
