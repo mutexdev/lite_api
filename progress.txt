@@ -4649,3 +4649,40 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Both are defensible. Neither is mine to pick, and I would rather say that
   plainly than implement one and describe it as a refactor.
+
+--- CORRECTION: I dismissed five functions as "environment-bound" too readily ---
+
+  Two entries ago I closed the Go sweep saying the remaining 8 all needed real
+  DNS, a live interface, a transport chain, or were trivial setters. Re-reading
+  them showed that was too sweeping, and the difference matters:
+
+    scriptDNSSRVParts       PURE string parsing. No lookup at all. I filed it
+                            under "DNS" on the strength of its NAME.
+    scriptDNSReverse        validates a blank IP BEFORE resolving
+    scriptDNSLookupService  validates address and port range BEFORE resolving
+    scriptOSVersion         has a fallback path; the invariant (never blank) is
+                            assertable anywhere
+    SetHTTPClient           a nil guard, and the guard is the whole point
+
+  The validation is precisely the part a script can reach with bad input, and it
+  was the part untested. 7 tests added.
+
+  THE NIL GUARD IS WORTH ITS TEST. Without `if get != nil`, calling
+  SetHTTPClient(nil) replaces the client with nil and every credential call —
+  STS, SSO, OIDC — panics on the next request. A one-line guard whose removal is
+  invisible in review.
+
+  Controls: truncating an SRV name to one label fails 3, skipping the port range
+  check fails 1, removing the nil guard fails 1, not trimming a trailing dot
+  fails 1.
+
+  0%-covered now 3, and these three are genuinely blocked: a live network
+  interface, a full transport chain, and a duplicate of a function tested in
+  internal/interp.
+
+  THE LESSON IS ABOUT MY OWN SHORTCUT. I classified five functions by their
+  NAMES rather than their bodies, and wrote the dismissal into this file as
+  though it were a finding. "Needs the network" was true of two lines inside
+  them and false of everything above those lines. Reading beats categorising,
+  and I had already learned that this session from the "blocked on a gRPC
+  server" note that was also wrong.
