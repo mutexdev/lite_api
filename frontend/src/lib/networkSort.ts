@@ -152,3 +152,60 @@ export function sortNetworkRows(
     return String(leftValue).localeCompare(String(rightValue)) * multiplier
   })
 }
+
+/** The column widths a table that has never been resized starts with. */
+export const DEFAULT_NETWORK_COLUMN_WIDTHS = [80, 70, 180, 300, 110, 100, 80]
+
+/** The narrowest a column may be dragged or restored to. */
+const MIN_NETWORK_COLUMN_WIDTH = 60
+
+/**
+ * Maps a stored sort key onto a real column, or "" for no sorting.
+ *
+ * A key naming a column that no longer exists would leave the comparator
+ * reading an absent field on every row, which sorts by nothing while still
+ * claiming to be sorted.
+ */
+export function normalizedNetworkSortKey(
+  value: string | undefined,
+  keys: readonly NetworkSortKey[]
+): NetworkSortKey | '' {
+  return keys.includes(value as NetworkSortKey) ? (value as NetworkSortKey) : ''
+}
+
+export function normalizedNetworkSortDirection(value: string | undefined): NetworkSortDirection {
+  return value === 'asc' || value === 'desc' ? value : ''
+}
+
+/**
+ * Restores stored column widths, falling back wholesale on any mismatch.
+ *
+ * The widths are positional, so a stored array of the wrong length is not
+ * partially usable: applying it would shift every column onto the wrong
+ * header. A build that adds or removes a column must therefore reset, not
+ * merge — which is why the length check is an equality and not a minimum.
+ */
+export function normalizedNetworkColumnWidths(widths: number[] | undefined): number[] {
+  if (!widths || widths.length !== DEFAULT_NETWORK_COLUMN_WIDTHS.length) {
+    return [...DEFAULT_NETWORK_COLUMN_WIDTHS]
+  }
+  return widths.map((width) => Math.max(MIN_NETWORK_COLUMN_WIDTH, Math.round(Number(width) || 0)))
+}
+
+/**
+ * The sort key and direction as they should be persisted.
+ *
+ * The two are stored together because they are only meaningful together: a
+ * direction with no key, or a key with no direction, describes a state the
+ * table cannot be in, and restoring either half would show a header marked as
+ * sorted over rows in arrival order.
+ */
+export function networkSortPreference(
+  sortKey: NetworkSortKey | '',
+  sortDirection: NetworkSortDirection,
+  keys: readonly NetworkSortKey[]
+): NetworkSort {
+  const key = normalizedNetworkSortKey(sortKey, keys)
+  const direction = key ? normalizedNetworkSortDirection(sortDirection) : ''
+  return { key: direction ? key : '', direction }
+}

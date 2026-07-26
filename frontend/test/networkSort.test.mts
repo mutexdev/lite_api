@@ -10,7 +10,12 @@ import {
   networkDomain,
   networkPath,
   networkLogTimestamp,
-  sortNetworkRows
+  sortNetworkRows,
+  DEFAULT_NETWORK_COLUMN_WIDTHS,
+  normalizedNetworkColumnWidths,
+  normalizedNetworkSortDirection,
+  normalizedNetworkSortKey,
+  networkSortPreference,
 } from '../src/lib/networkSort.ts'
 
 // The third state is the point. Without it there is no way back to the log's
@@ -164,4 +169,65 @@ test('a missing numeric field sorts as zero rather than breaking the comparator'
     const sorted = sortNetworkRows(rows, key, 'asc').map((r) => (r as never as Record<string, number>)[field] ?? 0)
     assert.deepEqual(sorted, [0, 5, 10], key)
   }
+})
+
+// A key naming a column that no longer exists leaves the comparator reading an
+// absent field on every row: it sorts by nothing while the header still claims
+// to be sorted.
+test('a sort key for a column that no longer exists is discarded', () => {
+  const keys = ['method', 'status', 'domain'] as const
+  assert.equal(normalizedNetworkSortKey('status', keys), 'status')
+  assert.equal(normalizedNetworkSortKey('initiator', keys), '')
+  assert.equal(normalizedNetworkSortKey(undefined, keys), '')
+})
+
+test('a sort direction is one of the two, or empty', () => {
+  assert.equal(normalizedNetworkSortDirection('asc'), 'asc')
+  assert.equal(normalizedNetworkSortDirection('desc'), 'desc')
+  assert.equal(normalizedNetworkSortDirection('ASC'), '')
+  assert.equal(normalizedNetworkSortDirection(undefined), '')
+})
+
+test('stored column widths round-trip when they match the table', () => {
+  const widths = DEFAULT_NETWORK_COLUMN_WIDTHS.map((width) => width + 10)
+  assert.deepEqual(normalizedNetworkColumnWidths(widths), widths)
+})
+
+// The widths are positional. A stored array of the wrong length is not
+// partially usable — applying it shifts every column onto the wrong header — so
+// a build that adds or removes a column must reset rather than merge.
+test('column widths of the wrong length are replaced wholesale, not padded', () => {
+  const short = DEFAULT_NETWORK_COLUMN_WIDTHS.slice(0, 3)
+  assert.deepEqual(normalizedNetworkColumnWidths(short), DEFAULT_NETWORK_COLUMN_WIDTHS)
+  assert.deepEqual(
+    normalizedNetworkColumnWidths([...DEFAULT_NETWORK_COLUMN_WIDTHS, 90]),
+    DEFAULT_NETWORK_COLUMN_WIDTHS
+  )
+  assert.deepEqual(normalizedNetworkColumnWidths(undefined), DEFAULT_NETWORK_COLUMN_WIDTHS)
+})
+
+// The defaults are handed to a caller that will mutate them as the user drags.
+// Returning the module's own array would let one resize rewrite the fallback
+// every later reset restores to.
+test('the fallback widths are a fresh array each time', () => {
+  const first = normalizedNetworkColumnWidths(undefined)
+  first[0] = 999
+  assert.deepEqual(normalizedNetworkColumnWidths(undefined), DEFAULT_NETWORK_COLUMN_WIDTHS)
+  assert.notEqual(normalizedNetworkColumnWidths(undefined), DEFAULT_NETWORK_COLUMN_WIDTHS)
+})
+
+test('a column dragged to nothing is floored rather than vanishing', () => {
+  const widths = DEFAULT_NETWORK_COLUMN_WIDTHS.map(() => 0)
+  assert.deepEqual(normalizedNetworkColumnWidths(widths), DEFAULT_NETWORK_COLUMN_WIDTHS.map(() => 60))
+})
+
+// A direction with no key, or a key with no direction, describes a state the
+// table cannot be in. Restoring either half shows a header marked as sorted
+// over rows in arrival order.
+test('the persisted sort keeps its two halves consistent', () => {
+  const keys = ['method', 'status'] as const
+  assert.deepEqual(networkSortPreference('status', 'desc', keys), { key: 'status', direction: 'desc' })
+  assert.deepEqual(networkSortPreference('status', '', keys), { key: '', direction: '' })
+  assert.deepEqual(networkSortPreference('', 'desc', keys), { key: '', direction: '' })
+  assert.deepEqual(networkSortPreference('gone' as never, 'asc', keys), { key: '', direction: '' })
 })

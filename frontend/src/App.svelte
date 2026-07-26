@@ -26,7 +26,12 @@
     networkLogTimestamp,
     networkPath as devToolsNetworkPath,
     normalizedNetworkMethod,
-    sortNetworkRows as sortedDevToolsNetworkRows
+    sortNetworkRows as sortedDevToolsNetworkRows,
+    DEFAULT_NETWORK_COLUMN_WIDTHS,
+    normalizedNetworkColumnWidths,
+    normalizedNetworkSortDirection as normalizedDevToolsNetworkSortDirectionOf,
+    normalizedNetworkSortKey as normalizedDevToolsNetworkSortKeyOf,
+    networkSortPreference
   } from './lib/networkSort'
   import {
     DEFAULT_RESPONSE_SPLIT,
@@ -53,6 +58,27 @@
     openAPISyncSpecDiffSummary,
     reconcileEndpointDecisions
   } from './lib/openApiSync'
+  import {
+    DEFAULT_CODE_FONT,
+    DEFAULT_CODE_FONT_SIZE,
+    ZOOM_DEFAULT_PERCENTAGE,
+    ZOOM_MAX_PERCENTAGE,
+    ZOOM_MIN_PERCENTAGE,
+    normalizePresetRequestType,
+    normalizedAutoSaveInterval,
+    normalizedCodeFont,
+    normalizedCodeFontSize,
+    normalizedDevToolsDetailsPanelWidth,
+    normalizedDevToolsDrawerHeight,
+    normalizedRequestTimeout,
+    normalizedResponsePaneOrientation,
+    normalizedRunnerDelayMs,
+    normalizedRunnerIterations,
+    normalizedTabID,
+    normalizedThemeMode,
+    normalizedThemeVariant as normalizedThemeVariantOf,
+    normalizedZoomPercentage
+  } from './lib/preferences'
   import { workspaceStore } from './lib/stores/workspaceStore.svelte'
   import { variableTooltips } from './lib/stores/variableTooltipStore.svelte'
   import {
@@ -883,16 +909,16 @@
     { id: 'nord', name: 'Nord', mode: 'dark', preview: { background: '#2e3440', sidebar: '#242933', accent: '#88c0d0' } },
     { id: 'vscode-dark', name: 'VS Code Dark', mode: 'dark', preview: { background: '#1e1e1e', sidebar: '#252526', accent: '#3794ff' } }
   ]
-	  const zoomDefaultPercentage = 100
+	  const zoomDefaultPercentage = ZOOM_DEFAULT_PERCENTAGE
 	  const openAPISyncCheckIntervals = [...OPENAPI_SYNC_CHECK_INTERVALS]
 	  const collectionWatchPollMs = 2_000
 	  const openAPISyncInitialPollMs = 10_000
 	  const openAPISyncGlobalPollMs = 5 * 60_000
-	  const zoomMinPercentage = 50
-  const zoomMaxPercentage = 150
+	  const zoomMinPercentage = ZOOM_MIN_PERCENTAGE
+  const zoomMaxPercentage = ZOOM_MAX_PERCENTAGE
   const zoomStepPercentage = 10
-  const defaultCodeFont = 'default'
-  const defaultCodeFontSize = 13
+  const defaultCodeFont = DEFAULT_CODE_FONT
+  const defaultCodeFontSize = DEFAULT_CODE_FONT_SIZE
   const defaultCodeFontFamily = '"SFMono-Regular", Consolas, "Liberation Mono", monospace'
   const zoomPercentages = Array.from(
     { length: (zoomMaxPercentage - zoomMinPercentage) / zoomStepPercentage + 1 },
@@ -900,47 +926,6 @@
   )
 	  const promptTokenPattern = /\{\{\?([^{}\s](?:[^{}]*?[^{}\s])?)\}\}/g
 	  const invalidVariableWarning = 'Invalid variable name! Variables must only contain alpha-numeric characters, "-", "_", "."'
-
-  function normalizePresetRequestType(value: string | undefined) {
-    if (value === 'ws') return 'websocket'
-    if (value === 'http' || value === 'graphql' || value === 'grpc' || value === 'websocket') return value
-    return ''
-  }
-
-  function normalizedResponsePaneOrientation(value: string | undefined): ResponsePaneOrientation {
-    return value === 'vertical' ? 'vertical' : 'horizontal'
-  }
-
-  function normalizedZoomPercentage(value: number | undefined) {
-    const numeric = Number.isFinite(value) ? Number(value) : zoomDefaultPercentage
-    return Math.min(Math.max(numeric || zoomDefaultPercentage, zoomMinPercentage), zoomMaxPercentage)
-  }
-
-  function normalizedCodeFont(value: string | undefined) {
-    const trimmed = value?.trim()
-    return trimmed || defaultCodeFont
-  }
-
-  function normalizedCodeFontSize(value: number | undefined) {
-    if (value === undefined || value === null || !Number.isFinite(Number(value)) || Number(value) === 0) {
-      return defaultCodeFontSize
-    }
-    return Math.min(Math.max(Number(value), 1), 32)
-  }
-
-  function normalizedAutoSaveInterval(value: number | undefined) {
-    if (value === undefined || value === null || !Number.isFinite(Number(value)) || Number(value) <= 0) {
-      return 1000
-    }
-    return Math.max(Math.round(Number(value)), 500)
-  }
-
-  function normalizedRequestTimeout(value: number | undefined) {
-    if (value === undefined || value === null || !Number.isFinite(Number(value)) || Number(value) < 0) {
-      return 0
-    }
-    return Math.round(Number(value))
-  }
 
   function customCaFileName(filePath: string | undefined) {
     const trimmed = filePath?.trim() ?? ''
@@ -1606,12 +1591,8 @@
     }
   })
 
-  function normalizedThemeMode(value: string | undefined): ThemeMode {
-    return value === 'light' || value === 'dark' || value === 'system' ? value : 'system'
-  }
-
   function normalizedThemeVariant(value: string | undefined, variants: ThemeVariant[]) {
-    return variants.some((variant) => variant.id === value) ? value ?? variants[0].id : variants[0].id
+    return normalizedThemeVariantOf(value, variants)
   }
 
   function applyThemeToDocument(mode: 'light' | 'dark', variant: string) {
@@ -3050,23 +3031,6 @@
     runnerBailOnFailure = false
     runnerIterations = 1
     runnerDataFile = ''
-  }
-
-  function normalizedRunnerDelayMs(value: number) {
-    const delay = Math.floor(Number(value) || 0)
-    if (delay < 0) return 0
-    if (delay > 600000) return 600000
-    return delay
-  }
-
-  // Mirrors normalizeRunnerIterations in app.go, including the 200 cap. The Go
-  // side normalizes again — this only keeps the input from showing a value the
-  // backend will not honour.
-  function normalizedRunnerIterations(value: number): number {
-    const iterations = Math.floor(Number(value) || 0)
-    if (iterations < 1) return 1
-    if (iterations > 200) return 200
-    return iterations
   }
 
   async function chooseRunnerDataFile() {
@@ -6272,17 +6236,7 @@
   }
 
   function normalizedDevToolsTab(value: string | undefined): DevToolsTab {
-    return devToolsTabs.some((tab) => tab.id === value) ? (value as DevToolsTab) : 'console'
-  }
-
-  function normalizedDevToolsDetailsPanelWidth(value: number | undefined) {
-    const width = Math.round(Number(value) || 400)
-    return Math.max(280, Math.min(800, width))
-  }
-
-  function normalizedDevToolsDrawerHeight(value: number | undefined) {
-    const height = Math.round(Number(value) || 320)
-    return Math.max(220, Math.min(720, height))
+    return normalizedTabID(value, devToolsTabs, 'console')
   }
 
   function applyDevToolsShellPreferences(preferences: types.DevToolsPreferences | undefined) {
@@ -6640,29 +6594,26 @@
 
 
   function normalizedDevToolsNetworkSortKey(value: string | undefined): DevToolsNetworkSortKey | '' {
-    return devToolsNetworkSortKeys.includes(value as DevToolsNetworkSortKey) ? (value as DevToolsNetworkSortKey) : ''
+    return normalizedDevToolsNetworkSortKeyOf(value, devToolsNetworkSortKeys)
   }
 
   function normalizedDevToolsNetworkSortDirection(value: string | undefined): DevToolsNetworkSortDirection {
-    return value === 'asc' || value === 'desc' ? value : ''
+    return normalizedDevToolsNetworkSortDirectionOf(value)
   }
 
   function defaultDevToolsNetworkColumnWidths() {
-    return [80, 70, 180, 300, 110, 100, 80]
+    return [...DEFAULT_NETWORK_COLUMN_WIDTHS]
   }
 
   function normalizedDevToolsNetworkColumnWidths(widths: number[] | undefined) {
-    const defaults = defaultDevToolsNetworkColumnWidths()
-    if (!widths || widths.length !== defaults.length) return defaults
-    return widths.map((width) => Math.max(60, Math.round(Number(width) || 0)))
+    return normalizedNetworkColumnWidths(widths)
   }
 
   function devToolsNetworkPreferencePayload(sortKey: DevToolsNetworkSortKey | '', sortDirection: DevToolsNetworkSortDirection, columnWidths: number[]) {
-    const normalizedSortKey = normalizedDevToolsNetworkSortKey(sortKey)
-    const normalizedDirection = normalizedSortKey ? normalizedDevToolsNetworkSortDirection(sortDirection) : ''
+    const sort = networkSortPreference(sortKey, sortDirection, devToolsNetworkSortKeys)
     return {
-      sortKey: normalizedDirection ? normalizedSortKey : '',
-      sortDirection: normalizedDirection,
+      sortKey: sort.key,
+      sortDirection: sort.direction,
       columnWidths: normalizedDevToolsNetworkColumnWidths(columnWidths)
     }
   }

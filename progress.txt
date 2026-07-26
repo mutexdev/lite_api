@@ -6998,3 +6998,47 @@ US-026 - Store layer. DONE. Both named collapses complete.
   a spec served with a leading newline is ordinary, and without it every such
   document renders as the unformatted single line it arrived as. Comment
   rewritten to say that; both now control at 1.
+
+=== PHASE 6 — the persisted-preference normalizers ===
+
+  New src/lib/preferences.ts (18 tests) and seven more exports on networkSort.ts
+  (17 -> 24 tests). App.svelte 11,221 -> 11,172. Suite 533 -> 558.
+
+  What these share is not a feature but a THREAT. Every one of them reads a
+  value some earlier version of the app wrote to disk, and every one is used
+  without further checking — as a CSS zoom, a setTimeout period, an
+  http.Client.Timeout.
+
+  THE REASON THEY BELONG IN ONE FILE IS THAT THEY ARE NOT UNIFORM:
+    - ZERO IS A LEGITIMATE REQUEST TIMEOUT ("no timeout"), and an UNSET autosave
+      interval. Same input, two correct answers. Collapsing them into a shared
+      guard either caps requests the user deliberately left uncapped or lets the
+      autosave fire continuously. Control fails 2.
+    - zero zoom and zero font size read as UNSET, not as the minimum. An unset
+      preference is not a request for the smallest possible interface, and a 1px
+      editor is unreadable. Controls fail 1 and 1.
+    - a positive autosave period is then FLOORED at 500ms. A stored 1 would be
+      honoured as one write per millisecond — a continuous rewrite of the
+      collection on disk for as long as the app is open. Control fails 1.
+    - a NEGATIVE timeout must not pass: it reaches Go's http.Client.Timeout,
+      where it makes every request fail instantly rather than being ignored.
+    - "ws" is what an earlier build persisted for WebSocket presets. Dropping it
+      turns every preset saved by that build into a no-op. Control fails 1.
+    - a theme variant or tab id removed between versions falls back. Otherwise
+      the id reaches dataset.themeVariant and matches no stylesheet, leaving the
+      app with NO THEME COLOURS; or the drawer opens with no panel inside it.
+      Controls fail 1 and 1.
+
+  On networkSort.ts:
+    - COLUMN WIDTHS ARE POSITIONAL, so a stored array of the wrong length is not
+      partially usable — applying it shifts every column onto the wrong header.
+      A build that adds or removes a column must RESET, not merge, which is why
+      the length check is equality and not a minimum. Control fails 1.
+    - the fallback widths are a FRESH ARRAY. The caller mutates them as the user
+      drags, so returning the module's own array lets one resize rewrite the
+      fallback every later reset restores to. Control fails 1.
+    - the persisted sort keeps its two halves consistent. A direction with no
+      key describes a state the table cannot be in, and restoring it shows a
+      header marked as sorted over rows in arrival order. Control fails 1.
+
+  Thirteen controls, thirteen failures.
