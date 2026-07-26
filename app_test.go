@@ -1,6 +1,8 @@
 package main
 
 import (
+	"LiteAPI/internal/importers"
+	"LiteAPI/internal/types"
 	"archive/zip"
 	"bytes"
 	"context"
@@ -241,7 +243,7 @@ func startDynamicGreeterServer(t *testing.T, protoPath string, gotMetadata map[s
 
 func startDynamicGreeterServerOnListener(t *testing.T, protoPath string, listener net.Listener, gotMetadata map[string]string) func() {
 	t.Helper()
-	item := defaultRequest("Greeter", "grpc", 1)
+	item := types.NewRequestItem("Greeter", "grpc", 1)
 	item.ProtoPath = protoPath
 	item.Method = "helloworld.Greeter/SayHello"
 	binding, err := compileGRPCMethod(context.Background(), item, Collection{}, nil)
@@ -2985,7 +2987,7 @@ settings:
 }
 
 func TestRequestSettingsEncodeURLRoundTrip(t *testing.T) {
-	item := defaultRequest("Encoding", "http", 1)
+	item := types.NewRequestItem("Encoding", "http", 1)
 	item.URL = "https://example.com/api?name=John Doe"
 	item.Settings.EncodeURL = false
 	item.Settings.StoreCookies = false
@@ -7155,7 +7157,7 @@ func TestJavaScriptRuntimeDeveloperModeSupportsHTTPBuiltins(t *testing.T) {
   expect(getJSON.method).to.equal("GET");
   expect(getJSON.path).to.equal("/get");
   expect(getJSON.query).to.equal("via=get");
-});`, jsStringLiteral(server.URL))
+});`, importers.JSStringLiteral(server.URL))
 	if _, err := app.UpdateRequest(collection.ID, item.ID, RequestPatch{URL: &mainURL, Tests: &tests}); err != nil {
 		t.Fatal(err)
 	}
@@ -7931,7 +7933,7 @@ func TestJavaScriptRuntimeSupportsSendRequest(t *testing.T) {
     expect(response).to.be.null;
   });
   expect(callbackStatus).to.equal(404);
-});`, jsStringLiteral(server.URL), jsStringLiteral(server.URL), jsStringLiteral(server.URL), jsStringLiteral(server.URL))
+});`, importers.JSStringLiteral(server.URL), importers.JSStringLiteral(server.URL), importers.JSStringLiteral(server.URL), importers.JSStringLiteral(server.URL))
 	if _, err := app.UpdateRequest(collection.ID, item.ID, RequestPatch{
 		URL:   &server.URL,
 		Tests: &tests,
@@ -7979,7 +7981,7 @@ func TestTimelineCapturesPreRequestSendRequest(t *testing.T) {
 	mainURL := server.URL + "/main"
 	method := http.MethodGet
 	preScript := fmt.Sprintf(`const response = await bru.sendRequest({ url: %s + "/pre", method: "POST" });
-bru.setVar("preStatus", response.status);`, jsStringLiteral(server.URL))
+bru.setVar("preStatus", response.status);`, importers.JSStringLiteral(server.URL))
 	tests := `test("pre sendRequest ran", function () {
   expect(bru.getVar("preStatus")).to.equal(200);
 });`
@@ -8058,7 +8060,7 @@ func TestTimelineCapturesRunRequestAndBubbledSendRequest(t *testing.T) {
 	inner := collection.Items[1]
 	outerURL := server.URL + "/outer"
 	innerURL := server.URL + "/inner"
-	innerPreScript := fmt.Sprintf(`await bru.sendRequest({ url: %s + "/inner-pre", method: "GET" });`, jsStringLiteral(server.URL))
+	innerPreScript := fmt.Sprintf(`await bru.sendRequest({ url: %s + "/inner-pre", method: "GET" });`, importers.JSStringLiteral(server.URL))
 	outerPreScript := `const innerResponse = await bru.runRequest("Inner");
 bru.setVar("innerStatus", innerResponse.status);`
 	tests := `test("runRequest returned inner response", function () {
@@ -8216,7 +8218,7 @@ func TestJavaScriptRuntimeSupportsAsyncAwaitHelpers(t *testing.T) {
 	item := collection.Items[0]
 	preScript := fmt.Sprintf(`const pre = await bru.sendRequest(%s + "/pre");
 await bru.sleep(1);
-req.setHeader("X-Async-Pre", pre.data.mode);`, jsStringLiteral(server.URL))
+req.setHeader("X-Async-Pre", pre.data.mode);`, importers.JSStringLiteral(server.URL))
 	tests := fmt.Sprintf(`const topLevel = await bru.sendRequest(%s + "/ping");
 let thenValue = "";
 await bru.sendRequest(%s + "/text").then(function (response) {
@@ -8246,7 +8248,7 @@ test("async sendRequest failures can be caught", async function () {
     expect(err.status).to.equal(404);
     expect(err.response.status).to.equal(404);
   }
-});`, jsStringLiteral(server.URL), jsStringLiteral(server.URL), jsStringLiteral(server.URL), jsStringLiteral(server.URL))
+});`, importers.JSStringLiteral(server.URL), importers.JSStringLiteral(server.URL), importers.JSStringLiteral(server.URL), importers.JSStringLiteral(server.URL))
 	if _, err := app.UpdateRequest(collection.ID, item.ID, RequestPatch{
 		URL:       &server.URL,
 		PreScript: &preScript,
@@ -8568,7 +8570,7 @@ func TestJavaScriptRuntimeSupportsProcessShim(t *testing.T) {
   }, "next", "-tick");
   await setTimeout(function () {}, 0);
   expect(tick).to.equal("next-tick");
-});`, jsStringLiteral(collection.Path))
+});`, importers.JSStringLiteral(collection.Path))
 	if _, err := app.UpdateRequest(collection.ID, item.ID, RequestPatch{
 		URL:       &server.URL,
 		PreScript: &preScript,
@@ -8643,7 +8645,7 @@ req.setHeader("X-Process-Tick", tick);`
   assert.strictEqual(res.json.cwd, %s);
   assert.match(res.json.platform, /^[a-z0-9]+:[A-Za-z0-9_]+$/);
   assert.strictEqual(res.json.tick, "module-tick");
-});`, jsStringLiteral(collection.Path))
+});`, importers.JSStringLiteral(collection.Path))
 	if _, err := app.UpdateRequest(collection.ID, item.ID, RequestPatch{URL: &server.URL, PreScript: &preScript, Tests: &tests}); err != nil {
 		t.Fatal(err)
 	}
@@ -10053,7 +10055,7 @@ func TestJavaScriptRuntimeSupportsBruMetadataBulkVarsAndUtils(t *testing.T) {
   expect(function () { bru.utils.minifyJson(7); }).to.throw("minifyJson expects");
   expect(bru.utils.minifyXml("<root>\n  <item> ok </item>\n</root>")).to.equal("<root><item> ok </item></root>");
   expect(function () { bru.utils.minifyXml(7); }).to.throw("minifyXml expects");
-});`, jsStringLiteral(collection.Path), jsStringLiteral(collection.Name))
+});`, importers.JSStringLiteral(collection.Path), importers.JSStringLiteral(collection.Name))
 	if _, err := app.UpdateRequest(collection.ID, item.ID, RequestPatch{
 		URL:   &server.URL,
 		Tests: &tests,
@@ -10164,7 +10166,7 @@ req.setBody([
 });
 test("response body is encoded", function () {
   expect(res.getBody()).to.equal(%s);
-});`, jsStringLiteral(tc.expected), jsStringLiteral(tc.expected), jsStringLiteral(tc.expected))
+});`, importers.JSStringLiteral(tc.expected), importers.JSStringLiteral(tc.expected), importers.JSStringLiteral(tc.expected))
 			if _, err := app.UpdateRequest(collection.ID, item.ID, RequestPatch{
 				Method:    &method,
 				URL:       &targetURL,
@@ -13684,11 +13686,11 @@ body:grpc {
 }
 
 func TestRequestDocsRoundTripForWebSocketAndGRPCBru(t *testing.T) {
-	socket := defaultRequest("Socket Docs", "websocket", 1)
+	socket := types.NewRequestItem("Socket Docs", "websocket", 1)
 	socket.URL = "ws://example.test/socket"
 	socket.WSMessages = []WSMessage{{Name: "hello", Type: "text", Content: "ping", Selected: true}}
 
-	grpcItem := defaultRequest("Grpc Docs", "grpc", 2)
+	grpcItem := types.NewRequestItem("Grpc Docs", "grpc", 2)
 	grpcItem.URL = "grpc://localhost:50051"
 	grpcItem.Method = "helloworld.Greeter/SayHello"
 	grpcItem.GrpcMessages = []GrpcMessage{{Name: "hello", Content: `{"name":"Ada"}`}}
@@ -13816,7 +13818,7 @@ body:grpc {
 }
 
 func TestGrpcYAMLRoundTrip(t *testing.T) {
-	item := defaultRequest("YAML Greeter", "grpc", 9)
+	item := types.NewRequestItem("YAML Greeter", "grpc", 9)
 	item.URL = "grpc://localhost:50051"
 	item.Method = "helloworld.Greeter/SayHello"
 	item.GrpcMethodType = "client-streaming"
@@ -15807,7 +15809,7 @@ func TestWebSocketBinaryEventArrayIncludesBase64AndHex(t *testing.T) {
 }
 
 func TestWebSocketMessagesBruAndYAMLRoundTrip(t *testing.T) {
-	item := defaultRequest("Socket", "websocket", 1)
+	item := types.NewRequestItem("Socket", "websocket", 1)
 	item.URL = "ws://example.test/socket"
 	item.Headers = []KeyValue{{Name: "X-Socket", Value: "1", Enabled: true}}
 	item.WSMessages = []WSMessage{
@@ -16518,10 +16520,10 @@ func TestShareCollectionExportsYamlZipPostmanAndSaves(t *testing.T) {
 	collection.Folders = []FolderConfig{{Path: "Zoo", DisplayPath: "Zoo", Name: "Zoo", Seq: 1}}
 	httpItem := docsTestRequest("Root", "", 1)
 	httpItem.Body = RequestBody{Mode: "json", JSON: `{"ok":true}`}
-	wsItem := defaultRequest("Socket", "websocket", 2)
+	wsItem := types.NewRequestItem("Socket", "websocket", 2)
 	wsItem.FolderPath = "Zoo"
 	wsItem.WSMessages = []WSMessage{{Name: "hello", Type: "text", Content: "ping", Selected: true}}
-	grpcItem := defaultRequest("Greeter", "grpc", 3)
+	grpcItem := types.NewRequestItem("Greeter", "grpc", 3)
 	grpcItem.Method = "helloworld.Greeter/SayHello"
 	transient := docsTestRequest("Scratch", "", 4)
 	transient.Transient = true
@@ -16617,7 +16619,7 @@ func TestShareCollectionExportsYamlZipPostmanAndSaves(t *testing.T) {
 }
 
 func docsTestRequest(name, folderPath string, seq int) RequestItem {
-	item := defaultRequest(name, "http", seq)
+	item := types.NewRequestItem(name, "http", seq)
 	item.ID = "request-" + strings.ToLower(name)
 	item.Method = http.MethodGet
 	item.URL = "https://example.test/" + strings.ToLower(name)
@@ -19549,7 +19551,7 @@ func TestDigestAuthChallengeRetrySucceeds(t *testing.T) {
 }
 
 func TestDigestAuthBruRoundTrip(t *testing.T) {
-	item := defaultRequest("Digest", "http", 1)
+	item := types.NewRequestItem("Digest", "http", 1)
 	item.Auth = AuthConfig{Mode: "digest", Username: "alice", Password: "secret"}
 	content := stringifyBru(item)
 	if !strings.Contains(content, "auth:digest") {
@@ -19633,7 +19635,7 @@ func TestNTLMAuthChallengeFlowSucceeds(t *testing.T) {
 }
 
 func TestNTLMAuthBruRoundTrip(t *testing.T) {
-	item := defaultRequest("NTLM", "http", 1)
+	item := types.NewRequestItem("NTLM", "http", 1)
 	item.Auth = AuthConfig{Mode: "ntlm", Username: "alice", Password: "secret", Domain: "DOMAIN"}
 	content := stringifyBru(item)
 	for _, expected := range []string{"auth:ntlm", "username: alice", "password: secret", "domain: DOMAIN"} {
@@ -20894,7 +20896,7 @@ func TestJavaScriptRuntimeSupportsOAuth2CredentialVars(t *testing.T) {
 				t.Fatalf("missing OAuth2 bearer token: got %q want %q", auth, want)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = fmt.Fprintf(w, `{"authorization":%s}`, jsStringLiteral(auth))
+			_, _ = fmt.Fprintf(w, `{"authorization":%s}`, importers.JSStringLiteral(auth))
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -21203,7 +21205,7 @@ func TestOAuth2AdditionalParamsApplyToRefreshRequest(t *testing.T) {
 }
 
 func TestOAuth2AuthBruRoundTrip(t *testing.T) {
-	item := defaultRequest("OAuth2", "http", 1)
+	item := types.NewRequestItem("OAuth2", "http", 1)
 	item.Auth = AuthConfig{Mode: "oauth2", Token: "static-token", OAuth2: OAuth2Auth{
 		GrantType:            "password",
 		AccessTokenURL:       "https://auth.example.test/token",
@@ -21276,7 +21278,7 @@ func TestOAuth2AuthBruRoundTrip(t *testing.T) {
 }
 
 func TestOAuth2BrowserGrantFieldsRoundTrip(t *testing.T) {
-	item := defaultRequest("OAuth2 Browser", "http", 1)
+	item := types.NewRequestItem("OAuth2 Browser", "http", 1)
 	item.Auth = AuthConfig{Mode: "oauth2", OAuth2: OAuth2Auth{
 		GrantType:            "authorization_code",
 		CallbackURL:          "http://127.0.0.1:3000/callback",
@@ -21909,7 +21911,7 @@ region = `+region+`
 }
 
 func TestAWSV4AuthBruRoundTrip(t *testing.T) {
-	item := defaultRequest("AWS", "http", 1)
+	item := types.NewRequestItem("AWS", "http", 1)
 	item.Auth = AuthConfig{Mode: "awsv4", AWSV4: AWSV4Auth{
 		AccessKeyID:     "AKID",
 		SecretAccessKey: "SECRET",
@@ -21988,7 +21990,7 @@ func TestWSSEAuthHeaderSucceeds(t *testing.T) {
 }
 
 func TestWSSEAuthBruRoundTrip(t *testing.T) {
-	item := defaultRequest("WSSE", "http", 1)
+	item := types.NewRequestItem("WSSE", "http", 1)
 	item.Auth = AuthConfig{Mode: "wsse", Username: "john", Password: "secret"}
 	content := stringifyBru(item)
 	if !strings.Contains(content, "auth:wsse") || !strings.Contains(content, "username: john") || !strings.Contains(content, "password: secret") {
@@ -22083,7 +22085,7 @@ func TestOAuth1RSASignsWithInlineAndFilePrivateKey(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		item := defaultRequest("OAuth1 RSA", "http", 1)
+		item := types.NewRequestItem("OAuth1 RSA", "http", 1)
 		item.Auth = AuthConfig{Mode: "oauth1", OAuth1: OAuth1Auth{
 			ConsumerKey:     "ck",
 			AccessToken:     "at",
@@ -22123,7 +22125,7 @@ func TestOAuth1RSASignsWithInlineAndFilePrivateKey(t *testing.T) {
 			t.Fatal(err)
 		}
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		item := defaultRequest("OAuth1 RSA", "http", 1)
+		item := types.NewRequestItem("OAuth1 RSA", "http", 1)
 		item.FilePath = filepath.Join(root, "folder", "request.bru")
 		item.Auth = AuthConfig{Mode: "oauth1", OAuth1: OAuth1Auth{
 			ConsumerKey:     "ck",
@@ -22150,7 +22152,7 @@ func TestOAuth1QueryBodyAndBodyHashPlacement(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		item := defaultRequest("OAuth1", "http", 1)
+		item := types.NewRequestItem("OAuth1", "http", 1)
 		item.Auth = AuthConfig{Mode: "oauth1", OAuth1: OAuth1Auth{ConsumerKey: "ck", ConsumerSecret: "cs", SignatureMethod: "PLAINTEXT", Timestamp: "1", Nonce: "n", Placement: "query"}}
 		if err := applyAuth(req, &item, nil); err != nil {
 			t.Fatal(err)
@@ -22169,7 +22171,7 @@ func TestOAuth1QueryBodyAndBodyHashPlacement(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		item := defaultRequest("OAuth1", "http", 1)
+		item := types.NewRequestItem("OAuth1", "http", 1)
 		item.Auth = AuthConfig{Mode: "oauth1", OAuth1: OAuth1Auth{ConsumerKey: "ck", ConsumerSecret: "cs", SignatureMethod: "HMAC-SHA256", Timestamp: "1", Nonce: "n", Placement: "body", IncludeBodyHash: true}}
 		if err := applyAuth(req, &item, nil); err != nil {
 			t.Fatal(err)
@@ -22192,7 +22194,7 @@ func TestOAuth1QueryBodyAndBodyHashPlacement(t *testing.T) {
 }
 
 func TestOAuth1AuthBruRoundTrip(t *testing.T) {
-	item := defaultRequest("OAuth1", "http", 1)
+	item := types.NewRequestItem("OAuth1", "http", 1)
 	item.Auth = AuthConfig{Mode: "oauth1", OAuth1: OAuth1Auth{
 		ConsumerKey:       "ck",
 		ConsumerSecret:    "cs",

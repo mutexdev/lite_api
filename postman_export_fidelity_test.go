@@ -17,6 +17,7 @@ package main
 // exporter that drops everything: an empty collection round-trips perfectly.
 
 import (
+	"LiteAPI/internal/importers"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -89,7 +90,7 @@ const fidelityPostmanCollection = `{
 
 func importFidelityCollection(t *testing.T, content string) Collection {
 	t.Helper()
-	collection, err := importPostman(content, "fidelity", false)
+	collection, err := importers.ImportPostman(content, "fidelity", false)
 	if err != nil {
 		t.Fatalf("importPostman: %v", err)
 	}

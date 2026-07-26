@@ -1,6 +1,7 @@
 package main
 
 import (
+	"LiteAPI/internal/types"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -644,7 +645,7 @@ func collectionFromCurlImport(content, fallbackName string) (Collection, []strin
 	if err != nil || len(args) == 0 || strings.ToLower(args[0]) != "curl" {
 		return Collection{}, nil, errors.New("cURL command could not be parsed")
 	}
-	item := defaultRequest("cURL request", "http", 1)
+	item := types.NewRequestItem("cURL request", "http", 1)
 	item.Auth = AuthConfig{Mode: "none", APILocation: "header"}
 	warnings := []string{}
 	var endpoint string

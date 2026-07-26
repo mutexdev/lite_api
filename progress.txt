@@ -2867,3 +2867,66 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Gates: go build, go vet, go test all ok (LiteAPI 38.2s, awsv4 0.4s);
   svelte-check 209/0/0; eslint 0; npm test 223/223.
+
+--- US-071 — internal/importers (DONE) + internal/scalar ---
+
+  2,632 lines of OpenAPI, Postman and Insomnia import out of app.go behind a
+  5-function API. app.go: 42,677 -> 39,900.
+
+  I picked this target by measuring first, and the measurement is the reason it
+  went well: the region held 123 free functions and ZERO methods on *App. The
+  interp region next door has 10 App methods mixed in, and would have been a
+  much worse first pick despite looking similar in the story table.
+
+  DEVIATION FROM THE STORY, on purpose: it asks for importers/openapi,
+  importers/postman and importers/insomnia as three packages. They are three
+  FILES in one package. The three formats share exactly three helpers between
+  them, so splitting would have required a FOURTH package existing only to hold
+  those. The file split gives the same separation for none of that cost.
+
+  internal/scalar came out of this and was not planned. The importers needed
+  YAMLString 33 times, FirstNonEmpty 27, and a dozen more small helpers. Copying
+  them would have left two definitions of "what counts as a scalar" and "what
+  characters are legal in a filename" free to drift apart, so they moved to one
+  place with wrappers left in app.go to keep its 400+ call sites unchanged.
+
+  internal/types stays a LEAF: it carries its own three-line firstNonEmpty and
+  newIDLocal rather than importing scalar. Every package depends on types, and
+  putting another package underneath it buys nothing for six lines.
+
+  THE COMPILER FOUND THE TYPE NAMES, NOT A REGEX. Prefixing bare type names with
+  `types.` ran as a loop: build, read `undefined: X`, keep the X that are
+  declared in internal/types, rewrite, repeat. Two passes. A regex over 89 known
+  names would have had to decide which `Collection` is a type -- and on the
+  first attempt exactly that went wrong anyway, because a STRUCT FIELD can share
+  a name with a type:
+
+      Collection []insomniaV5Item   ->   types.Collection []insomniaV5Item
+
+  The rule now excludes an identifier that is the first token on its line
+  followed by whitespace, which is what a field declaration looks like.
+
+  !!! TWO SELF-INFLICTED FAILURES WORTH KEEPING !!!
+
+  1. A wrapper generator parsed `func f() ([]interface{}, bool) {` by matching
+     to the first `{` -- which is the one inside `interface{}`. It emitted
+     `func listValue(raw interface{}) ([]interface { return ... }` and app.go
+     stopped parsing. NINE reported syntax errors, all cascading from that ONE
+     line. Fix the first error and re-read before believing the rest.
+
+  2. Restoring a negative control with `git checkout internal/types/request_item.go`
+     reverted the file to its COMMITTED state -- silently deleting eight
+     functions I had appended since the commit. Recovered by re-extracting them
+     from `git show HEAD:app.go`, but the lesson is blunt: git checkout restores
+     to the last COMMIT, not to the state before your edit. For a control, keep
+     a copy of the file and restore from that.
+
+  A NO-OP CONTROL AGAIN: the first break I tried matched zero lines and I nearly
+  read the resulting "0 failures" as meaningful. Second time this session.
+  Always print the match count before trusting a control.
+
+  Real controls, after that: breaking the Postman collection name failed 3
+  tests, breaking types.GetKeyValue failed 10.
+
+  Gates: go build, go vet, go test all ok (LiteAPI 38.7s); svelte-check 209/0/0;
+  eslint 0; npm test 223/223; vite build ok.

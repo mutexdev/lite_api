@@ -9,6 +9,7 @@ package main
 // reaches the same TestResults the runner reads.
 
 import (
+	"LiteAPI/internal/importers"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -988,7 +989,7 @@ const postmanScopeCollection = `{
 
 func importedScopeScript(t *testing.T, translate bool) string {
 	t.Helper()
-	collection, err := importPostman(postmanScopeCollection, "scope translator", translate)
+	collection, err := importers.ImportPostman(postmanScopeCollection, "scope translator", translate)
 	if err != nil {
 		t.Fatalf("importPostman: %v", err)
 	}
@@ -1059,7 +1060,7 @@ func TestTranslatedScopesReachDistinctStorage(t *testing.T) {
 	app, collectionID, itemID, closeServer := scriptProbeFixture(t)
 	defer closeServer()
 
-	translated := postmanTranslateScript(
+	translated := importers.TranslateScript(
 		"pm.environment.set('scoped', 'environment');\n" +
 			"pm.collectionVariables.set('scoped', 'collection');\n" +
 			"pm.globals.set('scoped', 'global');\n")
