@@ -12,6 +12,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  isKeyBindingModifier,
+  keyBindingParts,
   keyBindingSections,
   keyBindingPresets,
   effectiveKeyBindings,
@@ -153,4 +155,48 @@ test('normalizeKeyBindingPreset accepts only known ids', () => {
   assert.equal(normalizeKeyBindingPreset(undefined), 'default')
   assert.equal(normalizeKeyBindingPreset(''), 'default')
   assert.equal(normalizeKeyBindingPreset('nonsense'), 'default')
+})
+
+// There used to be a second keyBindingSignature in App.svelte that lowercased
+// where this one did not, and did not sort the non-modifier keys. They agreed
+// only because every combo reaching them happened to be lowercase and
+// single-keyed — a coincidence of input, not of behaviour. These pin the two
+// properties that differed, so one implementation stays one implementation.
+test('signatures are case-insensitive', () => {
+  assert.equal(
+    keyBindingSignature('Ctrl+bind+K'),
+    keyBindingSignature('ctrl+bind+k'),
+    'a case-sensitive signature makes Ctrl+K and ctrl+k different shortcuts, and the collision check waves the duplicate through'
+  )
+})
+
+test('modifier order does not change a signature', () => {
+  assert.equal(keyBindingSignature('shift+bind+command+bind+k'), keyBindingSignature('command+bind+shift+bind+k'))
+})
+
+test('non-modifier keys are ordered too', () => {
+  assert.equal(
+    keyBindingSignature('command+bind+1+bind+command+bind+8'),
+    keyBindingSignature('command+bind+8+bind+command+bind+1'),
+    'the hidden tab-range binding lists several keys; their order must not create a false distinction'
+  )
+})
+
+test('different shortcuts still produce different signatures', () => {
+  assert.notEqual(keyBindingSignature('ctrl+bind+k'), keyBindingSignature('ctrl+bind+j'))
+  assert.notEqual(keyBindingSignature('ctrl+bind+k'), keyBindingSignature('shift+bind+k'))
+})
+
+test('keyBindingParts trims and drops empties', () => {
+  assert.deepEqual(keyBindingParts(' ctrl +bind+ k '), ['ctrl', 'k'])
+  assert.deepEqual(keyBindingParts(''), [])
+})
+
+test('isKeyBindingModifier knows exactly the four modifiers', () => {
+  for (const modifier of ['ctrl', 'command', 'alt', 'shift']) {
+    assert.equal(isKeyBindingModifier(modifier), true, modifier)
+  }
+  for (const key of ['k', 'enter', 'meta', 'super', '']) {
+    assert.equal(isKeyBindingModifier(key), false, key)
+  }
 })

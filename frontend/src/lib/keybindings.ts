@@ -166,12 +166,37 @@ export function effectiveKeyBindings(
   return out
 }
 
-/** keyBindingSignature orders modifiers so equivalent combos compare equal. */
+export const keyBindingSeparator = '+bind+'
+
+const keyBindingModifiers = ['ctrl', 'command', 'alt', 'shift']
+
+export function keyBindingParts(value: string): string[] {
+  return value.split(keyBindingSeparator).map((part) => part.trim()).filter(Boolean)
+}
+
+export function isKeyBindingModifier(value: string): boolean {
+  return keyBindingModifiers.includes(value)
+}
+
+/**
+ * keyBindingSignature orders modifiers so equivalent combos compare equal.
+ *
+ * Lowercased first. Every built-in combo is already lowercase and the capture
+ * handler lowercases what the user presses, so today this changes nothing — but
+ * a signature that is case-sensitive means "Ctrl+K" and "ctrl+k" are different
+ * shortcuts, and the collision check would wave through a duplicate.
+ *
+ * There used to be a SECOND copy of this in App.svelte that lowercased where
+ * this one did not, and did not sort the non-modifier keys. The two agreed only
+ * because every input reaching them happened to be lowercase and single-keyed.
+ * One implementation now, so the settings validator and the preset collision
+ * check cannot disagree about what counts as the same shortcut.
+ */
 export function keyBindingSignature(value: string): string {
-  const parts = value.split('+bind+').map((part) => part.trim()).filter(Boolean)
-  const modifiers = parts.filter((part) => ['ctrl', 'command', 'alt', 'shift'].includes(part)).sort()
-  const keys = parts.filter((part) => !['ctrl', 'command', 'alt', 'shift'].includes(part)).sort()
-  return [...modifiers, ...keys].join('+bind+')
+  const parts = keyBindingParts(value.toLowerCase())
+  const modifiers = parts.filter(isKeyBindingModifier).sort()
+  const keys = parts.filter((part) => !isKeyBindingModifier(part)).sort()
+  return [...modifiers, ...keys].join(keyBindingSeparator)
 }
 
 /**

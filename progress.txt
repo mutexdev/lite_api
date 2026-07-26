@@ -6118,3 +6118,39 @@ US-026 - Store layer. DONE. Both named collapses complete.
   Note the whitespace case: {{  host  }} reports the name as "host" but keeps
   its text as "{{  host  }}" — the name is for lookup, the text is for
   rendering, and conflating them shifts every character after it.
+
+=== RESTRUCTURE PHASE 6 — fifth slice, and a DUPLICATE IMPLEMENTATION found ===
+
+  App.svelte 11,777 -> 11,767. Frontend suite 324 -> 330.
+
+  This slice was meant to be routine extraction and instead found that
+  keyBindingSignature EXISTED TWICE: once in src/lib/keybindings.ts (tested,
+  used by findKeyBindingCollisions for the preset checker) and once in
+  App.svelte (untested, used by the settings-UI validator).
+
+  THEY WERE NOT THE SAME FUNCTION. Two differences:
+    1. App.svelte lowercased its input; the module did not. A case-sensitive
+       signature means "Ctrl+K" and "ctrl+k" are DIFFERENT shortcuts, so the
+       collision check waves a duplicate through.
+    2. The module sorted the non-modifier keys; App.svelte did not. Only visible
+       for a multi-key combo, which is exactly what the hidden tab-range binding
+       (command+1 ... command+8) is.
+
+  They agreed today only by a COINCIDENCE OF INPUT: every built-in combo is
+  lowercase, and the capture handler does event.key.toLowerCase(), and every
+  user-facing combo is single-keyed. Latent, not live — but two implementations
+  of "is this the same shortcut" is a bug waiting for the first uppercase combo
+  or the first multi-key binding.
+
+  Unified on one, in the module, keeping BOTH stricter behaviours (lowercase and
+  sorted keys). Deleted App.svelte's copy along with keyBindingParts,
+  isKeyBindingModifier and keyBindingSeparator, which were duplicated alongside
+  it. Six tests added pinning the two properties that differed. Controls:
+  removing the lowercase fails 1, removing the key sort fails 1, removing the
+  modifier sort fails 2, adding "meta" to the modifier set fails 1.
+
+  Worth naming the pattern: this duplicate was invisible to every gate. It
+  compiled, it type-checked, it linted, and both copies passed their own tests —
+  because only one of them HAD tests. The way it surfaced was reading the target
+  module before extracting into it, which is the same habit that caught the
+  transport-wiring dependency direction two slices ago.

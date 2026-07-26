@@ -21,6 +21,10 @@
   import { workspaceStore } from './lib/stores/workspaceStore.svelte'
   import { variableTooltips } from './lib/stores/variableTooltipStore.svelte'
   import {
+    isKeyBindingModifier,
+    keyBindingParts,
+    keyBindingSeparator,
+    keyBindingSignature,
     keyBindingSections,
     keyBindingPresets,
     normalizeKeyBindingPreset,
@@ -831,7 +835,6 @@
     { id: 'nord', name: 'Nord', mode: 'dark', preview: { background: '#2e3440', sidebar: '#242933', accent: '#88c0d0' } },
     { id: 'vscode-dark', name: 'VS Code Dark', mode: 'dark', preview: { background: '#1e1e1e', sidebar: '#252526', accent: '#3794ff' } }
   ]
-	  const keyBindingSeparator = '+bind+'
 	  const zoomDefaultPercentage = 100
 	  const openAPISyncCheckIntervals = [5, 15, 30, 60]
 	  const collectionWatchPollMs = 2_000
@@ -1632,21 +1635,8 @@
     return display || keyBindingValue(action, os)
   }
 
-  function keyBindingParts(value: string) {
-    return value.split(keyBindingSeparator).map((part) => part.trim()).filter(Boolean)
-  }
 
-  function isKeyBindingModifier(value: string) {
-    return value === 'ctrl' || value === 'command' || value === 'alt' || value === 'shift'
-  }
 
-  function keyBindingSignature(value: string) {
-    const order = ['ctrl', 'command', 'alt', 'shift']
-    const parts = keyBindingParts(value.toLowerCase())
-    const modifiers = parts.filter(isKeyBindingModifier).sort((left, right) => order.indexOf(left) - order.indexOf(right))
-    const keys = parts.filter((part) => !isKeyBindingModifier(part))
-    return [...modifiers, ...keys].join(keyBindingSeparator)
-  }
 
   function normalizeEventKey(event: KeyboardEvent) {
     if (event.key === ' ') return 'space'
