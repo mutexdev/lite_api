@@ -849,17 +849,24 @@ func pacDateBetween(now time.Time, startValue, endValue interface{}) bool {
 		}
 		return current >= startMonth || current <= endMonth
 	}
-	startDay, startErr := strconv.Atoi(fmt.Sprint(startValue))
-	endDay, endErr := strconv.Atoi(fmt.Sprint(endValue))
+	// Days and years are told apart by magnitude, which is the only signal PAC
+	// gives: dateRange(1, 15) is days, dateRange(2020, 2030) is years.
+	//
+	// The day branch used to return for ANY two integers, which made the year
+	// branch below it unreachable — dateRange(2020, 2030) was evaluated as
+	// "day >= 2020", false on every date there has ever been. A script gating
+	// on a year range therefore never matched, silently.
+	startNumber, startErr := strconv.Atoi(fmt.Sprint(startValue))
+	endNumber, endErr := strconv.Atoi(fmt.Sprint(endValue))
 	if startErr == nil && endErr == nil {
-		day := now.Day()
-		return day >= startDay && day <= endDay
-	}
-	startYear, startErr := strconv.Atoi(fmt.Sprint(startValue))
-	endYear, endErr := strconv.Atoi(fmt.Sprint(endValue))
-	if startErr == nil && endErr == nil && startYear > 31 && endYear > 31 {
-		year := now.Year()
-		return year >= startYear && year <= endYear
+		if startNumber >= 1 && startNumber <= 31 && endNumber >= 1 && endNumber <= 31 {
+			day := now.Day()
+			return day >= startNumber && day <= endNumber
+		}
+		if startNumber > 31 && endNumber > 31 {
+			year := now.Year()
+			return year >= startNumber && year <= endNumber
+		}
 	}
 	return false
 }

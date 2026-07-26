@@ -19,6 +19,8 @@ package transport
 import (
 	"testing"
 	"time"
+
+	"github.com/dop251/goja"
 )
 
 func TestPacWeekdayIndexMapsTheThreeLetterNames(t *testing.T) {
@@ -214,5 +216,59 @@ func TestPacDirectivesForURLPrefersEvaluationOverScraping(t *testing.T) {
 	}
 	if len(got) == 0 || got[0] != "DIRECT" {
 		t.Fatalf("got %v; evaluation must win over scraping the source", got)
+	}
+}
+
+// dateRange, which coverage found at 0% and which had a dead branch.
+//
+// PAC gives no type information, so days and years are told apart only by
+// magnitude. The day comparison used to return for ANY two integers, making the
+// year branch below it unreachable: dateRange(2020, 2030) was evaluated as
+// "day >= 2020" and was false on every date there has ever been. A script
+// gating on a year range never matched, and said nothing about it.
+func TestPacDateRangeDistinguishesDaysFromYears(t *testing.T) {
+	vm := goja.New()
+	v := func(x interface{}) goja.Value { return vm.ToValue(x) }
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+
+	for name, tc := range map[string]struct {
+		args []goja.Value
+		want bool
+	}{
+		"day of month, single":      {[]goja.Value{v(26)}, true},
+		"day of month, wrong day":   {[]goja.Value{v(25)}, false},
+		"day range covering today":  {[]goja.Value{v(20), v(28)}, true},
+		"day range excluding today": {[]goja.Value{v(1), v(10)}, false},
+
+		"month name, current":   {[]goja.Value{v("JUL")}, true},
+		"month name, other":     {[]goja.Value{v("JUN")}, false},
+		"month range covering":  {[]goja.Value{v("JUN"), v("AUG")}, true},
+		"month range excluding": {[]goja.Value{v("JAN"), v("MAR")}, false},
+
+		// The branch that was unreachable.
+		"year range covering today": {[]goja.Value{v(2020), v(2030)}, true},
+		"year range before today":   {[]goja.Value{v(2000), v(2010)}, false},
+		"year range after today":    {[]goja.Value{v(2030), v(2040)}, false},
+
+		"no arguments": {nil, false},
+	} {
+		if got := pacDateRange(now, tc.args...); got != tc.want {
+			t.Errorf("%s: pacDateRange = %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+// A trailing GMT switches the comparison to UTC and must not be read as a date
+// component, or every GMT-qualified rule would compare against the string.
+func TestPacDateRangeAcceptsATrailingGMT(t *testing.T) {
+	vm := goja.New()
+	v := func(x interface{}) goja.Value { return vm.ToValue(x) }
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+
+	if !pacDateRange(now, v("JUL"), v("GMT")) {
+		t.Error(`dateRange("JUL", "GMT") must match in July`)
+	}
+	if !pacDateRange(now, v(20), v(28), v("gmt")) {
+		t.Error("the GMT marker must be case-insensitive and not consume a bound")
 	}
 }

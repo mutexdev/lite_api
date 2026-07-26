@@ -4088,3 +4088,40 @@ US-026 - Store layer. DONE. Both named collapses complete.
   the way pacTimeRange does. Testing those properly means changing the
   signatures, which is a refactor rather than a test, so I have left them and
   said so rather than writing something that passes without asserting anything.
+
+--- A SECOND PAC BUG: dateRange's year branch was unreachable ---
+
+  Same family as the timeRange bug, found the same way — by testing the intended
+  behaviour rather than the written behaviour.
+
+      startDay, startErr := strconv.Atoi(...)
+      endDay, endErr := strconv.Atoi(...)
+      if startErr == nil && endErr == nil {
+          return day >= startDay && day <= endDay     // returns for ANY two ints
+      }
+      ... if startYear > 31 && endYear > 31 { ... }   // UNREACHABLE
+
+  The day comparison returned for any two integers, so the year branch below it
+  could never run. dateRange(2020, 2030) was evaluated as "day >= 2020", which
+  is false on every date there has ever been. A PAC script gating on a year
+  range never matched and never said so.
+
+  Confirmed by probe before fixing: dateRange(2020, 2030) at 2026-07-26
+  returned false while every other form returned true.
+
+  FIXED by telling days and years apart on magnitude, which is the only signal
+  PAC gives and exactly what the dead `> 31` guard was reaching for — it was
+  just written below an unconditional return.
+
+  12 cases added covering days, day ranges, month names, month ranges, year
+  ranges and the trailing GMT marker. Controls: restoring the dead branch fails
+  1, removing the year branch fails 1, consuming GMT as a bound fails 1.
+
+  transport uncovered functions: 10 -> 2. The last two need a live network
+  interface (pacLocalIPAddress) or a real transport chain
+  (transportWithPACProxy).
+
+  TWO REAL BUGS FROM ONE COVERAGE MEASUREMENT. Both were in code with no tests,
+  both silent, both in the path that decides where a user's traffic goes. The
+  coverage number itself was never the point — it just pointed at the ten
+  functions nobody had ever asserted anything about.
