@@ -6840,3 +6840,33 @@ US-026 - Store layer. DONE. Both named collapses complete.
   A session cookie loads with a BLANK expiry even when one is stored: a datetime
   input showing a date beside a ticked "session" box says two contradictory
   things, and whichever the user changes next, the other is a surprise.
+
+=== PHASE 6 — notification presentation ===
+
+  src/lib/notificationView.ts — 11 tests. App.svelte 11,381 -> 11,360.
+  Frontend suite 460 -> 471.
+
+  A notification is the app's only way to report something the user did not ask
+  about — a failed background write, a completed run, an expired token. Every
+  field has a fallback chain and the reason is always the same: a notification
+  that renders blank is one nobody can act on.
+
+  TWO SPELLINGS PER SEVERITY, BECAUSE THE PRODUCERS DISAGREE. The Go side and
+  the script runtime emit both "warn"/"warning" and "error"/"danger". A severity
+  that fell through to "info" would colour an ERROR the same as a routine
+  message — the one case where the colour is the whole point. Each spelling has
+  its own control; dropping "warn" fails 2.
+
+  AN INCONSISTENT COMPARATOR IS WORSE THAN A WRONG ORDER. An unparseable
+  timestamp returns 0 rather than NaN, because NaN in a sort comparator makes
+  the result implementation-defined in V8 — unrelated entries move. Sorting is
+  also over a COPY: sorting in place would reorder live app state under the UI.
+
+  Blank rather than "Invalid Date" for an unusable timestamp: blank reads as "no
+  time recorded", which is true, while "Invalid Date" reads as a bug in the app
+  and tells the user nothing about their notification.
+
+  One asymmetry worth having: the TITLE falls back all the way to the literal
+  word "Notification", but the DESCRIPTION stops at "". An empty description is
+  legitimate when the title already says everything, and inventing text there
+  would put words in the notification's mouth.

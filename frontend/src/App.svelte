@@ -302,6 +302,14 @@
     type ScriptLog
   } from './lib/devToolsConsole'
   import {
+    notificationDate,
+    notificationDescription,
+    notificationLevelClass,
+    notificationTitle,
+    notificationType,
+    notificationsForDisplay
+  } from './lib/notificationView'
+  import {
     authWithOAuth2Defaults,
     oauth2AuthWithDefaults,
     proxyConfigWithDefaults
@@ -7382,41 +7390,12 @@
 
 
 
-  function notificationsForDisplay(notifications: types.Notification[]) {
-    return [...notifications].sort((a, b) => notificationTime(b) - notificationTime(a))
-  }
 
-  function notificationTime(notification: types.Notification) {
-    const value = new Date(notification.at)
-    return Number.isNaN(value.getTime()) ? 0 : value.getTime()
-  }
 
-  function notificationTitle(notification: types.Notification | undefined) {
-    return notification?.title || notification?.message || 'Notification'
-  }
 
-  function notificationDescription(notification: types.Notification | undefined) {
-    return notification?.description || notification?.message || ''
-  }
 
-  function notificationType(notification: types.Notification | undefined) {
-    return notification?.type || notification?.level || 'Info'
-  }
 
-  function notificationDate(notification: types.Notification | undefined) {
-    if (!notification?.at) return ''
-    const value = new Date(notification.at)
-    if (Number.isNaN(value.getTime())) return ''
-    return value.toLocaleString()
-  }
 
-  function notificationLevelClass(notification: types.Notification | undefined) {
-    const level = (notification?.level || '').toLowerCase()
-    if (level === 'success') return 'success'
-    if (level === 'warning' || level === 'warn') return 'warning'
-    if (level === 'error' || level === 'danger') return 'danger'
-    return 'info'
-  }
 
   async function openNotifications() {
     notificationsOpen = true
