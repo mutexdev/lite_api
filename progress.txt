@@ -2449,3 +2449,41 @@ US-029 - Runes migration, App.svelte. DONE. Completes the runes work (027-029).
 
   Bundle: initial chunk 416,846 bytes, down from 478,125 before the migration
   (runes generate less runtime scaffolding than the legacy reactive system).
+
+US-031 - Virtualize the collection tree. PARTIAL, deliberately. The flattening
+  core is done and tested; the markup rewiring is NOT, and the reason is stated
+  rather than hidden.
+
+  DONE: lib/sidebarTree.ts + 13 tests. flattenSidebar turns the nested tree
+  (collections -> folder groups -> requests) into the linear row list a window
+  can be computed over, honouring both collapse maps. indexOfRequest and
+  visibleRequestCount support keyboard navigation and counts.
+
+  Every mistake in flattening is SILENT in the UI rather than an error:
+    a collapsed folder whose children still render looks like a broken toggle
+    a row at the wrong depth reads as belonging to a different folder
+    a DUPLICATE KEY makes Svelte's keyed {#each} reuse the wrong DOM node, so a
+      click lands on a different request than the one under the cursor. This is
+      reachable: the same request id genuinely appears twice when one folder is
+      mounted as two collections, which is why the collection id is part of
+      every key. NC2 (dropping it) fails 6 tests.
+
+  Search deliberately OVERRIDES collapse - someone typing a query wants matches
+  wherever they are, and hiding them inside a folder collapsed an hour ago makes
+  the search look broken. NC1 confirms.
+
+  MY OWN ARITHMETIC WAS WRONG AGAIN: I expected o-1 at index 4 after collapsing
+  the folder above it, forgetting that the collapsed folder's OWN row still
+  occupies a position - which the test directly above it asserts. Same class as
+  US-051's miscount. Fixed with the layout written out in a comment.
+
+  NOT DONE, AND WHY: the story requires "keyboard nav + context menus still
+  work". Wiring the flat list into the sidebar means replacing the nested
+  <article> per collection with a single windowed list - a substantial markup
+  restructure that carries real risk for keyboard navigation, context menus and
+  drag-to-reorder. I cannot exercise any of those from here, and shipping an
+  unverified restructure against a criterion that explicitly names them would be
+  claiming more than I checked. The pure half that must be correct is done and
+  proven; the wiring wants a session with the app open.
+
+  Gates: svelte-check 205/0/0, eslint 0, npm test 210/210 (+13), go test 43.9s 0.
