@@ -5012,3 +5012,29 @@ US-026 - Store layer. DONE. Both named collapses complete.
   within its body, and exits "PATTERN NOT IN <func>" rather than silently
   wandering off. This is the same class of error as the line-number/type-name
   lesson from the extraction work: an anchor that is not unique is not an anchor.
+
+--- OpenAPI link expressions -> generated JavaScript — 20% -> 90/100/95% ---
+
+  An OpenAPI link says "the id in this response feeds that request's path
+  parameter", and the importer renders it as a bru.setVar line in a
+  post-response script. The expression is what the generated JavaScript reads.
+
+  Getting it wrong is quiet in the worst way. An unrecognised expression falls
+  through to a QUOTED STRING LITERAL, so the script becomes
+
+      bru.setVar("getUser_id", "$response.body#/id");
+
+  which runs without error and sets the variable to the TEXT of the expression.
+  The next request asks for /users/$response.body%23%2Fid and 404s, with nothing
+  connecting that to the import.
+
+  Pinned: a body pointer reads res.json, not res.body — indexing the raw text by
+  a field name is undefined, and that control fails 6 tests. Numeric segments
+  index array positions. RFC 6901 ~1 and ~0 are decoded, or a field named "a/b"
+  reads as two nested lookups. A pointer with no leading slash degrades to the
+  whole parsed body rather than a fabricated lookup.
+
+  And the generated line is SOURCE CODE: a quote in a header or field name that
+  is not escaped ends the string literal early and the whole script fails to
+  parse, taking every other link in the same response with it. Both escape
+  points (header names, pointer segments) have their own control.
