@@ -3814,3 +3814,45 @@ US-026 - Store layer. DONE. Both named collapses complete.
   This is the second time this session that verifying a change surfaced a defect
   the change was not about. The first was the -race flake. Both came from
   measuring rather than reasoning.
+
+--- US-037 (substantially done) — tokens migrated, verified across all 12 themes ---
+
+  41 tokens added (--space-*, --font-size-*, --radius-*) and 606 px literals
+  migrated to them. app-wide, in one sweep.
+
+  WHY THE TOKENS ARE NAMED BY PIXEL VALUE (--space-8, not --space-md): this
+  migration has to render IDENTICALLY in 12 themes, and a value-named token
+  makes every replacement provably a no-op. Renaming to a semantic scale is a
+  different change with a different risk, and it belongs where the design is
+  decided rather than inside a mechanical sweep.
+
+  WHAT WAS DELIBERATELY NOT MIGRATED. 618 px literals remain, and they are the
+  right ones to leave:
+      min-height, width, max-height, grid-template-columns, box-shadow offsets
+  Those are one-off LAYOUT dimensions - "this panel is 560px" is not a scale
+  value, and forcing it into a token would be cargo-culting the pattern. The
+  count also includes the 41 token definitions themselves.
+
+  Migration was PROPERTY-AWARE, which is the part that matters. A blind
+  "8px -> var(--space-8)" would have rewritten `font-size: 8px` and `border: 1px`
+  into spacing tokens. Only gap/padding/margin/inset take space tokens,
+  only font-size takes type tokens, only border-radius takes radius tokens.
+
+  !!! VERIFIED BY COMPUTED-STYLE DIFF, WHICH IS STRICTER THAN THE SCREENSHOT
+      THE STORY ASKED FOR !!!
+
+  For all 388 elements x 15 box/type properties x 12 themes, the computed values
+  were fingerprinted before and after:
+
+      baseline  hash -1563842672  (identical in all 12 themes, as expected:
+                                   the themes vary colour, not spacing)
+      after     hash -1563842672  in all 12
+
+  A screenshot diff can be defeated by antialiasing noise or pass on a
+  sub-pixel shift. Computed styles cannot.
+
+  AND THE CHECK ITSELF WAS CONTROLLED. A fingerprint that never changes proves
+  nothing, so I shifted ONE token by ONE pixel (--space-8: 8px -> 9px) and
+  confirmed the hash moved, then restored it and confirmed it came back. Same
+  discipline as the Go negative controls: verify the instrument before trusting
+  the reading.
