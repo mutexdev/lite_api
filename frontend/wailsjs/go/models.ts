@@ -2782,6 +2782,26 @@ export namespace main {
 		}
 	}
 	
+	export class DocsServerStatus {
+	    collectionId: string;
+	    running: boolean;
+	    port: number;
+	    url?: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocsServerStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.collectionId = source["collectionId"];
+	        this.running = source["running"];
+	        this.port = source["port"];
+	        this.url = source["url"];
+	        this.error = source["error"];
+	    }
+	}
 	export class DotEnvFile {
 	    scope: string;
 	    name: string;

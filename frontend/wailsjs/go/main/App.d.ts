@@ -124,6 +124,8 @@ export function DisconnectOpenAPISync(arg1:string):Promise<main.AppState>;
 
 export function DisconnectWebSocket(arg1:string,arg2:string):Promise<main.AppState>;
 
+export function DocsServerStatusFor(arg1:string):Promise<main.DocsServerStatus>;
+
 export function EndGRPCStream(arg1:string,arg2:string):Promise<main.AppState>;
 
 export function ExportCollection(arg1:string):Promise<string>;
@@ -318,7 +320,11 @@ export function SetCollectionGitRemote(arg1:string,arg2:string,arg3:string):Prom
 
 export function StageCollectionGitPaths(arg1:string,arg2:Array<string>):Promise<main.CollectionGitOperationResult>;
 
+export function StartDocsServer(arg1:string,arg2:number,arg3:main.GenerateCollectionDocsOptions):Promise<main.DocsServerStatus>;
+
 export function StartMockServer(arg1:string,arg2:number):Promise<main.MockServerStatus>;
+
+export function StopDocsServer(arg1:string):Promise<main.DocsServerStatus>;
 
 export function StopMockServer(arg1:string):Promise<main.MockServerStatus>;
 

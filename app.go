@@ -222,6 +222,10 @@ type App struct {
 	mockOnce    sync.Once
 	mockMu      sync.Mutex
 	mockServers map[string]*mockServer
+	// US-074. Docs preview listeners, same isolation as the mocks.
+	docsOnce    sync.Once
+	docsMu      sync.Mutex
+	docsServers map[string]*docsServer
 	responses   *responseStore
 
 	// US-013. Fingerprints of what each auxiliary file last contained, so a
@@ -1474,6 +1478,7 @@ func (a *App) shutdown(ctx context.Context) {
 	// which reads as "the mock server is broken" rather than "the last one is
 	// still holding the socket".
 	a.stopAllMockServers()
+	a.stopAllDocsServers()
 	// Retire the background writer before the flush, not after. It waits out a
 	// write already in flight, so the flush below is the last write of the
 	// process: nothing can land concurrently with — or after — the workspace

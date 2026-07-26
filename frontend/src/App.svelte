@@ -158,6 +158,9 @@
     RunCollectionWithOptions,
     StartMockServer,
     StopMockServer,
+    StartDocsServer,
+    StopDocsServer,
+    DocsServerStatusFor,
     MockServerStatusFor,
     RefreshMockServer,
     ListHistory,
@@ -227,7 +230,7 @@
   type DevToolsNetworkDetailTab = 'request' | 'response' | 'network'
   type RequestPaneTab = 'params' | 'body' | 'headers' | 'auth' | 'vars' | 'script' | 'assert' | 'tests' | 'docs' | 'app' | 'settings'
   type ResponseTab = 'response' | 'headers' | 'metadata' | 'trailers' | 'timeline' | 'console' | 'tests' | 'visualizer' | 'examples'
-  type CollectionTab = 'overview' | 'folders' | 'headers' | 'vars' | 'auth' | 'presets' | 'mock' | 'proxy' | 'clientCert' | 'protobuf' | 'script' | 'tests'
+  type CollectionTab = 'overview' | 'folders' | 'headers' | 'vars' | 'auth' | 'presets' | 'mock' | 'docs' | 'proxy' | 'clientCert' | 'protobuf' | 'script' | 'tests'
   type FolderSettingsTab = 'headers' | 'vars' | 'auth' | 'script' | 'tests' | 'docs'
   type EnvironmentVariableTab = 'variables' | 'secrets'
 	  type ImportSourceMode = 'files' | 'url' | 'paste' | 'git'
@@ -761,6 +764,7 @@
     { id: 'auth', label: 'Auth' },
     { id: 'presets', label: 'Presets' },
     { id: 'mock', label: 'Mock Server' },
+    { id: 'docs', label: 'Docs' },
     { id: 'proxy', label: 'Proxy' },
     { id: 'clientCert', label: 'Client Certificates' },
     { id: 'protobuf', label: 'Protobuf' },
@@ -1020,6 +1024,41 @@
   // fails at bind time with an error the user then has to diagnose.
   let mockServerStatus: main.MockServerStatus | undefined
   let mockServerPort = 0
+
+  // US-074 — docs preview. Same shape and the same reasoning as the mock
+  // controls: loopback only, port 0 lets the OS choose.
+  let docsServerStatus: main.DocsServerStatus | undefined
+  let docsServerPort = 0
+
+  async function refreshDocsServerStatus(collectionID: string | undefined) {
+    if (!collectionID) {
+      docsServerStatus = undefined
+      return
+    }
+    try {
+      docsServerStatus = await DocsServerStatusFor(collectionID)
+    } catch (err) {
+      error = String(err)
+    }
+  }
+
+  async function startDocsServer(collectionID: string) {
+    await runAction('start docs preview', async () => {
+      docsServerStatus = await StartDocsServer(
+        collectionID,
+        Math.max(0, Math.floor(Number(docsServerPort) || 0)),
+        { environmentIds: [] } as main.GenerateCollectionDocsOptions
+      )
+    })
+  }
+
+  async function stopDocsServer(collectionID: string) {
+    await runAction('stop docs preview', async () => {
+      docsServerStatus = await StopDocsServer(collectionID)
+    })
+  }
+
+  $: void refreshDocsServerStatus(collectionTab === 'docs' ? activeCollection?.id : undefined)
 
   async function refreshMockServerStatus(collectionID: string | undefined) {
     if (!collectionID) {
@@ -10607,6 +10646,45 @@
 		                  <div class="empty-state wide">This collection auth mode is marked partial until its backend signer is implemented.</div>
 		                {/if}
               </div>
+            {:else if collectionTab === 'docs'}
+              {#if activeCollection}
+                <section class="panel-section">
+                  <h3>Docs Preview</h3>
+                  <p class="muted">
+                    Serves this collection's generated documentation over 127.0.0.1 so it can be opened in a browser. Docs are regenerated on every request, so a refresh shows your latest edit.
+                  </p>
+                  <div class="field-grid">
+                    <label class="field-label" for="docs-port">Port</label>
+                    <input
+                      id="docs-port"
+                      data-testid="docs-port"
+                      type="number"
+                      min="0"
+                      max="65535"
+                      bind:value={docsServerPort}
+                      disabled={docsServerStatus?.running}
+                    />
+                    <span class="muted">0 lets the operating system pick a free port.</span>
+                  </div>
+                  <div class="button-row">
+                    {#if docsServerStatus?.running}
+                      <button type="button" data-testid="docs-stop" on:click={() => stopDocsServer(activeCollection.id)} disabled={busy !== ''}>Stop</button>
+                    {:else}
+                      <button class="primary" type="button" data-testid="docs-start" on:click={() => startDocsServer(activeCollection.id)} disabled={busy !== ''}>Start</button>
+                    {/if}
+                  </div>
+                  {#if docsServerStatus?.running}
+                    <p data-testid="docs-status">
+                      Serving at <code>{docsServerStatus.url}</code> — YAML at <code>{docsServerStatus.url}/collection.yaml</code>.
+                    </p>
+                    <p class="muted">
+                      The preview describes every request, header and example in this collection. It is reachable only from this machine.
+                    </p>
+                  {:else}
+                    <p class="muted" data-testid="docs-status">Not running.</p>
+                  {/if}
+                </section>
+              {/if}
             {:else if collectionTab === 'mock'}
               {#if activeCollection}
                 <section class="panel-section">

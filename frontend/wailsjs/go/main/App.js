@@ -246,6 +246,10 @@ export function DisconnectWebSocket(arg1, arg2) {
   return window['go']['main']['App']['DisconnectWebSocket'](arg1, arg2);
 }
 
+export function DocsServerStatusFor(arg1) {
+  return window['go']['main']['App']['DocsServerStatusFor'](arg1);
+}
+
 export function EndGRPCStream(arg1, arg2) {
   return window['go']['main']['App']['EndGRPCStream'](arg1, arg2);
 }
@@ -634,8 +638,16 @@ export function StageCollectionGitPaths(arg1, arg2) {
   return window['go']['main']['App']['StageCollectionGitPaths'](arg1, arg2);
 }
 
+export function StartDocsServer(arg1, arg2, arg3) {
+  return window['go']['main']['App']['StartDocsServer'](arg1, arg2, arg3);
+}
+
 export function StartMockServer(arg1, arg2) {
   return window['go']['main']['App']['StartMockServer'](arg1, arg2);
+}
+
+export function StopDocsServer(arg1) {
+  return window['go']['main']['App']['StopDocsServer'](arg1);
 }
 
 export function StopMockServer(arg1) {
