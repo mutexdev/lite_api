@@ -1542,3 +1542,54 @@ US-054 - Code generation targets. DONE.
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 38.2s 0,
   -race clean, svelte-check 198/0/0, eslint 0, npm test 105/105.
+
+US-055 - Command palette. DONE, but SMALLER THAN THE STORY IMPLIES.
+
+  I STARTED BY BUILDING A DUPLICATE. The palette already existed - state,
+  openCommandPalette/closeCommandPalette, runCommandPaletteAction,
+  commandPaletteCommandIDs in workbenchCommands.ts, and a modal at
+  lib/modals/search/CommandPaletteModal.svelte. I wrote a second modal and a
+  second set of state before grepping for "commandPalette". Deleted the
+  duplicate modal; removed the duplicate state. The lesson is the one already
+  in this file: grep for the feature name BEFORE writing it.
+
+  Also relevant: `git checkout frontend/src/App.svelte` was blocked by the
+  permission classifier when I reached for it to undo the mess. That was the
+  right outcome - the same command destroyed three good uncommitted extractions
+  earlier in this session. Unwound the edits surgically instead.
+
+  What was ACTUALLY missing, and is now done:
+
+  1. The Cmd/Ctrl+Shift+P handler was HARD-CODED in shortcut(), bypassing the
+     customizable keybinding system entirely. So the palette did not appear in
+     Preferences > Keyboard Shortcuts and could not be rebound. Worse, had
+     someone added the binding without removing the hard-coded branch, the two
+     paths would coexist and a customised shortcut would appear to do nothing
+     while the hard-coded combo kept working. Registered `commandPalette` in
+     the Go allowlist and knownKeyBindingName, added it to the Search section
+     beside Global Search (deliberately together - the audit asks for two
+     DISTINCT surfaces, and showing them side by side is what makes the
+     distinction visible), and deleted the hard-coded branch so there is one
+     path.
+
+  2. Filtering was `label.toLowerCase().includes(query)` - no ranking at all,
+     so the order was whatever the command list happened to declare, and the
+     first row is what Enter runs. Replaced with a ranked matcher in
+     lib/commandPalette.ts: exact > prefix > word-start > substring >
+     subsequence, ties broken by declared order (NOT alphabetically - the
+     declared order puts the most-reached-for commands first).
+
+  A NEGATIVE CONTROL EXPOSED A GAP IN MY OWN TESTS. Deleting the exact-title
+  and prefix tiers left ALL 18 tests passing: every case I had written was
+  distinguishable by the word-start tier alone, so the higher tiers were
+  untested. Added the two cases where the tiers are the only thing deciding
+  order - "Tab" vs "New Tab" for exact, "Tab Overflow" vs "Close Tab" for
+  prefix. NC1 now fails on both.
+
+  Negative controls, all three run, all three caught after the fix:
+    exact/prefix tiers removed  2 ranking tests fail (0 before strengthening)
+    moveSelection clamps        wrap-around test fails
+    flattenGroups truncated     rendered-order test fails
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 0,
+  svelte-check 199/0/0, eslint 0, npm test 125/125 (was 105; +20 palette).

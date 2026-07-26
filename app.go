@@ -8707,6 +8707,7 @@ func defaultKeyBindingActions() map[string]bool {
 		"editEnvironment":       true,
 		"newRequest":            true,
 		"globalSearch":          true,
+		"commandPalette":        true,
 		"zoomIn":                true,
 		"zoomOut":               true,
 		"resetZoom":             true,
@@ -8722,6 +8723,8 @@ func knownKeyBindingName(action string) string {
 		return "Send Request"
 	case "globalSearch":
 		return "Global Search"
+	case "commandPalette":
+		return "Command Palette"
 	case "sidebarSearch":
 		return "Search Sidebar"
 	case "newRequest":

@@ -15,6 +15,7 @@
     type LiveSessionPush,
   } from './lib/liveSessionEvents'
   import { applyRequestMutation, applyTabsMutation, type MergeOutcome } from './lib/narrowMutations'
+  import { filterCommands } from './lib/commandPalette'
   import { PatchCoalescer } from './lib/patchQueue'
   // US-036: the lazy wrapper, not CodeEditor itself — importing the real one
   // here is what pulled all of CodeMirror into the initial chunk.
@@ -910,7 +911,16 @@
         newRequest: { mac: 'command+bind+n', windows: 'ctrl+bind+n', name: 'New Request' }
       }
     },
-    { heading: 'Search', bindings: { globalSearch: { mac: 'command+bind+k', windows: 'ctrl+bind+k', name: 'Global Search' } } },
+    {
+      heading: 'Search',
+      bindings: {
+        globalSearch: { mac: 'command+bind+k', windows: 'ctrl+bind+k', name: 'Global Search' },
+        // US-055. Listed beside Global Search on purpose: the audit asks for
+        // two distinct surfaces, and showing them together in Preferences is
+        // what makes the distinction visible rather than folklore.
+        commandPalette: { mac: 'command+bind+shift+bind+p', windows: 'ctrl+bind+shift+bind+p', name: 'Command Palette' }
+      }
+    },
     {
       heading: 'View',
       bindings: {
@@ -6622,8 +6632,16 @@
   }
 
   const commandPaletteActions = commandPaletteCommandIDs.map((id) => ({ id, ...workbenchCommandMetadata(id) }))
+  const commandPaletteActionsByID = Object.fromEntries(commandPaletteActions.map((action) => [action.id, action])) as Record<string, typeof commandPaletteActions[number]>
 
-  $: visibleCommandPaletteActions = commandPaletteActions.filter((action) => action.label.toLowerCase().includes(commandPaletteQuery.trim().toLowerCase()))
+  // US-055. Ranked rather than a bare substring filter. `includes` cannot tell
+  // an exact title from an incidental containment, so typing "send request"
+  // left the ordering to however the command list happened to be declared —
+  // and the first row is what Enter runs.
+  $: visibleCommandPaletteActions = filterCommands(
+    commandPaletteActions.map((action) => ({ id: action.id, title: action.label, section: 'Commands', shortcut: action.shortcut })),
+    commandPaletteQuery
+  ).map((match) => commandPaletteActionsByID[match.command.id])
   $: if (commandPaletteActiveIndex >= visibleCommandPaletteActions.length) commandPaletteActiveIndex = Math.max(0, visibleCommandPaletteActions.length - 1)
 
   function openCommandPalette(invoker: HTMLElement | null = document.activeElement instanceof HTMLElement ? document.activeElement : null) {
@@ -8116,11 +8134,6 @@
   }
 
   function shortcut(event: KeyboardEvent) {
-    if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'p') {
-      event.preventDefault()
-      openCommandPalette()
-      return
-    }
     if (event.key === 'Escape' && commandPaletteOpen) {
       event.preventDefault()
       closeCommandPalette()
@@ -8145,6 +8158,11 @@
       return
     }
     if (!state || !keybindingsAreEnabled(state.preferences)) return
+    if (keyBindingEventMatches(event, 'commandPalette')) {
+      event.preventDefault()
+      openCommandPalette()
+      return
+    }
     if (keyBindingEventMatches(event, 'globalSearch')) {
       event.preventDefault()
       openGlobalSearch()
