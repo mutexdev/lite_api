@@ -148,3 +148,71 @@ func TestPacDateComponentMatchesDayAndMonth(t *testing.T) {
 		t.Error("a different month must not match")
 	}
 }
+
+// The fallback path, which coverage found at 0%.
+//
+// When a PAC script cannot be evaluated — a syntax error, or a feature the goja
+// runtime does not provide — pacDirectivesForURL falls back to scraping the
+// `return "..."` statements out of the source text. That net is the difference
+// between a broken PAC file routing by its stated intent and routing by nothing
+// at all, and nothing is the dangerous outcome: traffic goes direct.
+func TestPacReturnDirectivesScrapesReturnStatements(t *testing.T) {
+	for name, tc := range map[string]struct {
+		content string
+		want    []string
+	}{
+		"double quotes": {`function FindProxyForURL(u,h){ return "PROXY 10.0.0.1:8080"; }`, []string{"PROXY 10.0.0.1:8080"}},
+		"single quotes": {`function FindProxyForURL(u,h){ return 'PROXY 10.0.0.1:8080'; }`, []string{"PROXY 10.0.0.1:8080"}},
+		"semicolon list is split": {
+			`function FindProxyForURL(u,h){ return "PROXY a:1; DIRECT"; }`,
+			[]string{"PROXY a:1", "DIRECT"},
+		},
+		"several returns in order": {
+			`function FindProxyForURL(u,h){ if (x) return "PROXY a:1"; return "DIRECT"; }`,
+			[]string{"PROXY a:1", "DIRECT"},
+		},
+		"no return yields nothing": {`function FindProxyForURL(u,h){ var x = 1; }`, nil},
+	} {
+		got := pacReturnDirectives(tc.content)
+		if len(got) != len(tc.want) {
+			t.Errorf("%s: got %v, want %v", name, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("%s: got %v, want %v", name, got, tc.want)
+				break
+			}
+		}
+	}
+}
+
+// The property that actually matters: a script the runtime cannot execute still
+// produces the directive its source states.
+func TestPacDirectivesForURLFallsBackWhenTheScriptCannotRun(t *testing.T) {
+	broken := `function FindProxyForURL(url, host) { this is not valid javascript return "PROXY 10.0.0.1:8080"; }`
+
+	got, err := pacDirectivesForURL(broken, "https://example.test/x")
+	if err != nil && len(got) == 0 {
+		t.Fatalf("a broken script yielded nothing: %v", err)
+	}
+	if len(got) == 0 || got[0] != "PROXY 10.0.0.1:8080" {
+		t.Fatalf("fallback did not recover the stated directive: %v", got)
+	}
+}
+
+// And evaluation must win when it works, or a script whose logic returns DIRECT
+// would be overridden by an earlier PROXY line in its own source.
+func TestPacDirectivesForURLPrefersEvaluationOverScraping(t *testing.T) {
+	script := `function FindProxyForURL(url, host) {
+		if (host === "never.test") { return "PROXY wrong:1"; }
+		return "DIRECT";
+	}`
+	got, err := pacDirectivesForURL(script, "https://example.test/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) == 0 || got[0] != "DIRECT" {
+		t.Fatalf("got %v; evaluation must win over scraping the source", got)
+	}
+}

@@ -4060,3 +4060,31 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Controls: reverting to exact-instant matching fails 1, collapsing the
   single-hour range fails 1, accepting any weekday name fails 2.
+
+--- PAC fallback path tested — the net under a broken PAC file ---
+
+  pacReturnDirectives was the other 0% function worth chasing. It is the
+  FALLBACK: when a PAC script cannot be evaluated (syntax error, or a feature
+  goja does not provide), pacDirectivesForURL scrapes the `return "..."`
+  statements out of the source text so the file's stated intent still applies.
+
+  That net matters because of what happens without it. A broken PAC file that
+  yields no directive does not fail loudly — traffic goes DIRECT, bypassing a
+  proxy the file exists to enforce.
+
+  Six cases added: both quote styles, semicolon lists split, several returns in
+  order, no-return yielding nothing, a genuinely unparseable script recovering
+  its directive, and — the other direction — evaluation winning over scraping,
+  so a script whose logic returns DIRECT is not overridden by an earlier PROXY
+  line in its own source.
+
+  Controls: disabling the fallback fails 1, discarding the evaluation result
+  fails 1, not splitting semicolon lists fails 1.
+
+  transport uncovered functions: 10 -> 4. The remaining four
+  (transportWithPACProxy, pacLocalIPAddress, pacDateRange, pacDateBetween) all
+  need either a live network interface or a controlled wall clock, and
+  pacDateRange reads time.Now() directly rather than taking it as a parameter
+  the way pacTimeRange does. Testing those properly means changing the
+  signatures, which is a refactor rather than a test, so I have left them and
+  said so rather than writing something that passes without asserting anything.
