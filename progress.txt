@@ -2930,3 +2930,51 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Gates: go build, go vet, go test all ok (LiteAPI 38.7s); svelte-check 209/0/0;
   eslint 0; npm test 223/223; vite build ok.
+
+--- US-062 groundwork — internal/transport (DONE) ---
+
+  1,032 lines out of app.go: TLS client certificates and proxy resolution in all
+  four modes (none, manual, system, PAC) including the goja PAC runtime.
+  app.go: 39,900 -> 38,939.
+
+  Picked by scanning app.go for the longest contiguous runs of top-level
+  functions with NO *App methods in them. That scan is now the first step of
+  every one of these, and it is what ruled out the two obvious alternatives:
+
+    US-066 auth/oauth  - scattered from line 112 to 37,358, not contiguous
+    US-068 scripting   - inside a 14,987-line App-free run, but too large to
+                         finish safely in one pass
+
+  TWO SEAMS, AND THEY ARE DELIBERATELY DIFFERENT FROM awsv4's:
+
+  awsv4 took `resolve func(string) string` as a PARAMETER because vars was used
+  in exactly one function. Here vars is threaded through EIGHT, so the
+  interpolator is a settable package variable instead. Rewriting eight
+  signatures and every caller would have been a large mechanical edit that
+  bought nothing - the package still does not depend on the interpolator's
+  implementation either way. Same for the PAC HTTP client.
+
+  A NAME COLLISION WORTH REMEMBERING: http_transport_cache.go has ten local
+  variables called `transport`, so `import "LiteAPI/internal/transport"` shadows
+  them. Imported as `xport` there. And the first fix made it worse - rewriting
+  `transport.[A-Z]` caught `transport.Proxy` and `transport.TLSClientConfig`,
+  which are FIELDS on the local *http.Transport, not package references. The
+  rewrite now lists the twenty moved names explicitly.
+
+  NEGATIVE CONTROLS - the no-op problem, finally automated. The control runner
+  now diffs the file and refuses to report a result if the edit did not land.
+  It immediately caught two of my three attempts as invalid, which is the third
+  and fourth time this session that a control has silently measured nothing.
+
+  Valid controls:
+    proxy URL assembly       -> 1 failing test
+    proxy protocol default   -> 5 failing tests
+    PAC "DIRECT" directive   -> 0 failing tests   <-- UNCOVERED PATH
+
+  The DIRECT case is a real gap, not a false alarm: the edit landed and nothing
+  noticed. Recorded rather than fixed here because it is a test-coverage story,
+  not a refactoring one, but it is exactly the kind of thing that only shows up
+  when someone deliberately breaks the code.
+
+  Gates: go build, go vet, go test all ok (LiteAPI 38.4s); svelte-check 209/0/0;
+  eslint 0; npm test 223/223.

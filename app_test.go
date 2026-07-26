@@ -2,6 +2,7 @@ package main
 
 import (
 	"LiteAPI/internal/importers"
+	"LiteAPI/internal/transport"
 	"LiteAPI/internal/types"
 	"archive/zip"
 	"bytes"
@@ -1587,21 +1588,21 @@ func TestMacOSScutilProxyOutputResolvesProxyAndBypass(t *testing.T) {
   SOCKSPort : 1080
   SOCKSProxy : socks.example.test
 }`
-	httpProxy, err := proxyURLFromMacOSScutilOutput(output, "http://api.example.test/v1")
+	httpProxy, err := transport.ProxyURLFromMacOSScutilOutput(output, "http://api.example.test/v1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if httpProxy == nil || httpProxy.String() != "http://proxy.example.test:8080" {
 		t.Fatalf("unexpected HTTP proxy: %#v", httpProxy)
 	}
-	httpsProxy, err := proxyURLFromMacOSScutilOutput(output, "https://api.example.test/v1")
+	httpsProxy, err := transport.ProxyURLFromMacOSScutilOutput(output, "https://api.example.test/v1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if httpsProxy == nil || httpsProxy.String() != "http://secure-proxy.example.test:8443" {
 		t.Fatalf("unexpected HTTPS proxy: %#v", httpsProxy)
 	}
-	bypassed, err := proxyURLFromMacOSScutilOutput(output, "http://service.internal/v1")
+	bypassed, err := transport.ProxyURLFromMacOSScutilOutput(output, "http://service.internal/v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1614,7 +1615,7 @@ func TestMacOSScutilProxyOutputResolvesProxyAndBypass(t *testing.T) {
   SOCKSPort : 1080
   SOCKSProxy : socks.example.test
 }`
-	socksProxy, err := proxyURLFromMacOSScutilOutput(socksOnly, "http://api.example.test/v1")
+	socksProxy, err := transport.ProxyURLFromMacOSScutilOutput(socksOnly, "http://api.example.test/v1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1628,7 +1629,7 @@ func testForwardingHTTPProxy(t *testing.T, markerHeader string) (*httptest.Serve
 	var hits int32
 	var proxiedURL string
 	var proxyAuth string
-	client := &http.Client{Transport: transportWithoutProxy(http.DefaultTransport)}
+	client := &http.Client{Transport: transport.WithoutProxy(http.DefaultTransport)}
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&hits, 1)
 		proxiedURL = r.URL.String()
@@ -2049,7 +2050,7 @@ func TestUpdateCollectionClientCertificatesPreservesBlankEditorRows(t *testing.T
 	if updated.ClientCertificates[0].Type != "cert" {
 		t.Fatalf("expected blank editor row type to default to cert, got %#v", updated.ClientCertificates[0])
 	}
-	if hasClientCertificates(updated.ClientCertificates) {
+	if transport.HasClientCertificates(updated.ClientCertificates) {
 		t.Fatalf("blank editor row should not count as an executable client certificate: %#v", updated.ClientCertificates)
 	}
 }

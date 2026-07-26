@@ -518,8 +518,8 @@ func startCONNECTProxy(t *testing.T) *countingListener {
 // acceptance evidence: with a proxy AND a matching client certificate
 // configured, N sequential sends open ONE TCP connection.
 //
-// Against the pre-US-016 code this fails, because transportWithClientCertificate
-// and transportWithManualProxy each Clone() the transport per request and a
+// Against the pre-US-016 code this fails, because transport.WithClientCertificate
+// and transport.WithManualProxy each Clone() the transport per request and a
 // clone starts with an empty connection pool: it reports 5 connections and 0
 // reuses.
 func TestExecuteHTTPReusesOneConnectionThroughProxyAndClientCertificate(t *testing.T) {

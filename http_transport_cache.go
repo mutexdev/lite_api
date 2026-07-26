@@ -2,6 +2,7 @@ package main
 
 import (
 	"LiteAPI/internal/auth/awsv4"
+	xport "LiteAPI/internal/transport"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -24,7 +25,7 @@ import (
 // Clone(). A cloned transport starts with an EMPTY connection pool, so a
 // clone-per-request means a fresh TCP + TLS handshake per request even when a
 // hundred sends go to the same host with the same settings. Because the proxy
-// stage cloned unconditionally (transportWithoutProxy still clones), this hit
+// stage cloned unconditionally (xport.WithoutProxy still clones), this hit
 // every request, not just the proxy/mTLS ones.
 //
 // The fix is to build each distinct transport once and hand the same pointer
@@ -174,7 +175,7 @@ func (spec transportSpec) pristine() bool {
 		spec.proxyMode == transportProxyInherit
 }
 
-// resolvedSource mirrors cloneHTTPTransport's fallback: a base that is not an
+// resolvedSource mirrors xport.CloneHTTPTransport's fallback: a base that is not an
 // *http.Transport (a test round-tripper, an auth wrapper) carries no dialer or
 // TLS config to inherit, so http.DefaultTransport is the source instead.
 func (spec transportSpec) resolvedSource() *http.Transport {
@@ -188,7 +189,7 @@ func (spec transportSpec) resolvedSource() *http.Transport {
 }
 
 // httpTransportSource resolves an arbitrary RoundTripper to the *http.Transport
-// a clone would be taken from, matching cloneHTTPTransport.
+// a clone would be taken from, matching xport.CloneHTTPTransport.
 func httpTransportSource(base http.RoundTripper) *http.Transport {
 	if transport, ok := base.(*http.Transport); ok && transport != nil {
 		return transport
@@ -254,8 +255,8 @@ func clientCertificateDigest(certificate tls.Certificate) string {
 
 // build produces the transport the spec describes. It reproduces, in one step,
 // exactly what the previous three-clone chain produced
-// (transportWithAppTLSSettings -> transportWithClientCertificate ->
-// transportWithProxyResolution), including its quirks: the TLS config is left
+// (transportWithAppTLSSettings -> xport.WithClientCertificate ->
+// xport.WithProxyResolution), including its quirks: the TLS config is left
 // untouched when verification is on and no custom CA is configured, which is
 // also why the app-wide session cache is not installed on that path.
 func (spec transportSpec) build() (*http.Transport, error) {
@@ -293,7 +294,7 @@ func (spec transportSpec) build() (*http.Transport, error) {
 			if req != nil && req.URL != nil {
 				target = req.URL.String()
 			}
-			return systemProxyURLForRequest(target)
+			return xport.SystemProxyURLForRequest(target)
 		}
 	case transportProxyExplicit:
 		transport.Proxy = http.ProxyURL(spec.proxyURL)
@@ -348,16 +349,16 @@ func readCustomCACertificatePEM(preferences RequestPreferences) (string, []byte,
 
 // applyProxyResolution resolves a proxyResolution against this request's URL
 // and variables, storing only the outcome on the spec. Mirrors
-// transportWithProxyResolution, including its deliberate swallowing of PAC
+// xport.WithProxyResolution, including its deliberate swallowing of PAC
 // errors (an unreachable or broken PAC file means "go direct", not "fail").
 func (spec *transportSpec) applyProxyResolution(resolution proxyResolution, requestURL string, vars map[string]string) error {
 	switch strings.ToLower(strings.TrimSpace(resolution.Mode)) {
 	case "manual":
-		if !shouldUseManualProxy(requestURL, interpolate(resolution.Config.BypassProxy, vars)) {
+		if !xport.ShouldUseManualProxy(requestURL, interpolate(resolution.Config.BypassProxy, vars)) {
 			spec.proxyMode = transportProxyOff
 			return nil
 		}
-		proxyURL, err := manualProxyURL(resolution.Config, vars)
+		proxyURL, err := xport.ManualProxyURL(resolution.Config, vars)
 		if err != nil {
 			return err
 		}
@@ -369,7 +370,7 @@ func (spec *transportSpec) applyProxyResolution(resolution proxyResolution, requ
 		spec.systemProxyFallbackURL = requestURL
 		return nil
 	case "pac":
-		proxyURL, ok, err := resolvePACProxyURL(interpolate(resolution.PACSource, vars), requestURL)
+		proxyURL, ok, err := xport.ResolvePACProxyURL(interpolate(resolution.PACSource, vars), requestURL)
 		if err != nil || !ok {
 			spec.proxyMode = transportProxyOff
 			return nil
@@ -594,7 +595,7 @@ func (a *App) requestTransport(base http.RoundTripper, settings appTLSSettings, 
 		spec.customCAPEM = certPEM
 	}
 	if collectionPath, certs, ok := a.collectionClientCertificateConfig(collectionID); ok {
-		certificate, matched, err := matchingTLSClientCertificate(collectionPath, certs, targetURL, vars)
+		certificate, matched, err := xport.MatchingTLSClientCertificate(collectionPath, certs, targetURL, vars)
 		if err != nil {
 			return nil, err
 		}
@@ -629,8 +630,8 @@ func (a *App) requestTransport(base http.RoundTripper, settings appTLSSettings, 
 var packageTransportCache httpTransportCache
 
 // These are lazily built through plain functions rather than package-level
-// sync.OnceValue variables: the PAC client's spec reaches systemProxyURLForRequest,
-// which reaches loadPACSource, which uses the PAC client — a variable
+// sync.OnceValue variables: the PAC client's spec reaches xport.SystemProxyURLForRequest,
+// which reaches xport.LoadPACSource, which uses the PAC client — a variable
 // initialisation cycle the compiler rejects. A function body does not
 // participate in initialisation ordering, so this also keeps the clients out of
 // process start-up.
@@ -669,7 +670,7 @@ func sharedPACHTTPClient() *http.Client {
 			// Unreachable: this spec loads no CA and no client certificate,
 			// so build() cannot fail. Fall back to the pre-US-017
 			// construction rather than silently changing the proxy posture.
-			pacHTTPClient = &http.Client{Timeout: 5 * time.Second, Transport: transportWithoutProxy(http.DefaultTransport)}
+			pacHTTPClient = &http.Client{Timeout: 5 * time.Second, Transport: xport.WithoutProxy(http.DefaultTransport)}
 			return
 		}
 		pacHTTPClient = &http.Client{Timeout: 5 * time.Second, Transport: transport}
@@ -684,4 +685,11 @@ func sharedPACHTTPClient() *http.Client {
 // in the package keeps the dependency pointing one way.
 func init() {
 	awsv4.SetHTTPClient(sharedCredentialHTTPClient)
+
+	// internal/transport defaults to a plain client and a no-op interpolator so
+	// it stands alone. Inside the app, PAC fetches must go through the shared
+	// transport cache, and certificate paths and proxy fields contain template
+	// variables. Wiring both here keeps the dependency pointing one way.
+	xport.SetPACHTTPClient(sharedPACHTTPClient)
+	xport.SetInterpolator(interpolate)
 }
