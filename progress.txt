@@ -1843,3 +1843,38 @@ US-048 - History store. DONE.
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 39.0s 0,
   -race clean, svelte-check 201/0/0, npm test 158/158.
+
+US-049 - History sidebar. DONE. Closes the history pair with US-048.
+  HistoryPanel.svelte behind a lazy import, reachable via the open-history
+  workbench command (so it is in the command palette too). Filter by text,
+  method and failures-only; Open in tab; Save to collection; Clear.
+
+  FILTERING IS SERVER-SIDE through HistoryQuery, not client-side. History is
+  capped at 500 entries but each carries its headers, so pulling the whole log
+  on every keystroke would move hundreds of kilobytes across the binding to
+  render at most a screenful. The search is debounced 150ms on top of that, so
+  typing does not issue one binding call per character.
+
+  "Open in tab" is checked against LIVE STATE, not assumed. The original
+  request may have been renamed, moved or deleted since the send; the button
+  disables with a reason rather than erroring on click.
+
+  "Save to collection" creates a NEW request via CreateRequestFromHistory
+  rather than mutating the original. The entry may point at a request edited
+  after that send, and overwriting it with an old snapshot would destroy work
+  the user did afterwards. NC2 confirmed the distinction: the overwriting
+  variant clobbered a URL the test had deliberately edited post-send.
+
+  REDACTED HEADERS ARE DROPPED from the saved request, not carried across as
+  the literal "<redacted>". A request carrying `Authorization: <redacted>`
+  LOOKS configured and fails with a 401 that points nowhere; an absent header
+  is visibly something to fill in. The panel also states plainly that
+  credential headers were not recorded, so the user learns it there rather than
+  from a 401 later.
+
+  Negative controls, both run and both caught:
+    redacted headers carried    saved request holds the literal marker
+    overwrite instead of create original request clobbered
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 39.2s 0,
+  svelte-check 202/0/0, eslint 0, npm test 158/158.

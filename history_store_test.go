@@ -435,3 +435,129 @@ func TestHistoryListOnAnEmptyStoreIsNotAnError(t *testing.T) {
 		t.Errorf("got %d entries from an empty store", len(entries))
 	}
 }
+
+// TestCreateRequestFromHistoryDropsRedactedHeaders is US-049's "save to
+// collection".
+//
+// A request carrying the literal `Authorization: <redacted>` looks configured
+// and fails with a 401 that points nowhere. An absent header is visibly
+// something to fill in.
+func TestCreateRequestFromHistoryDropsRedactedHeaders(t *testing.T) {
+	app, collectionID, itemID, closeServer := historyFixture(t)
+	defer closeServer()
+
+	headers := []KeyValue{
+		{Name: "Authorization", Value: "Bearer supersecret-token", Enabled: true},
+		{Name: "X-Trace", Value: "abc", Enabled: true},
+	}
+	if _, err := app.UpdateRequest(collectionID, itemID, RequestPatch{Headers: &headers}); err != nil {
+		t.Fatalf("UpdateRequest: %v", err)
+	}
+	if _, err := app.SendRequest(collectionID, itemID, ""); err != nil {
+		t.Fatalf("SendRequest: %v", err)
+	}
+
+	entries, err := app.ListHistory(HistoryQuery{})
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("ListHistory: %v %v", entries, err)
+	}
+
+	state, err := app.CreateRequestFromHistory(collectionID, entries[0].ID)
+	if err != nil {
+		t.Fatalf("CreateRequestFromHistory: %v", err)
+	}
+
+	// Two requests now: the original and the one made from history.
+	var created *RequestItem
+	for _, workspace := range state.Workspaces {
+		for _, collection := range workspace.Collections {
+			if collection.ID != collectionID {
+				continue
+			}
+			for i := range collection.Items {
+				if collection.Items[i].ID != itemID {
+					created = &collection.Items[i]
+				}
+			}
+		}
+	}
+	if created == nil {
+		t.Fatal("no request was created from the history entry")
+	}
+
+	if !strings.Contains(created.URL, "/users") {
+		t.Errorf("URL = %q, want the recorded one", created.URL)
+	}
+	if created.Method != "GET" {
+		t.Errorf("method = %q", created.Method)
+	}
+
+	var sawTrace bool
+	for _, header := range created.Headers {
+		if header.Value == historyRedactedValue {
+			t.Errorf("header %q carries the literal redaction marker; the request looks configured and would 401", header.Name)
+		}
+		if strings.EqualFold(header.Name, "Authorization") {
+			t.Error("the redacted Authorization header was carried into the new request")
+		}
+		if strings.EqualFold(header.Name, "X-Trace") {
+			sawTrace = true
+			if header.Value != "abc" {
+				t.Errorf("an ordinary header lost its value: %q", header.Value)
+			}
+		}
+	}
+	if !sawTrace {
+		t.Error("an ordinary header was dropped along with the redacted one")
+	}
+}
+
+// TestCreateRequestFromHistoryLeavesTheOriginalAlone. The entry may point at a
+// request that has since been edited; overwriting it with an old snapshot
+// would destroy work done after that send.
+func TestCreateRequestFromHistoryLeavesTheOriginalAlone(t *testing.T) {
+	app, collectionID, itemID, closeServer := historyFixture(t)
+	defer closeServer()
+
+	if _, err := app.SendRequest(collectionID, itemID, ""); err != nil {
+		t.Fatalf("SendRequest: %v", err)
+	}
+	// Edit the original AFTER the send, as a user would.
+	edited := "https://example.test/edited-after-the-send"
+	if _, err := app.UpdateRequest(collectionID, itemID, RequestPatch{URL: &edited}); err != nil {
+		t.Fatalf("UpdateRequest: %v", err)
+	}
+
+	entries, _ := app.ListHistory(HistoryQuery{})
+	state, err := app.CreateRequestFromHistory(collectionID, entries[0].ID)
+	if err != nil {
+		t.Fatalf("CreateRequestFromHistory: %v", err)
+	}
+
+	for _, workspace := range state.Workspaces {
+		for _, collection := range workspace.Collections {
+			for _, item := range collection.Items {
+				if item.ID == itemID && item.URL != edited {
+					t.Errorf("the original request was overwritten with the history snapshot: %q", item.URL)
+				}
+			}
+		}
+	}
+}
+
+func TestCreateRequestFromHistoryRejectsBadInput(t *testing.T) {
+	app, collectionID, itemID, closeServer := historyFixture(t)
+	defer closeServer()
+
+	if _, err := app.SendRequest(collectionID, itemID, ""); err != nil {
+		t.Fatalf("SendRequest: %v", err)
+	}
+	entries, _ := app.ListHistory(HistoryQuery{})
+
+	if _, err := app.CreateRequestFromHistory(collectionID, "no-such-entry"); err == nil {
+		t.Error("an unknown history id should be an error")
+	}
+	if _, err := app.CreateRequestFromHistory("", entries[0].ID); err == nil {
+		t.Error("a blank collection id should be an error")
+	}
+}

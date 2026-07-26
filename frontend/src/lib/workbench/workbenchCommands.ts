@@ -19,6 +19,7 @@ export type WorkbenchCommandID =
   | 'import'
   | 'open-network'
   | 'open-cookies'
+  | 'open-history'
   | 'toggle-devtools'
   | 'open-capabilities'
   | 'open-runner'
@@ -50,6 +51,7 @@ export const commandPaletteCommandIDs: WorkbenchCommandID[] = [
 	'open-git-workbench',
   'open-environments',
   'open-cookies',
+  'open-history',
   'open-runner',
   'change-orientation',
   'toggle-sidebar',
@@ -79,6 +81,7 @@ const commandMetadata: Record<WorkbenchCommandID, { label: string; shortcut?: st
   import: { label: 'Import collection', shortcut: '⌘O' },
   'open-network': { label: 'Network log' },
   'open-cookies': { label: 'Cookie jar' },
+  'open-history': { label: 'Send history' },
   'toggle-devtools': { label: 'Toggle Dev Tools', shortcut: '⌘⌥I' },
   'open-capabilities': { label: 'Capabilities' },
   'open-runner': { label: 'Collection runner' },

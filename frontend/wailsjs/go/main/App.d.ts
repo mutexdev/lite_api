@@ -88,6 +88,8 @@ export function CreateGlobalEnvironment(arg1:string,arg2:string):Promise<main.Ap
 
 export function CreateRequest(arg1:string,arg2:string,arg3:string):Promise<main.AppState>;
 
+export function CreateRequestFromHistory(arg1:string,arg2:string):Promise<main.AppState>;
+
 export function CreateResponseExample(arg1:string,arg2:string,arg3:string,arg4:string):Promise<main.AppState>;
 
 export function CreateTerminalSession(arg1:string):Promise<main.TerminalSession>;

@@ -174,6 +174,10 @@ export function CreateRequest(arg1, arg2, arg3) {
   return window['go']['main']['App']['CreateRequest'](arg1, arg2, arg3);
 }
 
+export function CreateRequestFromHistory(arg1, arg2) {
+  return window['go']['main']['App']['CreateRequestFromHistory'](arg1, arg2);
+}
+
 export function CreateResponseExample(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['CreateResponseExample'](arg1, arg2, arg3, arg4);
 }

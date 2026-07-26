@@ -406,3 +406,71 @@ func (a *App) recordSendHistory(collectionID string, item RequestItem, response 
 	}
 	return a.history().append(entry)
 }
+
+// CreateRequestFromHistory materialises a history entry as a real request in
+// the given collection (US-049, "save to collection").
+//
+// A new request rather than a mutation of the original: the entry may point at
+// a request that has since been edited or deleted, and silently overwriting a
+// live request with an old snapshot would destroy work the user did after that
+// send.
+//
+// REDACTED HEADERS ARE DROPPED, not carried across as the literal
+// "<redacted>". A request carrying `Authorization: <redacted>` looks configured
+// and fails with a 401 that points nowhere; an absent header is visibly
+// something to fill in. The returned request keeps everything else.
+func (a *App) CreateRequestFromHistory(collectionID, historyID string) (AppState, error) {
+	entry, err := a.GetHistoryEntry(historyID)
+	if err != nil {
+		return AppState{}, err
+	}
+	if strings.TrimSpace(collectionID) == "" {
+		return AppState{}, errors.New("collection id is required")
+	}
+
+	name := strings.TrimSpace(entry.Name)
+	if name == "" {
+		name = strings.TrimSpace(entry.Method + " " + entry.URL)
+	}
+	if name == "" {
+		name = "History request"
+	}
+
+	state, err := a.CreateRequest(collectionID, "http", name)
+	if err != nil {
+		return AppState{}, err
+	}
+
+	var itemID string
+	for _, workspace := range state.Workspaces {
+		for _, collection := range workspace.Collections {
+			if collection.ID != collectionID {
+				continue
+			}
+			for _, item := range collection.Items {
+				if item.Name == name {
+					itemID = item.ID
+				}
+			}
+		}
+	}
+	if itemID == "" {
+		return AppState{}, errors.New("the request created from history could not be found")
+	}
+
+	headers := make([]KeyValue, 0, len(entry.RequestHeaders))
+	for _, header := range entry.RequestHeaders {
+		if header.Value == historyRedactedValue {
+			continue
+		}
+		headers = append(headers, header)
+	}
+
+	method := entry.Method
+	url := entry.URL
+	return a.UpdateRequest(collectionID, itemID, RequestPatch{
+		Method:  &method,
+		URL:     &url,
+		Headers: &headers,
+	})
+}

@@ -154,6 +154,9 @@
     RestoreRecoveryEntry,
     ResizeTerminalSession,
     RunCollectionWithOptions,
+    ListHistory,
+    ClearHistory,
+    CreateRequestFromHistory,
     VisualizerDocument,
     SelectRunnerDataFile,
     SaveResponseExample,
@@ -210,7 +213,7 @@
   import type { main } from '../wailsjs/go/models'
   import { BrowserOpenURL, EventsOn, OnFileDrop, OnFileDropOff, Quit } from '../wailsjs/runtime/runtime'
 
-  type View = 'request' | 'collection' | 'git' | 'runner' | 'environments' | 'import' | 'features' | 'network' | 'cookies' | 'preferences' | 'devtools'
+  type View = 'request' | 'collection' | 'git' | 'runner' | 'environments' | 'import' | 'features' | 'network' | 'cookies' | 'history' | 'preferences' | 'devtools'
   type ResponsePaneOrientation = 'horizontal' | 'vertical'
   type DevToolsTab = 'console' | 'network' | 'performance' | 'terminal'
   type DevToolsNetworkSortKey = 'method' | 'status' | 'domain' | 'path' | 'time' | 'duration' | 'size'
@@ -996,6 +999,81 @@
   // once here so a change has a single place to happen.
   const visualizerSandboxAttribute = 'allow-scripts'
   let visualizerDocument = ''
+
+  // US-049 — history surface state. The filter is applied SERVER-SIDE through
+  // HistoryQuery rather than by pulling the whole log and filtering here: each
+  // entry carries its headers, so a client-side filter would move hundreds of
+  // kilobytes across the binding on every keystroke to render a screenful.
+  let historyEntries: main.HistoryEntry[] = []
+  let historyQuery = ''
+  let historyOnlyFailures = false
+  let historyMethodFilter = ''
+  let historySaveTargetID = ''
+  let historySearchTimer: number | undefined
+
+  async function refreshHistory() {
+    try {
+      historyEntries = await ListHistory({
+        text: historyQuery,
+        method: historyMethodFilter,
+        onlyFailures: historyOnlyFailures
+      } as main.HistoryQuery)
+    } catch (err) {
+      error = String(err)
+    }
+  }
+
+  // Debounced so typing does not issue one binding call per character.
+  function scheduleHistorySearch() {
+    if (historySearchTimer !== undefined) window.clearTimeout(historySearchTimer)
+    historySearchTimer = window.setTimeout(() => {
+      historySearchTimer = undefined
+      void refreshHistory()
+    }, 150)
+  }
+
+  // The original request may have been renamed, moved or deleted since the
+  // send, so this is checked against live state rather than assumed.
+  function historyEntryStillExists(entry: main.HistoryEntry) {
+    if (!entry.collectionId || !entry.itemId) return false
+    return (state?.workspaces ?? []).some((workspace) =>
+      (workspace.collections ?? []).some(
+        (collection) =>
+          collection.id === entry.collectionId && (collection.items ?? []).some((item) => item.id === entry.itemId)
+      )
+    )
+  }
+
+  async function openHistoryEntryInTab(entry: main.HistoryEntry) {
+    // Narrowed locally: historyEntryStillExists already proves both are set,
+    // but that guarantee does not cross the function boundary for the checker.
+    const collectionId = entry.collectionId
+    const itemId = entry.itemId
+    if (!collectionId || !itemId || !historyEntryStillExists(entry)) return
+    await runAction('open history request', async () => {
+      state = await OpenRequestTab(collectionId, itemId)
+      activeView = 'request'
+    })
+  }
+
+  async function saveHistoryEntryToCollection(entry: main.HistoryEntry) {
+    if (!historySaveTargetID) return
+    await runAction('save history request', async () => {
+      state = await CreateRequestFromHistory(historySaveTargetID, entry.id)
+    })
+  }
+
+  async function clearHistory() {
+    await runAction('clear history', async () => {
+      await ClearHistory()
+      await refreshHistory()
+    })
+  }
+
+  $: historyCollections = (state?.workspaces ?? []).flatMap((workspace) =>
+    (workspace.collections ?? []).map((collection) => ({ id: collection.id, name: collection.name }))
+  )
+  $: if (!historySaveTargetID && historyCollections.length > 0) historySaveTargetID = historyCollections[0].id
   $: void loadVisualizerDocument(activeCollection?.id, activeRequest?.id, activeRequest?.response?.visualizer)
 
   async function loadVisualizerDocument(collectionID: string | undefined, itemID: string | undefined, payload: main.VisualizerPayload | undefined) {
@@ -6559,6 +6637,10 @@
       case 'open-cookies':
         activeView = 'cookies'
         return
+      case 'open-history':
+        activeView = 'history'
+        await refreshHistory()
+        return
       case 'toggle-devtools':
         if (devToolsOpen) await closeDevTools()
         else await openDevTools()
@@ -8083,6 +8165,9 @@
         return
       case 'open-cookies':
         await runWorkbenchCommand('open-cookies')
+        return
+      case 'open-history':
+        await runWorkbenchCommand('open-history')
         return
       case 'open-capabilities':
         await runWorkbenchCommand('open-capabilities')
@@ -11127,6 +11212,24 @@
             </tbody>
           </table>
         </section>
+      {:else if activeView === 'history'}
+        {#await import('./lib/views/HistoryPanel.svelte') then HistoryPanel}
+          <svelte:component
+            this={HistoryPanel.default}
+            entries={historyEntries}
+            bind:query={historyQuery}
+            bind:onlyFailures={historyOnlyFailures}
+            bind:methodFilter={historyMethodFilter}
+            bind:saveTargetCollectionID={historySaveTargetID}
+            collections={historyCollections}
+            {busy}
+            onSearch={scheduleHistorySearch}
+            onOpenInTab={openHistoryEntryInTab}
+            onSaveToCollection={saveHistoryEntryToCollection}
+            onClear={clearHistory}
+            canOpenInTab={historyEntryStillExists}
+          />
+        {/await}
 	      {:else if activeView === 'cookies'}
 	        <section class="panel">
 	          <header class="panel-header">
