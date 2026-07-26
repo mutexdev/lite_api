@@ -501,6 +501,7 @@
   let runnerConfigItems: main.RequestItem[] = []
   let runnerSelectedCount = 0
   let runnerDelayMs = 0
+  let runnerBailOnFailure = false
   let appZoomPercentage = 100
   let codeFont = 'default'
   let codeFontSize = 13
@@ -1040,6 +1041,7 @@
     runnerConfigCollectionId = activeCollection?.id ?? ''
     runnerSelectedItemIds = runnerConfigItems.map((item) => item.id)
     runnerDelayMs = 0
+    runnerBailOnFailure = false
   }
   $: responsePaneOrientation = normalizedResponsePaneOrientation(state?.preferences?.layout?.responsePaneOrientation)
   $: appZoomPercentage = normalizedZoomPercentage(state?.preferences?.display?.zoomPercentage)
@@ -3254,6 +3256,7 @@
   function resetRunnerConfiguration() {
     runnerSelectedItemIds = runnerConfigItems.map((item) => item.id)
     runnerDelayMs = 0
+    runnerBailOnFailure = false
   }
 
   function normalizedRunnerDelayMs(value: number) {
@@ -3278,7 +3281,8 @@
       try {
         completedRunState = await RunCollectionWithOptions(collection.id, environmentId, {
           selectedItemIds,
-          delayMs: normalizedRunnerDelayMs(runnerDelayMs)
+          delayMs: normalizedRunnerDelayMs(runnerDelayMs),
+          bailOnFailure: runnerBailOnFailure
         } as main.RunnerOptions)
         state = completedRunState
         if (activeView === viewAtStart && activeCollection?.id === collection.id) activeView = 'runner'
@@ -10607,6 +10611,7 @@
           <svelte:component
             this={RunnerPanel.default}
             bind:runnerDelayMs
+            bind:runnerBailOnFailure
             {state}
             {busy}
             {activeCollectionRun}

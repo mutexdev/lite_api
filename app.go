@@ -154,23 +154,23 @@ type App struct {
 	// other request file. Keyed by absolute path, guarded by a.mu, and lazily
 	// populated — see writeCollectionFileLocked.
 	collectionFileFingerprints map[string]string
-	oauth2OpenURL               func(context.Context, string) error
-	oauth2OpenInAppURL          func(context.Context, oauth2AuthorizationBrowserRequest) error
-	revealInFolder              func(string) error
-	oauth2CallbackTimeout       time.Duration
-	oauth2                      map[string]oauth2TokenResponse
-	oauth2Baseline              map[string]oauth2TokenResponse
-	oauth2PendingMu             sync.Mutex
-	oauth2Authorization         map[string]chan oauth2AuthorizationResult
-	oauth2Implicit              map[string]chan oauth2ImplicitResult
-	websocketSessions           map[string]*websocketSession
-	grpcStreamSessions          map[string]*grpcStreamSession
-	terminals                   map[string]*terminalSessionProcess
-	startedAt                   time.Time
-	lastCPUTime                 time.Duration
-	lastCPUWall                 time.Time
-	requests                    *requestLifecycleRegistry
-	collectionRuns              *collectionRunLifecycleRegistry
+	oauth2OpenURL              func(context.Context, string) error
+	oauth2OpenInAppURL         func(context.Context, oauth2AuthorizationBrowserRequest) error
+	revealInFolder             func(string) error
+	oauth2CallbackTimeout      time.Duration
+	oauth2                     map[string]oauth2TokenResponse
+	oauth2Baseline             map[string]oauth2TokenResponse
+	oauth2PendingMu            sync.Mutex
+	oauth2Authorization        map[string]chan oauth2AuthorizationResult
+	oauth2Implicit             map[string]chan oauth2ImplicitResult
+	websocketSessions          map[string]*websocketSession
+	grpcStreamSessions         map[string]*grpcStreamSession
+	terminals                  map[string]*terminalSessionProcess
+	startedAt                  time.Time
+	lastCPUTime                time.Duration
+	lastCPUWall                time.Time
+	requests                   *requestLifecycleRegistry
+	collectionRuns             *collectionRunLifecycleRegistry
 	// transportCache (US-016) keys one *http.Transport per outbound security
 	// posture so requests reuse connections instead of cloning an empty pool
 	// per send. Its own lock is a leaf below a.mu; see http_transport_cache.go.
@@ -715,20 +715,20 @@ type Response struct {
 	// omitempty on both: a state.json written before this step has neither, and
 	// a response whose body was never stored should not carry empty strings
 	// into every persist.
-	BodyHandle    string            `json:"bodyHandle,omitempty"`
-	BodyHead      string            `json:"bodyHead,omitempty"`
-	Size          int               `json:"size"`
-	DurationMs    int64             `json:"durationMs"`
-	Error         string            `json:"error"`
-	Cancelled     bool              `json:"cancelled,omitempty"`
-	PreviewMode   string            `json:"previewMode"`
-	TestResults   []TestResult      `json:"testResults"`
-	ScriptLogs    []ScriptLog       `json:"scriptLogs"`
-	Assertions    []Assertion       `json:"assertions"`
-	RequestedURL  string            `json:"requestedUrl"`
-	SentAt        time.Time         `json:"sentAt"`
-	Cookies       []CookieEntry     `json:"cookies"`
-	Timings       ResponseTimings   `json:"timings"`
+	BodyHandle   string          `json:"bodyHandle,omitempty"`
+	BodyHead     string          `json:"bodyHead,omitempty"`
+	Size         int             `json:"size"`
+	DurationMs   int64           `json:"durationMs"`
+	Error        string          `json:"error"`
+	Cancelled    bool            `json:"cancelled,omitempty"`
+	PreviewMode  string          `json:"previewMode"`
+	TestResults  []TestResult    `json:"testResults"`
+	ScriptLogs   []ScriptLog     `json:"scriptLogs"`
+	Assertions   []Assertion     `json:"assertions"`
+	RequestedURL string          `json:"requestedUrl"`
+	SentAt       time.Time       `json:"sentAt"`
+	Cookies      []CookieEntry   `json:"cookies"`
+	Timings      ResponseTimings `json:"timings"`
 }
 
 type ResponseExample struct {
@@ -1096,7 +1096,7 @@ type RequestPreferences struct {
 	Timeout                   int                                  `json:"timeout,omitempty"`
 	// US-011. Cap on how many bytes of a response body are read into memory.
 	// Zero means the default; see responseBodyReadLimit.
-	MaxResponseBytes          int                                  `json:"maxResponseBytes,omitempty"`
+	MaxResponseBytes int `json:"maxResponseBytes,omitempty"`
 }
 
 type CustomCaCertificatePreferences struct {
@@ -1223,6 +1223,8 @@ type RunnerSnapshot struct {
 type RunnerOptions struct {
 	SelectedItemIDs []string `json:"selectedItemIds"`
 	DelayMs         int      `json:"delayMs,omitempty"`
+	// US-047. Stop the run at the first failure instead of continuing.
+	BailOnFailure bool `json:"bailOnFailure,omitempty"`
 }
 
 type GenerateCollectionDocsOptions struct {
@@ -7051,6 +7053,28 @@ func (a *App) RunCollection(collectionID, environmentID string) (AppState, error
 	return a.RunCollectionWithOptions(collectionID, environmentID, RunnerOptions{})
 }
 
+// appendUnrunRunResults marks every request after a bail as unrun.
+//
+// A distinct status from "skipped" and "cancelled", which US-047 requires and
+// which matters to a reader of the results: "skipped" means the runner decided
+// not to run it (wrong protocol, unresolved prompt variables), "cancelled"
+// means the user stopped the run, and "unrun" means an earlier failure ended
+// the run before this request had a turn. Collapsing them would leave someone
+// unable to tell a failing suite from an abandoned one.
+func appendUnrunRunResults(results []RunResult, items []RequestItem, from int) []RunResult {
+	now := time.Now()
+	for i := from; i < len(items); i++ {
+		results = append(results, RunResult{
+			ItemID: items[i].ID,
+			Name:   items[i].Name,
+			Status: "unrun",
+			Error:  "not run: the run stopped at an earlier failure",
+			At:     now,
+		})
+	}
+	return results
+}
+
 func (a *App) RunCollectionWithOptions(collectionID, environmentID string, options RunnerOptions) (AppState, error) {
 	a.mu.Lock()
 	if err := a.ensureReadyLocked(); err != nil {
@@ -7110,6 +7134,10 @@ func (a *App) RunCollectionWithOptions(collectionID, environmentID string, optio
 				break
 			}
 			results = append(results, RunResult{ItemID: item.ID, Name: item.Name, Status: "failed", Error: err.Error(), At: time.Now()})
+			if options.BailOnFailure {
+				results = appendUnrunRunResults(results, items, currentRequestIndex+1)
+				break
+			}
 			if !sleepRunnerDelay(runContext, delayMs, currentRequestIndex, len(items)) {
 				currentRequestIndex++
 				continue
@@ -7143,6 +7171,13 @@ func (a *App) RunCollectionWithOptions(collectionID, environmentID string, optio
 		}
 		results = append(results, RunResult{ItemID: item.ID, Name: item.Name, Status: status, Code: code, DurationMs: duration, Error: errText, At: time.Now()})
 		if status == "cancelled" {
+			break
+		}
+		// US-047. Deliberately AFTER the cancelled check: a cancelled run is not
+		// a failure, and reporting the remaining requests as "unrun because
+		// something failed" would misattribute the user's own cancellation.
+		if options.BailOnFailure && status == "failed" {
+			results = appendUnrunRunResults(results, items, currentRequestIndex+1)
 			break
 		}
 		if controls.StopExecution {

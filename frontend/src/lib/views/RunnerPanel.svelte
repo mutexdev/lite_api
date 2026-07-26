@@ -11,6 +11,7 @@
 
   // Bindable: the delay field writes back to App.svelte.
   export let runnerDelayMs: number
+  export let runnerBailOnFailure: boolean
 
   export let state: main.AppState
   export let busy: string
@@ -76,6 +77,10 @@
                   value={runnerDelayMs}
                   on:input={(event) => (runnerDelayMs = normalizedRunnerDelayMs(Number(event.currentTarget.value)))}
                 />
+              </label>
+              <label class="checkbox-line">
+                <input type="checkbox" data-testid="runner-bail-input" bind:checked={runnerBailOnFailure} />
+                Stop at the first failure
               </label>
               <div class="runner-request-list">
                 {#if runnerConfigItems.length === 0}

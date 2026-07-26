@@ -3549,6 +3549,7 @@ export namespace main {
 	export class RunnerOptions {
 	    selectedItemIds: string[];
 	    delayMs?: number;
+	    bailOnFailure?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new RunnerOptions(source);
@@ -3558,6 +3559,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.selectedItemIds = source["selectedItemIds"];
 	        this.delayMs = source["delayMs"];
+	        this.bailOnFailure = source["bailOnFailure"];
 	    }
 	}
 	
