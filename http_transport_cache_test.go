@@ -626,3 +626,42 @@ func TestExecuteHTTPReusesOneConnectionThroughProxyAndClientCertificate(t *testi
 		t.Fatalf("expected exactly one cached transport for one posture, got %d", app.transportCache.size())
 	}
 }
+
+// TestNoOneOffOutboundClientsRemain is US-017's consolidation guard.
+//
+// The other tests pin what the shared clients DO. None of them notices a
+// seventh call site appearing next week that builds its own
+// http.Client{Timeout: 30 * time.Second} again — that client would work
+// perfectly, pass every functional test, and quietly opt out of the transport
+// cache, which is the entire point of the story. The regression is invisible
+// except as connection churn under load.
+//
+// Scanning source is a blunt instrument, so this deliberately checks only the
+// exact construction the story consolidated, and only in app.go. The two
+// fallbacks inside the shared constructors themselves live in
+// http_transport_cache.go and are not in scope.
+func TestNoOneOffOutboundClientsRemain(t *testing.T) {
+	source, err := os.ReadFile("app.go")
+	if err != nil {
+		t.Fatalf("read app.go: %v", err)
+	}
+
+	// a.httpClient is the App's own base client, not a one-off: requestTransport
+	// derives from its Transport, so it is the cache's INPUT rather than a
+	// bypass of it. Everything else matching is a regression.
+	const baseClientField = "httpClient:                  &http.Client{Timeout: 30 * time.Second},"
+
+	var offenders []int
+	for i, line := range strings.Split(string(source), "\n") {
+		if !strings.Contains(line, "&http.Client{") {
+			continue
+		}
+		if strings.TrimSpace(line) == strings.TrimSpace(baseClientField) {
+			continue
+		}
+		offenders = append(offenders, i+1)
+	}
+	if len(offenders) > 0 {
+		t.Errorf("app.go builds a one-off http.Client at line(s) %v — outbound calls must go through sharedCredentialHTTPClient/sharedPACHTTPClient so they share the US-016 transport cache", offenders)
+	}
+}

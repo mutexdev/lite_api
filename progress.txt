@@ -965,3 +965,27 @@ US-047 - Runner bail on failure. DONE.
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 37.0s 0,
   -race clean, svelte-check 198/0/0, eslint 0, npm test 105/105.
+
+US-017 - Consolidate clients. DONE (verified, not newly built).
+  Found already implemented: it landed with US-016 and was never recorded.
+  Verified rather than assumed - all six 30s sites now call
+  sharedCredentialHTTPClient() (app.go:15133, 16666, 16767, 17026, 17127,
+  20012) and the PAC fetch calls sharedPACHTTPClient() (app.go:10626).
+
+  Two things in app.go/collection_import.go match `&http.Client{` and are
+  correctly NOT targets:
+    app.go:1323            a.httpClient, the App's own base client.
+                           requestTransport derives from its Transport, so it
+                           is the cache's INPUT, not a bypass of it.
+    collection_import.go   a 15s import fetch, not one of the six 30s clients
+                           the story names, and in a different file.
+
+  Added the guard the story lacked: TestNoOneOffOutboundClientsRemain scans
+  app.go for `&http.Client{`. The existing tests pin what the shared clients
+  DO; none of them notices a seventh call site appearing later that builds its
+  own 30s client. That client would pass every functional test while quietly
+  opting out of the transport cache - the regression is invisible except as
+  connection churn under load.
+
+  Negative control: reintroduced a one-off client at the OAuth2 token site.
+  The guard failed and named line 15133. Restored.
