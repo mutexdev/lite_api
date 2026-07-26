@@ -280,3 +280,18 @@ frontend/dist/assets/index-*.css        113609
 # checked per component.
 #
 # Running total: 1,159,933 -> 508,561 (56.2% smaller). 8,561 above target.
+
+# Hand extractions #17-21 — item-info, prompt-dialog, and the three
+# code-generator dialogs (grpcurl / request / response-example; ~5,300 B src):
+#   initial chunk 508,561 -> 505,029  (-3,532)
+#
+# Two more invented-detail corrections, both caught by the gates:
+#   * codeGenerationLanguages does not exist. The language <select> is a list of
+#     hardcoded <option> elements, not a bound array. svelte-check flagged it at
+#     BOTH call sites plus an unused-export warning in the component.
+#   * itemInfoTarget as `any` failed eslint. Mirroring App.svelte's
+#     CollectionItemInfoTarget discriminated union is also what makes
+#     `itemInfoTarget.kind === 'folder'` type-safe inside the markup, so the
+#     lint rule pushed toward the better answer rather than merely a stricter one.
+#
+# Running total: 1,159,933 -> 505,029 (56.5% smaller). 5,029 above target.

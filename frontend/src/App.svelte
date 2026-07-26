@@ -12282,33 +12282,14 @@
 {/if}
 
 {#if itemInfoTarget}
-  <Modal labelledBy="item-info-title" onClose={closeItemInfoModal} dialogClass="prompt-dialog item-info-dialog">
-      <header>
-        <h2 id="item-info-title">Info</h2>
-        <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={closeItemInfoModal}>x</button>
-      </header>
-      <div class="prompt-fields">
-        <table class="item-info-table">
-          <tbody>
-            <tr>
-              <td class="item-info-label">{itemInfoTarget.kind === 'folder' ? 'Folder Name' : 'Request Name'}</td>
-              <td class="item-info-value" title={itemInfoDisplayName(itemInfoTarget)}>
-                <span class="item-info-colon">:</span>{itemInfoDisplayName(itemInfoTarget)}
-              </td>
-            </tr>
-            <tr>
-              <td class="item-info-label">
-                {itemInfoTarget.kind === 'folder' ? 'Folder Name' : 'File Name'}
-                <small>(on filesystem)</small>
-              </td>
-              <td class="item-info-value break-all" title={itemInfoFilesystemName(itemInfoTarget)}>
-                <span class="item-info-colon">:</span>{itemInfoFilesystemName(itemInfoTarget)}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-  </Modal>
+  {#await import('./lib/modals/confirm/ItemInfoModal.svelte') then ItemInfoModal}
+    <svelte:component this={ItemInfoModal.default}
+      {itemInfoTarget}
+      {itemInfoDisplayName}
+      {itemInfoFilesystemName}
+      {closeItemInfoModal}
+    />
+  {/await}
 {/if}
 
 {#if deleteRequestTarget}
@@ -12503,26 +12484,14 @@
 	{/if}
 
 	{#if promptDialog}
-	  <Modal labelledBy="prompt-dialog-title" onClose={cancelPromptDialog}>
-      <form on:submit|preventDefault={submitPromptDialog}>
-        <header>
-          <h2 id="prompt-dialog-title">Input Required</h2>
-          <button type="button" class="icon-button" title="Cancel" on:click={cancelPromptDialog}>x</button>
-        </header>
-        <div class="prompt-fields">
-          {#each promptDialog.prompts as prompt, index (index)}
-            <label>
-              <span>{prompt}</span>
-              <input value={promptDialog.values[prompt] ?? ''} on:input={(event) => updatePromptValue(prompt, event.currentTarget.value)} />
-            </label>
-          {/each}
-        </div>
-        <div class="button-row">
-          <button type="button" on:click={cancelPromptDialog}>Cancel</button>
-          <button class="primary" type="submit">Continue</button>
-        </div>
-      </form>
-	  </Modal>
+  {#await import('./lib/modals/confirm/PromptDialogModal.svelte') then PromptDialogModal}
+    <svelte:component this={PromptDialogModal.default}
+      {promptDialog}
+      {updatePromptValue}
+      {submitPromptDialog}
+      {cancelPromptDialog}
+    />
+  {/await}
 {/if}
 
 {#if gitNotFoundMessage}
@@ -12532,70 +12501,40 @@
 {/if}
 
 {#if generatedGrpcurlCommand}
-  <Modal labelledBy="grpcurl-code-title" onClose={closeGrpcurlCommand} dialogClass="prompt-dialog code-generator-dialog">
-      <header>
-        <h2 id="grpcurl-code-title">Generate grpcurl Command</h2>
-        <button type="button" class="icon-button" title="Close" on:click={closeGrpcurlCommand}>x</button>
-      </header>
-      <pre class="generated-code" aria-label="Generated grpcurl command">{generatedGrpcurlCommand}</pre>
-      <div class="button-row">
-        <button type="button" on:click={closeGrpcurlCommand}>Close</button>
-        <button class="primary" type="button" on:click={copyGrpcurlCommand}>Copy</button>
-      </div>
-  </Modal>
+  {#await import('./lib/modals/codegen/GrpcurlCommandModal.svelte') then GrpcurlCommandModal}
+    <svelte:component this={GrpcurlCommandModal.default}
+      {generatedGrpcurlCommand}
+      {copyGrpcurlCommand}
+      {closeGrpcurlCommand}
+    />
+  {/await}
 {/if}
 
 {#if requestCodeTarget}
-  <Modal labelledBy="request-code-title" onClose={closeRequestCode} dialogClass="prompt-dialog code-generator-dialog">
-      <header>
-        <h2 id="request-code-title">Generate Code</h2>
-        <button type="button" class="icon-button" title="Close" on:click={closeRequestCode}>x</button>
-      </header>
-      <div class="field-grid code-generator-controls">
-        <span class="field-label">Language</span>
-        <select
-          aria-label="Request code language"
-          data-testid="request-code-language"
-          value={requestCodeLanguage}
-          on:change={(event) => changeRequestCodeLanguage(event.currentTarget.value)}
-        >
-          <option value="curl">cURL</option>
-          <option value="fetch">JavaScript fetch</option>
-        </select>
-      </div>
-      <pre class="generated-code" aria-label="Generated request code">{requestGeneratedCode}</pre>
-      <div class="button-row">
-        <button type="button" on:click={closeRequestCode}>Close</button>
-        <button class="primary" type="button" on:click={copyRequestCode} disabled={!requestGeneratedCode}>Copy</button>
-      </div>
-  </Modal>
+  {#await import('./lib/modals/codegen/RequestCodeModal.svelte') then RequestCodeModal}
+    <svelte:component this={RequestCodeModal.default}
+      {requestCodeLanguage}
+      {requestGeneratedCode}
+      {changeRequestCodeLanguage}
+      {copyRequestCode}
+      {closeRequestCode}
+    />
+  {/await}
 {/if}
 
 {#if generatingResponseExampleID && activeRequest}
   {@const generatedExample = (activeRequest.examples ?? []).find((example) => responseExampleIdentifier(example) === generatingResponseExampleID)}
   {#if generatedExample}
-    <Modal labelledBy="response-example-code-title" onClose={closeResponseExampleCode} dialogClass="prompt-dialog code-generator-dialog">
-        <header>
-          <h2 id="response-example-code-title">Generate Code - {generatedExample.name}</h2>
-          <button type="button" class="icon-button" title="Close" on:click={closeResponseExampleCode}>x</button>
-        </header>
-        <div class="field-grid code-generator-controls">
-          <span class="field-label">Language</span>
-          <select
-            aria-label="Response example code language"
-            value={responseExampleCodeLanguage}
-            on:change={(event) => changeResponseExampleCodeLanguage(generatedExample, event.currentTarget.value)}
-          >
-            <option value="curl">cURL</option>
-            <option value="fetch">JavaScript fetch</option>
-          </select>
-        </div>
-        <pre class="generated-code" aria-label="Generated response example code">{responseExampleGeneratedCode}</pre>
-        <div class="button-row">
-          <button type="button" on:click={closeResponseExampleCode}>Close</button>
-          <button class="primary" type="button" on:click={copyResponseExampleCode} disabled={!responseExampleGeneratedCode}>Copy</button>
-        </div>
-    </Modal>
+  {#await import('./lib/modals/codegen/ResponseExampleCodeModal.svelte') then ResponseExampleCodeModal}
+    <svelte:component this={ResponseExampleCodeModal.default}
+      {generatedExample}
+      {responseExampleCodeLanguage}
+      {responseExampleGeneratedCode}
+      {changeResponseExampleCodeLanguage}
+      {copyResponseExampleCode}
+      {closeResponseExampleCode}
+    />
+  {/await}
   {/if}
 {/if}
 
