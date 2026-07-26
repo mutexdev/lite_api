@@ -18,6 +18,7 @@
   import { filterCommands } from './lib/commandPalette'
   import { memoized, KeyedMemo, type Memo } from './lib/memo'
   import { computeWindow } from './lib/virtualList'
+  import { workspaceStore } from './lib/stores/workspaceStore.svelte'
   import {
     keyBindingSections,
     keyBindingPresets,
@@ -384,7 +385,11 @@
 	    grantType: string
 	  }
 
-	  let appState = $state<main.AppState | null>(null)
+  // US-026. The state now lives in workspaceStore so components can read it
+  // without being handed pieces of it as props. This alias keeps every read in
+  // this file unchanged; assignments go to the store, and because a $derived
+  // cannot be assigned to, the compiler finds any that were missed.
+  const appState = $derived(workspaceStore.appState)
   let activeView = $state<View>('request')
   let requestPaneTab = $state<RequestPaneTab>('params')
   let responseTab = $state<ResponseTab>('response')
@@ -1203,7 +1208,7 @@
     const itemId = entry.itemId
     if (!collectionId || !itemId || !historyEntryStillExists(entry)) return
     await runAction('open history request', async () => {
-      appState = await OpenRequestTab(collectionId, itemId)
+      workspaceStore.appState = await OpenRequestTab(collectionId, itemId)
       activeView = 'request'
     })
   }
@@ -1211,7 +1216,7 @@
   async function saveHistoryEntryToCollection(entry: main.HistoryEntry) {
     if (!historySaveTargetID) return
     await runAction('save history request', async () => {
-      appState = await CreateRequestFromHistory(historySaveTargetID, entry.id)
+      workspaceStore.appState = await CreateRequestFromHistory(historySaveTargetID, entry.id)
     })
   }
 
@@ -2248,24 +2253,24 @@
         if (!environment || info.index < 0) throw new Error(`Global variable ${info.name} was not found`)
         const vars = [...(environment.variables ?? [])]
         vars[info.index] = { ...vars[info.index], value }
-        appState = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, environment.id, vars)
+        workspaceStore.appState = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, environment.id, vars)
       } else if (info.source === 'collection') {
         if (info.index < 0) throw new Error(`Collection variable ${info.name} was not found`)
         const vars = [...(activeCollection.variables ?? [])]
         vars[info.index] = { ...vars[info.index], value }
-        appState = await UpdateCollectionVariables(activeCollection.id, vars)
+        workspaceStore.appState = await UpdateCollectionVariables(activeCollection.id, vars)
       } else if (info.source === 'environment') {
         const environment = activeCollection.environments?.find((candidate) => candidate.id === info.environmentId)
         if (!environment || info.index < 0) throw new Error(`Environment variable ${info.name} was not found`)
         const vars = [...(environment.variables ?? [])]
         vars[info.index] = { ...vars[info.index], value }
-        appState = await UpdateEnvironmentVariables(activeCollection.id, environment.id, vars)
+        workspaceStore.appState = await UpdateEnvironmentVariables(activeCollection.id, environment.id, vars)
       } else if (info.source === 'path') {
         if (info.index < 0) throw new Error(`Path parameter ${info.name} was not found`)
         const pathParams = [...(activeRequest.pathParams ?? [])]
         pathParams[info.index] = { ...pathParams[info.index], value, enabled: true }
-        appState = await UpdateRequest(activeCollection.id, activeRequest.id, { pathParams } as unknown as main.RequestPatch)
-        appState = await SaveRequest(activeCollection.id, activeRequest.id)
+        workspaceStore.appState = await UpdateRequest(activeCollection.id, activeRequest.id, { pathParams } as unknown as main.RequestPatch)
+        workspaceStore.appState = await SaveRequest(activeCollection.id, activeRequest.id)
       } else if (info.source === 'request' || info.source === 'missing') {
         const req = [...(activeRequest.vars?.req ?? [])]
         if (info.source === 'request' && info.index >= 0) {
@@ -2275,8 +2280,8 @@
         }
         const collectionId = activeCollection.id
         const requestId = activeRequest.id
-        appState = await UpdateRequest(collectionId, requestId, { vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as main.RequestPatch)
-        appState = await SaveRequest(collectionId, requestId)
+        workspaceStore.appState = await UpdateRequest(collectionId, requestId, { vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as main.RequestPatch)
+        workspaceStore.appState = await SaveRequest(collectionId, requestId)
       }
       editingVariableTooltip = ''
       variableTooltipDraft = ''
@@ -2288,7 +2293,7 @@
     loading = true
     loadingStatus = 'Opening workspace'
     await runAction('load', async () => {
-      appState = await GetState()
+      workspaceStore.appState = await GetState()
 	    workbenchStorageScope = await GetWebStorageScope()
 	    restoreWorkbenchLayout()
       loadingStatus = 'Checking recovery'
@@ -2296,7 +2301,7 @@
       loadingStatus = 'Measuring local cache'
       await refreshFileCacheSize()
       loadingStatus = 'Preparing workbench'
-      applyDevToolsShellPreferences(appState.preferences?.devTools)
+      applyDevToolsShellPreferences(appState?.preferences?.devTools)
       if (devToolsOpen) await refreshDevToolsSnapshot()
       selectedEnvironmentId = activeCollection?.environments?.[0]?.id ?? ''
     })
@@ -2317,7 +2322,7 @@
     recoveryBusyEntryID = entry.id
     let restored = false
     await runAction('restore recovery entry', async () => {
-      appState = await RestoreRecoveryEntry(entry.id)
+      workspaceStore.appState = await RestoreRecoveryEntry(entry.id)
       restored = true
       await refreshRecoveryEntries()
     })
@@ -2502,14 +2507,14 @@
   async function createCollection() {
     if (!activeWorkspace) return
     await runAction('create collection', async () => {
-      appState = await CreateCollection(activeWorkspace.id, collectionName, 'yml')
+      workspaceStore.appState = await CreateCollection(activeWorkspace.id, collectionName, 'yml')
     })
   }
 
   async function createRequest() {
     if (!activeCollection) return
     await runAction('create request', async () => {
-      appState = await CreateRequest(activeCollection.id, requestType, requestName)
+      workspaceStore.appState = await CreateRequest(activeCollection.id, requestType, requestName)
       selectedCollectionId = activeCollection.id
       activeView = 'request'
     })
@@ -2518,20 +2523,20 @@
   async function saveRequest() {
     if (!activeCollection || !activeRequest) return
     await runAction('save request', async () => {
-      appState = await SaveRequest(activeCollection.id, activeRequest.id)
+      workspaceStore.appState = await SaveRequest(activeCollection.id, activeRequest.id)
     })
   }
 
   async function saveAllOpenTabs() {
     await runAction('save all tabs', async () => {
-      appState = await SaveAllTabs(activeTab?.collectionId ?? activeCollection?.id ?? '')
+      workspaceStore.appState = await SaveAllTabs(activeTab?.collectionId ?? activeCollection?.id ?? '')
     })
   }
 
   async function saveResponseExample() {
     if (!activeCollection || !activeRequest?.response) return
     await runAction('save response example', async () => {
-      appState = await SaveResponseExample(activeCollection.id, activeRequest.id, '')
+      workspaceStore.appState = await SaveResponseExample(activeCollection.id, activeRequest.id, '')
       responseTab = 'examples'
     })
   }
@@ -2567,7 +2572,7 @@
     const name = createResponseExampleName.trim()
     if (!name) return
     await runAction('create response example', async () => {
-      appState = await CreateResponseExample(activeCollection.id, activeRequest.id, name, createResponseExampleDescription.trim())
+      workspaceStore.appState = await CreateResponseExample(activeCollection.id, activeRequest.id, name, createResponseExampleDescription.trim())
       responseTab = 'examples'
       cancelCreateResponseExample()
     })
@@ -2648,7 +2653,7 @@
     const name = responseExampleNameDraft.trim()
     if (!name) return
     await runAction('rename response example', async () => {
-      appState = await RenameResponseExample(activeCollection.id, activeRequest.id, responseExampleIdentifier(example), name)
+      workspaceStore.appState = await RenameResponseExample(activeCollection.id, activeRequest.id, responseExampleIdentifier(example), name)
       editingResponseExampleID = ''
       responseExampleNameDraft = ''
       responseTab = 'examples'
@@ -2658,7 +2663,7 @@
   async function cloneResponseExample(example: main.ResponseExample) {
     if (!activeCollection || !activeRequest) return
     await runAction('clone response example', async () => {
-      appState = await CloneResponseExample(activeCollection.id, activeRequest.id, responseExampleIdentifier(example))
+      workspaceStore.appState = await CloneResponseExample(activeCollection.id, activeRequest.id, responseExampleIdentifier(example))
       responseTab = 'examples'
       deletingResponseExampleID = ''
     })
@@ -2673,7 +2678,7 @@
     if (!activeCollection || !activeRequest) return
     const id = responseExampleIdentifier(example)
     await runAction('delete response example', async () => {
-      appState = await DeleteResponseExample(activeCollection.id, activeRequest.id, id)
+      workspaceStore.appState = await DeleteResponseExample(activeCollection.id, activeRequest.id, id)
       deletingResponseExampleID = ''
       if (editingResponseExampleDetailsID === id) editingResponseExampleDetailsID = ''
       const { [id]: _deleted, ...remainingDrafts } = responseExampleDrafts
@@ -3161,7 +3166,7 @@
     const draft = responseExampleDrafts[id]
     if (!draft) return
     await runAction('update response example', async () => {
-      appState = await UpdateResponseExample(activeCollection.id, activeRequest.id, id, draft)
+      workspaceStore.appState = await UpdateResponseExample(activeCollection.id, activeRequest.id, id, draft)
       editingResponseExampleDetailsID = ''
       const { [id]: _saved, ...remainingDrafts } = responseExampleDrafts
       responseExampleDrafts = remainingDrafts
@@ -3296,7 +3301,7 @@
     const promptValues = await promptValuesForGrpcStreamMessage(null)
     if (promptValues === null) return
     await runAction('start gRPC stream', async () => {
-      appState = Object.keys(promptValues).length > 0
+      workspaceStore.appState = Object.keys(promptValues).length > 0
         ? await ConnectGRPCStreamWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, promptValues)
         : await ConnectGRPCStream(activeCollection.id, activeRequest.id, selectedEnvironmentId)
       activeView = 'request'
@@ -3307,7 +3312,7 @@
   async function endActiveGrpcStream() {
     if (!activeCollection || !activeRequest) return
     await runAction('end gRPC stream', async () => {
-      appState = await EndGRPCStream(activeCollection.id, activeRequest.id)
+      workspaceStore.appState = await EndGRPCStream(activeCollection.id, activeRequest.id)
       activeView = 'request'
       responseTab = 'response'
     })
@@ -3316,7 +3321,7 @@
   async function cancelActiveGrpcStream() {
     if (!activeCollection || !activeRequest) return
     await runAction('cancel gRPC stream', async () => {
-      appState = await CancelGRPCStream(activeCollection.id, activeRequest.id)
+      workspaceStore.appState = await CancelGRPCStream(activeCollection.id, activeRequest.id)
       activeView = 'request'
       responseTab = 'response'
     })
@@ -3329,15 +3334,15 @@
     await runAction('send gRPC stream message', async () => {
       const hasPromptValues = Object.keys(promptValues).length > 0
       try {
-        appState = hasPromptValues
+        workspaceStore.appState = hasPromptValues
           ? await SendGRPCStreamMessageWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, index, promptValues)
           : await SendGRPCStreamMessage(activeCollection.id, activeRequest.id, selectedEnvironmentId, index)
       } catch (err) {
         if (!String(err).includes('gRPC stream is not connected')) throw err
-        appState = hasPromptValues
+        workspaceStore.appState = hasPromptValues
           ? await ConnectGRPCStreamWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, promptValues)
           : await ConnectGRPCStream(activeCollection.id, activeRequest.id, selectedEnvironmentId)
-        appState = hasPromptValues
+        workspaceStore.appState = hasPromptValues
           ? await SendGRPCStreamMessageWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, index, promptValues)
           : await SendGRPCStreamMessage(activeCollection.id, activeRequest.id, selectedEnvironmentId, index)
       }
@@ -3381,7 +3386,7 @@
     if (promptValues === null) return
     resetLiveSessionLog(activeCollection.id, activeRequest.id)
     await runAction('connect WebSocket', async () => {
-      appState = Object.keys(promptValues).length > 0
+      workspaceStore.appState = Object.keys(promptValues).length > 0
         ? await ConnectWebSocketWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, promptValues)
         : await ConnectWebSocket(activeCollection.id, activeRequest.id, selectedEnvironmentId)
       activeView = 'request'
@@ -3392,7 +3397,7 @@
   async function disconnectActiveWebSocket() {
     if (!activeCollection || !activeRequest) return
     await runAction('disconnect WebSocket', async () => {
-      appState = await DisconnectWebSocket(activeCollection.id, activeRequest.id)
+      workspaceStore.appState = await DisconnectWebSocket(activeCollection.id, activeRequest.id)
       activeView = 'request'
       responseTab = 'response'
     })
@@ -3405,15 +3410,15 @@
     await runAction('send WebSocket message', async () => {
       const hasPromptValues = Object.keys(promptValues).length > 0
       try {
-        appState = hasPromptValues
+        workspaceStore.appState = hasPromptValues
           ? await SendWebSocketMessageWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, index, promptValues)
           : await SendWebSocketMessage(activeCollection.id, activeRequest.id, selectedEnvironmentId, index)
       } catch (err) {
         if (!String(err).includes('WebSocket is not connected')) throw err
-        appState = hasPromptValues
+        workspaceStore.appState = hasPromptValues
           ? await ConnectWebSocketWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, promptValues)
           : await ConnectWebSocket(activeCollection.id, activeRequest.id, selectedEnvironmentId)
-        appState = hasPromptValues
+        workspaceStore.appState = hasPromptValues
           ? await SendWebSocketMessageWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, index, promptValues)
           : await SendWebSocketMessage(activeCollection.id, activeRequest.id, selectedEnvironmentId, index)
       }
@@ -3449,10 +3454,10 @@
         httpCancellationRequested = false
       }
       try {
-        appState = promptValues
+        workspaceStore.appState = promptValues
           ? await SendRequestWithPromptValues(collectionId, requestId, environmentId, promptValues)
           : await SendRequest(collectionId, requestId, environmentId)
-        if (appState.activeTabId === tabId) {
+        if (appState?.activeTabId === tabId) {
           activeView = 'request'
           responseTab = 'response'
         }
@@ -3587,7 +3592,7 @@
           iterations: normalizedRunnerIterations(runnerIterations),
           dataFile: runnerDataFile
         } as main.RunnerOptions)
-        appState = completedRunState
+        workspaceStore.appState = completedRunState
         if (activeView === viewAtStart && activeCollection?.id === collection.id) activeView = 'runner'
       } finally {
         if (activeCollectionRun?.collectionId === collection.id) {
@@ -3619,7 +3624,7 @@
   async function createEnvironment() {
     if (!activeCollection) return
     await runAction('create environment', async () => {
-      appState = await CreateEnvironment(activeCollection.id, environmentName)
+      workspaceStore.appState = await CreateEnvironment(activeCollection.id, environmentName)
       selectedEnvironmentId = activeCollection?.environments?.at(-1)?.id ?? selectedEnvironmentId
       environmentVariableTab = 'variables'
       activeView = 'environments'
@@ -3629,7 +3634,7 @@
   async function createGlobalEnvironment() {
     if (!activeWorkspace) return
     await runAction('create global environment', async () => {
-      appState = await CreateGlobalEnvironment(activeWorkspace.id, globalEnvironmentName)
+      workspaceStore.appState = await CreateGlobalEnvironment(activeWorkspace.id, globalEnvironmentName)
       globalEnvironmentVariableTab = 'variables'
       activeView = 'environments'
     })
@@ -3637,7 +3642,7 @@
 
   async function setActiveGlobalEnvironment(environmentId: string) {
     if (!activeWorkspace) return
-    appState = await SetActiveGlobalEnvironment(activeWorkspace.id, environmentId)
+    workspaceStore.appState = await SetActiveGlobalEnvironment(activeWorkspace.id, environmentId)
   }
 
   async function setActiveWorkspace(workspaceId: string) {
@@ -3645,7 +3650,7 @@
     await runAction('switch workspace', async () => {
       const nextState = await SetActiveWorkspace(workspaceId)
       const workspace = nextState.workspaces?.find((candidate) => candidate.id === workspaceId)
-      appState = nextState
+      workspaceStore.appState = nextState
       selectedCollectionId = workspace?.collections?.[0]?.id ?? ''
       selectedEnvironmentId = workspace?.collections?.[0]?.environments?.[0]?.id ?? ''
     })
@@ -3750,7 +3755,7 @@
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     const name = field === 'name' ? value : selectedGlobalEnvironment.name
     const color = field === 'color' ? value : selectedGlobalEnvironment.color
-    appState = await UpdateGlobalEnvironment(activeWorkspace.id, selectedGlobalEnvironment.id, name, color)
+    workspaceStore.appState = await UpdateGlobalEnvironment(activeWorkspace.id, selectedGlobalEnvironment.id, name, color)
   }
 
   function dotEnvFileKey(file: Pick<main.DotEnvFile, 'scope' | 'name'>) {
@@ -4077,7 +4082,7 @@
       await runAction('apply import', async () => {
 	        const result = await ApplyCollectionImport({ workspaceId: importDestinationWorkspaceID, destinationRoot: importDestinationRoot, sources: importSources, selections: importReadyRows.map(importSelectionFor), translatePostmanScripts: importTranslatePostmanScripts } as main.CollectionImportApplyRequest)
         importApplyResult = result
-	        appState = result.state
+	        workspaceStore.appState = result.state
         const completed = new Set([...(result.applied ?? []), ...(result.skipped ?? [])].map((row) => row.candidateId))
 	        importDecisions = Object.fromEntries(Object.entries(importDecisions).map(([id, decision]) => [id, completed.has(id) ? { ...decision, selected: false } : decision]))
         importStatus = `${result.applied?.length ?? 0} imported, ${result.skipped?.length ?? 0} skipped, ${result.errors?.length ?? 0} errors`
@@ -4138,7 +4143,7 @@
 	    const sourceUrl = openAPISyncSettingsSourceURL.trim()
 	    const groupBy = existing?.groupBy || openAPISyncGroupBy || 'tag'
 	    await runAction('save OpenAPI sync settings', async () => {
-	      appState = await UpdateOpenAPISyncConfig(collectionId, {
+	      workspaceStore.appState = await UpdateOpenAPISyncConfig(collectionId, {
 	        sourceUrl,
 	        groupBy,
 	        lastSyncDate: existing?.lastSyncDate,
@@ -4193,7 +4198,7 @@
 	    try {
 	      const result = await RefreshChangedCollections()
 	      if (result.changed) {
-	        appState = result.state
+	        workspaceStore.appState = result.state
 	      }
 	    } catch {
 	      // Collection files can be briefly unreadable while external editors are writing them.
@@ -4325,7 +4330,7 @@
     if (resetIds.length + restoreIds.length + deleteIds.length === 0) return
     const collectionId = activeCollection.id
     await runAction('apply OpenAPI collection changes', async () => {
-      appState = await ApplyOpenAPILocalDrift(collectionId, {
+      workspaceStore.appState = await ApplyOpenAPILocalDrift(collectionId, {
         resetIds,
         restoreIds,
         deleteIds
@@ -4353,7 +4358,7 @@
   async function connectOpenAPISync() {
     if (!activeCollection) return
     await runAction('connect OpenAPI sync', async () => {
-      appState = await ConnectOpenAPISync(activeCollection.id, openAPISyncOptions())
+      workspaceStore.appState = await ConnectOpenAPISync(activeCollection.id, openAPISyncOptions())
       openAPISyncResult = await CheckOpenAPISync(activeCollection.id, openAPISyncOptions())
       reconcileOpenAPISyncEndpointDecisions(openAPISyncResult)
       openAPILocalDriftResult = undefined
@@ -4371,7 +4376,7 @@
 	  async function applyOpenAPISync() {
 	    if (!activeCollection) return
 	    await runAction('apply OpenAPI sync', async () => {
-	      appState = await ApplyOpenAPISync(activeCollection.id, openAPISyncOptions())
+	      workspaceStore.appState = await ApplyOpenAPISync(activeCollection.id, openAPISyncOptions())
 	      openAPISyncResult = await CheckOpenAPISync(activeCollection.id, openAPISyncOptions())
       reconcileOpenAPISyncEndpointDecisions(openAPISyncResult)
 	      openAPILocalDriftResult = undefined
@@ -4441,7 +4446,7 @@
 		  async function disconnectOpenAPISync() {
 		    if (!activeCollection) return
 		    await runAction('disconnect OpenAPI sync', async () => {
-		      appState = await DisconnectOpenAPISync(activeCollection.id)
+		      workspaceStore.appState = await DisconnectOpenAPISync(activeCollection.id)
 	      openAPISyncResult = undefined
 	      openAPISyncSourceURL = ''
 	      openAPISyncContent = ''
@@ -4459,8 +4464,8 @@
   async function openCollection() {
     if (!activeWorkspace) return
     await runAction('open collection', async () => {
-      appState = await OpenCollection(activeWorkspace.id, openCollectionPath)
-      selectedCollectionId = appState.workspaces?.find((workspace) => workspace.id === activeWorkspace.id)?.collections?.at(-1)?.id ?? selectedCollectionId
+      workspaceStore.appState = await OpenCollection(activeWorkspace.id, openCollectionPath)
+      selectedCollectionId = appState?.workspaces?.find((workspace) => workspace.id === activeWorkspace.id)?.collections?.at(-1)?.id ?? selectedCollectionId
       activeView = 'request'
     })
   }
@@ -4468,13 +4473,13 @@
   async function refreshCollection() {
     if (!activeCollection) return
     await runAction('refresh collection', async () => {
-      appState = await RefreshCollection(activeCollection.id)
+      workspaceStore.appState = await RefreshCollection(activeCollection.id)
     })
   }
 
   async function resetDemoData() {
     await runAction('reset demo data', async () => {
-      appState = await ResetDemoData()
+      workspaceStore.appState = await ResetDemoData()
       selectedEnvironmentId = activeCollection?.environments?.[0]?.id ?? ''
       activeView = 'request'
     })
@@ -4482,35 +4487,35 @@
 
   async function deleteCookie(cookieId: string) {
     await runAction('delete cookie', async () => {
-      appState = await DeleteCookie(cookieId)
+      workspaceStore.appState = await DeleteCookie(cookieId)
       if (cookieForm.id === cookieId) cookieForm = emptyCookieForm()
     })
   }
 
   async function clearCookies() {
     await runAction('clear cookies', async () => {
-      appState = await ClearCookies()
+      workspaceStore.appState = await ClearCookies()
       cookieForm = emptyCookieForm()
     })
   }
 
   async function clearDomainCookies(domain: string) {
     await runAction('clear domain cookies', async () => {
-      appState = await ClearDomainCookies(domain)
+      workspaceStore.appState = await ClearDomainCookies(domain)
       if (cookieForm.domain.toLowerCase() === domain.toLowerCase()) cookieForm = emptyCookieForm()
     })
   }
 
   async function saveCookieForm() {
     await runAction('save cookie', async () => {
-      appState = await SaveCookie(cookieForm as unknown as main.CookieInput)
+      workspaceStore.appState = await SaveCookie(cookieForm as unknown as main.CookieInput)
       cookieForm = emptyCookieForm()
     })
   }
 
   async function importRawCookie() {
     await runAction('import cookie', async () => {
-      appState = await AddCookieFromHeader(rawCookieHeader, rawCookieURL)
+      workspaceStore.appState = await AddCookieFromHeader(rawCookieHeader, rawCookieURL)
     })
   }
 
@@ -4668,7 +4673,7 @@
     let discarded = false
     await runAction('discard changes', async () => {
       for (const request of dialog.affected) {
-        appState = await DiscardRequestDraft(request.collectionId, request.requestId)
+        workspaceStore.appState = await DiscardRequestDraft(request.collectionId, request.requestId)
       }
       discarded = true
     })
@@ -4689,7 +4694,7 @@
     let saved = false
     await runAction('save and close', async () => {
       for (const request of dialog.affected) {
-        appState = await SaveRequest(request.collectionId, request.requestId)
+        workspaceStore.appState = await SaveRequest(request.collectionId, request.requestId)
       }
       saved = true
     })
@@ -4721,7 +4726,7 @@
     if (!tabID || !(appState?.openTabs ?? []).some((tab) => tab.id === tabID)) return
     await runAction('close tab', async () => {
       const nextState = await CloseTab(tabID)
-      appState = nextState
+      workspaceStore.appState = nextState
       const nextTab = nextState.openTabs?.find((tab) => tab.id === nextState.activeTabId)
       selectedCollectionId = nextTab?.collectionId ?? selectedCollectionId
       activeView = 'request'
@@ -4735,7 +4740,7 @@
 
   async function closeAllOpenTabsDirect() {
     await runAction('close all tabs', async () => {
-      appState = await CloseAllTabs()
+      workspaceStore.appState = await CloseAllTabs()
       activeView = 'request'
     })
   }
@@ -4747,7 +4752,7 @@
   async function reopenLastClosedTab() {
     await runAction('reopen last closed tab', async () => {
       const nextState = await ReopenLastClosedTab(activeTab?.collectionId ?? '')
-      appState = nextState
+      workspaceStore.appState = nextState
       const nextTab = nextState.openTabs?.find((tab) => tab.id === nextState.activeTabId)
       selectedCollectionId = nextTab?.collectionId ?? selectedCollectionId
       activeView = 'request'
@@ -4766,7 +4771,7 @@
 
   async function openRequestTab(collectionId: string, itemId: string) {
     await runAction('open request', async () => {
-      appState = await OpenRequestTab(collectionId, itemId)
+      workspaceStore.appState = await OpenRequestTab(collectionId, itemId)
       selectedCollectionId = collectionId
       activeView = 'request'
     })
@@ -4782,7 +4787,7 @@
 
   async function openResponseExampleTabFor(collectionId: string, itemId: string, example: main.ResponseExample) {
     await runAction('open response example', async () => {
-      appState = await OpenResponseExampleTab(collectionId, itemId, responseExampleIdentifier(example))
+      workspaceStore.appState = await OpenResponseExampleTab(collectionId, itemId, responseExampleIdentifier(example))
       selectedCollectionId = collectionId
       activeView = 'request'
       responseTab = 'examples'
@@ -4797,7 +4802,7 @@
   async function connectGitRemote() {
     if (!activeCollection) return
     await runAction('connect git remote', async () => {
-      appState = await ConnectCollectionGitRemote(activeCollection.id, gitRemoteURL)
+      workspaceStore.appState = await ConnectCollectionGitRemote(activeCollection.id, gitRemoteURL)
       selectedCollectionId = activeCollection.id
     })
   }
@@ -4805,7 +4810,7 @@
   async function disconnectGitRemote(collectionId = activeCollection?.id ?? '') {
     if (!collectionId) return
     await runAction('remove git remote', async () => {
-      appState = await DisconnectCollectionGitRemote(collectionId)
+      workspaceStore.appState = await DisconnectCollectionGitRemote(collectionId)
       if (selectedCollectionId === collectionId) selectedCollectionId = ''
     })
   }
@@ -4882,7 +4887,7 @@
     if (!renameCollectionTarget || renameCollectionDraft === '') return
     const collectionID = renameCollectionTarget.id
     await runAction('rename collection', async () => {
-      appState = await RenameCollection(collectionID, renameCollectionDraft)
+      workspaceStore.appState = await RenameCollection(collectionID, renameCollectionDraft)
       selectedCollectionId = collectionID
       renameCollectionTarget = undefined
       renameCollectionDraft = ''
@@ -4930,7 +4935,7 @@
       const cloned = nextState.workspaces
         .flatMap((workspace) => workspace.collections ?? [])
         .find((collection) => !previousIDs.has(collection.id))
-      appState = nextState
+      workspaceStore.appState = nextState
       selectedCollectionId = cloned?.id ?? sourceID
       selectedFolderPath = ''
       cancelCloneCollectionModal()
@@ -5052,7 +5057,7 @@
         .flatMap((workspace) => workspace.collections ?? [])
         .find((collection) => collection.id === collectionID)
       const createdFolder = (nextCollection?.folders ?? []).find((folder) => folder.path === expectedPath)
-      appState = nextState
+      workspaceStore.appState = nextState
       selectedCollectionId = collectionID
       selectedFolderPath = createdFolder?.path ?? expectedPath
       collectionTab = 'folders'
@@ -5114,7 +5119,7 @@
         .flatMap((workspace) => workspace.collections ?? [])
         .find((collection) => collection.id === collectionID)
       const renamedFolder = (nextCollection?.folders ?? []).find((folder) => folder.displayPath === expectedDisplayPath)
-      appState = nextState
+      workspaceStore.appState = nextState
       selectedCollectionId = collectionID
       selectedFolderPath = renamedFolder?.path ?? sourcePath
       collectionTab = 'folders'
@@ -5167,7 +5172,7 @@
     const sourcePath = cloneFolderTarget.folder.path
     await runAction('clone folder', async () => {
       const nextState = await CloneFolder(collectionID, sourcePath, cloneFolderNameDraft, cloneFolderDirectoryDraft)
-      appState = nextState
+      workspaceStore.appState = nextState
       selectedCollectionId = collectionID
       cancelCloneFolderModal()
     })
@@ -5214,7 +5219,7 @@
     const requestID = cloneRequestTarget.request.id
     await runAction('clone request', async () => {
       const nextState = await CloneRequest(collectionID, requestID, cloneRequestNameDraft, cloneRequestFilenameDraft)
-      appState = nextState
+      workspaceStore.appState = nextState
       selectedCollectionId = collectionID
       activeView = 'request'
       cancelCloneRequestModal()
@@ -5268,7 +5273,7 @@
     const requestID = renameRequestTarget.request.id
     await runAction('rename request', async () => {
       const nextState = await RenameRequest(collectionID, requestID, renameRequestNameDraft, renameRequestFilenameDraft)
-      appState = nextState
+      workspaceStore.appState = nextState
       selectedCollectionId = collectionID
       activeView = 'request'
       cancelRenameRequestModal()
@@ -5291,10 +5296,10 @@
     const requestID = deleteRequestTarget.request.id
     await runAction('delete request', async () => {
       if (requestDeletionAction(deleteRequestTarget!.request) === 'discard-draft') {
-        appState = await DiscardRequestDraft(collectionID, requestID)
+        workspaceStore.appState = await DiscardRequestDraft(collectionID, requestID)
       } else {
         const result = await DeleteRequestRecoverable(collectionID, requestID)
-        appState = result.state
+        workspaceStore.appState = result.state
         await refreshRecoveryEntries()
       }
       selectedCollectionId = collectionID
@@ -5325,7 +5330,7 @@
       const nextCollection = nextState.workspaces
         .flatMap((workspace) => workspace.collections ?? [])
         .find((collection) => collection.id === collectionID)
-      appState = nextState
+      workspaceStore.appState = nextState
       await refreshRecoveryEntries()
       selectedCollectionId = collectionID
       if (slashPathHasPrefix(selectedFolderPath, sourcePath)) {
@@ -5351,7 +5356,7 @@
     const collectionID = removeCollectionTarget.id
     await runAction('remove collection', async () => {
       const result = await RemoveCollectionRecoverable(collectionID)
-      appState = result.state
+      workspaceStore.appState = result.state
       await refreshRecoveryEntries()
       if (selectedCollectionId === collectionID) selectedCollectionId = ''
       removeCollectionTarget = undefined
@@ -5691,8 +5696,8 @@
   async function openSelectedGitCollections() {
     if (!activeWorkspace) return
     await runAction('open git collections', async () => {
-      appState = await OpenGitCollections(activeWorkspace.id, selectedGitCollectionPaths, gitCloneURL)
-      selectedCollectionId = appState.workspaces
+      workspaceStore.appState = await OpenGitCollections(activeWorkspace.id, selectedGitCollectionPaths, gitCloneURL)
+      selectedCollectionId = appState?.workspaces
         ?.find((workspace) => workspace.id === activeWorkspace.id)
         ?.collections?.find((collection) => selectedGitCollectionPaths.includes(collection.path))?.id ?? selectedCollectionId
       activeView = 'request'
@@ -5716,19 +5721,19 @@
   async function applyNarrow(merge: (current: main.AppState, held: number) => MergeOutcome): Promise<void> {
     if (!appState) {
       // Nothing to patch onto. Only reachable before the boot fetch has landed.
-      appState = await GetState()
+      workspaceStore.appState = await GetState()
       return
     }
     const outcome = merge(appState, appState.revision ?? 0)
     if (outcome.kind === 'applied') {
-      appState = outcome.state
+      workspaceStore.appState = outcome.state
       return
     }
     // Not silent. A refetch means something mutated appState behind our back, and
     // while recovery is automatic, a run of these is a real signal that some
     // mutator still needs migrating.
     console.warn(`[US-014] refetching full appState: ${outcome.reason}`)
-    appState = await GetState()
+    workspaceStore.appState = await GetState()
   }
 
   // US-035. The keystroke path. US-014 made each round trip 511x smaller
@@ -5761,7 +5766,7 @@
   // detection and make the next real result look like a missed update.
   function applyOptimisticPatch(collectionId: string, itemId: string, patch: main.RequestPatch) {
     if (!appState) return
-    appState = {
+    workspaceStore.appState = {
       ...appState,
       workspaces: appState.workspaces.map((workspace) => ({
         ...workspace,
@@ -6145,20 +6150,20 @@
     if (!activeCollection) return
     const vars = [...(activeCollection.variables ?? [])]
     vars[index] = { ...vars[index], [field]: value }
-    appState = await UpdateCollectionVariables(activeCollection.id, vars)
+    workspaceStore.appState = await UpdateCollectionVariables(activeCollection.id, vars)
   }
 
   async function addCollectionVariable() {
     if (!activeCollection) return
     const vars = [...(activeCollection.variables ?? []), { id: `ui-var-${Date.now()}`, name: '', value: '', type: 'text', dataType: 'string', enabled: true, secret: false }]
-    appState = await UpdateCollectionVariables(activeCollection.id, vars)
+    workspaceStore.appState = await UpdateCollectionVariables(activeCollection.id, vars)
   }
 
   async function updateEnvironmentVariable(index: number, field: keyof main.Variable, value: string | boolean) {
     if (!activeCollection || !selectedEnvironment) return
     const vars = [...(selectedEnvironment.variables ?? [])]
     vars[index] = field === 'dataType' ? { ...vars[index], dataType: String(value), type: String(value) } : { ...vars[index], [field]: value }
-    appState = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
+    workspaceStore.appState = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
   }
 
   async function addEnvironmentVariable() {
@@ -6167,21 +6172,21 @@
       ...(selectedEnvironment.variables ?? []),
       { id: `ui-env-var-${Date.now()}`, name: '', value: '', type: 'text', dataType: 'string', enabled: true, secret: environmentVariableTab === 'secrets' }
     ]
-    appState = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
+    workspaceStore.appState = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
   }
 
   async function removeEnvironmentVariable(index: number) {
     if (!activeCollection || !selectedEnvironment) return
     const vars = [...(selectedEnvironment.variables ?? [])]
     vars.splice(index, 1)
-    appState = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
+    workspaceStore.appState = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
   }
 
   async function updateGlobalEnvironmentVariable(index: number, field: keyof main.Variable, value: string | boolean) {
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     const vars = [...(selectedGlobalEnvironment.variables ?? [])]
     vars[index] = field === 'dataType' ? { ...vars[index], dataType: String(value), type: String(value) } : { ...vars[index], [field]: value }
-    appState = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
+    workspaceStore.appState = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
   }
 
   async function addGlobalEnvironmentVariable() {
@@ -6190,20 +6195,20 @@
       ...(selectedGlobalEnvironment.variables ?? []),
       { id: `ui-global-env-var-${Date.now()}`, name: '', value: '', type: 'text', dataType: 'string', enabled: true, secret: globalEnvironmentVariableTab === 'secrets' }
     ]
-    appState = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
+    workspaceStore.appState = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
   }
 
   async function removeGlobalEnvironmentVariable(index: number) {
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     const vars = [...(selectedGlobalEnvironment.variables ?? [])]
     vars.splice(index, 1)
-    appState = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
+    workspaceStore.appState = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
   }
 
   async function deleteGlobalEnvironment() {
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     await runAction('delete global environment', async () => {
-      appState = await DeleteGlobalEnvironment(activeWorkspace.id, selectedGlobalEnvironment.id)
+      workspaceStore.appState = await DeleteGlobalEnvironment(activeWorkspace.id, selectedGlobalEnvironment.id)
     })
   }
 
@@ -6211,7 +6216,7 @@
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     await runAction('copy global environment', async () => {
       const copyName = globalEnvironmentCopyName.trim()
-      appState = copyName
+      workspaceStore.appState = copyName
         ? await CopyGlobalEnvironmentAs(activeWorkspace.id, selectedGlobalEnvironment.id, copyName)
         : await CopyGlobalEnvironment(activeWorkspace.id, selectedGlobalEnvironment.id)
       globalEnvironmentCopyName = ''
@@ -6256,7 +6261,7 @@
   async function importGlobalEnvironment() {
     if (!activeWorkspace || !globalEnvironmentPayload.trim()) return
     await runAction('import global environment', async () => {
-      appState = await ImportGlobalEnvironment(activeWorkspace.id, globalEnvironmentPayload)
+      workspaceStore.appState = await ImportGlobalEnvironment(activeWorkspace.id, globalEnvironmentPayload)
     })
   }
 
@@ -6264,25 +6269,25 @@
     if (!activeCollection) return
     const headers = [...(activeCollection.headers ?? [])]
     headers[index] = { ...headers[index], [field]: value }
-    appState = await UpdateCollectionHeaders(activeCollection.id, headers)
+    workspaceStore.appState = await UpdateCollectionHeaders(activeCollection.id, headers)
   }
 
   async function addCollectionHeader() {
     if (!activeCollection) return
     const headers = [...(activeCollection.headers ?? []), { name: '', value: '', enabled: true, secret: false, description: '' }]
-    appState = await UpdateCollectionHeaders(activeCollection.id, headers)
+    workspaceStore.appState = await UpdateCollectionHeaders(activeCollection.id, headers)
   }
 
   async function removeCollectionHeader(index: number) {
     if (!activeCollection) return
     const headers = [...(activeCollection.headers ?? [])]
     headers.splice(index, 1)
-    appState = await UpdateCollectionHeaders(activeCollection.id, headers)
+    workspaceStore.appState = await UpdateCollectionHeaders(activeCollection.id, headers)
   }
 
   async function updateCollectionAuth(updates: Partial<main.AuthConfig>) {
     if (!activeCollection) return
-    appState = await UpdateCollectionAuth(activeCollection.id, authWithOAuth2Defaults(activeCollection.auth, updates))
+    workspaceStore.appState = await UpdateCollectionAuth(activeCollection.id, authWithOAuth2Defaults(activeCollection.auth, updates))
   }
 
   function isProxyConfigUnset(proxy: main.ProxyConfig | undefined) {
@@ -6328,7 +6333,7 @@
 
   async function updateCollectionProxy(updates: Partial<main.ProxyConfig>) {
     if (!activeCollection) return
-    appState = await UpdateCollectionProxy(activeCollection.id, normalizedCollectionProxy(updates))
+    workspaceStore.appState = await UpdateCollectionProxy(activeCollection.id, normalizedCollectionProxy(updates))
   }
 
   async function updateCollectionProxyMode(mode: string) {
@@ -6347,7 +6352,7 @@
 
   async function updateCollectionSandboxMode(mode: JSSandboxMode) {
     if (!activeCollection || collectionSandboxMode(activeCollection) === mode) return
-    appState = await UpdateCollectionSecurityConfig(activeCollection.id, { jsSandboxMode: mode } as main.CollectionSecurityConfig)
+    workspaceStore.appState = await UpdateCollectionSecurityConfig(activeCollection.id, { jsSandboxMode: mode } as main.CollectionSecurityConfig)
   }
 
   async function updateCollectionProxyAuth(updates: Partial<main.ProxyAuthConfig>) {
@@ -6417,7 +6422,7 @@
       proxy,
       proxyMode: preferenceProxyModeValue(proxy)
     } as main.Preferences
-    appState = await UpdatePreferences(preferences)
+    workspaceStore.appState = await UpdatePreferences(preferences)
   }
 
   async function updatePreferencesProxyMode(mode: string) {
@@ -6444,7 +6449,7 @@
 
   async function updateAppearancePreferences(updates: Partial<main.Preferences>) {
     if (!appState) return
-    appState = await UpdatePreferences({
+    workspaceStore.appState = await UpdatePreferences({
       ...appState.preferences,
       ...updates
     } as main.Preferences)
@@ -6464,7 +6469,7 @@
 
   async function setResponsePaneOrientation(orientation: ResponsePaneOrientation) {
     if (!appState) return
-    appState = await UpdatePreferences({
+    workspaceStore.appState = await UpdatePreferences({
       ...appState.preferences,
       layout: {
         ...(appState.preferences.layout ?? {}),
@@ -6479,7 +6484,7 @@
 
   async function setZoomPercentage(percentage: number) {
     if (!appState) return
-    appState = await UpdatePreferences({
+    workspaceStore.appState = await UpdatePreferences({
       ...appState.preferences,
       display: {
         ...(appState.preferences.display ?? {}),
@@ -6503,7 +6508,7 @@
       ...updates
     } as main.FontPreferences
     const nextSize = normalizedCodeFontSize(nextFont.codeFontSize ?? appState.preferences.codeFontSize)
-    appState = await UpdatePreferences({
+    workspaceStore.appState = await UpdatePreferences({
       ...appState.preferences,
       font: {
         ...nextFont,
@@ -6541,7 +6546,7 @@
         sendCookies: updates.sendCookies ?? current.sendCookies ?? true,
         timeout: normalizedRequestTimeout(updates.timeout ?? current.timeout)
       } as main.RequestPreferences
-      appState = await UpdatePreferences({
+      workspaceStore.appState = await UpdatePreferences({
         ...appState.preferences,
         request: next,
         storeCookies: next.storeCookies ?? true
@@ -6578,7 +6583,7 @@
       ...(appState.preferences.general ?? {}),
       ...updates
     } as main.GeneralPreferences
-    appState = await UpdatePreferences({
+    workspaceStore.appState = await UpdatePreferences({
       ...appState.preferences,
       general: next,
       defaultCollectionPath: next.defaultLocation ?? ''
@@ -6602,7 +6607,7 @@
       enabled: updates.enabled ?? current.enabled ?? appState.preferences.autosave ?? false,
       interval: normalizedAutoSaveInterval(updates.interval ?? current.interval)
     } as main.AutoSavePreferences
-    appState = await UpdatePreferences({
+    workspaceStore.appState = await UpdatePreferences({
       ...appState.preferences,
       autoSave: next,
       autosave: next.enabled
@@ -6616,7 +6621,7 @@
 
   async function updateSSLSessionCache(enabled: boolean) {
     if (!appState) return
-    appState = await UpdatePreferences({
+    workspaceStore.appState = await UpdatePreferences({
       ...appState.preferences,
       cache: {
         ...(appState.preferences.cache ?? {}),
@@ -6624,12 +6629,12 @@
       } as main.CachePreferences
     } as main.Preferences)
     if (!enabled) {
-      appState = await ClearSSLSessionCache()
+      workspaceStore.appState = await ClearSSLSessionCache()
     }
   }
 
   async function clearSSLSessionCache() {
-    appState = await ClearSSLSessionCache()
+    workspaceStore.appState = await ClearSSLSessionCache()
   }
 
   async function refreshFileCacheSize() {
@@ -6642,7 +6647,7 @@
 
   async function updateFileCache(enabled: boolean) {
     if (!appState) return
-    appState = await UpdatePreferences({
+    workspaceStore.appState = await UpdatePreferences({
       ...appState.preferences,
       cache: {
         ...(appState.preferences.cache ?? {}),
@@ -6683,7 +6688,7 @@
       clearAutoSaveTimer()
       if (!target) return
       try {
-        appState = await SaveRequest(target.collectionId, target.requestId)
+        workspaceStore.appState = await SaveRequest(target.collectionId, target.requestId)
       } catch (err) {
         error = err instanceof Error ? err.message : String(err)
       }
@@ -7002,7 +7007,7 @@
     devToolsDrawerHeight = normalizedDevToolsDrawerHeight(next.drawerHeight)
     devToolsDetailsPanelWidth = normalizedDevToolsDetailsPanelWidth(next.detailsPanelWidth)
     if (!appState) return
-    appState = await UpdatePreferences({
+    workspaceStore.appState = await UpdatePreferences({
       ...appState.preferences,
       devTools: next
     } as main.Preferences)
@@ -7048,17 +7053,17 @@
         rows[index].pfxFilePath = ''
       }
     }
-    appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
+    workspaceStore.appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
   }
 
   async function updateCollectionPresets(updates: Partial<main.CollectionPresets>) {
     if (!activeCollection) return
-    appState = await UpdateCollectionPresets(activeCollection.id, { ...(activeCollection.presets ?? {}), ...updates } as main.CollectionPresets)
+    workspaceStore.appState = await UpdateCollectionPresets(activeCollection.id, { ...(activeCollection.presets ?? {}), ...updates } as main.CollectionPresets)
   }
 
   async function updateCollectionProtobuf(protobuf: main.CollectionProtobufConfig) {
     if (!activeCollection) return
-    appState = await UpdateCollectionProtobuf(activeCollection.id, protobuf)
+    workspaceStore.appState = await UpdateCollectionProtobuf(activeCollection.id, protobuf)
   }
 
   function collectionProtobufConfig() {
@@ -7075,14 +7080,14 @@
       ...(activeCollection.clientCertificates ?? []),
       { domain: '', type: 'cert', certFilePath: '', keyFilePath: '', pfxFilePath: '', passphrase: '' } as main.ClientCertificateConfig
     ]
-    appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
+    workspaceStore.appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
   }
 
   async function removeCollectionClientCertificate(index: number) {
     if (!activeCollection) return
     const rows = [...(activeCollection.clientCertificates ?? [])]
     rows.splice(index, 1)
-    appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
+    workspaceStore.appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
   }
 
   async function updateCollectionProtoFile(index: number, field: keyof main.CollectionProtoFile, value: string) {
@@ -7167,12 +7172,12 @@
 
   async function updateCollectionDocs(value: string) {
     if (!activeCollection) return
-    appState = await UpdateCollectionDocs(activeCollection.id, value)
+    workspaceStore.appState = await UpdateCollectionDocs(activeCollection.id, value)
   }
 
   async function updateCollectionScript(field: 'preScript' | 'postScript' | 'tests', value: string) {
     if (!activeCollection) return
-    appState = await UpdateCollectionScripts(
+    workspaceStore.appState = await UpdateCollectionScripts(
       activeCollection.id,
       field === 'preScript' ? value : activeCollection.preScript,
       field === 'postScript' ? value : activeCollection.postScript,
@@ -7219,7 +7224,7 @@
     folderSettingsSaveQueue = folderSettingsSaveQueue
       .catch(() => {})
       .then(async () => {
-        appState = await UpdateFolderSettings(activeCollection.id, targetPath, nextFolder)
+        workspaceStore.appState = await UpdateFolderSettings(activeCollection.id, targetPath, nextFolder)
         selectedFolderPath = nextFolder.path
         folderSettingDrafts = { ...folderSettingDrafts, [nextFolder.path]: nextFolder }
       })
@@ -7405,7 +7410,7 @@
     devToolsNetworkColumnWidths = payload.columnWidths
     devToolsNetworkPreferencesKey = JSON.stringify(payload)
     if (!appState) return
-    appState = await UpdatePreferences({
+    workspaceStore.appState = await UpdatePreferences({
       ...appState.preferences,
       devTools: {
         ...(appState.preferences.devTools ?? {}),
@@ -8266,7 +8271,7 @@
   async function selectNotification(notification: main.Notification) {
     selectedNotificationID = notification.id
     if (!notification.read) {
-      appState = await MarkNotificationRead(notification.id)
+      workspaceStore.appState = await MarkNotificationRead(notification.id)
     }
   }
 
@@ -8285,14 +8290,14 @@
 
   async function markAllNotificationsRead() {
     await runAction('mark notifications read', async () => {
-      appState = await MarkAllNotificationsRead()
+      workspaceStore.appState = await MarkAllNotificationsRead()
       if (notificationTab === 'unread') pinnedUnreadNotificationIDs = null
     })
   }
 
   async function clearNotifications() {
     await runAction('clear notifications', async () => {
-      appState = await ClearNotifications()
+      workspaceStore.appState = await ClearNotifications()
       selectedNotificationID = ''
       pinnedUnreadNotificationIDs = null
     })

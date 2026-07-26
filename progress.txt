@@ -2577,3 +2577,40 @@ US-026 - Store layer. PARTIAL. The first store is built and tested; the two
 
   Gates: svelte-check 205/0/0, eslint 0, npm test 223/223 (+13), vite build
   succeeds, go test 40.6s 0.
+
+US-026 continued - appState moved into workspaceStore. DONE.
+  lib/stores/workspaceStore.svelte.ts owns the AppState the whole app reads.
+  App.svelte keeps `const appState = $derived(workspaceStore.appState)`, so its
+  ~170 READ sites are untouched; all 122 ASSIGNMENT sites now target the store.
+
+  THIS MIGRATION HAD A PROPERTY THE SVELTE ONES DID NOT: a missed assignment is
+  a HARD COMPILE ERROR, because you cannot assign to a $derived. The negative
+  control (reverting one site to the local alias) produces "Cannot assign to
+  'appState' because it is a constant". After four silent-corruption defects in
+  the runes work, having the compiler enumerate every site was the whole reason
+  to structure it this way rather than rewriting reads too.
+
+  TWO THINGS THE MOVE SURFACED:
+
+  1. My assignment regex rewrote the ALIAS DECLARATION itself - I inserted
+     `const appState = $derived(...)` before running the rewrite, and it
+     contains `appState =`. Produced `const workspaceStore.appState = ...` and
+     a 53-error implicit-any cascade from the broken declaration. Order of
+     operations, caught immediately.
+
+  2. TYPE NARROWING NO LONGER FLOWS. Four sites read `appState.x` directly
+     after assigning, and TypeScript used to narrow the local to non-null from
+     that assignment. The assignment now targets the store and the read goes
+     through the alias, so it cannot. Made optional, matching what the rest of
+     the file already does; all four sit immediately after a successful binding
+     call, so the value cannot actually be null.
+
+  Still not done for this story: collapsing WorkspaceCommandBar's 22 props and
+  KeyValueTable's 33. The foundation is now in place - components CAN read the
+  store - but the command bar's props derive from App.svelte's selection logic
+  (activeWorkspace/activeCollection/activeRequest and the tab state behind
+  them), which has to move next for the collapse to be real rather than a
+  second copy.
+
+  Gates: svelte-check 205/0/0, eslint 0, npm test 223/223, vite build succeeds
+  (initial chunk 417,731 B), go test 39.5s 0.
