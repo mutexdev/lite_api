@@ -7750,3 +7750,63 @@ US-026 - Store layer. DONE. Both named collapses complete.
   tools/extraction/control.sh, which I had not applied here.
 
   Verified today: Go 188 == App.d.ts 188 == App.js 188, name sets identical.
+
+=== FRONTEND COVERAGE SWEEP + full -race ===
+
+  Full `go test -count=1 -race ./...`: 27 packages, 0 races. Not run across all
+  packages this session before now; the plan lists it as verification step 3.
+
+  Frontend coverage measured with node --experimental-test-coverage:
+  99.71% lines / 98.36% functions before, 99.84% / 98.37% after. The only module
+  below 95% was requestScanning.ts at 92.11% lines — 98.25% now, and every
+  uncovered range there was a REAL scan path:
+
+    multipart part filePath/contentType    a {{env}}.json filename is ordinary,
+                                           and unscanned it uploads a file
+                                           literally named "{{env}}.json"
+    file body rows                         both shapes reach the wire
+    websocket / grpc message fields        a literal token over a socket has no
+                                           status code to notice it
+    the malformed-URL fallback             a URL the constructor rejects still
+                                           has a path the user typed into
+
+  9 tests. Suite 736 -> 745.
+
+  !!! I READ AN EMPTY RESULT AS A BUG AND IT WAS MY TEST !!!
+
+  My first version called variableNamesForRequest for the message and array
+  cases and got []. I wrote that up as "WebSocket and gRPC message variables
+  return nothing — that is the module's stated failure mode." THAT WAS WRONG.
+  Lines 147-180 belong to collectPromptNames, a DIFFERENT and larger scanner:
+  variableNamesForRequest reads the request's own fields for {{name}};
+  collectPromptNames walks collection, folders, environment and messages for
+  {{?name}} only. The module's header says exactly this in its first paragraph.
+  The scanner was right; the test asked the wrong thing. Rewritten against
+  collectPromptNames, and the reason recorded in the test file.
+
+  THREE CONTROLS THEN FAILED 0, and each was a different answer:
+
+    scan(body.filePath)      NOT redundant, though it looks it. fileBodyRows
+                             synthesises a row from those two fields for the
+                             single-file shape — but when files[] is ALSO
+                             populated it returns only the array, and a filePath
+                             left over from an earlier single-file body goes
+                             unscanned. Test added for that exact shape; the
+                             control now fails 1.
+    the malformed-URL catch  my URL "{{base}}/users/:id?x=1" PARSES FINE once
+                             http:// is prepended, so the catch never ran.
+                             Replaced with "http://[bad/:id" and "://:id",
+                             which genuinely throw. Control now fails 1.
+    the Array.isArray branch GENUINELY REDUNDANT. Object.values on an array
+                             returns its elements, so the object branch below
+                             handles arrays identically. NO TEST CAN
+                             DISTINGUISH IT. Kept — it says what it means and
+                             avoids materialising a values array for what is
+                             usually the largest structure here — but the
+                             comment now says it is a fast path and that no
+                             test covers it, rather than leaving it looking
+                             load-bearing.
+
+  That last one is the second time this session a guard turned out to change no
+  answer. The first (filter(Boolean) on example names) was deleted. This one is
+  kept and labelled, because unlike that one it earns its place on cost.

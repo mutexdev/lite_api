@@ -143,6 +143,12 @@ export function collectPromptNames(
       scanText(value)
       return
     }
+    // This branch is a FAST PATH, not a correctness requirement, and no test
+    // can distinguish it: Object.values on an array returns its elements, so
+    // removing it leaves arrays handled identically by the object branch below.
+    // Kept because it says what it means and skips building an intermediate
+    // array of values for what is usually the largest structure here — a
+    // deserialised JSON body.
     if (Array.isArray(value)) {
       value.forEach(scanObject)
       return

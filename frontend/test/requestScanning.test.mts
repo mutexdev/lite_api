@@ -293,3 +293,124 @@ test('the rows follow the order of the URL', () => {
   const next = syncPathParamsForURL('https://api.test/:a/:b', current)
   assert.deepEqual(next.map((row) => [row.name, row.value]), [['a', '1'], ['b', '2']])
 })
+
+// The uncovered branches below are exactly the failure this module's header
+// describes: a field that goes unscanned means the user is never prompted, and
+// the request goes out with a literal {{variable}} in it. Each of these fields
+// is one a real request can carry.
+
+// A multipart part's FILENAME and CONTENT TYPE are as templatable as its value —
+// {{env}}.json is an ordinary thing to type — and an unscanned one uploads a
+// file literally named "{{env}}.json".
+test('a variable in any multipart field is found', () => {
+  const request = {
+    body: {
+      mode: 'multipartForm',
+      multipart: [
+        { name: '{{fieldName}}', value: '{{fieldValue}}', filePath: '{{dir}}/a.json', contentType: 'application/{{fmt}}', enabled: true }
+      ]
+    }
+  } as types.RequestItem
+  const found = variableNamesForRequest(request)
+  for (const name of ['fieldName', 'fieldValue', 'dir', 'fmt']) {
+    assert.ok(found.includes(name), `${name} was not scanned`)
+  }
+})
+
+// A disabled part is not sent, so prompting for its variables would ask the user
+// for a value that goes nowhere.
+test('a disabled multipart part is not scanned', () => {
+  const request = {
+    body: { mode: 'multipartForm', multipart: [{ name: '{{skipped}}', enabled: false }] }
+  } as types.RequestItem
+  assert.equal(variableNamesForRequest(request).includes('skipped'), false)
+})
+
+// The file body has two shapes — a single filePath/fileContentType pair, and a
+// files[] array. Both reach the wire, so both must be scanned.
+test('a variable in either file-body shape is found', () => {
+  const single = { body: { mode: 'file', filePath: '{{home}}/x.bin', fileContentType: 'application/{{type}}' } } as types.RequestItem
+  const found = variableNamesForRequest(single)
+  assert.ok(found.includes('home'))
+  assert.ok(found.includes('type'))
+
+  const many = {
+    body: { mode: 'file', files: [{ filePath: '{{a}}.bin', contentType: 'text/{{b}}', selected: true }] }
+  } as types.RequestItem
+  const foundMany = variableNamesForRequest(many)
+  assert.ok(foundMany.includes('a'))
+  assert.ok(foundMany.includes('b'))
+})
+
+// The message and array branches belong to collectPromptNames, NOT to
+// variableNamesForRequest. I first wrote these against the wrong function and
+// read the empty results as a bug in the scanner; the scanner was right and the
+// test was asking the wrong thing. variableNamesForRequest scans the request's
+// own fields for {{name}}; collectPromptNames walks the whole chain —
+// collection, folders, environment, messages — for {{?name}} only.
+
+const emptyCollection = { id: 'c', items: [], folders: [] } as unknown as types.Collection
+
+// A WebSocket message is a payload the user sends. Leaving it unscanned sends
+// the literal token over the socket, where there is no status code to notice.
+test('a prompt in a websocket message is found', () => {
+  const request = {
+    wsMessages: [{ name: '{{?msgName}}', content: '{"t":"{{?token}}"}', selected: true }]
+  } as types.RequestItem
+  const found = collectPromptNames(emptyCollection, request, '', undefined)
+  assert.ok(found.includes('msgName'))
+  assert.ok(found.includes('token'))
+})
+
+// An unselected message is not sent, so prompting for it would block the
+// request on a question about a payload that never leaves.
+test('an unselected websocket message is not scanned for prompts', () => {
+  const request = { wsMessages: [{ name: '{{?skipped}}', selected: false }] } as types.RequestItem
+  assert.equal(collectPromptNames(emptyCollection, request, '', undefined).includes('skipped'), false)
+})
+
+test('a prompt in a grpc message is found', () => {
+  const request = { grpcMessages: [{ name: '{{?rpc}}', content: '{"id":"{{?id}}"}' }] } as types.RequestItem
+  const found = collectPromptNames(emptyCollection, request, '', undefined)
+  assert.ok(found.includes('rpc'))
+  assert.ok(found.includes('id'))
+})
+
+// scanObject recurses into arrays, and auth configs hold them. Without the
+// array branch a prompt inside an array element is invisible — the dialog never
+// asks, and the literal token is sent.
+test('a prompt nested inside an array is found', () => {
+  const request = { auth: { oauth2: { params: [{ value: '{{?nested}}' }] } } } as unknown as types.RequestItem
+  assert.ok(collectPromptNames(emptyCollection, request, '', undefined).includes('nested'))
+})
+
+// A URL too malformed for the URL constructor still has a path the user can see
+// and type parameters into. Falling back to a manual split keeps those
+// addressable instead of silently offering none.
+// The URL must be one the constructor GENUINELY rejects. My first version used
+// "{{base}}/users/:id?x=1", which parses fine once http:// is prepended — the
+// catch never ran, and removing the fallback failed nothing.
+test('path parameters are found in a URL the URL constructor rejects', () => {
+  assert.deepEqual(pathParamNamesFromURL('http://[bad/:id'), ['id'])
+  assert.deepEqual(pathParamNamesFromURL('://:id'), ['id'])
+})
+
+// scan(body.filePath) looks redundant with the fileBodyRows loop below it, and
+// for the single-file shape it is — fileBodyRows synthesises a row from exactly
+// those two fields. It is NOT redundant when files[] is ALSO populated: then
+// fileBodyRows returns only the array, and a filePath left over from an earlier
+// single-file body would go unscanned. A control removing it failed nothing
+// until this case existed.
+test('a leftover single filePath is scanned even when files[] is populated', () => {
+  const request = {
+    body: {
+      mode: 'file',
+      files: [{ filePath: 'a.bin', contentType: 'x', selected: true }],
+      filePath: '{{orphan}}.bin',
+      fileContentType: 'application/{{orphanType}}'
+    }
+  } as types.RequestItem
+  const found = variableNamesForRequest(request)
+  assert.ok(found.includes('orphan'))
+  assert.ok(found.includes('orphanType'))
+})
