@@ -638,3 +638,23 @@ frontend/dist/assets/index-*.css        113609
 # DevTools now: Performance, Console, Terminal extracted. Network remains — the
 # largest tab, with its own nested request-details <section>, which by the same
 # decomposition argument may itself be separable.
+
+# DevTools Network tab — details panel extraction ATTEMPTED AND REVERTED.
+#
+# Network is 8,675 B and does contain a nested
+# <section class="network-details-panel"> of 4,563 B, so the decomposition
+# argument applies. But bounding that section by counting <section>/</section>
+# gave the wrong end: svelte-check reported "</div> attempted to close an
+# element that was not open" in App.svelte and an unexpected block closing tag
+# in the new component, i.e. a Svelte block ({#if}/{#each}) opens inside the
+# section and closes after it.
+#
+# This is the same class of error as the very first panel attempt, which cut
+# through nested blocks by slicing between {:else if} markers. HTML element
+# depth is not sufficient for these bounds. The section end has to be found by
+# tracking BOTH html element nesting AND Svelte block depth, and requiring both
+# to be zero.
+#
+# The remaining US-036 work is therefore:
+#   DevTools Network  — bound the details panel with combined html+block depth
+#   Import            — one deliberate ~39-prop pass, does not decompose
