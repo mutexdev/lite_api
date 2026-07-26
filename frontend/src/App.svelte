@@ -16,7 +16,9 @@
   } from './lib/liveSessionEvents'
   import { applyRequestMutation, applyTabsMutation, type MergeOutcome } from './lib/narrowMutations'
   import { PatchCoalescer } from './lib/patchQueue'
-  import CodeEditor from './lib/workbench/CodeEditor.svelte'
+  // US-036: the lazy wrapper, not CodeEditor itself — importing the real one
+  // here is what pulled all of CodeMirror into the initial chunk.
+  import CodeEditor from './lib/workbench/LazyCodeEditor.svelte'
   import RequestSettingsPanel from './lib/workbench/RequestSettingsPanel.svelte'
   import ProtocolRequestLine from './lib/workbench/ProtocolRequestLine.svelte'
   import WorkspaceCommandBar from './lib/workbench/WorkspaceCommandBar.svelte'

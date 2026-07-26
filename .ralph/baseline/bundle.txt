@@ -16,3 +16,40 @@ frontend/dist/index.html                    370       260
 #   "(!) Some chunks are larger than 500 kB after minification."
 #
 # US-036 target: initial chunk < 500,000 bytes.
+
+
+# ===========================================================================
+# US-036 — after splitting CodeMirror off the cold-launch path
+# ===========================================================================
+# Command: cd frontend && npm run build
+
+file                                     bytes     note
+frontend/dist/assets/index-*.js         533898    initial chunk (was 1159933)
+frontend/dist/assets/codemirror-*.js    623453    deferred; loads on first
+                                                  Body/Script/Tests/Docs open
+frontend/dist/assets/CodeEditor-*.js      9759    deferred
+frontend/dist/assets/CodeEditor-*.css      684    deferred
+frontend/dist/assets/index-*.css        113609
+
+# Initial JS: 1,159,933 -> 533,898 bytes. A 54% reduction, and 623 KB of
+# CodeMirror now never loads for a user who does not open an editor.
+#
+# ---------------------------------------------------------------------------
+# THE <500 KB CRITERION IS NOT MET, AND IS BLOCKED ON US-025.
+#
+# 533,898 is still 33,898 bytes over the story's 500,000-byte target. The
+# remaining chunk is NOT vendor code: frontend/package.json "dependencies"
+# contains ONLY @codemirror/* and codemirror, all of which are now deferred.
+# What is left is App.svelte's own compiled output (~14k lines) plus the Svelte
+# runtime, so there is nothing further to split out by dependency.
+#
+# Getting under 500 KB therefore requires splitting App.svelte itself, which
+# means extracting the DevTools, Runner, Import, Preferences and OpenAPI-sync
+# surfaces into components that can be dynamically imported. That is US-025
+# ("Extract inlined modals from App.svelte"), which has not been done.
+#
+# US-036's own criterion "DevTools, Runner, Import, Preferences, OpenAPI-sync
+# and CodeMirror are dynamically imported" has the same dependency: only
+# CodeMirror is currently a separate component. The story does not state this
+# ordering constraint; it should be run AFTER US-025.
+# ---------------------------------------------------------------------------

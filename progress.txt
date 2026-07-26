@@ -33,7 +33,8 @@ evidence for each story; this file carries the cross-story findings.
                           whole document; a mistake corrupts saved data rather
                           than merely being slow. US-009 must go first.
     US-019                goja runtime pool.
-  NEXT UP, recommended order: US-019, then US-009/010/011 as a deliberate unit.
+  NEXT UP: US-025 (it BLOCKS finishing US-036), then US-019, then
+  US-009/010/011 as a deliberate unit.
   After Phase 1: Phase 2 (US-025..US-037), and US-077 BEFORE Phase 4.
   BROWSER QA — DONE for US-014 and US-021 against the real Wails dev endpoint
     (localhost:34115, which carries the Go bindings; NOT vite's 5173, which does
@@ -54,6 +55,36 @@ evidence for each story; this file carries the cross-story findings.
   SEQUENCING CONSTRAINT:
     US-077 (internal/ layout) MUST land BEFORE Phase 4 (US-060..US-071), or
     all nine package extractions get moved twice.
+
+--- US-036 — split the frontend bundle (PARTIAL — blocked on US-025) ---
+  MEASURED: initial JS 1,159,933 -> 533,898 bytes (54% smaller). CodeMirror
+  (623,453 B across 11 packages) now loads only when a user first opens Body,
+  Script, Tests or Docs.
+
+  Done by a drop-in LazyCodeEditor wrapper that dynamically imports the real
+  CodeEditor and forwards its exact props, so all NINE call sites in App.svelte
+  were left untouched and cannot drift from the component signature. The vite
+  manualChunks entry only SHAPES where the deferred bytes land — it is the
+  dynamic import that moves them off the cold path. A manual chunk alone would
+  still load eagerly, which is worth knowing before anyone "optimises" by
+  adding manualChunks without a dynamic import.
+
+  NOT MET: "initial chunk under 500 KB". 533,898 is 33,898 over.
+  AND IT CANNOT BE MET IN THIS STORY. frontend/package.json "dependencies"
+  contains ONLY @codemirror/* and codemirror — every one now deferred. The
+  remaining chunk is App.svelte's own compiled output (~14k lines) plus the
+  Svelte runtime. There is no dependency left to split.
+
+  Getting under 500 KB requires splitting App.svelte, i.e. extracting the
+  DevTools, Runner, Import, Preferences and OpenAPI-sync surfaces into
+  dynamically importable components — which is US-025. The same blocker applies
+  to US-036's own criterion "DevTools, Runner, Import, Preferences,
+  OpenAPI-sync and CodeMirror are dynamically imported": only CodeMirror is a
+  separate component today.
+  SEQUENCING THE SPEC DOES NOT STATE: US-025 must precede US-036.
+
+  Browser-verified: Body tab mounts the lazy editor, CodeMirror DOM present and
+  focusable, no stuck placeholder, no load error.
 
 --- US-035 — debounce patchRequest with optimistic state (PASSED) ---
   MEASURED in the browser against the real Wails endpoint:
