@@ -6396,3 +6396,37 @@ US-026 - Store layer. DONE. Both named collapses complete.
   have said WHICH inputs, instead of me discovering it from a bug report.
 
   Re-scanned afterwards: no non-shim duplicates remain outside app_shims.go.
+
+=== CROSS-LANGUAGE PARITY — the scanner/sender invariant ===
+
+  The same logic exists in Go and TypeScript for prompt scanning, and I had
+  tested each side separately without ever asserting they AGREE. Compared the
+  two dispatches field by field, then wrote the invariant that actually matters.
+
+  IT IS ONE-DIRECTIONAL, AND ONLY ONE DIRECTION IS A BUG:
+    scanner is a SUPERSET of sender  -> the user is asked for something unused.
+                                        Annoying.
+    scanner is a SUBSET of sender    -> a field goes out with a literal
+                                        {{?name}} in it. The server rejects it,
+                                        or accepts it, and nothing in the UI
+                                        points at the prompt that never came.
+
+  So the property is: EVERY FIELD THE SENDER USES IS A FIELD THE SCANNER
+  VISITS. internal/scripting/prompt_send_parity_test.go states it per body mode
+  with a distinct marker in every field, so a mode added to one switch and not
+  the other fails there rather than in someone's request.
+
+  THE TWO SIDES DIFFER ON DISABLED PARTS, AND IT ERRS SAFE:
+    Go   `if !part.Enabled { continue }`   — absent enabled means FALSE (bool
+                                             zero value), so the part is skipped
+    TS   `if (part.enabled === false)`     — undefined is NOT false, so scanned
+  A part with `enabled` absent is therefore scanned by the frontend and neither
+  scanned nor SENT by Go. That is an extra question, never a missing one. Go's
+  scanner and sender use the identical predicate (`!part.Enabled` against
+  `if part.Enabled`), which is what makes the subset case impossible.
+
+  One control was equivalent: dropping scanText(body.FilePath) and
+  scanText(body.FileContentType) from the file case fails nothing, because
+  FileBodyEntriesOf SYNTHESISES an entry from exactly those two fields for the
+  legacy single-file shape, so the loop below already covers them. Redundant
+  lines, not a test gap.
