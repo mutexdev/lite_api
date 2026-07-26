@@ -1985,3 +1985,50 @@ US-033 - CodeEditor per-keystroke cost. DONE.
 
   Gates: go test 38.7s 0, svelte-check 203/0/0, eslint 0, npm test 171/171
   (+13 documentSize).
+
+US-034 - Memoize derivations. DONE.
+  lib/memo.ts: memoized() single-entry and KeyedMemo bounded multi-key.
+  Applied to:
+    groupedItems      called from the template INSIDE
+                      {#each visibleSidebarCollections}, so it rebuilt every
+                      collection's folder grouping on EVERY render, including
+                      renders caused by something with no bearing on it.
+                      Keyed collection id + revision + query.
+    requestVariableTooltips  a `$:` that re-ran whenever ANY dependency was
+                      invalidated, walking every variable scope to resolve each
+                      name. Keyed request id + revision + environment +
+                      process-env signature.
+
+  The network-log case the story lists (:1082, :1084) turned out to be ALREADY
+  a single composed `$:` at :1157 - filter and sort in one statement. Left
+  alone rather than "fixed" into something equivalent.
+
+  A MEMO'S RISK IS NOT A WRONG ANSWER, IT IS A STALE ONE THAT LOOKS NORMAL. A
+  key missing an input means the sidebar keeps showing the grouping from before
+  the rename, and nothing reports a problem. So the load-bearing question is
+  whether state.revision really moves for everything the grouping reads - and
+  that is a BACKEND fact the frontend is trusting.
+
+  So I tested it in Go: TestRevisionBumpsForEverythingTheSidebarGroupingReads
+  exercises create request, rename, method change, create folder and delete
+  request, and demands the revision move for each. It does. Without that test
+  the memo key is an assumption.
+
+  KeyedMemo is BOUNDED (32) because an unbounded one is a leak: collections
+  come and go as workspaces are switched and every entry retains what it closed
+  over. processEnvTooltipValues gets a content SIGNATURE rather than being used
+  by identity - it is rebuilt as an object, so identity would miss on every
+  render and the memo would never hit.
+
+  DEMONSTRATED, not just argued: dropping the revision from the groupedItems
+  key leaves svelte-check at 204/0/0 and every test passing. The staleness
+  failure is invisible to every gate in this repo, which is exactly why the Go
+  revision test exists.
+
+  KeyedMemo's constructor takes an explicit field assignment rather than a
+  parameter property - node --test runs in strip-only TypeScript mode and
+  rejects those outright, so the tests would not run at all. Same trap as
+  earlier in this session.
+
+  Gates: go test 39.5s 0, vet 0, golangci-lint 0 issues, svelte-check 204/0/0,
+  eslint 0, npm test 181/181 (+10 memo).

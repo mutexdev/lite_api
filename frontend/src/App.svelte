@@ -16,6 +16,7 @@
   } from './lib/liveSessionEvents'
   import { applyRequestMutation, applyTabsMutation, type MergeOutcome } from './lib/narrowMutations'
   import { filterCommands } from './lib/commandPalette'
+  import { memoized, KeyedMemo, type Memo } from './lib/memo'
   import {
     keyBindingSections,
     keyBindingPresets,
@@ -628,6 +629,14 @@
   let bodyTextScrollTop = 0
   let processEnvTooltipKey = ''
 	  let processEnvTooltipValues: Record<string, string> = {}
+  // US-034. processEnvTooltipValues is rebuilt as an object, so its identity
+  // changes even when the contents do not. A signature over the contents is
+  // what keeps the tooltip memo from missing on every render while still
+  // invalidating when a value genuinely changes.
+  $: processEnvTooltipSignature = Object.keys(processEnvTooltipValues)
+    .sort()
+    .map((name) => `${name}=${processEnvTooltipValues[name]}`)
+    .join('|')
 	  let promptDialog: PromptDialogState | null = null
 	  let oauth2AuthorizationRequest: OAuth2AuthorizationBrowserRequest | null = null
 	  let oauth2CallbackURLInput = ''
@@ -1174,9 +1183,25 @@
   $: if (devToolsNetworkRows.length === 0 && selectedDevToolsNetworkLogID) selectedDevToolsNetworkLogID = ''
   $: requestVariableNames = activeRequest ? variableNamesForRequest(activeRequest) : []
   $: requestProcessEnvNames = requestVariableNames.filter((name) => name.startsWith('process.env.'))
-  $: requestVariableTooltips = activeWorkspace && activeCollection && activeRequest
-    ? variableTooltipsForRequest(activeWorkspace, activeCollection, activeRequest, selectedEnvironmentId, processEnvTooltipValues)
-    : []
+  // US-034. This statement re-ran whenever ANY of its dependencies was
+  // invalidated, and it walks every variable scope to resolve each name. Keyed
+  // on the request id, the revision, the environment and the process-env
+  // signature — every input the resolution actually reads. Leaving one out
+  // would return tooltips resolved against the previous environment, which
+  // renders perfectly and is simply wrong.
+  let tooltipMemo: Memo<string, VariableTooltipInfo[]> = null
+  $: requestVariableTooltips = (() => {
+    if (!activeWorkspace || !activeCollection || !activeRequest) return []
+    const workspace = activeWorkspace
+    const collection = activeCollection
+    const request = activeRequest
+    const key = `${request.id}:${state?.revision ?? 0}:${selectedEnvironmentId}:${processEnvTooltipSignature}`
+    const result = memoized(tooltipMemo, key, () =>
+      variableTooltipsForRequest(workspace, collection, request, selectedEnvironmentId, processEnvTooltipValues)
+    )
+    tooltipMemo = result.memo
+    return result.value
+  })()
   $: searchQuery = normalizedSearch(requestSearch)
   $: globalSearchResults = buildGlobalSearchResults(activeWorkspace, globalSearchQuery)
   $: visibleNotifications = notificationsForDisplay(state?.notifications ?? [])
@@ -7699,7 +7724,23 @@
     return 'todo'
   }
 
+  // US-034. Called from the template inside {#each visibleSidebarCollections},
+  // so it rebuilt every collection's folder grouping on EVERY render —
+  // including renders caused by something with no bearing on it at all.
+  //
+  // Keyed on collection id + revision + query. The revision is the one value
+  // the backend bumps on every mutation, so it is what guarantees the key
+  // changes whenever anything the grouping reads has changed. Keying on the
+  // collection object alone would go stale on an in-place edit; keying on its
+  // item count would miss a rename.
+  const groupedItemsMemo = new KeyedMemo<{ folder: string; items: main.RequestItem[] }[]>()
+
   function groupedItems(collection: main.Collection, query = '') {
+    const revision = state?.revision ?? 0
+    return groupedItemsMemo.get(`${collection.id}:${revision}:${query}`, () => computeGroupedItems(collection, query))
+  }
+
+  function computeGroupedItems(collection: main.Collection, query = '') {
     const groups: { folder: string; items: main.RequestItem[] }[] = []
     const indexByFolder = new Map<string, number>()
     const addGroup = (folder: string) => {

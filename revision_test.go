@@ -222,3 +222,107 @@ func TestRevisionIsNotPersisted(t *testing.T) {
 		t.Errorf("state.json carries revision %d; it must be scrubbed by stateForStorage", stored.Revision)
 	}
 }
+
+// TestRevisionBumpsForEverythingTheSidebarGroupingReads is US-034's load-bearing
+// assumption.
+//
+// The frontend memoises the sidebar's folder grouping on collection id +
+// state.revision. If any operation that changes what the grouping shows fails
+// to bump the revision, the memo returns the previous grouping and the sidebar
+// silently keeps showing the state from before the change — a rename that
+// appears not to have happened, with nothing anywhere reporting a problem.
+//
+// So each operation is exercised and the revision demanded to move.
+func TestRevisionBumpsForEverythingTheSidebarGroupingReads(t *testing.T) {
+	app := newAppForTest(t)
+	state, err := app.GetState()
+	if err != nil {
+		t.Fatalf("GetState: %v", err)
+	}
+	collectionID := state.Workspaces[0].Collections[0].ID
+
+	revision := func(t *testing.T) int64 {
+		t.Helper()
+		current, err := app.GetState()
+		if err != nil {
+			t.Fatalf("GetState: %v", err)
+		}
+		return current.Revision
+	}
+
+	findItem := func(t *testing.T, name string) string {
+		t.Helper()
+		current, err := app.GetState()
+		if err != nil {
+			t.Fatalf("GetState: %v", err)
+		}
+		for _, workspace := range current.Workspaces {
+			for _, collection := range workspace.Collections {
+				for _, item := range collection.Items {
+					if item.Name == name {
+						return item.ID
+					}
+				}
+			}
+		}
+		t.Fatalf("request %q not found", name)
+		return ""
+	}
+
+	cases := []struct {
+		name string
+		run  func(t *testing.T)
+	}{
+		{"create a request", func(t *testing.T) {
+			if _, err := app.CreateRequest(collectionID, "http", "grouping probe"); err != nil {
+				t.Fatalf("CreateRequest: %v", err)
+			}
+		}},
+		{"rename a request", func(t *testing.T) {
+			id := findItem(t, "grouping probe")
+			renamed := "grouping probe renamed"
+			if _, err := app.UpdateRequest(collectionID, id, RequestPatch{Name: &renamed}); err != nil {
+				t.Fatalf("UpdateRequest: %v", err)
+			}
+		}},
+		{"change a request's method", func(t *testing.T) {
+			id := findItem(t, "grouping probe renamed")
+			method := "POST"
+			if _, err := app.UpdateRequest(collectionID, id, RequestPatch{Method: &method}); err != nil {
+				t.Fatalf("UpdateRequest: %v", err)
+			}
+		}},
+		{"create a folder", func(t *testing.T) {
+			if _, err := app.CreateFolder(collectionID, "", "Grouping Folder", ""); err != nil {
+				t.Fatalf("CreateFolder: %v", err)
+			}
+		}},
+		{"delete a request", func(t *testing.T) {
+			id := findItem(t, "grouping probe renamed")
+			// Saved first: DeleteRequest removes the file, and an unsaved draft
+			// has none. That is a fixture detail, not part of what is being
+			// measured.
+			if _, err := app.SaveRequest(collectionID, id); err != nil {
+				t.Fatalf("SaveRequest: %v", err)
+			}
+			before := revision(t)
+			if _, err := app.DeleteRequest(collectionID, id); err != nil {
+				t.Fatalf("DeleteRequest: %v", err)
+			}
+			if revision(t) <= before {
+				t.Error("deleting a request did not bump the revision")
+			}
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			before := revision(t)
+			tc.run(t)
+			after := revision(t)
+			if after <= before {
+				t.Errorf("revision stayed at %d; the sidebar grouping memo would keep showing the state from before this change", before)
+			}
+		})
+	}
+}
