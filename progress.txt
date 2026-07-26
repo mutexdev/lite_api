@@ -4871,3 +4871,37 @@ US-026 - Store layer. DONE. Both named collapses complete.
   expectJSONBody 80, expectMatchesJSONSchema 82, expectContains 84 — and the
   two that carried real bugs, expectProperty and expectContains, are at 92 and
   84 with both directions pinned.
+
+--- expectArray and the object/array boundary: DOUBLY guarded, and that matters
+    for how the controls read ---
+
+  The distinction these draw is the one JavaScript makes hardest: an array IS an
+  object to typeof, so `.to.be.an('object')` must exclude arrays or every array
+  assertion in a suite also passes as an object, and a response-shape check
+  stops discriminating between [] and {}.
+
+  Both are CORRECT. Two tests pin the behaviour: Array.isArray semantics
+  (array-LIKE is not an array; a string is not an array) and the object branch
+  excluding arrays, functions, null and primitives.
+
+  !!! BUT NO SINGLE CONTROL COULD MOVE THE BEHAVIOUR, AND THAT IS THE FINDING !!!
+
+  Removing the expectArray guard    -> 0 failing
+  Adding Slice to the Kind check    -> 0 failing
+  Removing the function guard       -> 0 failing
+  Removing BOTH array guards        -> 1 failing
+
+  The two mechanisms are mutually redundant: expectArray catches arrays, and the
+  reflect.Kind switch independently excludes slices. Either alone is sufficient,
+  so breaking one leaves the other doing the work.
+
+  I nearly wrote this up as "the guard is untested". It is not — the BEHAVIOUR
+  is covered, and the last control proves it. What is true is weaker and more
+  precise: no test distinguishes WHICH guard enforces it, because in the current
+  code either would do. That is a fact about the code's redundancy, not a gap in
+  the tests, and reporting it the other way would have sent someone hunting for
+  a hole that is not there.
+
+  This is the second redundancy the controls surfaced today, after the
+  []interface{} fast path in expectContains. Both are worth knowing before
+  someone "simplifies" one away believing it load-bearing.

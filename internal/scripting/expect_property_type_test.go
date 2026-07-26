@@ -99,3 +99,59 @@ func TestExpectTypeCoversTheJavaScriptTypes(t *testing.T) {
 		}
 	}
 }
+
+// expectArray and the object/array boundary in expectType, the two lowest
+// remaining in the family.
+//
+// The distinction they draw is the one JavaScript makes hardest: an array IS an
+// object to typeof, so `.to.be.an('object')` must exclude arrays or every array
+// assertion in a suite also passes as an object, and a response shape check
+// stops discriminating between [] and {}.
+func TestExpectArrayUsesArrayIsArray(t *testing.T) {
+	vm := goja.New()
+	mk := func(src string) goja.Value {
+		v, err := vm.RunString(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+
+	for src, want := range map[string]bool{
+		`[]`:             true,
+		`[1, 2, 3]`:      true,
+		`new Array(3)`:   true,
+		`({})`:           false,
+		`({length: 3})`:  false, // array-LIKE is not an array
+		`"abc"`:          false, // indexable, still not an array
+		`null`:           false,
+		`undefined`:      false,
+		`(function(){})`: false,
+	} {
+		if got := expectArray(vm, mk(src)); got != want {
+			t.Errorf("expectArray(%s) = %v, want %v", src, got, want)
+		}
+	}
+}
+
+// The boundary itself: arrays and functions are objects to typeof, and treating
+// them as such here would make `.to.be.an('object')` accept both.
+func TestExpectTypeObjectExcludesArraysFunctionsAndNull(t *testing.T) {
+	vm := goja.New()
+	mk := func(src string) goja.Value {
+		v, err := vm.RunString(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+
+	if !expectType(vm, mk(`({a: 1})`), "object") {
+		t.Error("a plain object must be an object")
+	}
+	for _, src := range []string{`[]`, `[1,2]`, `(function(){})`, `null`, `undefined`, `"s"`, `1`, `true`} {
+		if expectType(vm, mk(src), "object") {
+			t.Errorf("%s was accepted as an object; the check would stop discriminating response shapes", src)
+		}
+	}
+}
