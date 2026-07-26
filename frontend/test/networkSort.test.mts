@@ -2,7 +2,16 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { nextNetworkSort, networkSortLabel, networkSortAriaValue } from '../src/lib/networkSort.ts'
+import {
+  nextNetworkSort,
+  networkSortLabel,
+  networkSortAriaValue,
+  normalizedNetworkMethod,
+  networkDomain,
+  networkPath,
+  networkLogTimestamp,
+  sortNetworkRows
+} from '../src/lib/networkSort.ts'
 
 // The third state is the point. Without it there is no way back to the log's
 // natural chronological order, which is what makes a request sequence readable.
@@ -66,5 +75,93 @@ test('the label and the aria value agree except on the unsorted spelling', () =>
         }
       }
     }
+  }
+})
+
+const row = (o: Record<string, unknown>) => ({ url: 'https://api.test/x', ...o }) as never
+
+test('an absent method reads as GET, the HTTP default', () => {
+  assert.equal(normalizedNetworkMethod(row({})), 'GET')
+  assert.equal(normalizedNetworkMethod(row({ method: 'post' })), 'POST')
+})
+
+// The request happened; showing what was attempted beats a blank cell.
+test('a malformed url still yields a domain and path', () => {
+  assert.equal(networkDomain(row({ url: 'not a url' })), 'not a url')
+  assert.equal(networkPath(row({ url: 'not a url' })), 'not a url')
+  assert.equal(networkDomain(row({ url: '' })), '-', 'a dash reads as empty-on-purpose')
+  assert.equal(networkPath(row({ url: '' })), '-')
+})
+
+test('domain and path split a real url', () => {
+  assert.equal(networkDomain(row({ url: 'https://api.test:8080/v1/users?a=1' })), 'api.test:8080')
+  assert.equal(networkPath(row({ url: 'https://api.test/v1/users?a=1' })), '/v1/users?a=1')
+  assert.equal(networkPath(row({ url: 'https://api.test' })), '/', 'a bare host still has a path')
+})
+
+// Two rows to one path with different parameters are different requests, and a
+// table rendering them identically is useless for what the log is opened for.
+test('the path keeps its query string', () => {
+  assert.notEqual(
+    networkPath(row({ url: 'https://api.test/search?q=a' })),
+    networkPath(row({ url: 'https://api.test/search?q=b' }))
+  )
+})
+
+test('an unusable timestamp sorts as zero', () => {
+  assert.equal(networkLogTimestamp(row({ at: '' })), 0)
+  assert.equal(networkLogTimestamp(row({ at: 'rubbish' })), 0)
+  assert.equal(networkLogTimestamp(row({})), 0)
+  assert.ok(networkLogTimestamp(row({ at: '2030-01-01T00:00:00Z' })) > 0)
+})
+
+// Comparing a status as a string puts 404 before 5 — the one ordering a status
+// column must never produce.
+test('numeric columns compare numerically, not lexically', () => {
+  const rows = [row({ status: 404 }), row({ status: 5 }), row({ status: 200 })]
+  assert.deepEqual(sortNetworkRows(rows, 'status', 'asc').map((r) => r.status), [5, 200, 404])
+  assert.deepEqual(sortNetworkRows(rows, 'duration', 'asc').map((r) => r.durationMs ?? 0), [0, 0, 0])
+
+  const durations = [row({ durationMs: 1000 }), row({ durationMs: 9 })]
+  assert.deepEqual(sortNetworkRows(durations, 'duration', 'asc').map((r) => r.durationMs), [9, 1000])
+})
+
+test('text columns compare by locale', () => {
+  const rows = [row({ url: 'https://z.test/a' }), row({ url: 'https://a.test/a' })]
+  assert.deepEqual(sortNetworkRows(rows, 'domain', 'asc').map((r) => networkDomain(r)), ['a.test', 'z.test'])
+})
+
+test('descending reverses the order', () => {
+  const rows = [row({ status: 200 }), row({ status: 500 })]
+  assert.deepEqual(sortNetworkRows(rows, 'status', 'desc').map((r) => r.status), [500, 200])
+})
+
+// The off state exists to show the log in arrival order, so it must not
+// re-sort — and returning the same array is how the caller can tell.
+test('sorting off returns the rows untouched', () => {
+  const rows = [row({ status: 500 }), row({ status: 200 })]
+  assert.equal(sortNetworkRows(rows, '', ''), rows, 'the same array, not a sorted copy')
+  assert.equal(sortNetworkRows(rows, 'status', ''), rows)
+  assert.deepEqual(sortNetworkRows(rows, '', 'asc').map((r) => r.status), [500, 200])
+})
+
+// Sorting in place would reorder the live log under the table.
+test('sorting does not mutate the input', () => {
+  const rows = [row({ status: 500 }), row({ status: 200 })]
+  sortNetworkRows(rows, 'status', 'asc')
+  assert.deepEqual(rows.map((r) => r.status), [500, 200])
+})
+
+// Each numeric column needs its own case: a missing value falls out of the
+// `typeof === 'number'` branch into string comparison, which still produces a
+// deterministic — and wrong — order. Testing one column proves nothing about
+// the others, which a control demonstrated by leaving `status` unguarded and
+// failing nothing.
+test('a missing numeric field sorts as zero rather than breaking the comparator', () => {
+  for (const key of ['size', 'status', 'duration'] as const) {
+    const field = key === 'duration' ? 'durationMs' : key
+    const rows = [row({ [field]: 10 }), row({}), row({ [field]: 5 })]
+    const sorted = sortNetworkRows(rows, key, 'asc').map((r) => (r as never as Record<string, number>)[field] ?? 0)
+    assert.deepEqual(sorted, [0, 5, 10], key)
   }
 })

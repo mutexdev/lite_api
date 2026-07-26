@@ -21,7 +21,12 @@
   import {
     networkSortAriaValue as devToolsNetworkSortAriaValue,
     networkSortLabel as devToolsNetworkSortLabel,
-    nextNetworkSort
+    nextNetworkSort,
+    networkDomain as devToolsNetworkDomain,
+    networkLogTimestamp,
+    networkPath as devToolsNetworkPath,
+    normalizedNetworkMethod,
+    sortNetworkRows as sortedDevToolsNetworkRows
   } from './lib/networkSort'
   import { workspaceStore } from './lib/stores/workspaceStore.svelte'
   import { variableTooltips } from './lib/stores/variableTooltipStore.svelte'
@@ -6714,9 +6719,6 @@
   }
 
 
-  function normalizedNetworkMethod(row: types.NetworkLog) {
-    return (row.method || 'GET').toUpperCase()
-  }
 
   function normalizedDevToolsNetworkSortKey(value: string | undefined): DevToolsNetworkSortKey | '' {
     return devToolsNetworkSortKeys.includes(value as DevToolsNetworkSortKey) ? (value as DevToolsNetworkSortKey) : ''
@@ -6779,28 +6781,7 @@
     return rows.filter((row) => filters[normalizedNetworkMethod(row)] === true)
   }
 
-  function sortedDevToolsNetworkRows(rows: types.NetworkLog[], key: DevToolsNetworkSortKey | '', direction: DevToolsNetworkSortDirection) {
-    if (!key || !direction) return rows
-    const multiplier = direction === 'asc' ? 1 : -1
-    return [...rows].sort((left, right) => {
-      const leftValue = devToolsNetworkSortValue(left, key)
-      const rightValue = devToolsNetworkSortValue(right, key)
-      if (typeof leftValue === 'number' && typeof rightValue === 'number') {
-        return (leftValue - rightValue) * multiplier
-      }
-      return String(leftValue).localeCompare(String(rightValue)) * multiplier
-    })
-  }
 
-  function devToolsNetworkSortValue(row: types.NetworkLog, key: DevToolsNetworkSortKey) {
-    if (key === 'method') return normalizedNetworkMethod(row)
-    if (key === 'status') return row.status ?? 0
-    if (key === 'domain') return devToolsNetworkDomain(row)
-    if (key === 'path') return devToolsNetworkPath(row)
-    if (key === 'time') return networkLogTimestamp(row)
-    if (key === 'duration') return row.durationMs ?? 0
-    return row.size ?? 0
-  }
 
   function cycleDevToolsNetworkSort(key: DevToolsNetworkSortKey) {
     const next = nextNetworkSort(devToolsNetworkSortKey, devToolsNetworkSortDirection, key)
@@ -7092,23 +7073,7 @@
       .trimStart()
   }
 
-  function devToolsNetworkDomain(row: types.NetworkLog) {
-    try {
-      const parsed = new URL(row.url)
-      return parsed.host || row.url || '-'
-    } catch {
-      return row.url || '-'
-    }
-  }
 
-  function devToolsNetworkPath(row: types.NetworkLog) {
-    try {
-      const parsed = new URL(row.url)
-      return `${parsed.pathname || '/'}${parsed.search}`
-    } catch {
-      return row.url || '-'
-    }
-  }
 
   function networkLogTime(row: types.NetworkLog) {
     if (!row.at) return '-'
@@ -7117,11 +7082,6 @@
     return value.toLocaleTimeString()
   }
 
-  function networkLogTimestamp(row: types.NetworkLog) {
-    if (!row.at) return 0
-    const value = new Date(row.at)
-    return Number.isNaN(value.getTime()) ? 0 : value.getTime()
-  }
 
   function statusDisplay(status: number | undefined) {
     return status ? String(status) : '-'

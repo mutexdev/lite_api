@@ -6899,3 +6899,29 @@ US-026 - Store layer. DONE. Both named collapses complete.
   Five vacuous tests this restructure, every one found by a control reporting 0
   and then asking what the two paths have in common. It is the single most
   productive check I have used here — more than coverage, more than lint.
+
+=== PHASE 6 — network row sorting, completing networkSort.ts ===
+
+  networkSort.ts gains the sort values and the row sort. 6 tests -> 17.
+  App.svelte 11,342 -> 11,302. Frontend suite 484 -> 495.
+
+  Pinned:
+    - NUMBERS COMPARE NUMERICALLY. As strings, 404 sorts before 5 — the one
+      ordering a status column must never produce. Control fails 2.
+    - the path KEEPS its query string, because two rows to one path with
+      different parameters are different requests and a table rendering them
+      identically is useless for what the log is opened for. Control fails 2.
+    - sorting OFF returns the SAME ARRAY, not a copy. The off state exists to
+      show arrival order; returning a copy would let a caller re-sort it and
+      lose the thing the state is for.
+    - sorting is over a copy otherwise, since sorting in place reorders the live
+      log under the table.
+    - a malformed URL still yields a domain and path. The request happened, and
+      showing what was attempted beats a blank cell.
+
+  A SIXTH GAP OF THE SAME KIND. `row.status ?? 0` could be removed with no test
+  failing, because my missing-value test used `size`. Each numeric column needs
+  its own case: a missing value falls out of the typeof-number branch into
+  STRING comparison, which still produces a deterministic — and wrong — order,
+  so one column proves nothing about the others. Now looped over size, status
+  and duration; the control fails.
