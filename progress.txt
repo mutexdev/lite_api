@@ -2305,3 +2305,60 @@ US-028 - Runes migration, workbench/. DONE.
 
   Gates: go test 38.9s 0, svelte-check 205 files 0/0, eslint 0,
   npm test 197/197, vite build succeeds.
+
+US-029 - Runes migration, App.svelte. ATTEMPTED, NOT COMPLETED. Tree restored
+  clean and verified. This entry is the handover.
+
+  SCALE: 12,187 lines, 122 $: statements (92 derivations / 29 effects), 447
+  on: handlers, 10 event modifiers, 256 top-level let declarations, 0 export
+  let, 0 slots (both converted already under US-028).
+
+  I BUILT THE PIPELINE AND IT WORKS. Four defects surfaced in turn, each caught
+  by svelte-check and each fixed:
+    1. indentation-matching converted `let` inside FUNCTION BODIES. Fixed with
+       brace-depth tracking.
+    2. the continuation scanner treated a leading `/` as an operator, so it
+       swallowed a `//` COMMENT and the statement after it, closing a paren in
+       the wrong place. Fixed with a negative lookahead.
+    3. the type/value split cut at the `=` inside `=>`, turning a type of
+       `(() => void) | undefined` into `(()`. THIS IS THE THIRD TIME THE SAME
+       DEFECT HAS APPEARED IN THIS MIGRATION (US-027's props regex, US-028's
+       derivation scanner, here) AND I DID NOT APPLY MY OWN RECORDED LESSON.
+    4. multi-line initializers got their closing paren on the first line,
+       producing `$state<...>({)`. Fixed with the same depth scanner.
+  After all four: 2400 errors -> 188, all of them ordinary type noise.
+
+  THEN A GENUINE BLOCKER, and it is not a tooling problem:
+
+    THE COMPONENT'S CENTRAL VARIABLE IS NAMED `state`.
+
+  `$state(...)` beside a variable called `state` is ambiguous with Svelte's
+  legacy store-subscription syntax, and svelte-check resolves it as the store:
+  256 errors of "Cannot use 'state' as a store". Writing `$state<T>(...)`
+  instead disambiguates but is rejected here as "untyped function calls may not
+  accept type arguments", so neither form is usable while the variable keeps
+  that name.
+
+  `state` appears 308 times and is the single object every derivation reads.
+  Renaming it is a prerequisite for US-029 and is its OWN piece of work - a
+  mechanical rename of the app's central identifier across 12,000 lines, which
+  is exactly the operation that produced four subtle corruptions today. It
+  should be done as a standalone, separately verified commit BEFORE the runes
+  migration, not folded into it.
+
+  RECOMMENDED ORDER FOR WHOEVER PICKS THIS UP:
+    a. rename `state` -> `appState` (or similar) in App.svelte alone, commit,
+       verify 0/0. No other change in that commit.
+    b. re-run the pipeline in scratchpad/{derive2,effects,state}.py, which are
+       correct as of now and carry their defect history in their docstrings.
+    c. expect ~190 ordinary type errors afterwards and fix them by hand; they
+       are implicit-any parameters and use-before-assign, not structural.
+    d. the five spots the story flags as non-mechanical are ALREADY SOLVED and
+       written out in this session's transcript: the self-referential
+       generateDocsDeselectedEnvIds filter needs a CONTENTS guard or the effect
+       loops forever (filter returns a new array every pass, so an unguarded
+       assign re-triggers itself); the .indeterminate DOM write and the three
+       applyThemeToDocument/applyZoom/applyCodeFont calls are all $effect.
+
+  Nothing was committed. svelte-check 205/0/0, eslint 0, npm test 197/197,
+  go test 39.2s 0 - all verified against the restored tree.
