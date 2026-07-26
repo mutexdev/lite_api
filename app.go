@@ -1,6 +1,7 @@
 package main
 
 import (
+	"LiteAPI/internal/types"
 	"archive/zip"
 	"bufio"
 	"bytes"
@@ -359,41 +360,14 @@ type FolderConfig struct {
 	Docs         string     `json:"docs"`
 }
 
-type ProxyConfig struct {
-	Inherit     bool            `json:"inherit"`
-	Disabled    bool            `json:"disabled,omitempty"`
-	Protocol    string          `json:"protocol"`
-	Hostname    string          `json:"hostname"`
-	Port        string          `json:"port"`
-	Auth        ProxyAuthConfig `json:"auth"`
-	BypassProxy string          `json:"bypassProxy"`
-}
-
-type ProxyAuthConfig struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Disabled bool   `json:"disabled,omitempty"`
-}
-
-type ProxyPACConfig struct {
-	Source string `json:"source"`
-}
-
-type ProxyPreferences struct {
-	Disabled bool           `json:"disabled,omitempty"`
-	Source   string         `json:"source"`
-	PAC      ProxyPACConfig `json:"pac"`
-	Config   ProxyConfig    `json:"config"`
-}
-
-type ClientCertificateConfig struct {
-	Domain       string `json:"domain"`
-	Type         string `json:"type"`
-	CertFilePath string `json:"certFilePath,omitempty"`
-	KeyFilePath  string `json:"keyFilePath,omitempty"`
-	PFXFilePath  string `json:"pfxFilePath,omitempty"`
-	Passphrase   string `json:"passphrase,omitempty"`
-}
+// Moved to internal/types. These stay as aliases rather than being deleted:
+// package main still names them in 200+ places, and an alias keeps that code
+// compiling while the extraction proceeds cluster by cluster.
+type ProxyConfig = types.ProxyConfig
+type ProxyAuthConfig = types.ProxyAuthConfig
+type ProxyPACConfig = types.ProxyPACConfig
+type ProxyPreferences = types.ProxyPreferences
+type ClientCertificateConfig = types.ClientCertificateConfig
 
 type CollectionPresets struct {
 	RequestType string `json:"requestType"`

@@ -477,7 +477,41 @@ evidence for each story; this file carries the cross-story findings.
 
   STILL OPEN: "Verify in browser using browser tools".
 
-!!! UNRESOLVED — ONE UNREPRODUCED -race FAILURE, seen after US-015 !!!
+!!! RESOLVED (mechanism identified, see below) — the US-015 -race FAILURE !!!
+
+  It was almost certainly NOT a data race. It was a transient BUILD failure
+  caused by the test run compiling the package while I was mid-edit.
+
+  How I know: chasing it again I reproduced the exact symptom by accident. A
+  background `go test -race ./...` loop was running while I rewrote
+  internal/types/proxy.go in the foreground, and run 4 produced:
+
+      # LiteAPI [LiteAPI.test]
+      ./app.go:4:2: could not import LiteAPI/internal/types (...)
+      FAIL   LiteAPI [build failed]
+      ?      LiteAPI/docs/qa/fixtures        [no test files]
+      ...
+      ok     LiteAPI/qa/platformfixture      2.247s
+      ok     LiteAPI/qa/responsefixture      1.884s
+      FAIL
+
+  Exit 1, zero DATA RACE, zero `--- FAIL` lines. Now pipe THAT through
+  `tail -5` — which is what the original run did — and every recorded symptom
+  falls out exactly: the qa/ subpackages pass, the aggregate is FAIL, the root
+  package is implicated, and no test name appears. The cause line is at the
+  TOP, which is precisely what tail discards.
+
+  This also explains why 11 subsequent isolated runs were all clean: nothing
+  was being edited during them, so there was nothing to fail to build.
+
+  THE REAL LESSON, and it is not the one I recorded first: `| tail` did not
+  merely cost the diagnosis, it INVERTED it. A build failure reports at the
+  top and a test failure reports in the middle, so tailing a Go test run is
+  the one truncation guaranteed to hide the category of the problem. Do not
+  run a background full-repo test loop while editing the repo either — that is
+  what manufactured the failure both times.
+
+  ORIGINAL ENTRY, kept because the reasoning that led here is worth keeping:
   `go test -race -count=1 ./...` failed ONCE immediately after the US-015 edit.
   The command was piped through `tail -5`, so the failing test name was lost;
   all that survives is that the qa/ subpackages passed and the aggregate was
@@ -2677,3 +2711,54 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Gates: svelte-check 205/0/0, eslint 0, npm test 223/223, vite build succeeds,
   go test 38.6s 0.
+
+--- US-060 — internal/types, STARTED (proxy cluster landed, green) ---
+
+  MEASURED FIRST, because this is the story where guessing is expensive:
+    81 type declarations in app.go:132-1210
+    266 methods on *App
+    637 frontend references to `main.X`
+    100,175 Go lines total
+
+  THE HYPOTHESIS I TESTED, AND DISPROVED: that leaving a Go type alias behind
+  in package main (`type ProxyConfig = types.ProxyConfig`) would hide the move
+  from Wails and keep the frontend untouched.
+
+  It does not. The generator follows the alias to its DEFINING package. Moving
+  one leaf type made models.ts grow a second namespace and turned
+  `main.ProxyPreferences.pac` into `types.ProxyPACConfig`. So every moved type
+  costs frontend edits, and the 637 references are real work, not avoidable.
+
+  I tested that on ONE type before moving 81. That is the whole point: the
+  cheap experiment cost five minutes and killed a plan that would have looked
+  fine until the regenerate step, by which point 81 types would already have
+  moved.
+
+  WHAT THE ALIASES ARE STILL FOR: they are not a Wails shim, they are a Go
+  shim. package main names these types in hundreds of places, and the alias
+  keeps all of it compiling so the extraction can go cluster by cluster with
+  every step green, instead of one 100k-line commit that only builds at the end.
+
+  THE PROCEDURE, now proven end to end:
+    1. move a cluster to internal/types, leave aliases in main
+    2. go build ./...            -> catches the Go half
+    3. wails generate module
+    4. svelte-check              -> NAMES every stale `main.X`, one per line
+    5. rewrite those to `types.X`, add `types` to the models import
+    6. full gates
+
+  Step 4 is why this is safe rather than another mechanical-edit disaster:
+  the compiler enumerates the work. No regex has to identify which `Response`
+  or `Header` or `Item` is a type — and given that I broke five large
+  mechanical edits this session, three of them the SAME `=>` splitting bug,
+  a procedure where the tooling finds the sites is worth more than a clever one.
+
+  LANDED: ProxyConfig, ProxyAuthConfig, ProxyPACConfig, ProxyPreferences,
+  ClientCertificateConfig. 23 frontend references rewritten across App.svelte
+  and ProxySection.svelte.
+
+  Gates: go build, go vet, go test all ok; svelte-check 209/0/0; eslint 0;
+  npm test 223/223; vite build ok.
+
+  REMAINING: 76 types. The cost is now known rather than estimated, and each
+  cluster is independently green.

@@ -222,54 +222,6 @@ export namespace main {
 		    return a;
 		}
 	}
-	export class ProxyPACConfig {
-	    source: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ProxyPACConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.source = source["source"];
-	    }
-	}
-	export class ProxyPreferences {
-	    disabled?: boolean;
-	    source: string;
-	    pac: ProxyPACConfig;
-	    config: ProxyConfig;
-	
-	    static createFrom(source: any = {}) {
-	        return new ProxyPreferences(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.disabled = source["disabled"];
-	        this.source = source["source"];
-	        this.pac = this.convertValues(source["pac"], ProxyPACConfig);
-	        this.config = this.convertValues(source["config"], ProxyConfig);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
 	export class DevToolsNetworkPreferences {
 	    sortKey?: string;
 	    sortDirection?: string;
@@ -553,7 +505,7 @@ export namespace main {
 	    storeCookies: boolean;
 	    oauth2UseSystemBrowser: boolean;
 	    proxyMode: string;
-	    proxy: ProxyPreferences;
+	    proxy: types.ProxyPreferences;
 	
 	    static createFrom(source: any = {}) {
 	        return new Preferences(source);
@@ -581,7 +533,7 @@ export namespace main {
 	        this.storeCookies = source["storeCookies"];
 	        this.oauth2UseSystemBrowser = source["oauth2UseSystemBrowser"];
 	        this.proxyMode = source["proxyMode"];
-	        this.proxy = this.convertValues(source["proxy"], ProxyPreferences);
+	        this.proxy = this.convertValues(source["proxy"], types.ProxyPreferences);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -765,86 +717,6 @@ export namespace main {
 	        this.requestType = source["requestType"];
 	        this.requestUrl = source["requestUrl"];
 	    }
-	}
-	export class ClientCertificateConfig {
-	    domain: string;
-	    type: string;
-	    certFilePath?: string;
-	    keyFilePath?: string;
-	    pfxFilePath?: string;
-	    passphrase?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ClientCertificateConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.domain = source["domain"];
-	        this.type = source["type"];
-	        this.certFilePath = source["certFilePath"];
-	        this.keyFilePath = source["keyFilePath"];
-	        this.pfxFilePath = source["pfxFilePath"];
-	        this.passphrase = source["passphrase"];
-	    }
-	}
-	export class ProxyAuthConfig {
-	    username: string;
-	    password: string;
-	    disabled?: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new ProxyAuthConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.username = source["username"];
-	        this.password = source["password"];
-	        this.disabled = source["disabled"];
-	    }
-	}
-	export class ProxyConfig {
-	    inherit: boolean;
-	    disabled?: boolean;
-	    protocol: string;
-	    hostname: string;
-	    port: string;
-	    auth: ProxyAuthConfig;
-	    bypassProxy: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ProxyConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.inherit = source["inherit"];
-	        this.disabled = source["disabled"];
-	        this.protocol = source["protocol"];
-	        this.hostname = source["hostname"];
-	        this.port = source["port"];
-	        this.auth = this.convertValues(source["auth"], ProxyAuthConfig);
-	        this.bypassProxy = source["bypassProxy"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class Environment {
 	    id: string;
@@ -1888,8 +1760,8 @@ export namespace main {
 	    resVariables: Variable[];
 	    headers: KeyValue[];
 	    auth: AuthConfig;
-	    proxy: ProxyConfig;
-	    clientCertificates: ClientCertificateConfig[];
+	    proxy: types.ProxyConfig;
+	    clientCertificates: types.ClientCertificateConfig[];
 	    presets: CollectionPresets;
 	    protobuf: CollectionProtobufConfig;
 	    securityConfig: CollectionSecurityConfig;
@@ -1926,8 +1798,8 @@ export namespace main {
 	        this.resVariables = this.convertValues(source["resVariables"], Variable);
 	        this.headers = this.convertValues(source["headers"], KeyValue);
 	        this.auth = this.convertValues(source["auth"], AuthConfig);
-	        this.proxy = this.convertValues(source["proxy"], ProxyConfig);
-	        this.clientCertificates = this.convertValues(source["clientCertificates"], ClientCertificateConfig);
+	        this.proxy = this.convertValues(source["proxy"], types.ProxyConfig);
+	        this.clientCertificates = this.convertValues(source["clientCertificates"], types.ClientCertificateConfig);
 	        this.presets = this.convertValues(source["presets"], CollectionPresets);
 	        this.protobuf = this.convertValues(source["protobuf"], CollectionProtobufConfig);
 	        this.securityConfig = this.convertValues(source["securityConfig"], CollectionSecurityConfig);
@@ -2065,7 +1937,6 @@ export namespace main {
 		    return a;
 		}
 	}
-	
 	
 	
 	
@@ -3455,10 +3326,6 @@ export namespace main {
 	}
 	
 	
-	
-	
-	
-	
 	export class RecoveryEntry {
 	    id: string;
 	    kind: string;
@@ -3839,6 +3706,139 @@ export namespace main {
 	        this.name = source["name"];
 	        this.path = source["path"];
 	    }
+	}
+
+}
+
+export namespace types {
+	
+	export class ClientCertificateConfig {
+	    domain: string;
+	    type: string;
+	    certFilePath?: string;
+	    keyFilePath?: string;
+	    pfxFilePath?: string;
+	    passphrase?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ClientCertificateConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.domain = source["domain"];
+	        this.type = source["type"];
+	        this.certFilePath = source["certFilePath"];
+	        this.keyFilePath = source["keyFilePath"];
+	        this.pfxFilePath = source["pfxFilePath"];
+	        this.passphrase = source["passphrase"];
+	    }
+	}
+	export class ProxyAuthConfig {
+	    username: string;
+	    password: string;
+	    disabled?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProxyAuthConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.username = source["username"];
+	        this.password = source["password"];
+	        this.disabled = source["disabled"];
+	    }
+	}
+	export class ProxyConfig {
+	    inherit: boolean;
+	    disabled?: boolean;
+	    protocol: string;
+	    hostname: string;
+	    port: string;
+	    auth: ProxyAuthConfig;
+	    bypassProxy: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProxyConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.inherit = source["inherit"];
+	        this.disabled = source["disabled"];
+	        this.protocol = source["protocol"];
+	        this.hostname = source["hostname"];
+	        this.port = source["port"];
+	        this.auth = this.convertValues(source["auth"], ProxyAuthConfig);
+	        this.bypassProxy = source["bypassProxy"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ProxyPACConfig {
+	    source: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProxyPACConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.source = source["source"];
+	    }
+	}
+	export class ProxyPreferences {
+	    disabled?: boolean;
+	    source: string;
+	    pac: ProxyPACConfig;
+	    config: ProxyConfig;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProxyPreferences(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.disabled = source["disabled"];
+	        this.source = source["source"];
+	        this.pac = this.convertValues(source["pac"], ProxyPACConfig);
+	        this.config = this.convertValues(source["config"], ProxyConfig);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

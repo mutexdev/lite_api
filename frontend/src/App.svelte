@@ -221,7 +221,7 @@
     WriteTerminalSession,
     UpdateResponseExample
   } from '../wailsjs/go/main/App'
-  import type { main } from '../wailsjs/go/models'
+  import type { main, types } from '../wailsjs/go/models'
   import { BrowserOpenURL, EventsOn, OnFileDrop, OnFileDropOff, Quit } from '../wailsjs/runtime/runtime'
 
   type View = 'request' | 'collection' | 'git' | 'runner' | 'environments' | 'import' | 'features' | 'network' | 'cookies' | 'history' | 'preferences' | 'devtools'
@@ -6284,7 +6284,7 @@
     workspaceStore.appState = await UpdateCollectionAuth(activeCollection.id, authWithOAuth2Defaults(activeCollection.auth, updates))
   }
 
-  function isProxyConfigUnset(proxy: main.ProxyConfig | undefined) {
+  function isProxyConfigUnset(proxy: types.ProxyConfig | undefined) {
     if (!proxy) return true
     return !proxy.inherit
       && !proxy.disabled
@@ -6297,9 +6297,9 @@
       && !proxy.auth?.disabled
   }
 
-  function normalizedCollectionProxy(overrides: Partial<main.ProxyConfig> = {}) {
-    const current = activeCollection?.proxy ?? ({} as main.ProxyConfig)
-    const currentAuth = current.auth ?? ({} as main.ProxyAuthConfig)
+  function normalizedCollectionProxy(overrides: Partial<types.ProxyConfig> = {}) {
+    const current = activeCollection?.proxy ?? ({} as types.ProxyConfig)
+    const currentAuth = current.auth ?? ({} as types.ProxyAuthConfig)
     const unset = isProxyConfigUnset(current)
     return {
       inherit: unset ? true : (current.inherit ?? true),
@@ -6315,17 +6315,17 @@
         disabled: currentAuth.disabled ?? false,
         ...(overrides.auth ?? {})
       }
-    } as main.ProxyConfig
+    } as types.ProxyConfig
   }
 
-  function collectionProxyMode(proxy: main.ProxyConfig | undefined) {
+  function collectionProxyMode(proxy: types.ProxyConfig | undefined) {
     if (isProxyConfigUnset(proxy)) return 'inherit'
     if (proxy?.disabled) return 'off'
     if (proxy?.inherit ?? true) return 'inherit'
     return 'manual'
   }
 
-  async function updateCollectionProxy(updates: Partial<main.ProxyConfig>) {
+  async function updateCollectionProxy(updates: Partial<types.ProxyConfig>) {
     if (!activeCollection) return
     workspaceStore.appState = await UpdateCollectionProxy(activeCollection.id, normalizedCollectionProxy(updates))
   }
@@ -6349,13 +6349,13 @@
     workspaceStore.appState = await UpdateCollectionSecurityConfig(activeCollection.id, { jsSandboxMode: mode } as main.CollectionSecurityConfig)
   }
 
-  async function updateCollectionProxyAuth(updates: Partial<main.ProxyAuthConfig>) {
+  async function updateCollectionProxyAuth(updates: Partial<types.ProxyAuthConfig>) {
     if (!activeCollection) return
-    await updateCollectionProxy({ auth: { ...(activeCollection.proxy?.auth ?? {}), ...updates } as main.ProxyAuthConfig })
+    await updateCollectionProxy({ auth: { ...(activeCollection.proxy?.auth ?? {}), ...updates } as types.ProxyAuthConfig })
   }
 
-  function proxyConfigWithDefaults(config: main.ProxyConfig | undefined, overrides: Partial<main.ProxyConfig> = {}) {
-    const auth = config?.auth ?? ({} as main.ProxyAuthConfig)
+  function proxyConfigWithDefaults(config: types.ProxyConfig | undefined, overrides: Partial<types.ProxyConfig> = {}) {
+    const auth = config?.auth ?? ({} as types.ProxyAuthConfig)
     return {
       inherit: false,
       disabled: false,
@@ -6370,11 +6370,11 @@
         disabled: auth.disabled ?? false,
         ...(overrides.auth ?? {})
       }
-    } as main.ProxyConfig
+    } as types.ProxyConfig
   }
 
-  function proxyPreferencesWithDefaults(overrides: Partial<main.ProxyPreferences> = {}) {
-    const current = appState?.preferences?.proxy ?? ({} as main.ProxyPreferences)
+  function proxyPreferencesWithDefaults(overrides: Partial<types.ProxyPreferences> = {}) {
+    const current = appState?.preferences?.proxy ?? ({} as types.ProxyPreferences)
     const pac = { source: current.pac?.source || '', ...(overrides.pac ?? {}) }
     const config = proxyConfigWithDefaults(current.config, overrides.config ?? {})
     return {
@@ -6383,7 +6383,7 @@
       ...overrides,
       pac,
       config
-    } as main.ProxyPreferences
+    } as types.ProxyPreferences
   }
 
   function preferencesProxyMode(preferences: main.Preferences | undefined) {
@@ -6401,14 +6401,14 @@
     return 'System Proxy'
   }
 
-  function preferenceProxyModeValue(proxy: main.ProxyPreferences) {
+  function preferenceProxyModeValue(proxy: types.ProxyPreferences) {
     if (proxy.disabled) return 'off'
     if (proxy.source === 'manual') return 'manual'
     if (proxy.source === 'pac') return 'pac'
     return 'system'
   }
 
-  async function updatePreferencesProxy(updates: Partial<main.ProxyPreferences>) {
+  async function updatePreferencesProxy(updates: Partial<types.ProxyPreferences>) {
     if (!appState) return
     const proxy = proxyPreferencesWithDefaults(updates)
     const preferences = {
@@ -6431,14 +6431,14 @@
     }
   }
 
-  async function updatePreferencesProxyConfig(updates: Partial<main.ProxyConfig>) {
+  async function updatePreferencesProxyConfig(updates: Partial<types.ProxyConfig>) {
     const current = appState?.preferences?.proxy?.config
     await updatePreferencesProxy({ config: proxyConfigWithDefaults(current, updates) })
   }
 
-  async function updatePreferencesProxyAuth(updates: Partial<main.ProxyAuthConfig>) {
+  async function updatePreferencesProxyAuth(updates: Partial<types.ProxyAuthConfig>) {
     const current = appState?.preferences?.proxy?.config
-    await updatePreferencesProxyConfig({ auth: { ...(current?.auth ?? {}), ...updates } as main.ProxyAuthConfig })
+    await updatePreferencesProxyConfig({ auth: { ...(current?.auth ?? {}), ...updates } as types.ProxyAuthConfig })
   }
 
   async function updateAppearancePreferences(updates: Partial<main.Preferences>) {
@@ -7035,7 +7035,7 @@
     keybindingError = ''
   }
 
-  async function updateCollectionClientCertificate(index: number, field: keyof main.ClientCertificateConfig, value: string) {
+  async function updateCollectionClientCertificate(index: number, field: keyof types.ClientCertificateConfig, value: string) {
     if (!activeCollection) return
     const rows = [...(activeCollection.clientCertificates ?? [])]
     rows[index] = { ...rows[index], [field]: value }
@@ -7072,7 +7072,7 @@
     if (!activeCollection) return
     const rows = [
       ...(activeCollection.clientCertificates ?? []),
-      { domain: '', type: 'cert', certFilePath: '', keyFilePath: '', pfxFilePath: '', passphrase: '' } as main.ClientCertificateConfig
+      { domain: '', type: 'cert', certFilePath: '', keyFilePath: '', pfxFilePath: '', passphrase: '' } as types.ClientCertificateConfig
     ]
     workspaceStore.appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
   }

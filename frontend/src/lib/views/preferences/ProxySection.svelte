@@ -3,7 +3,7 @@
   // markup is not in the initial chunk. Preferences is decomposed section by
   // section: as a whole it carries ~60 props, but each <section> needs only a
   // handful.
-  import type { main } from '../../../../wailsjs/go/models'
+  import type { main, types } from '../../../../wailsjs/go/models'
 
   export let state: main.AppState
   export let preferencesProxyMode: (preferences: main.Preferences | undefined) => 'pac' | 'inherit' | 'off' | 'manual'
@@ -51,7 +51,7 @@
               {:else if preferencesProxyMode(state.preferences) === 'pac'}
                 <div class="field-grid">
                   <span class="field-label">PAC Source</span>
-                  <input aria-label="PAC source" placeholder="https://example.com/proxy.pac or file:///path/proxy.pac" value={state.preferences.proxy?.pac?.source ?? ''} on:change={(e) => updatePreferencesProxy({ pac: { source: e.currentTarget.value } as main.ProxyPACConfig })} />
+                  <input aria-label="PAC source" placeholder="https://example.com/proxy.pac or file:///path/proxy.pac" value={state.preferences.proxy?.pac?.source ?? ''} on:change={(e) => updatePreferencesProxy({ pac: { source: e.currentTarget.value } as types.ProxyPACConfig })} />
                 </div>
               {/if}
             </section>
