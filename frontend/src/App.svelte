@@ -249,6 +249,11 @@
     normalizeGlobalSearchQuery,
     type GlobalSearchResult
   } from './lib/globalSearch'
+  import {
+    fallbackVariableTooltipInfo,
+    urlVariableSegments,
+    type URLVariableSegment
+  } from './lib/urlSegments'
   import { BrowserOpenURL, EventsOn, OnFileDrop, OnFileDropOff, Quit } from '../wailsjs/runtime/runtime'
 
   type View = 'request' | 'collection' | 'git' | 'runner' | 'environments' | 'import' | 'features' | 'network' | 'cookies' | 'history' | 'preferences' | 'devtools'
@@ -315,29 +320,6 @@
     variable: types.Variable
     index: number
   }
-	  type URLVariableSegment =
-	    | {
-	      key: string
-	      text: string
-	      variable: false
-	      prompt: false
-	    }
-	    | {
-	      key: string
-	      text: string
-	      variable: false
-	      prompt: true
-	      name: string
-	    }
-	    | {
-	      key: string
-	      text: string
-	      variable: true
-	      prompt: false
-	      path?: boolean
-	      name: string
-	      info: VariableTooltipInfo
-	    }
   type GitCloneProgress = {
     stage?: string
     message?: string
@@ -866,7 +848,6 @@
     (_, index) => zoomMinPercentage + index * zoomStepPercentage
   )
 	  const promptTokenPattern = /\{\{\?([^{}\s](?:[^{}]*?[^{}\s])?)\}\}/g
-	  const promptVariableTextPattern = /^\?([^{}\s](?:[^{}]*?[^{}\s])?)$/
 	  const invalidVariableWarning = 'Invalid variable name! Variables must only contain alpha-numeric characters, "-", "_", "."'
 
   function normalizePresetRequestType(value: string | undefined) {
@@ -1793,81 +1774,11 @@
     return variableNamesForRequest(request).map((name) => resolveVariableTooltip(name, workspace, collection, request, environmentId, processEnvValues))
   }
 
-  function urlVariableSegments(value: string, infos: VariableTooltipInfo[], pathParams?: types.KeyValue[]): URLVariableSegment[] {
-    const segments: URLVariableSegment[] = []
-    const infoByName = new Map(infos.map((info) => [info.name, info]))
-    const tokenPattern = pathParams
-      ? /\{\{([^{}]+?)\}\}|\/:([^/?&=]+)/g
-      : /\{\{([^{}]+?)\}\}/g
-    let cursor = 0
-    let match: RegExpExecArray | null
-    while ((match = tokenPattern.exec(value)) !== null) {
-      if (match.index > cursor) {
-        segments.push({ key: `text:${cursor}`, text: value.slice(cursor, match.index), variable: false, prompt: false })
-      }
-      if (match[2] !== undefined) {
-        const name = match[2]
-        segments.push({
-          key: `path:${match.index}:${name}`,
-          text: match[0],
-          variable: true,
-          prompt: false,
-          path: true,
-          name,
-          info: pathParamTooltipInfo(name, pathParams ?? [])
-        })
-        cursor = match.index + match[0].length
-        continue
-      }
-      const rawName = match[1] ?? ''
-      const name = rawName.trim()
-      if (promptVariableTextPattern.test(rawName)) {
-        segments.push({
-          key: `prompt:${match.index}:${rawName}`,
-          text: match[0],
-          variable: false,
-          prompt: true,
-          name: rawName.slice(1)
-        })
-        cursor = match.index + match[0].length
-        continue
-      }
-      segments.push({
-        key: `var:${match.index}:${name}`,
-        text: match[0],
-        variable: true,
-        prompt: false,
-        name,
-        info: infoByName.get(name) ?? fallbackVariableTooltipInfo(name)
-      })
-      cursor = match.index + match[0].length
-    }
-    if (cursor < value.length) {
-      segments.push({ key: `text:${cursor}`, text: value.slice(cursor), variable: false, prompt: false })
-    }
-    return segments
-  }
 
   function isValidURLVariableSegment(segment: URLVariableSegment) {
     return segment.variable && segment.info.found && segment.info.validName
   }
 
-  function fallbackVariableTooltipInfo(name: string): VariableTooltipInfo {
-    const validName = isValidVariableName(name)
-    return {
-      name,
-      scope: 'Request',
-      rawValue: '',
-      resolvedValue: '',
-      secret: false,
-      readOnly: !validName,
-      found: false,
-      editable: validName,
-      validName,
-      source: validName ? 'missing' : 'invalid',
-      index: -1
-    }
-  }
 
 
 

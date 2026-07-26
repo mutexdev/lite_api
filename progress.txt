@@ -6088,3 +6088,33 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Also deduplicated the internal/transport import in app.go, which the move left
   imported twice (once plain, once as xport). staticcheck ST1019 caught it.
+
+=== RESTRUCTURE PHASE 6 — fourth slice, URL segments ===
+
+  src/lib/urlSegments.ts — 128 lines, 14 tests. App.svelte 11,866 -> 11,777.
+  Frontend suite 310 -> 324.
+
+  This is what the variable overlay renders on top of the URL input, so a wrong
+  split highlights the wrong characters or points a tooltip at an editor that
+  does not own the value.
+
+  TWO TOKEN SYNTAXES THAT LOOK ALIKE AND RESOLVE FROM DIFFERENT PLACES:
+    {{name}}  a variable, resolved through the scope chain
+    /:name    a PATH PARAMETER, resolved from the request's own table
+  Path tokens are recognised ONLY when the caller supplies pathParams. The URL
+  bar does; the same overlay rendered over a header or body value does not,
+  because a ":" there is ordinary text — a port number, a timestamp, a JSON key.
+  Both directions are tested.
+
+  The `key` carries the match OFFSET, not just the name. Two occurrences of one
+  variable in a URL must be distinct rows or Svelte's keyed each reuses a node
+  and the tooltip opens over the wrong occurrence. Control confirms.
+
+  A property worth stating: the concatenated segment texts must reproduce the
+  input EXACTLY, or the overlay drifts out of alignment with the text beneath
+  it. Tested across five shapes; dropping the leading-text segment fails 3 and
+  dropping the trailing one fails 5.
+
+  Note the whitespace case: {{  host  }} reports the name as "host" but keeps
+  its text as "{{  host  }}" — the name is for lookup, the text is for
+  rendering, and conflating them shifts every character after it.
