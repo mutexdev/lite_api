@@ -6412,7 +6412,20 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	_, collection, err = a.findCollectionWithWorkspaceIndexedLocked(index, collectionID)
+	// US-076. Re-resolve the WORKSPACE too, and use it below — do not fall back
+	// to the `ws` captured before a.mu was released for the network round trip.
+	//
+	// ws is a *Workspace pointing into a.state.Workspaces. While the lock was
+	// released, anything that appends a workspace past the slice's capacity
+	// reallocates that backing array, and the captured pointer then addresses
+	// memory nothing reads. applyScriptVariableContextToState would write the
+	// script's variable changes into the dead array and report success: silent
+	// corruption, not a crash, and invisible until the user notices a variable
+	// that did not stick.
+	//
+	// This line already re-resolved the collection and discarded the workspace
+	// with `_`; keeping it is the whole fix.
+	liveWorkspace, collection, err := a.findCollectionWithWorkspaceIndexedLocked(index, collectionID)
 	if err != nil {
 		return AppState{}, controls, nil, err
 	}
@@ -6424,7 +6437,7 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 		a.state.Cookies = mergeScriptCookieJar(a.state.Cookies, initialCookies, scriptCookieJar.snapshot())
 		a.pruneExpiredCookiesLocked()
 	}
-	applyScriptVariableContextToState(&a.state, ws, collection, environmentID, scriptVariables)
+	applyScriptVariableContextToState(&a.state, liveWorkspace, collection, environmentID, scriptVariables)
 	item.Response = &response
 	item.Timeline = append(item.Timeline, scriptTimeline...)
 	if controls.SkipRequest {

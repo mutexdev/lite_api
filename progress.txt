@@ -23,7 +23,7 @@ evidence for each story; this file carries the cross-story findings.
 --- STATUS BOARD (update this every story) ---
   Branch: ralph/postman-switchable-v2   Spec: improvement_v2.md   Stories: 73
 
-  PASSED (21):
+  PASSED (22, incl. bug fix US-076):
     Phase 0  US-002 US-003 US-004 US-005 US-006 US-007
     Phase 1  US-008 US-012 US-013 US-014 US-015 US-016 US-017 US-018
              US-020 US-021 US-022 US-023 US-024
@@ -42,12 +42,49 @@ evidence for each story; this file carries the cross-story findings.
              broken PR fails the workflow" criterion needs a real push to the
              live GitHub repo. User: "you can ignore PR CI flow we can tackle
              it latter finish others".
-  BUGS FILED BY THIS RUN, NOT YET FIXED:
-    US-075  top toolbar overlaps at 1200px (measured, getBoundingClientRect)
-    US-076  workspace pointer captured across the runner's lock release
+  BUGS FILED BY THIS RUN:
+    US-076  FIXED — workspace pointer captured across the runner's lock release
+    US-075  OPEN  — top toolbar overlaps at 1200px (measured via
+                    getBoundingClientRect); needs browser tools to fix and verify
   SEQUENCING CONSTRAINT:
     US-077 (internal/ layout) MUST land BEFORE Phase 4 (US-060..US-071), or
     all nine package extractions get moved twice.
+
+--- US-076 — stale workspace pointer across the runner's lock release (FIXED) ---
+  A real, silent data-loss bug, confirmed by negative control rather than by
+  reading. sendRequestWithControlsContext captured `ws` — a *Workspace pointing
+  INTO the a.state.Workspaces backing array — released a.mu for the network
+  round trip, re-acquired it, and then handed that same pointer to
+  applyScriptVariableContextToState. Any append that grew Workspaces past
+  capacity while the lock was free moved the backing array, after which the
+  write landed in memory nothing reads. No error, no crash: the variable simply
+  vanished.
+
+  THE FIX WAS ALREADY SITTING THERE, DISCARDED. The line that re-acquires the
+  lock already re-resolved the collection:
+      _, collection, err = a.findCollectionWithWorkspaceIndexedLocked(...)
+  It threw the freshly-resolved workspace away with `_` and kept using the stale
+  one. Keeping it is the entire fix.
+
+  MEASURED by negative control (stale pointer restored, then reverted):
+    with the bug: global variable set by a post-response script -> ""  (lost)
+    with the fix: -> "survived", and still present on a fresh GetState
+  The bug only bites when a script marks GLOBAL variables dirty, because that is
+  the only branch of applyScriptVariableContextToState that dereferences the
+  workspace at all. The test drives bru.setGlobalEnvVar for exactly that reason.
+
+  WHY -race NEVER CAUGHT IT, and never would: both accesses are correctly
+  serialised under a.mu. Nothing is racing. The pointer is simply stale. This is
+  worth remembering — a clean -race run says nothing about pointer lifetime
+  across a deliberate lock release.
+
+  Two tests, deliberately of different kinds: a behavioural one that forces the
+  reallocation inside the I/O window (the httptest handler creates 8 workspaces
+  while a.mu is free), and a source-level guard. The behavioural test only fails
+  when the reallocation actually happens, which depends on slice capacity and
+  could quietly stop being true if the fixture changes shape — leaving the bug
+  uncovered with the test still green. The guard fails the moment the captured
+  pointer reappears at the call site, whatever the fixture looks like.
 
 --- US-019 — INVESTIGATED, NOT STARTED. Read this before implementing it. ---
   Analysis done so the next iteration does not repeat it. Two of the story's
