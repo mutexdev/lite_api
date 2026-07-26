@@ -6,12 +6,17 @@
 <script lang="ts">
   import type { main } from '../../../wailsjs/go/models'
   import { automaticPreviewLimit, base64ByteLength, compareHeaders, compareJsonStructure, contentDispositionFilename, contentType, embeddedPreviewLimit, findMatches, formatResponseBody, fullRenderLimit, lineDiff, normalizeResponseView, previewKind, responseTextForView, sliceBase64Bytes, sliceUtf8, utf8ByteLength } from './response'
+  import { resolveLiveSessionEvents, type LiveSessionLog } from '../liveSessionEvents'
 
   export let request: main.RequestItem
   export let selectedTab = 'response'
   export let selectedView = 'pretty'
   export let timeline: main.TimelineItem[] = []
   export let scriptLogs: Array<{ level: string; message: string }> = []
+  // US-021/US-022. The accumulated live-session log, pushed event by event.
+  // The response body now carries only a trailing window, so this is what makes
+  // a long session's full history visible while it is open.
+  export let liveLog: LiveSessionLog | undefined = undefined
   export let onViewChange: (view: string) => void
   export let onCopy: (value: string) => Promise<boolean>
   export let onDownloadBody: () => void | Promise<void>
@@ -73,8 +78,10 @@
   $: headerEntries = response?.headerEntries
   $: headerRows = headerEntries?.length ? headerEntries.map((entry) => [entry.name, entry.value] as [string, string]) : Object.entries(headers)
   $: filteredHeaders = headerRows.filter(([name, value]) => `${name} ${value}`.toLowerCase().includes(headerSearch.trim().toLowerCase()))
-  $: wsEvents = websocketEvents(response, bytes)
-  $: grpcEventsParsed = grpcEvents(response, bytes)
+  // `liveLog` is named inside each statement so both really do track it; see
+  // the note on websocketEvents below about `$:` and function arguments.
+  $: wsEvents = resolveLiveSessionEvents(liveLog, websocketEvents(response, bytes))
+  $: grpcEventsParsed = resolveLiveSessionEvents(liveLog, grpcEvents(response, bytes))
   $: jsonValue = parsedJson(response, bytes)
   $: jsonTree = boundedJsonTree(jsonValue)
   $: canEmbed = bytes <= embeddedPreviewLimit

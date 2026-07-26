@@ -7,6 +7,13 @@
   import VariableTextOverlay from './lib/VariableTextOverlay.svelte'
   import RequestCommandStrip from './lib/workbench/RequestCommandStrip.svelte'
   import ResponseInspector from './lib/workbench/ResponseInspector.svelte'
+  import {
+    applyLiveSessionPush,
+    emptyLiveSessionLog,
+    liveSessionKey,
+    type LiveSessionLog,
+    type LiveSessionPush,
+  } from './lib/liveSessionEvents'
   import CodeEditor from './lib/workbench/CodeEditor.svelte'
   import RequestSettingsPanel from './lib/workbench/RequestSettingsPanel.svelte'
   import ProtocolRequestLine from './lib/workbench/ProtocolRequestLine.svelte'
@@ -361,6 +368,13 @@
   let compactWorkbenchMedia: MediaQueryList | undefined
   let removeCompactWorkbenchListener: (() => void) | undefined
   let removeFlushOnBlurListeners: (() => void) | undefined
+  // US-021/US-022. Live WebSocket and gRPC events are pushed one at a time
+  // rather than re-sent as a whole re-marshalled log on every call, so the
+  // accumulated log lives here. Keyed by collection+request because several
+  // requests can hold live sessions at once.
+  let liveSessionLogs: Record<string, LiveSessionLog> = {}
+  let stopWebSocketEvents: (() => void) | undefined
+  let stopGrpcEvents: (() => void) | undefined
   let collectionTab: CollectionTab = 'overview'
   let responseView: 'pretty' | 'raw' | 'base64' | 'hex' = 'pretty'
   let tabLifecycleDialog: TabLifecycleDialog | null = null
@@ -1076,6 +1090,13 @@
   )
   $: activeScriptLogs = responseScriptLogs(activeRequest?.response)
   $: activeTimelineEntries = sortedTimelineEntries(activeRequest?.timeline ?? [])
+  // US-021/US-022. Both operands are named inside the statement so this really
+  // does re-run — a `$:` that referenced only a helper function would track
+  // nothing and go stale, which is the ResponseInspector bug US-004 found.
+  $: activeLiveSessionLog =
+    activeCollection && activeRequest
+      ? liveSessionLogs[liveSessionKey(activeCollection.id, activeRequest.id)]
+      : undefined
   $: devToolsConsoleRows = devToolsConsoleLogs(activeWorkspace)
   $: rawDevToolsNetworkRows = state?.networkLog ?? []
   $: if (state && devToolsNetworkPreferencesKeyFor(state.preferences?.devTools?.network) !== devToolsNetworkPreferencesKey) {
@@ -1228,7 +1249,18 @@
 	      oauth2CallbackMessage = ''
 	      oauth2FrameKey += 1
 	    })
-	    stopNativeMenuCommands = EventsOn('liteapi:menu-command', (command: string) => {
+	    const applyLiveSessionEvent = (push: LiveSessionPush) => {
+      const key = liveSessionKey(push.collectionId, push.itemId)
+      const current = liveSessionLogs[key] ?? emptyLiveSessionLog()
+      const next = applyLiveSessionPush(current, push)
+      // Reassign the map, not just the entry: Svelte's legacy reactivity
+      // tracks assignment to `liveSessionLogs`, and mutating a value inside it
+      // would leave the inspector showing a stale log.
+      if (next !== current) liveSessionLogs = { ...liveSessionLogs, [key]: next }
+    }
+    stopWebSocketEvents = EventsOn('ws:event', (push: LiveSessionPush) => applyLiveSessionEvent(push))
+    stopGrpcEvents = EventsOn('grpc:event', (push: LiveSessionPush) => applyLiveSessionEvent(push))
+    stopNativeMenuCommands = EventsOn('liteapi:menu-command', (command: string) => {
 	      void handleNativeMenuCommand(command)
 	    })
 	    OnFileDrop((_x, _y, paths) => {
@@ -1255,6 +1287,8 @@
 	    removeCompactWorkbenchListener?.()
 	    removeFlushOnBlurListeners?.()
 	    stopGitCloneProgress?.()
+	    stopWebSocketEvents?.()
+	    stopGrpcEvents?.()
 	    stopOAuth2Authorize?.()
 	    stopNativeMenuCommands?.()
 	    OnFileDropOff()
@@ -3035,10 +3069,22 @@
     return promptNames.length > 0 ? await promptForVariables(promptNames) : {}
   }
 
+  // US-021/US-022. A new session restarts the backend's event indices at zero,
+  // so the previous session's accumulated log has to go with it. Keeping it
+  // would leave the log non-contiguous for the whole of the new session and
+  // permanently fall back to the response body's trailing window.
+  function resetLiveSessionLog(collectionId: string, itemId: string) {
+    const key = liveSessionKey(collectionId, itemId)
+    if (!(key in liveSessionLogs)) return
+    const { [key]: _discarded, ...rest } = liveSessionLogs
+    liveSessionLogs = rest
+  }
+
   async function connectActiveWebSocket() {
     if (!activeCollection || !activeRequest) return
     const promptValues = await promptValuesForWebSocketMessage(selectedWSMessageIndex(activeRequest))
     if (promptValues === null) return
+    resetLiveSessionLog(activeCollection.id, activeRequest.id)
     await runAction('connect WebSocket', async () => {
       state = Object.keys(promptValues).length > 0
         ? await ConnectWebSocketWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, promptValues)
@@ -9515,6 +9561,7 @@
                   scriptLogs={activeScriptLogs}
                   onViewChange={(view) => (responseView = view as typeof responseView)}
                   onCopy={copyText}
+                  liveLog={activeLiveSessionLog}
                   onDownloadBody={saveActiveResponseBody}
                   onExportTimeline={saveActiveResponseTimeline}
                 />

@@ -460,6 +460,9 @@ type websocketSession struct {
 	done           chan struct{}
 	doneClosed     bool
 	lastActivityAt time.Time
+	// emit pushes each appended event to the frontend (US-021). nil when the
+	// session was built outside a Wails context, which is every test.
+	emit func(index, total int, event websocketSessionEvent)
 }
 
 type websocketSessionEvent struct {
@@ -497,6 +500,9 @@ type grpcStreamSession struct {
 	requestCount    int
 	responseCount   int
 	lastActivityAt  time.Time
+	// emit pushes each appended event to the frontend (US-022). See the
+	// websocketSession field of the same name.
+	emit func(index, total int, event grpcStreamSessionEvent)
 }
 
 type grpcStreamSessionEvent struct {
@@ -11309,7 +11315,7 @@ func (session *grpcStreamSession) close(reason string) {
 	if session.conn != nil {
 		_ = session.conn.Close()
 	}
-	session.events = append(session.events, grpcStreamSessionEvent{
+	session.appendEventLocked(grpcStreamSessionEvent{
 		Direction: "system",
 		Type:      "cancel",
 		Data:      session.closeReason,
@@ -11342,7 +11348,13 @@ func (session *grpcStreamSession) responseLocked(errMessage string) Response {
 	if session.closeReason != "" {
 		headers["x-grpc-stream-close-reason"] = session.closeReason
 	}
-	body, err := json.MarshalIndent(session.events, "", "  ")
+	// US-022: see the WebSocket equivalent. x-grpc-stream-events above still
+	// carries the true total.
+	tail, omitted := grpcEventTail(session.events)
+	if omitted > 0 {
+		headers["x-grpc-stream-events-omitted"] = strconv.Itoa(omitted)
+	}
+	body, err := json.MarshalIndent(tail, "", "  ")
 	if err != nil {
 		body = []byte("[]")
 		if errMessage == "" {
@@ -11412,7 +11424,7 @@ func (session *grpcStreamSession) startReceiver() {
 					session.lastActivityAt = time.Now()
 					addGRPCMetadata(session.headers, "", mustGRPCHeader(session.stream))
 					addGRPCMetadata(session.trailers, "", session.stream.Trailer())
-					session.events = append(session.events, grpcStreamSessionEvent{Direction: "system", Type: "end", Data: "server stream ended", At: session.lastActivityAt})
+					session.appendEventLocked(grpcStreamSessionEvent{Direction: "system", Type: "end", Data: "server stream ended", At: session.lastActivityAt})
 					if session.conn != nil {
 						_ = session.conn.Close()
 					}
@@ -11433,7 +11445,7 @@ func (session *grpcStreamSession) startReceiver() {
 				session.statusText = st.Code().String()
 				session.closeReason = firstNonEmpty(st.Message(), err.Error())
 				session.lastActivityAt = time.Now()
-				session.events = append(session.events, grpcStreamSessionEvent{Direction: "system", Type: "error", Error: session.closeReason, At: session.lastActivityAt})
+				session.appendEventLocked(grpcStreamSessionEvent{Direction: "system", Type: "error", Error: session.closeReason, At: session.lastActivityAt})
 				if session.conn != nil {
 					_ = session.conn.Close()
 				}
@@ -11448,7 +11460,7 @@ func (session *grpcStreamSession) startReceiver() {
 				session.status = int(status.Code(err))
 				session.statusText = "ERROR"
 				session.closeReason = "format gRPC response JSON: " + err.Error()
-				session.events = append(session.events, grpcStreamSessionEvent{Direction: "system", Type: "error", Error: session.closeReason, At: now})
+				session.appendEventLocked(grpcStreamSessionEvent{Direction: "system", Type: "error", Error: session.closeReason, At: now})
 				if session.conn != nil {
 					_ = session.conn.Close()
 				}
@@ -11458,7 +11470,7 @@ func (session *grpcStreamSession) startReceiver() {
 			}
 			session.responseCount++
 			session.lastActivityAt = now
-			session.events = append(session.events, grpcStreamSessionEvent{
+			session.appendEventLocked(grpcStreamSessionEvent{
 				Direction: "received",
 				Name:      fmt.Sprintf("response %d", session.responseCount),
 				Type:      "json",
@@ -11518,7 +11530,7 @@ func (session *grpcStreamSession) receiveAvailableLocked() {
 			session.lastActivityAt = time.Now()
 			addGRPCMetadata(session.headers, "", mustGRPCHeader(session.stream))
 			addGRPCMetadata(session.trailers, "", session.stream.Trailer())
-			session.events = append(session.events, grpcStreamSessionEvent{Direction: "system", Type: "end", Data: "server stream ended", At: session.lastActivityAt})
+			session.appendEventLocked(grpcStreamSessionEvent{Direction: "system", Type: "end", Data: "server stream ended", At: session.lastActivityAt})
 			if session.conn != nil {
 				_ = session.conn.Close()
 			}
@@ -11532,7 +11544,7 @@ func (session *grpcStreamSession) receiveAvailableLocked() {
 			session.statusText = st.Code().String()
 			session.closeReason = firstNonEmpty(st.Message(), err.Error())
 			session.lastActivityAt = time.Now()
-			session.events = append(session.events, grpcStreamSessionEvent{Direction: "system", Type: "error", Error: session.closeReason, At: session.lastActivityAt})
+			session.appendEventLocked(grpcStreamSessionEvent{Direction: "system", Type: "error", Error: session.closeReason, At: session.lastActivityAt})
 			if session.conn != nil {
 				_ = session.conn.Close()
 			}
@@ -11546,7 +11558,7 @@ func (session *grpcStreamSession) receiveAvailableLocked() {
 			session.status = int(status.Code(err))
 			session.statusText = "ERROR"
 			session.closeReason = "format gRPC response JSON: " + err.Error()
-			session.events = append(session.events, grpcStreamSessionEvent{Direction: "system", Type: "error", Error: session.closeReason, At: now})
+			session.appendEventLocked(grpcStreamSessionEvent{Direction: "system", Type: "error", Error: session.closeReason, At: now})
 			if session.conn != nil {
 				_ = session.conn.Close()
 			}
@@ -11555,7 +11567,7 @@ func (session *grpcStreamSession) receiveAvailableLocked() {
 		}
 		session.responseCount++
 		session.lastActivityAt = now
-		session.events = append(session.events, grpcStreamSessionEvent{
+		session.appendEventLocked(grpcStreamSessionEvent{
 			Direction: "received",
 			Name:      fmt.Sprintf("response %d", session.responseCount),
 			Type:      "json",
@@ -11681,6 +11693,7 @@ func (a *App) connectGRPCStream(collectionID, itemID, environmentID string, prom
 		lastActivityAt: start,
 		events:         []grpcStreamSessionEvent{{Direction: "system", Type: "start", Data: binding.FullMethod, At: start}},
 		eventNotify:    make(chan struct{}, 1),
+		emit:           a.grpcEventEmitter(collectionID, itemID),
 	}
 	if binding.Descriptor.IsStreamingServer() && !binding.Descriptor.IsStreamingClient() {
 		message, req, err := grpcOutboundMessageAt(item, binding, vars, 0)
@@ -11689,15 +11702,15 @@ func (a *App) connectGRPCStream(collectionID, itemID, environmentID string, prom
 			session.closed = true
 			session.statusText = "ERROR"
 			session.closeReason = err.Error()
-			session.events = append(session.events, grpcStreamSessionEvent{Direction: "system", Type: "error", Error: err.Error(), At: time.Now()})
+			session.appendEventLocked(grpcStreamSessionEvent{Direction: "system", Type: "error", Error: err.Error(), At: time.Now()})
 		} else if err := stream.SendMsg(req); err != nil {
 			session.closed = true
 			session.statusText = "ERROR"
 			session.closeReason = err.Error()
-			session.events = append(session.events, grpcStreamSessionEvent{Direction: "system", Type: "error", Error: err.Error(), At: time.Now()})
+			session.appendEventLocked(grpcStreamSessionEvent{Direction: "system", Type: "error", Error: err.Error(), At: time.Now()})
 		} else {
 			session.requestCount++
-			session.events = append(session.events, grpcStreamSessionEvent{Direction: "sent", Name: message.Name, Type: "json", Data: message.Content, At: time.Now()})
+			session.appendEventLocked(grpcStreamSessionEvent{Direction: "sent", Name: message.Name, Type: "json", Data: message.Content, At: time.Now()})
 			_ = stream.CloseSend()
 			session.receiveAvailableLocked()
 		}
@@ -11765,7 +11778,7 @@ func (a *App) sendGRPCStreamMessage(collectionID, itemID, environmentID string, 
 		return a.applyGRPCStreamResponse(collectionID, itemID, response, grpcStreamTimelineItem(item, response, "message"))
 	}
 	now := time.Now()
-	session.events = append(session.events, grpcStreamSessionEvent{Direction: "sent", Name: message.Name, Type: "json", Data: message.Content, At: now})
+	session.appendEventLocked(grpcStreamSessionEvent{Direction: "sent", Name: message.Name, Type: "json", Data: message.Content, At: now})
 	session.requestCount++
 	session.lastActivityAt = now
 	responseCountBeforeSend := session.responseCount
@@ -11777,7 +11790,7 @@ func (a *App) sendGRPCStreamMessage(collectionID, itemID, environmentID string, 
 		session.status = int(st.Code())
 		session.statusText = st.Code().String()
 		session.closeReason = firstNonEmpty(st.Message(), err.Error())
-		session.events = append(session.events, grpcStreamSessionEvent{Direction: "system", Type: "error", Error: session.closeReason, At: time.Now()})
+		session.appendEventLocked(grpcStreamSessionEvent{Direction: "system", Type: "error", Error: session.closeReason, At: time.Now()})
 		if session.conn != nil {
 			_ = session.conn.Close()
 		}
@@ -11812,7 +11825,7 @@ func (a *App) EndGRPCStream(collectionID, itemID string) (AppState, error) {
 	eventStartIndex := len(session.events)
 	if !session.closed && !session.ended {
 		_ = session.stream.CloseSend()
-		session.events = append(session.events, grpcStreamSessionEvent{Direction: "system", Type: "end", Data: "client stream ended", At: time.Now()})
+		session.appendEventLocked(grpcStreamSessionEvent{Direction: "system", Type: "end", Data: "client stream ended", At: time.Now()})
 		session.notifyEventLocked()
 		if session.receiverStarted {
 			receiveDone = session.receiveDone
@@ -13046,7 +13059,7 @@ func (session *websocketSession) close(reason string) {
 		close(session.done)
 		session.doneClosed = true
 	}
-	session.events = append(session.events, websocketSessionEvent{
+	session.appendEventLocked(websocketSessionEvent{
 		Direction: "system",
 		Type:      "close",
 		Data:      session.closeReason,
@@ -13081,7 +13094,7 @@ func (session *websocketSession) startKeepAlive() {
 						session.doneClosed = true
 					}
 					_ = session.conn.Close()
-					session.events = append(session.events, websocketSessionEvent{
+					session.appendEventLocked(websocketSessionEvent{
 						Direction: "system",
 						Type:      "ping",
 						Error:     err.Error(),
@@ -13091,7 +13104,7 @@ func (session *websocketSession) startKeepAlive() {
 					session.mu.Unlock()
 					return
 				}
-				session.events = append(session.events, websocketSessionEvent{
+				session.appendEventLocked(websocketSessionEvent{
 					Direction: "system",
 					Type:      "ping",
 					Data:      "keep-alive",
@@ -13115,7 +13128,14 @@ func (session *websocketSession) responseLocked(errMessage string) Response {
 	if session.closeReason != "" {
 		headers["x-websocket-close-reason"] = session.closeReason
 	}
-	body, err := json.MarshalIndent(session.events, "", "  ")
+	// US-021: marshal the trailing window, not the whole log. x-websocket-events
+	// still reports the true total above, so the count a caller sees is the real
+	// one and this header says how much of it the body omits.
+	tail, omitted := websocketEventTail(session.events)
+	if omitted > 0 {
+		headers["x-websocket-events-omitted"] = strconv.Itoa(omitted)
+	}
+	body, err := json.MarshalIndent(tail, "", "  ")
 	if err != nil {
 		body = []byte("[]")
 		if errMessage == "" {
@@ -13207,6 +13227,7 @@ func (a *App) connectWebSocket(collectionID, itemID, environmentID string, promp
 		lastActivityAt: start,
 		events:         []websocketSessionEvent{},
 		done:           make(chan struct{}),
+		emit:           a.websocketEventEmitter(collectionID, itemID),
 	}
 	session.mu.Lock()
 	response = session.responseLocked("")
@@ -13265,7 +13286,7 @@ func (a *App) sendWebSocketMessage(collectionID, itemID, environmentID string, m
 			sent.DataBase64 = base64.StdEncoding.EncodeToString(payload)
 			sent.DataHex = hex.EncodeToString(payload)
 		}
-		session.events = append(session.events, sent)
+		session.appendEventLocked(sent)
 		session.lastActivityAt = now
 		if err := session.conn.WriteMessage(frameType, payload); err != nil {
 			session.closed = true
@@ -13294,7 +13315,7 @@ func (a *App) sendWebSocketMessage(collectionID, itemID, environmentID string, m
 					received.DataBase64 = base64.StdEncoding.EncodeToString(payload)
 					received.DataHex = hex.EncodeToString(payload)
 				}
-				session.events = append(session.events, received)
+				session.appendEventLocked(received)
 				session.lastActivityAt = received.At
 				response = session.responseLocked("")
 			}

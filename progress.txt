@@ -16,6 +16,111 @@ Max 3 review rounds per story, then escalate to .ralph/blocked/.
 
 === RUN LOG ===
 
+NOTE ON ORDER: newest entries are appended at the TOP of this section, so the
+Phase 0 material further down is the OLDEST. Commit messages carry the detailed
+evidence for each story; this file carries the cross-story findings.
+
+--- STATUS BOARD (update this every story) ---
+  Branch: ralph/postman-switchable-v2   Spec: improvement_v2.md   Stories: 73
+
+  PASSED (15):
+    Phase 0  US-002 US-003 US-004 US-005 US-006 US-007
+    Phase 1  US-008 US-012 US-016 US-017 US-018 US-020 US-023 US-024
+    Phase 2  US-038
+  DEFERRED BY THE USER:
+    US-001 — CI workflow is written, linted and parses; the "a deliberately
+             broken PR fails the workflow" criterion needs a real push to the
+             live GitHub repo. User: "you can ignore PR CI flow we can tackle
+             it latter finish others".
+  BUGS FILED BY THIS RUN, NOT YET FIXED:
+    US-075  top toolbar overlaps at 1200px (measured, getBoundingClientRect)
+    US-076  workspace pointer captured across the runner's lock release
+  SEQUENCING CONSTRAINT:
+    US-077 (internal/ layout) MUST land BEFORE Phase 4 (US-060..US-071), or
+    all nine package extractions get moved twice.
+
+--- US-021 + US-022 — push live WebSocket / gRPC events (PASSED) ---
+  The push alone would NOT have fixed the quadratic cost, and the story text
+  reads as though it would. Emitting each event incrementally is necessary but
+  not sufficient: responseLocked still re-marshalled the whole event log, still
+  base64'd it, and still stored it into item.Response inside AppState on every
+  single message. Adding an emit on top of that is pure addition.
+  So the fix has two halves, and the second is the one that removes the O(n^2):
+    1. PUSH   — "ws:event" / "grpc:event", one event each, via EventsEmit.
+    2. BOUND  — the response body carries only the last 200 events.
+
+  MEASURED, by negative control (reverted after measuring):
+    unbounded body   44,367 B at message 150 -> 88,142 B at message 300  (+98.7%)
+    bounded body     29,375 B at message 150 -> 29,385 B at message 300  (+0.03%)
+  Doubling the message count doubled the old body exactly as quadratic cost
+  predicts. The residual 10 bytes is encoding/json rendering time.Time with
+  variable fractional-second width, not a leak — which is why the test asserts
+  a 1% bound rather than exact equality, with the reason written down.
+
+  BEHAVIOUR CHANGE, deliberate and documented in session_event_push.go:
+  reopening a request whose session ran past 200 events shows the last 200
+  rather than all of them. The live UI stays complete because the frontend
+  accumulates the pushes; the headers report the true total and the omitted
+  count, so nothing is hidden silently.
+
+  Every append routes through appendEventLocked (20 sites, was 20 raw appends).
+  That is what makes "no event can be added without being pushed" structural
+  rather than a convention. Negative control: reverting ONE site back to a raw
+  append fails TestWebSocketEmitsEveryAppendedEvent ("got 6 pushes for 5 sends").
+
+  FRONTEND: a bare append would have been wrong. A listener attaching
+  mid-session starts at a non-zero index, and appending blindly yields a log
+  that LOOKS complete and is silently missing its beginning — worse than showing
+  nothing, because the user cannot tell. Pushes therefore carry index+total, and
+  a log is authoritative only when contiguous from 0 and at least as long as the
+  body window; otherwise the inspector falls back to the body. Same
+  detect-a-gap-and-resync contract as AppState.Revision. 9 new frontend tests.
+
+  Emission happens under session.mu on purpose: the callers already hold that
+  lock across a full network round trip (WriteMessage then ReadMessage under a
+  read deadline), so a webview notify does not change the critical section's
+  shape, and emitting after the unlock would let goroutines interleave and
+  deliver events out of order.
+
+  STILL OPEN on these two stories: "Verify in browser using browser tools".
+
+--- US-008 — AppState.Revision (PASSED) ---
+  markDirty alone was NOT a sufficient hook, contrary to the obvious reading of
+  the story. It covers 81 mutation sites, but 13 more real mutations call
+  persistLocked directly for synchronous durability — collection imports,
+  collection recovery, draft-guard saves, and the readiness normalisation inside
+  ensureReadyLocked. Bumping only in markDirty would have left those silent, and
+  silence is the dangerous direction: the frontend concludes it is in sync when
+  it is not, and shows stale data forever.
+  Resolution: persistLocked split into persistLocked (bump + write) and
+  writeStateLocked (write only). persistOnce and flushPersistLocked moved to
+  writeStateLocked because they DRAIN a mutation markDirty already counted —
+  leaving them on persistLocked would double-count and manufacture a phantom gap.
+
+  The counter lives on App, not inside AppState, and is scrubbed by
+  stateForStorage. Both are deliberate; see the doc comments. Three paths
+  restore a whole earlier AppState (two collection-import rollbacks, the
+  OpenAPI-sync rollback) and would have dragged an in-state counter backwards.
+
+  All four tests proven non-vacuous by negative control, each reverted after
+  measuring: dropping the markDirty bump fails two of them; dropping the
+  stateForStorage scrub fails IsNotPersisted; making GetState bump fails
+  DoesNotAdvanceOnReads.
+
+GAP FOUND IN US-012 — a story this run had already marked PASSING.
+  Regenerating the Wails bindings for US-008 surfaced that FlushPendingWrites
+  had NEVER been generated into frontend/wailsjs/go/main/App.js. US-012's
+  criterion "Force-flush on beforeClose, shutdown, and window blur" was
+  therefore only two-thirds done: the Go side was wired to OnBeforeClose and
+  OnShutdown, but no frontend caller for blur existed or could exist.
+  Impact: persistence is now behind a 250 ms debounce, so a user switching away
+  inside that window lost their last edit.
+  Fixed in the US-008 commit — App.svelte flushes on blur AND visibilitychange
+  (the latter covers sleep/hide, which blur does not fire for).
+  METHOD LESSON: "the Go binding exists" is not the same claim as "the frontend
+  can call it". Any story that adds or relies on a binding must regenerate and
+  check the diff in frontend/wailsjs/, not just compile the Go.
+
 --- Iteration 1 — Phase 0 start ---
 Branch ralph/postman-switchable-v2 created off main (working tree carried over uncommitted).
 
