@@ -134,3 +134,16 @@ frontend/dist/assets/index-*.css        113609
 # conversion 20/20 clean. SpecDiffModal (committed) is the worked example: 7
 # props, ~2,883 bytes off the initial chunk.
 # ---------------------------------------------------------------------------
+
+# Hand extraction #2 — generate-docs (the largest body, 3,757 B of source):
+#   initial chunk 529,719 -> 527,277  (-2,442); new chunk GenerateDocsModal 3,951 B
+#
+# Two notes from doing it by hand that the scripted attempt would have got wrong:
+#  * bind:this cannot cross a component boundary. The <input> is bound inside
+#    the component and surfaced as a bindable prop, with App.svelte keeping its
+#    existing reference via bind:selectAllInput — so the indeterminate-state
+#    logic there is untouched.
+#  * activeCollection had to be typed main.Collection, not a structural
+#    {version?: string} & Record<string, unknown>. Collection has no index
+#    signature, so the structural type does not accept it.
+# Running total: 1,159,933 -> 527,277 (54.5% smaller). 27,277 above target.
