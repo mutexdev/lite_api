@@ -6461,3 +6461,34 @@ US-026 - Store layer. DONE. Both named collapses complete.
   from the command palette and the ⌘F handler, so a non-bindable prop would let
   typing update a local copy while the tree kept the old filter. `input` is
   bindable because a keyboard shortcut outside this component focuses it.
+
+=== END-TO-END BUILD VERIFICATION, and a hygiene fix ===
+
+  `wails build -clean` succeeds: frontend dependencies installed, frontend
+  compiled, Go application compiled, app packaged and self-signed, 42s. The
+  bundle is a valid arm64 Mach-O with the frontend embedded.
+
+  That is the check thirty-four commits of structural change had never had. Unit
+  tests and static analysis say the parts are right; only this says the whole
+  thing still assembles into a shippable app.
+
+  The build's only tree change was FILE MODE (755 -> 644) on three generated
+  wailsjs/runtime files, zero content. Restored.
+
+  UNTRACKED THE LOOP HARNESS'S STATE FILE. .claude/ralph-loop.local.md holds
+  session-local bookkeeping — an iteration counter and a machine-specific
+  session id — and 22 of my commits carried it as pure churn because I used
+  `git add -A` throughout. It was first committed in a previous session
+  (cf8f513), so it is not something I introduced, but it is something I kept
+  propagating. Now gitignored; the file stays on disk, it just stops being
+  rewritten in every commit.
+
+  Worth naming the habit rather than just the fix: `git add -A` commits whatever
+  happens to be dirty, including things another process is writing underneath
+  you. It is convenient and it is how unrelated churn gets into a history.
+
+  REMAINING VERIFICATION GAP, stated plainly: nothing here has RUN the app. The
+  Go side has real runtime coverage (tests spin up HTTP, gRPC and mock servers),
+  and the build proves it assembles, but no click-through has exercised the
+  frontend against the Go bridge. `wails dev` on localhost:34115 is how that
+  would be done.

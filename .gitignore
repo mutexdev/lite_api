@@ -25,3 +25,9 @@ pnpm-debug.log*
 
 # Playwright MCP session artifacts (browser QA scratch: snapshots, console logs)
 .playwright-mcp/
+
+# Ralph-loop harness state. Session-local bookkeeping — it carries an iteration
+# counter and a machine-specific session id, and was being rewritten by every
+# commit that used `git add -A`. The .local suffix is the convention for a file
+# that should not be tracked; it was committed by accident in an earlier session.
+.claude/ralph-loop.local.md
