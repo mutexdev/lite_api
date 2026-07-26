@@ -15,9 +15,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mutexdev/lite_api/internal/codegen"
 	"github.com/mutexdev/lite_api/internal/interp"
 	"github.com/mutexdev/lite_api/internal/types"
+	"github.com/mutexdev/lite_api/internal/urlbuild"
+	"github.com/mutexdev/lite_api/internal/wsmessage"
 
 	"github.com/gorilla/websocket"
 )
@@ -86,7 +87,7 @@ func OutboundMessageAt(item types.RequestItem, vars map[string]string, index int
 }
 
 func TargetURL(item types.RequestItem, vars map[string]string) string {
-	targetURL := codegen.RequestURLWithParams(item.URL, item.Params, item.PathParams, vars)
+	targetURL := urlbuild.RequestURLWithParams(item.URL, item.Params, item.PathParams, vars)
 	if strings.HasPrefix(targetURL, "http://") {
 		targetURL = "ws://" + strings.TrimPrefix(targetURL, "http://")
 	}
@@ -137,19 +138,6 @@ func MessageTypeName(messageType int) string {
 	}
 }
 
-func MessageBody(body types.RequestBody, vars map[string]string) string {
-	switch body.Mode {
-	case "json":
-		return interp.Interpolate(body.JSON, vars)
-	case "xml":
-		return interp.Interpolate(body.XML, vars)
-	case "text", "sparql", "":
-		return interp.Interpolate(body.Text, vars)
-	default:
-		return interp.Interpolate(body.Text, vars)
-	}
-}
-
 func applyAuth(headers http.Header, auth types.AuthConfig, vars map[string]string, targetURL string) {
 	switch auth.Mode {
 	case "basic":
@@ -169,15 +157,10 @@ func applyAuth(headers http.Header, auth types.AuthConfig, vars map[string]strin
 		}
 	}
 }
-func NormalizeMessageType(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "json":
-		return "json"
-	case "xml":
-		return "xml"
-	case "binary", "bin":
-		return "binary"
-	default:
-		return "text"
-	}
-}
+
+// The message vocabulary lives in internal/wsmessage so that the file-format
+// readers can use it without importing this package, which dials sockets.
+var (
+	NormalizeMessageType = wsmessage.NormalizeMessageType
+	MessageBody          = wsmessage.MessageBody
+)

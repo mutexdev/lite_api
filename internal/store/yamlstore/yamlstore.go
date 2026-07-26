@@ -16,7 +16,7 @@ import (
 	"github.com/mutexdev/lite_api/internal/scalar"
 	"github.com/mutexdev/lite_api/internal/store/bru"
 	"github.com/mutexdev/lite_api/internal/types"
-	"github.com/mutexdev/lite_api/internal/wsexec"
+	"github.com/mutexdev/lite_api/internal/wsmessage"
 
 	"gopkg.in/yaml.v3"
 )
@@ -287,7 +287,7 @@ func parseYAMLWSMessage(raw interface{}, index int) (types.WSMessage, bool) {
 		fromVariant = true
 	}
 	content := scalar.FirstYAMLString(messageMap, "data", "content", "message", "value")
-	messageType := wsexec.NormalizeMessageType(scalar.FirstYAMLString(messageMap, "type"))
+	messageType := wsmessage.NormalizeMessageType(scalar.FirstYAMLString(messageMap, "type"))
 	if strings.TrimSpace(name) == "" && strings.TrimSpace(content) == "" {
 		return types.WSMessage{}, false
 	}

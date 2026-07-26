@@ -19,7 +19,7 @@ import (
 	"github.com/mutexdev/lite_api/internal/codegen"
 	"github.com/mutexdev/lite_api/internal/scalar"
 	"github.com/mutexdev/lite_api/internal/types"
-	"github.com/mutexdev/lite_api/internal/wsexec"
+	"github.com/mutexdev/lite_api/internal/wsmessage"
 )
 
 func ParseSections(content string) map[string][]string {
@@ -329,7 +329,7 @@ func parseBruWSMessages(content string) []types.WSMessage {
 		}
 		result = append(result, types.WSMessage{
 			Name:     name,
-			Type:     wsexec.NormalizeMessageType(values["type"]),
+			Type:     wsmessage.NormalizeMessageType(values["type"]),
 			Content:  messageContent,
 			Selected: strings.EqualFold(values["selected"], "true"),
 		})

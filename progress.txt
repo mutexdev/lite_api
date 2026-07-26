@@ -7570,3 +7570,68 @@ US-026 - Store layer. DONE. Both named collapses complete.
       `?? 0` fallback the looped numeric-column test pins.
 
   Nothing regressed. The one 404 is a missing favicon, which predates all of it.
+
+=== FINDING 3 — the misfiled helpers and their spurious package edges ===
+
+  Two new packages: internal/urlbuild (9 tests) and internal/wsmessage (6).
+  Go packages 25 -> 27. FIVE spurious import edges deleted, not the four the
+  plan estimated — scripting was importing codegen for the same reason and had
+  been missed.
+
+  WHAT THE EDGES SAID THAT WAS UNTRUE:
+    - internal/cookiejar imported a CODE GENERATOR to decide which jar a request
+      belongs to.
+    - internal/wsexec imported one to dial a socket.
+    - internal/scripting imported one to hand a URL to a user script.
+      None of the three generates code. The URL builders now live in
+      internal/urlbuild.
+    - internal/store/bru and internal/store/yamlstore — two FILE FORMAT READERS
+      — imported a WEBSOCKET EXECUTOR to read a field off disk. Neither opens a
+      socket. The message vocabulary now lives in internal/wsmessage.
+
+  codegen and wsexec keep re-export vars, so no caller outside had to change and
+  the old names still resolve.
+
+  A SIXTH INSTANCE DELIBERATELY LEFT ALONE. store/bru still imports codegen for
+  NormalizedBodyMode, which looks like exactly the same finding. It is a TRAP,
+  and the repo already carries the scar: yamlstore_test.go records that a
+  mechanical rewrite once pointed ITS body-mode call sites at
+  codegen.NormalizedBodyMode because the names were near-identical. THE TWO
+  FUNCTIONS ARE NOT THE SAME — yamlstore's canonicalises the whole vocabulary
+  ("" -> "none", four urlencoded spellings collapse), codegen's rewrites two
+  form modes and passes everything else through. The redirect COMPILED and every
+  test passed. Moving NormalizedBodyMode into a shared package would recreate
+  precisely that naming proximity, one import closer. Left where it is.
+
+  That is the fourth same-shaped finding in this project with a different right
+  answer, after keyBindingSignature (collapse), sidebarGroupWindow (keep both,
+  document) and networkSortLabel/AriaValue (keep both, test against each other).
+
+  Pinned in urlbuild:
+    - an unmatched :token is LEFT IN PLACE, not blanked. A URL still showing
+      :id is visibly wrong; one collapsed to "//" requests a DIFFERENT RESOURCE
+      and the server answers it. Control fails 1.
+    - PATH PARAMS ARE SUBSTITUTED BEFORE THE QUERY IS APPENDED, so a path value
+      containing "?" cannot silently become the start of the query string.
+      Control fails 1.
+    - the URL is INTERPOLATED FIRST, so a variable expanding to a path token is
+      itself substitutable. Control fails 1.
+    - the separator is chosen from what the URL already ends with. Wrong gives
+      "??" or "&&", which most servers accept and parse differently from what
+      was meant. Controls fail 2 and 1.
+    - a DISABLED param is not a param, in either position. Controls fail 1, 1.
+
+  Pinned in wsmessage:
+    - an unknown type reads as TEXT rather than failing. This runs while READING
+      A FILE; refusing would cost the user every other request in it. Control
+      fails 1.
+    - EVERY branch interpolates, including the default — a message with a
+      literal {{token}} is worse than one whose mode was guessed. Control 1.
+    - "bin" and "binary" agree; the empty mode reads the TEXT field. 2 and 1.
+
+  Eleven controls, eleven failures.
+
+  Findings 1 and 2 were already resolved: the scripting sandbox's separate HTTP
+  client is DELIBERATE (documented at two call sites), and the tautological
+  clone test was rewritten to assert nil-ness with the reason recorded.
+  ALL THREE PLAN FINDINGS ARE NOW CLOSED.

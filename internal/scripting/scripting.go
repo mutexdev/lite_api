@@ -46,11 +46,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mutexdev/lite_api/internal/codegen"
 	"github.com/mutexdev/lite_api/internal/cookiejar"
 	"github.com/mutexdev/lite_api/internal/interp"
 	"github.com/mutexdev/lite_api/internal/scalar"
 	"github.com/mutexdev/lite_api/internal/types"
+	"github.com/mutexdev/lite_api/internal/urlbuild"
 
 	jwtlib "github.com/golang-jwt/jwt/v5"
 	googleuuid "github.com/google/uuid"
@@ -568,7 +568,7 @@ func NewScriptRuntimeWithMeta(item types.RequestItem, response types.Response, v
 		if rawURL == nil || goja.IsUndefined(rawURL) || goja.IsNull(rawURL) {
 			return ""
 		}
-		return codegen.RequestURLWithParams(rawURL.String(), item.Params, item.PathParams, vars)
+		return urlbuild.RequestURLWithParams(rawURL.String(), item.Params, item.PathParams, vars)
 	}
 	syncRequestHeaders := func() {
 		_ = reqObject.Set("headers", keyValuesToMap(reqState.headers))

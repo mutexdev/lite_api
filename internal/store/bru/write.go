@@ -19,7 +19,7 @@ import (
 
 	"github.com/mutexdev/lite_api/internal/scalar"
 	"github.com/mutexdev/lite_api/internal/types"
-	"github.com/mutexdev/lite_api/internal/wsexec"
+	"github.com/mutexdev/lite_api/internal/wsmessage"
 
 	"gopkg.in/yaml.v3"
 )
@@ -663,7 +663,7 @@ func writeBruWSMessages(b *strings.Builder, messages []types.WSMessage) {
 		if strings.TrimSpace(message.Name) != "" {
 			fmt.Fprintf(b, "  name: %s\n", message.Name)
 		}
-		fmt.Fprintf(b, "  type: %s\n", wsexec.NormalizeMessageType(message.Type))
+		fmt.Fprintf(b, "  type: %s\n", wsmessage.NormalizeMessageType(message.Type))
 		if message.Selected {
 			b.WriteString("  selected: true\n")
 		}
@@ -1283,8 +1283,8 @@ func WsMessagesForStorage(item types.RequestItem) []types.WSMessage {
 	if len(item.WSMessages) > 0 {
 		return item.WSMessages
 	}
-	if content := wsexec.MessageBody(item.Body, nil); strings.TrimSpace(content) != "" {
-		return []types.WSMessage{{Type: wsexec.NormalizeMessageType(item.Body.Mode), Content: content}}
+	if content := wsmessage.MessageBody(item.Body, nil); strings.TrimSpace(content) != "" {
+		return []types.WSMessage{{Type: wsmessage.NormalizeMessageType(item.Body.Mode), Content: content}}
 	}
 	return nil
 }

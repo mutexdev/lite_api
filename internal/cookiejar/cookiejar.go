@@ -18,9 +18,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mutexdev/lite_api/internal/codegen"
 	"github.com/mutexdev/lite_api/internal/scalar"
 	"github.com/mutexdev/lite_api/internal/types"
+	"github.com/mutexdev/lite_api/internal/urlbuild"
 
 	"golang.org/x/net/publicsuffix"
 )
@@ -81,7 +81,7 @@ func MergeScriptJar(current, initial, runtime []types.CookieEntry) []types.Cooki
 }
 
 func PreviewRequestURL(item types.RequestItem, vars map[string]string) string {
-	return codegen.RequestURLWithParams(item.URL, item.Params, item.PathParams, vars)
+	return urlbuild.RequestURLWithParams(item.URL, item.Params, item.PathParams, vars)
 }
 
 func FromResponse(res *http.Response, rawURL string) []types.CookieEntry {
