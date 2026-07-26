@@ -8581,24 +8581,9 @@
           </nav>
           <div class="devtools-content">
             {#if devToolsTab === 'console'}
-              {#if devToolsConsoleRows.length === 0}
-                <div class="empty-state devtools-empty">
-                  <strong>No logs to display</strong>
-                  <span>Logs will appear here as your application runs</span>
-                </div>
-              {:else}
-                <div class="console-log-list devtools-console-list" aria-label="DevTools console logs">
-                  {#each devToolsConsoleRows as log, index (index)}
-                    <div class={`console-row ${log.level}`}>
-                      <span>{log.level}</span>
-                      <div>
-                        <code>{log.message}</code>
-                        <small>{log.source}</small>
-                      </div>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
+              {#await import('./lib/views/devtools/ConsoleTab.svelte') then ConsoleTab}
+                <svelte:component this={ConsoleTab.default} {devToolsConsoleRows} />
+              {/await}
             {:else if devToolsTab === 'network'}
               <div class="network-filter-bar" aria-label="Filter requests by method">
                 <div>

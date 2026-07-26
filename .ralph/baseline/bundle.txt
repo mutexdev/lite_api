@@ -605,3 +605,22 @@ frontend/dist/assets/index-*.css        113609
 #
 # Remaining DevTools tabs: console (~8583-8601), network (~8602-8750, the
 # largest, with its own nested details panel), terminal (the {:else} tail).
+
+# DevTools Console tab: 805 B of source, 1 prop.
+#   initial chunk 478,783 -> 478,226  (-557). Margin 21,774 bytes.
+#
+# The attribute-line grep reported ZERO props for this tab. Its only prop,
+# devToolsConsoleRows, is read inside {#if devToolsConsoleRows.length === 0} and
+# {#each devToolsConsoleRows ...} — never on an attribute. A generated component
+# would have compiled with no props at all and failed at runtime with an
+# undefined read, since neither svelte-check nor eslint objects to a component
+# that simply does not declare something it uses from... nothing. Reading the
+# markup is what found it.
+#
+# ---------------------------------------------------------------------------
+# US-036 position: 1,159,933 -> 478,226 bytes, 58.8% smaller, 21,774 under
+# target.
+#   dialogs 29/29 | Runner panel | Preferences 7/7 sections
+#   DevTools: Performance + Console done; Network and Terminal remain
+#   Import: needs one deliberate ~39-prop pass, does not decompose
+# ---------------------------------------------------------------------------
