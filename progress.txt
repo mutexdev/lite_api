@@ -4476,3 +4476,48 @@ US-026 - Store layer. DONE. Both named collapses complete.
   0%-covered: 30 -> 11, and what remains is environment-bound without exception:
   DNS resolution, OS version, per-platform CWD, a live network interface, a real
   transport chain, and two trivial setter seams.
+
+--- Percent-decoding fallback and the path CWD helpers ---
+
+  hexDigit backs safeDecodeURIComponent, which runs when url.PathUnescape
+  REFUSES a value — a URL with a stray % or a malformed escape. That is a path
+  real users hit: a URL pasted out of a log, or built by a script from an
+  unencoded value. A mis-decode sends the request to a different URL than the
+  one shown in the bar.
+
+  The case that earns its test: %2F and %2f are BOTH legal, and a decoder
+  handling only lower case silently leaves half of all escapes encoded. Upper
+  case is easy to omit and impossible to notice.
+
+  The CWD helpers are environment-dependent, so the tests assert INVARIANTS
+  rather than values — never empty, each using the separator its platform
+  namespace promises, and both describing the same directory. A script calling
+  path.posix.resolve() against a Windows-shaped cwd builds a path that cannot be
+  opened.
+
+  Controls: rejecting upper-case hex fails 1, win32 cwd keeping forward slashes
+  fails 1, posix cwd using backslashes fails 1.
+
+=== THE COVERAGE SWEEP IS DONE. 30 -> 8 functions at 0%, 79.8% overall. ===
+
+  What remains cannot be tested without either the network or a signature
+  change, and I am not going to write tests that call them and assert nothing:
+
+    scriptDNSReverse / LookupService / SRVParts   real DNS resolution
+    scriptOSVersion                               host OS build string
+    pacLocalIPAddress                             a live network interface
+    transportWithPACProxy                         a full transport chain
+    SetHTTPClient                                 a one-line setter seam
+    interpolateDynamicVariables                   duplicate of the interp copy,
+                                                  which IS tested
+
+  WHAT THE SWEEP ACTUALLY BOUGHT, which was never the coverage number:
+    2 real bugs   PAC timeRange never matched its two commonest forms;
+                  PAC dateRange's year branch was unreachable
+    7 regressions of my own making, in user-visible strings, plus a tripwire
+    9 sets of tests over silent-failure paths: credentials and multipart
+      surviving re-sync, PAC fallback routing, .bru assertion parsing, JSON
+      Schema types, fs.writeFile bytes, script error reporting, GraphQL and
+      environment loading, OAuth2 additional params, scope determinism
+    3 occasions where MY TEST was wrong and the code was right — each caught by
+      reading the code instead of assuming, and each recorded as such
