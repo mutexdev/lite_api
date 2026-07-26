@@ -550,6 +550,10 @@ export function SelectDefaultLocation() {
   return window['go']['main']['App']['SelectDefaultLocation']();
 }
 
+export function SelectRunnerDataFile() {
+  return window['go']['main']['App']['SelectRunnerDataFile']();
+}
+
 export function SendGRPCStreamMessage(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['SendGRPCStreamMessage'](arg1, arg2, arg3, arg4);
 }

@@ -276,6 +276,8 @@ export function SelectCustomCaCertificate():Promise<string>;
 
 export function SelectDefaultLocation():Promise<string>;
 
+export function SelectRunnerDataFile():Promise<string>;
+
 export function SendGRPCStreamMessage(arg1:string,arg2:string,arg3:string,arg4:number):Promise<main.AppState>;
 
 export function SendGRPCStreamMessageWithPromptValues(arg1:string,arg2:string,arg3:string,arg4:number,arg5:Record<string, string>):Promise<main.AppState>;

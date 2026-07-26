@@ -1233,6 +1233,8 @@ type RunnerOptions struct {
 	BailOnFailure bool `json:"bailOnFailure,omitempty"`
 	// US-045. How many times to run the selection. Zero and negative mean one.
 	Iterations int `json:"iterations,omitempty"`
+	// US-046. Path to a .csv or .json file; one iteration per row.
+	DataFile string `json:"dataFile,omitempty"`
 }
 
 type GenerateCollectionDocsOptions struct {
@@ -6203,6 +6205,22 @@ func (a *App) SelectCustomCaCertificate() (string, error) {
 	})
 }
 
+// SelectRunnerDataFile picks the CSV or JSON file that drives a data-driven
+// run (US-046). The filters mirror runnerDataRows' accepted extensions, which
+// are matched on extension rather than sniffed content.
+func (a *App) SelectRunnerDataFile() (string, error) {
+	if a.ctx == nil {
+		return "", errors.New("file dialog is unavailable")
+	}
+	return wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
+		Title: "Select Runner Data File",
+		Filters: []wailsruntime.FileFilter{
+			{DisplayName: "Data Files (*.csv, *.json)", Pattern: "*.csv;*.json"},
+			{DisplayName: "All Files (*.*)", Pattern: "*.*"},
+		},
+	})
+}
+
 func (a *App) SelectDefaultLocation() (string, error) {
 	if a.ctx == nil {
 		return "", errors.New("directory dialog is unavailable")
@@ -6309,7 +6327,7 @@ func (a *App) SendRequestWithPromptValues(collectionID, itemID, environmentID st
 }
 
 func (a *App) sendRequestWithControls(collectionID, itemID, environmentID string, promptValues map[string]string) (AppState, scriptControls, error) {
-	state, controls, _, err := a.sendRequestWithControlsContext(context.Background(), collectionID, itemID, environmentID, promptValues, nil)
+	state, controls, _, err := a.sendRequestWithControlsContext(context.Background(), collectionID, itemID, environmentID, promptValues, nil, nil)
 	return state, controls, err
 }
 
@@ -6322,7 +6340,7 @@ func (a *App) sendRequestWithControls(collectionID, itemID, environmentID string
 // The fourth return value is the *Response this call stored on the item. The
 // collection runner used to re-find the item in the returned state purely to
 // read it back, which was another linear scan per request.
-func (a *App) sendRequestWithControlsContext(parent context.Context, collectionID, itemID, environmentID string, promptValues map[string]string, index *runnerLookupIndex) (AppState, scriptControls, *Response, error) {
+func (a *App) sendRequestWithControlsContext(parent context.Context, collectionID, itemID, environmentID string, promptValues map[string]string, index *runnerLookupIndex, iterationData map[string]string) (AppState, scriptControls, *Response, error) {
 	controls := scriptControls{}
 	a.mu.Lock()
 	if err := a.ensureReadyLocked(); err != nil {
@@ -6342,6 +6360,10 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 	collectionCopy := *collection
 	requestCopy := effectiveRequest(collectionCopy, *item)
 	scriptVariables := newScriptVariableContext(activeGlobalEnvironmentsForWorkspace(*ws), collection, environmentID, requestCopy, promptValues, ws.Path)
+	// US-046. Applied after construction and before Combined is read, so the
+	// row participates in the precedence chain rather than being pasted over
+	// the result of it.
+	applyIterationDataToContext(scriptVariables, iterationData)
 	vars := scriptVariables.Combined
 	scriptLogs := []ScriptLog{}
 	scriptTimeline := []TimelineItem{}
@@ -7117,7 +7139,13 @@ func (a *App) RunCollectionWithOptions(collectionID, environmentID string, optio
 	runContext, finishRun := a.startCancellableCollectionRun(collectionID)
 	defer finishRun()
 
-	totalIterations := normalizeRunnerIterations(options.Iterations)
+	dataRows, err := runnerDataRows(options.DataFile)
+	if err != nil {
+		return AppState{}, err
+	}
+	// US-046. With a data file the row count leads: see runnerIterationPlan for
+	// why asking for more iterations than rows is clamped rather than padded.
+	totalIterations := runnerIterationPlan(dataRows, options.Iterations)
 	results := make([]RunResult, 0, len(items)*totalIterations)
 	completedIterations := 0
 	// US-045. The labelled loop is what makes "stop the run" mean the RUN and
@@ -7126,6 +7154,7 @@ func (a *App) RunCollectionWithOptions(collectionID, environmentID string, optio
 	// not quietly start iteration 3.
 iterations:
 	for iteration := 1; iteration <= totalIterations; iteration++ {
+		iterationRow := runnerDataRowFor(dataRows, iteration)
 		currentRequestIndex := 0
 		// jumps resets per iteration because it guards against an infinite
 		// setNextRequest cycle WITHIN one pass. Carrying it across iterations
@@ -7155,7 +7184,7 @@ iterations:
 				currentRequestIndex++
 				continue
 			}
-			state, controls, res, err := a.sendRequestWithControlsContext(runContext, collectionID, item.ID, environmentID, nil, lookupIndex)
+			state, controls, res, err := a.sendRequestWithControlsContext(runContext, collectionID, item.ID, environmentID, nil, lookupIndex, iterationRow)
 			if err != nil {
 				if requestContextCancelled(runContext) {
 					results = append(results, stampIteration(cancelledRunResult(item), iteration, totalIterations))
@@ -17895,6 +17924,8 @@ type scriptVariableContext struct {
 	Collection map[string]interface{}
 	Folder     map[string]interface{}
 	Request    map[string]interface{}
+	// Data is the current iteration's row from a runner data file (US-046).
+	Data       map[string]interface{}
 	Prompt     map[string]interface{}
 	ProcessEnv map[string]string
 	Combined   map[string]string
@@ -31212,6 +31243,7 @@ func newScriptVariableContext(globalEnvs []Environment, collection *Collection, 
 		Collection: map[string]interface{}{},
 		Folder:     map[string]interface{}{},
 		Request:    map[string]interface{}{},
+		Data:       map[string]interface{}{},
 		Prompt:     promptVariableMap(promptValues),
 		ProcessEnv: processEnvForCollection(collection, firstString(workspacePath)),
 		Combined:   map[string]string{},
@@ -31237,6 +31269,23 @@ func newScriptVariableContext(globalEnvs []Environment, collection *Collection, 
 	mergeVariableMap(ctx.Request, item.Vars.Req)
 	ctx.Recompute()
 	return ctx
+}
+
+// applyIterationDataToContext puts a data-file row into the Data scope.
+//
+// A nil or empty row is a no-op rather than a clear: a run without a data file
+// must behave exactly as it did before US-046.
+func applyIterationDataToContext(ctx *scriptVariableContext, row map[string]string) {
+	if ctx == nil || len(row) == 0 {
+		return
+	}
+	if ctx.Data == nil {
+		ctx.Data = map[string]interface{}{}
+	}
+	for key, value := range row {
+		ctx.Data[key] = value
+	}
+	ctx.Recompute()
 }
 
 func newFlatScriptVariableContext(vars map[string]string) *scriptVariableContext {
@@ -31533,6 +31582,12 @@ func (ctx *scriptVariableContext) Recompute() {
 	add(ctx.Env)
 	add(ctx.Folder)
 	add(ctx.Request)
+	// US-046. Data sits above the environment and collection scopes, matching
+	// Postman, but below Runtime and Prompt: a value the script explicitly set
+	// with bru.setVar, or one the user was just prompted for, is a deliberate
+	// act during THIS iteration and must not be silently overwritten by the
+	// row that was chosen before the iteration began.
+	add(ctx.Data)
 	add(ctx.Runtime)
 	add(ctx.Prompt)
 	addProcessEnvVars(ctx.Combined, ctx.ProcessEnv)
@@ -31550,6 +31605,7 @@ func (ctx *scriptVariableContext) CombinedInterface() map[string]interface{} {
 	add(ctx.Env)
 	add(ctx.Folder)
 	add(ctx.Request)
+	add(ctx.Data)
 	add(ctx.Runtime)
 	add(ctx.Prompt)
 	return out

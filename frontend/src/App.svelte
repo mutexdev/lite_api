@@ -145,6 +145,7 @@
     RestoreRecoveryEntry,
     ResizeTerminalSession,
     RunCollectionWithOptions,
+    SelectRunnerDataFile,
     SaveResponseExample,
 		SetCollectionGitRemote,
     SaveAllTabs,
@@ -503,6 +504,7 @@
   let runnerDelayMs = 0
   let runnerBailOnFailure = false
   let runnerIterations = 1
+  let runnerDataFile = ''
   let appZoomPercentage = 100
   let codeFont = 'default'
   let codeFontSize = 13
@@ -1044,6 +1046,7 @@
     runnerDelayMs = 0
     runnerBailOnFailure = false
     runnerIterations = 1
+    runnerDataFile = ''
   }
   $: responsePaneOrientation = normalizedResponsePaneOrientation(state?.preferences?.layout?.responsePaneOrientation)
   $: appZoomPercentage = normalizedZoomPercentage(state?.preferences?.display?.zoomPercentage)
@@ -3260,6 +3263,7 @@
     runnerDelayMs = 0
     runnerBailOnFailure = false
     runnerIterations = 1
+    runnerDataFile = ''
   }
 
   function normalizedRunnerDelayMs(value: number) {
@@ -3279,6 +3283,13 @@
     return iterations
   }
 
+  async function chooseRunnerDataFile() {
+    // A cancelled dialog returns an empty path, which must leave the current
+    // selection alone rather than silently clearing it.
+    const chosen = await SelectRunnerDataFile()
+    if (chosen) runnerDataFile = chosen
+  }
+
   async function runCollection() {
     if (!activeCollection || activeCollectionRun || busy !== '') return
     const collection = activeCollection
@@ -3296,7 +3307,8 @@
           selectedItemIds,
           delayMs: normalizedRunnerDelayMs(runnerDelayMs),
           bailOnFailure: runnerBailOnFailure,
-          iterations: normalizedRunnerIterations(runnerIterations)
+          iterations: normalizedRunnerIterations(runnerIterations),
+          dataFile: runnerDataFile
         } as main.RunnerOptions)
         state = completedRunState
         if (activeView === viewAtStart && activeCollection?.id === collection.id) activeView = 'runner'
@@ -10627,6 +10639,8 @@
             bind:runnerDelayMs
             bind:runnerBailOnFailure
             bind:runnerIterations
+            bind:runnerDataFile
+            {chooseRunnerDataFile}
             {normalizedRunnerIterations}
             {state}
             {busy}

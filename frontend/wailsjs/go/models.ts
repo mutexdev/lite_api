@@ -3557,6 +3557,7 @@ export namespace main {
 	    delayMs?: number;
 	    bailOnFailure?: boolean;
 	    iterations?: number;
+	    dataFile?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new RunnerOptions(source);
@@ -3568,6 +3569,7 @@ export namespace main {
 	        this.delayMs = source["delayMs"];
 	        this.bailOnFailure = source["bailOnFailure"];
 	        this.iterations = source["iterations"];
+	        this.dataFile = source["dataFile"];
 	    }
 	}
 	

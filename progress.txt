@@ -1036,3 +1036,50 @@ US-045 - Runner iterations. DONE.
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 36.9s 0,
   -race clean, svelte-check 198/0/0, eslint 0, npm test 105/105.
+
+US-046 - Runner data files. DONE.
+  runner_data_file.go: CSV (header row -> keys) and JSON (array of objects),
+  chosen by EXTENSION not by sniffing - a mislabelled file sniffed as the wrong
+  format produces plausible garbage (a JSON array read as CSV yields one column
+  named `[`), whereas an unknown extension is an error the user can act on.
+  RunnerOptions.DataFile; SelectRunnerDataFile binding for the picker.
+
+  New Data scope in scriptVariableContext, slotted between Request and Runtime:
+    Global < Collection < Env < Folder < Request < DATA < Runtime < Prompt
+  Data beats the environment (Postman's rule, and what makes the feature
+  useful) but loses to Runtime and Prompt. The row is chosen BEFORE the
+  iteration starts; bru.setVar and a prompt answer are deliberate acts DURING
+  it. If the row won, a script could not correct a value for the request that
+  follows and would fail with nothing to point at.
+
+  Row count leads the iteration count, and asking for more iterations than rows
+  is clamped DOWN rather than padded. An iteration with no row behind it does
+  not fail - it sends {{userId}} unresolved straight to the server, which looks
+  like a broken collection rather than a misconfigured run. Every clamp in the
+  file exists to make that unrepresentable.
+
+  Two parsing decisions that are only obvious after they bite:
+    UTF-8 BOM stripped from the header. Excel writes one; without stripping,
+    the first column is named "\ufeffuserId" and {{userId}} silently never
+    resolves.
+    JSON numbers via strconv.FormatFloat, not %v. %v renders 1000000 as
+    "1e+06" - an id in scientific notation is a request to the wrong resource.
+    The negative control confirmed this: it produced exactly "1e+06".
+
+  Ragged and blank CSV rows accepted: a trailing comma or short final line is
+  normal in hand-edited CSV, and missing cells become the empty string the
+  header promised.
+
+  Negative controls, all four run and all four caught:
+    Data dropped from Recompute   requests went out as
+                                  /users/{{userId}}?label=%7B%7Blabel%7D%7D
+    Data placed above Runtime     bru.setVar value overwritten by the row
+    pad instead of clamp          10 iterations planned for 3 rows
+    %v for JSON numbers           id became "1e+06"
+
+  Frontend: Choose/Clear data-file control in RunnerPanel with the selected
+  path shown. A cancelled dialog returns "" and deliberately leaves the current
+  selection alone rather than clearing it.
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 36.6s 0,
+  -race clean, svelte-check 198/0/0, eslint 0, npm test 105/105.

@@ -13,6 +13,8 @@
   export let runnerDelayMs: number
   export let runnerBailOnFailure: boolean
   export let runnerIterations: number
+  export let runnerDataFile: string
+  export let chooseRunnerDataFile: () => void
   export let normalizedRunnerIterations: (value: number) => number
 
   export let state: main.AppState
@@ -91,6 +93,19 @@
                   on:input={(event) => (runnerIterations = normalizedRunnerIterations(Number(event.currentTarget.value)))}
                 />
               </label>
+              <div class="runner-delay-field">
+                <span class="field-label">Data file (CSV or JSON)</span>
+                <div class="button-row compact">
+                  <button type="button" data-testid="runner-data-file-choose" on:click={chooseRunnerDataFile}>Choose…</button>
+                  {#if runnerDataFile}
+                    <button type="button" data-testid="runner-data-file-clear" on:click={() => (runnerDataFile = '')}>Clear</button>
+                  {/if}
+                </div>
+                {#if runnerDataFile}
+                  <small data-testid="runner-data-file-name">{runnerDataFile}</small>
+                  <small class="muted">One iteration per row; the row count sets the iteration count.</small>
+                {/if}
+              </div>
               <label class="checkbox-line">
                 <input type="checkbox" data-testid="runner-bail-input" bind:checked={runnerBailOnFailure} />
                 Stop at the first failure
