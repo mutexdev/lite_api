@@ -396,9 +396,20 @@ evidence for each story; this file carries the cross-story findings.
   becomes observable behaviour where today it is not. Decide and pin the order
   in a test before writing the refactor, not after.
 
-  The "no variable or cookie state leaks between requests — explicit test"
-  criterion should be written FIRST, as a failing test, since it is the one that
-  catches every way this can go wrong.
+  The "no variable or cookie state leaks between requests" criterion is now
+  WRITTEN — script_isolation_test.go, 5 tests, before the refactor rather than
+  after. They pin the current behaviour while four separate runtimes still make
+  it true by construction, so they are the regression net for the 4->2 change.
+
+  Both directions are pinned, which matters: bru.setVar is SUPPOSED to persist
+  between requests, so a refactor that isolated too aggressively would break
+  that while making every leak test pass. The suite asserts globals do NOT
+  survive and runtime variables DO.
+
+  Proven non-vacuous: a `typeof x === "undefined"` assertion passes trivially if
+  the harness never runs the script, so the control planted a global in the same
+  script and asserted it was undefined — the suite reported the failure with the
+  expect() error, confirming assertions really execute and really fail.
 
 --- US-014 — narrow-return mutators (PASSED, except browser QA) ---
   HEADLINE, measured on the 500-request fixture by marshalling both return
