@@ -6793,3 +6793,26 @@ US-026 - Store layer. DONE. Both named collapses complete.
   type — the Go side attaches it and regenerating bindings has never surfaced
   it. Kept as a cast in ONE place rather than widening the shared type, and said
   so in the code, so the looseness is contained and findable.
+
+=== PHASE 6 — the remaining response-example edits ===
+
+  responseExampleEdits.ts gains the response-payload field edit and the file-row
+  removal. 9 more tests (18 -> 27). App.svelte 11,416 -> 11,402.
+  Frontend suite 443 -> 452.
+
+  TWO NUMERIC FIELDS THAT MUST NOT BE STRINGS. status and size arrive from text
+  inputs and are compared numerically everywhere downstream — a status stored as
+  "404" sorts beside "40" and fails every `< 300` check the response tone uses.
+  Control confirms: storing the raw value fails 2.
+
+  `|| 0` RATHER THAN LEAVING NaN, and that is a real choice not a tic. A
+  half-typed or cleared field parses to NaN; NaN in a saved example renders as
+  the text "NaN" and silently breaks every comparison the number existed for.
+  Zero is visible and honest. Control: dropping the fallback fails 1.
+
+  DELETING AN ATTACHMENT HAS TO KEEP EXACTLY ONE SELECTED. Removing the selected
+  file must promote another, or the example is left holding files with nothing
+  to send. Removing an unselected one promotes nothing — UNLESS the list had no
+  selection at all, which is a broken state worth repairing whenever it is
+  noticed. Both halves of that condition have their own control, and the second
+  (`removedSelected` alone, dropping the repair) fails 1.

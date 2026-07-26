@@ -120,3 +120,53 @@ export function applyResponseExampleHeader(
   }
   return { headers: rows }
 }
+
+/**
+ * Applies one field edit to an example's response payload.
+ *
+ * status and size are parsed as integers, because they arrive from text inputs
+ * and are compared numerically everywhere downstream — a status stored as the
+ * string "404" sorts beside "40" and fails every `< 300` check.
+ *
+ * `|| 0` rather than leaving NaN: a half-typed or cleared field produces NaN,
+ * and NaN in a saved example renders as "NaN" and breaks the comparisons the
+ * number existed for. Zero is a visible, honest placeholder.
+ */
+export function applyResponseExampleResponseField(
+  response: types.ResponseExamplePayload | undefined,
+  field: keyof types.ResponseExamplePayload,
+  value: string | number
+): types.ResponseExamplePayload {
+  const next = { ...(response ?? {}) } as types.ResponseExamplePayload
+  if (field === 'status') {
+    next.status = Number.parseInt(String(value), 10) || 0
+  } else if (field === 'size') {
+    next.size = Number.parseInt(String(value), 10) || 0
+  } else {
+    next[field] = value as never
+  }
+  return next
+}
+
+/**
+ * Removes a file-body row, keeping exactly one selected.
+ *
+ * Deleting the selected attachment must promote another, or the example is left
+ * with files and nothing to send. Deleting an unselected one promotes nothing —
+ * unless the list had no selection at all, which is a state worth repairing
+ * whenever it is noticed.
+ */
+export function removeResponseExampleFileRow(
+  request: types.ResponseExampleRequest | undefined,
+  index: number
+): types.ResponseExampleRequest {
+  const next = { ...(request ?? {}) } as types.ResponseExampleRequest
+  const rows = [...(next.file ?? [])]
+  const removedSelected = rows[index]?.selected
+  rows.splice(index, 1)
+  if (rows.length > 0 && (removedSelected || !rows.some((row) => row.selected))) {
+    rows[0].selected = true
+  }
+  next.file = rows
+  return next
+}

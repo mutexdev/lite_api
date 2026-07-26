@@ -9,7 +9,9 @@ import { test } from 'node:test'
 import {
   applyResponseExampleRequestField,
   applyResponseExampleFileRow,
-  applyResponseExampleHeader
+  applyResponseExampleHeader,
+  applyResponseExampleResponseField,
+  removeResponseExampleFileRow
 } from '../src/lib/responseExampleEdits.ts'
 
 const req = (o: Record<string, unknown> = {}) => o as never
@@ -131,4 +133,65 @@ test('adding a header row beyond the end creates it with defaults', () => {
   const result = applyResponseExampleHeader([] as never, 'text', 0, 'name', 'X-New')
   assert.equal(result.headers[0].name, 'X-New')
   assert.equal(result.headers[0].enabled, true, 'a new header must be enabled or it is invisible on the wire')
+})
+
+// A status stored as the string "404" sorts beside "40" and fails every
+// `< 300` check downstream.
+test('status and size are parsed as numbers', () => {
+  assert.equal(applyResponseExampleResponseField(undefined, 'status', '404').status, 404)
+  assert.equal(applyResponseExampleResponseField(undefined, 'size', '2048').size, 2048)
+  assert.equal(typeof applyResponseExampleResponseField(undefined, 'status', '200').status, 'number')
+})
+
+// NaN in a saved example renders as "NaN" and breaks the comparisons the number
+// existed for. Zero is a visible, honest placeholder.
+test('a cleared or half-typed number becomes zero rather than NaN', () => {
+  assert.equal(applyResponseExampleResponseField(undefined, 'status', '').status, 0)
+  assert.equal(applyResponseExampleResponseField(undefined, 'status', 'abc').status, 0)
+  assert.equal(applyResponseExampleResponseField(undefined, 'size', '').size, 0)
+  assert.ok(!Number.isNaN(applyResponseExampleResponseField(undefined, 'status', 'x').status))
+})
+
+test('other response fields are stored as given', () => {
+  const next = applyResponseExampleResponseField(undefined, 'statusText', 'Not Found')
+  assert.equal(next.statusText, 'Not Found')
+})
+
+test('editing a response field does not mutate the original', () => {
+  const original = { status: 200 }
+  applyResponseExampleResponseField(original as never, 'status', '404')
+  assert.equal(original.status, 200)
+})
+
+// Deleting the selected attachment must promote another, or the example is left
+// with files and nothing to send.
+test('removing the selected file promotes the first remaining one', () => {
+  const request = req({ file: [{ filePath: '/a' }, { filePath: '/b', selected: true }, { filePath: '/c' }] })
+  const next = removeResponseExampleFileRow(request, 1)
+  assert.deepEqual(next.file?.map((r) => r.filePath), ['/a', '/c'])
+  assert.equal(next.file?.[0].selected, true)
+})
+
+test('removing an unselected file leaves the selection alone', () => {
+  const request = req({ file: [{ filePath: '/a', selected: true }, { filePath: '/b' }, { filePath: '/c' }] })
+  const next = removeResponseExampleFileRow(request, 2)
+  assert.deepEqual(next.file?.map((r) => [r.filePath, Boolean(r.selected)]), [['/a', true], ['/b', false]])
+})
+
+// A list with no selection is a state worth repairing whenever it is noticed.
+test('removing from an unselected list repairs the selection', () => {
+  const request = req({ file: [{ filePath: '/a' }, { filePath: '/b' }, { filePath: '/c' }] })
+  const next = removeResponseExampleFileRow(request, 2)
+  assert.equal(next.file?.[0].selected, true)
+})
+
+test('removing the last file leaves an empty list rather than a phantom selection', () => {
+  const next = removeResponseExampleFileRow(req({ file: [{ filePath: '/a', selected: true }] }), 0)
+  assert.deepEqual(next.file, [])
+})
+
+test('removing does not mutate the original rows', () => {
+  const original = { file: [{ filePath: '/a', selected: true }, { filePath: '/b' }] }
+  removeResponseExampleFileRow(original as never, 0)
+  assert.equal(original.file.length, 2)
 })

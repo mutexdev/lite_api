@@ -307,7 +307,9 @@
   import {
     applyResponseExampleFileRow,
     applyResponseExampleHeader,
-    applyResponseExampleRequestField
+    applyResponseExampleRequestField,
+    applyResponseExampleResponseField,
+    removeResponseExampleFileRow
   } from './lib/responseExampleEdits'
   import { BrowserOpenURL, EventsOn, OnFileDrop, OnFileDropOff, Quit } from '../wailsjs/runtime/runtime'
 
@@ -2261,15 +2263,7 @@
 
   function updateResponseExampleResponseField(example: types.ResponseExample, field: keyof types.ResponseExamplePayload, value: string | number) {
     updateResponseExampleDraft(example, (draft) => {
-      const response = { ...(draft.response ?? {}) } as types.ResponseExamplePayload
-      if (field === 'status') {
-        response.status = Number.parseInt(String(value), 10) || 0
-      } else if (field === 'size') {
-        response.size = Number.parseInt(String(value), 10) || 0
-      } else {
-        response[field] = value as never
-      }
-      draft.response = response
+      draft.response = applyResponseExampleResponseField(draft.response, field, value)
       return draft
     })
   }
@@ -2523,15 +2517,7 @@
 
   function removeResponseExampleRequestFileRow(example: types.ResponseExample, index: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
-      const rows = [...(request.file ?? [])]
-      const removedSelected = rows[index]?.selected
-      rows.splice(index, 1)
-      if (rows.length > 0 && (removedSelected || !rows.some((row) => row.selected))) {
-        rows[0].selected = true
-      }
-      request.file = rows
-      draft.request = request
+      draft.request = removeResponseExampleFileRow(draft.request, index)
       return draft
     })
   }
