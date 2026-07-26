@@ -25,6 +25,7 @@ import {
   normalizedThemeMode,
   normalizedThemeVariant,
   normalizedZoomPercentage,
+  sizeFromTrailingEdgeDrag,
 } from '../src/lib/preferences.ts'
 
 // "ws" is the name an earlier build persisted for WebSocket presets. Dropping
@@ -204,4 +205,23 @@ test('the default font short-circuits instead of being quoted', () => {
 test('a chosen font is quoted and keeps the fallback stack behind it', () => {
   const family = codeFontFamilyFor('Fira Code')
   assert.equal(family, `"Fira Code", ${DEFAULT_CODE_FONT_FAMILY}`)
+})
+
+// The DevTools details panel is pinned to the right edge and the drawer to the
+// bottom, so dragging the handle LEFT or UP makes them BIGGER. Adding the delta
+// instead compiles, runs, and moves the panel the wrong way — a sign error with
+// no symptom other than a handle that feels backwards.
+test('a trailing-edge panel grows when the handle is dragged towards the content', () => {
+  const bigger = sizeFromTrailingEdgeDrag(400, -100, normalizedDevToolsDetailsPanelWidth)
+  const smaller = sizeFromTrailingEdgeDrag(400, 100, normalizedDevToolsDetailsPanelWidth)
+  assert.equal(bigger, 500)
+  assert.equal(smaller, 300)
+  assert.ok(bigger > smaller)
+})
+
+test('the drag result is clamped by whichever normalizer it is given', () => {
+  assert.equal(sizeFromTrailingEdgeDrag(400, -9999, normalizedDevToolsDetailsPanelWidth), 800)
+  assert.equal(sizeFromTrailingEdgeDrag(400, 9999, normalizedDevToolsDetailsPanelWidth), 280)
+  assert.equal(sizeFromTrailingEdgeDrag(320, -9999, normalizedDevToolsDrawerHeight), 720)
+  assert.equal(sizeFromTrailingEdgeDrag(320, 9999, normalizedDevToolsDrawerHeight), 220)
 })

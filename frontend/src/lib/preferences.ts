@@ -225,3 +225,20 @@ export function codeFontFamilyFor(value: string): string {
   const escaped = font.replace(/["\\]/g, '\\$&')
   return `"${escaped}", ${DEFAULT_CODE_FONT_FAMILY}`
 }
+
+/**
+ * The size of a panel anchored to the right or bottom edge, during a drag.
+ *
+ * The delta is SUBTRACTED, and that inversion is the whole function. The
+ * DevTools details panel is pinned to the right edge and the drawer to the
+ * bottom, so dragging the handle LEFT or UP makes them BIGGER. Adding the delta
+ * instead compiles, runs, and moves the panel the wrong way — a sign error with
+ * no symptom other than a handle that feels backwards.
+ */
+export function sizeFromTrailingEdgeDrag(
+  startSize: number,
+  delta: number,
+  normalize: (value: number) => number
+): number {
+  return normalize(startSize - delta)
+}

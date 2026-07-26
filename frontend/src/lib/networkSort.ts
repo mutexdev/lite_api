@@ -209,3 +209,37 @@ export function networkSortPreference(
   const direction = key ? normalizedNetworkSortDirection(sortDirection) : ''
   return { key: direction ? key : '', direction }
 }
+
+/**
+ * Resizes one column against its right-hand neighbour.
+ *
+ * The two move together and by the same amount, so the table's TOTAL width is
+ * invariant across a drag. That is what keeps the header aligned with the rows
+ * under it: the columns are laid out from these widths, and a total that grows
+ * pushes the last column off the panel with no way to drag it back.
+ *
+ * The delta is clamped against BOTH minimums, not one. Clamping only the column
+ * being dragged lets the neighbour collapse to nothing; clamping only the
+ * neighbour lets the dragged column go negative, which flips the layout. Each
+ * bound is the distance that column has left before it hits the floor.
+ *
+ * A drag on the last column is a no-op, because there is no neighbour to take
+ * the width from and the only alternative would be changing the total.
+ */
+export function resizeAdjacentColumns(
+  startWidths: readonly number[],
+  index: number,
+  delta: number
+): number[] {
+  const next = [...startWidths]
+  if (index < 0 || index + 1 >= next.length) return next
+  const left = startWidths[index]
+  const right = startWidths[index + 1]
+  const clamped = Math.max(
+    -(left - MIN_NETWORK_COLUMN_WIDTH),
+    Math.min(right - MIN_NETWORK_COLUMN_WIDTH, delta)
+  )
+  next[index] = left + clamped
+  next[index + 1] = right - clamped
+  return next
+}

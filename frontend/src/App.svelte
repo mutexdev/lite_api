@@ -31,7 +31,8 @@
     normalizedNetworkColumnWidths,
     normalizedNetworkSortDirection as normalizedDevToolsNetworkSortDirectionOf,
     normalizedNetworkSortKey as normalizedDevToolsNetworkSortKeyOf,
-    networkSortPreference
+    networkSortPreference,
+    resizeAdjacentColumns
   } from './lib/networkSort'
   import {
     DEFAULT_RESPONSE_SPLIT,
@@ -79,7 +80,8 @@
     normalizedTabID,
     normalizedThemeMode,
     normalizedThemeVariant as normalizedThemeVariantOf,
-    normalizedZoomPercentage
+    normalizedZoomPercentage,
+    sizeFromTrailingEdgeDrag
   } from './lib/preferences'
   import {
     collectionFolderNameIsValid,
@@ -6445,11 +6447,7 @@
     let latestWidths = startWidths
     devToolsNetworkResizingColumn = index
     const handleMove = (moveEvent: MouseEvent) => {
-      const delta = moveEvent.clientX - startX
-      const clampedDelta = Math.max(-(startWidths[index] - 60), Math.min(startWidths[index + 1] - 60, delta))
-      latestWidths = [...startWidths]
-      latestWidths[index] = startWidths[index] + clampedDelta
-      latestWidths[index + 1] = startWidths[index + 1] - clampedDelta
+      latestWidths = resizeAdjacentColumns(startWidths, index, moveEvent.clientX - startX)
       devToolsNetworkColumnWidths = latestWidths
     }
     const cleanup = () => {
@@ -6472,7 +6470,7 @@
     const startWidth = devToolsDetailsPanelWidth
     let latestWidth = startWidth
     const handleMove = (moveEvent: MouseEvent) => {
-      latestWidth = normalizedDevToolsDetailsPanelWidth(startWidth - (moveEvent.clientX - startX))
+      latestWidth = sizeFromTrailingEdgeDrag(startWidth, moveEvent.clientX - startX, normalizedDevToolsDetailsPanelWidth)
       devToolsDetailsPanelWidth = latestWidth
     }
     const cleanup = () => {
@@ -6494,7 +6492,7 @@
     const startHeight = devToolsDrawerHeight
     let latestHeight = startHeight
     const handleMove = (moveEvent: MouseEvent) => {
-      latestHeight = normalizedDevToolsDrawerHeight(startHeight - (moveEvent.clientY - startY))
+      latestHeight = sizeFromTrailingEdgeDrag(startHeight, moveEvent.clientY - startY, normalizedDevToolsDrawerHeight)
       devToolsDrawerHeight = latestHeight
     }
     const cleanup = () => {

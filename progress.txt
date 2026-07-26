@@ -7472,3 +7472,36 @@ US-026 - Store layer. DONE. Both named collapses complete.
       than about the picker. Controls fail 2 and 1.
 
   Eleven controls, eleven failures.
+
+=== PHASE 6 — the DevTools resize arithmetic ===
+
+  resizeAdjacentColumns onto networkSort.ts (24 -> 30 tests) and
+  sizeFromTrailingEdgeDrag onto preferences.ts (22 -> 24).
+  App.svelte 10,776 -> 10,774. Suite 718 -> 726.
+
+  Only two lines came out of App.svelte, and that is the point: the ARITHMETIC
+  moved, not the DOM plumbing. A drag handler cannot be tested without a
+  browser; the sums inside it can.
+
+  Pinned:
+    - COLUMN RESIZE IS A PAIRED OPERATION. The two columns move together and by
+      the same amount, so the table's TOTAL WIDTH IS INVARIANT across a drag.
+      That is what keeps the header aligned with the rows under it — a total
+      that grows pushes the last column off the panel with no way to drag it
+      back. Controls fail 4 and 5.
+    - THE DELTA IS CLAMPED AGAINST BOTH MINIMUMS, NOT ONE. Clamping only the
+      dragged column lets the NEIGHBOUR collapse to nothing; clamping only the
+      neighbour lets the DRAGGED column go negative, which flips the layout.
+      Each bound is the distance that column has left before it hits the floor.
+      Two controls, one per side, fail 2 each — and a third test walks every
+      delta from -9999 to 9999 asserting the total is preserved regardless.
+    - a drag on the LAST column is a no-op, because there is no neighbour to
+      take the width from. Without the bound the code reads index+1 past the end
+      and produces NaN. Control fails 1.
+    - THE TRAILING-EDGE DRAG SUBTRACTS, and that inversion is the whole
+      function. The details panel is pinned to the RIGHT edge and the drawer to
+      the BOTTOM, so dragging the handle LEFT or UP makes them BIGGER. Adding
+      instead compiles, runs, and moves the panel the wrong way — a sign error
+      whose only symptom is a handle that feels backwards. Control fails 2.
+
+  Seven controls, seven failures.

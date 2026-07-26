@@ -12,6 +12,7 @@ import {
   networkLogTimestamp,
   sortNetworkRows,
   DEFAULT_NETWORK_COLUMN_WIDTHS,
+  resizeAdjacentColumns,
   normalizedNetworkColumnWidths,
   normalizedNetworkSortDirection,
   normalizedNetworkSortKey,
@@ -230,4 +231,59 @@ test('the persisted sort keeps its two halves consistent', () => {
   assert.deepEqual(networkSortPreference('status', '', keys), { key: '', direction: '' })
   assert.deepEqual(networkSortPreference('', 'desc', keys), { key: '', direction: '' })
   assert.deepEqual(networkSortPreference('gone' as never, 'asc', keys), { key: '', direction: '' })
+})
+
+// The two columns move together and by the same amount, so the table's total
+// width is invariant across a drag. A total that grows pushes the last column
+// off the panel with no way to drag it back.
+test('resizing a column takes the width from its neighbour', () => {
+  const widths = [100, 200, 300]
+  const next = resizeAdjacentColumns(widths, 0, 40)
+  assert.deepEqual(next, [140, 160, 300])
+  assert.equal(
+    next.reduce((sum, w) => sum + w, 0),
+    widths.reduce((sum, w) => sum + w, 0)
+  )
+})
+
+test('dragging left narrows the column and widens its neighbour', () => {
+  assert.deepEqual(resizeAdjacentColumns([100, 200, 300], 0, -30), [70, 230, 300])
+})
+
+// Clamping only the dragged column lets the neighbour collapse to nothing;
+// clamping only the neighbour lets the dragged column go negative, which flips
+// the layout. Each bound is the distance that column has left.
+test('a drag is clamped against both columns, not one', () => {
+  const widths = [100, 80, 300]
+  assert.deepEqual(resizeAdjacentColumns(widths, 0, 9999), [120, 60, 300])
+  assert.deepEqual(resizeAdjacentColumns(widths, 0, -9999), [60, 120, 300])
+})
+
+test('a clamped drag still preserves the total', () => {
+  const widths = [100, 80, 300]
+  for (const delta of [9999, -9999, 5, -5]) {
+    assert.equal(
+      resizeAdjacentColumns(widths, 0, delta).reduce((sum, w) => sum + w, 0),
+      480,
+      String(delta)
+    )
+  }
+})
+
+test('neither column ever falls below the minimum', () => {
+  const widths = [70, 65, 300]
+  for (const delta of [-9999, -100, -1, 0, 1, 100, 9999]) {
+    for (const width of resizeAdjacentColumns(widths, 0, delta)) {
+      assert.ok(width >= 60, `${delta} produced ${width}`)
+    }
+  }
+})
+
+// There is no neighbour to take the width from, and the only alternative would
+// be changing the total.
+test('dragging the last column does nothing', () => {
+  const widths = [100, 200, 300]
+  assert.deepEqual(resizeAdjacentColumns(widths, 2, 50), widths)
+  assert.deepEqual(resizeAdjacentColumns(widths, -1, 50), widths)
+  assert.notEqual(resizeAdjacentColumns(widths, 2, 50), widths)
 })
