@@ -3169,3 +3169,41 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Gates: go build, go vet, go test ok across 9 packages; svelte-check 209/0/0;
   eslint 0; npm test 223/223.
+
+--- US-066 (part) — internal/auth/oauth1 (DONE) ---
+
+  407 lines of OAuth 1.0a signing out of app.go: base string, HMAC-SHA1/256/512,
+  RSA-SHA1/256/512, PLAINTEXT, the Authorization header and the body-hash
+  extension. app.go: 37,213 -> 36,802. Sign is the only entry point app.go uses.
+
+  OAUTH2 DELIBERATELY NOT MOVED. Its 2,027 lines are interleaved with ten *App
+  methods - the credential cache on disk, the system-browser flow, the token
+  HTTP requests and the callback waiter. Splitting the pure parts out of that is
+  a different and larger job than OAuth1, which never touched *App at all.
+
+  !!! THE SIGV4 TAUTOLOGY AGAIN, IN THE OTHER SIGNER !!!
+
+  The existing OAuth1 test builds its expected signature by calling Signature,
+  ParameterString, BaseURL and Encode - the functions under test. I went looking
+  for it specifically BECAUSE awsv4 had the same shape, and it was there.
+
+  Proof it measured nothing: with those tests alone, making oauth1Nonce return
+  a CONSTANT failed nothing. A fixed nonce is a replay vulnerability, not a
+  cosmetic bug.
+
+  Three tests added that share nothing with the implementation: the base string
+  is assembled with literal string operations, percent-encoding is written out
+  per RFC 3986 rather than borrowed from Encode, and the HMAC is taken with
+  crypto/hmac.
+
+  Controls now: constant nonce fails 1, signing key without its "&" separator
+  fails 2, percent-encoding disabled fails 1.
+
+  THE PATTERN IS WORTH STATING PLAINLY. Four untested contracts found this
+  session, all by negative control, none by reading code:
+    SigV4     - verification recomputed with the signer's own functions
+    PAC       - the DIRECT branch, undetectable with the obvious test
+    clone*    - deep-copy contract, aliasing passed everything
+    OAuth1    - same tautology as SigV4, plus a constant nonce passing
+  Every one of them passed a full green test suite. The suite being green says
+  nothing about whether the tests can fail.

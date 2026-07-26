@@ -1,6 +1,7 @@
 package main
 
 import (
+	"LiteAPI/internal/auth/oauth1"
 	"LiteAPI/internal/auth/wsse"
 	"LiteAPI/internal/codegen"
 	"LiteAPI/internal/grpcexec"
@@ -22191,7 +22192,7 @@ func TestOAuth1QueryBodyAndBodyHashPlacement(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if values.Get("oauth_body_hash") != oauth1BodyHash(`{"hello":"world"}`, "HMAC-SHA256") || values.Get("oauth_signature") == "" {
+		if values.Get("oauth_body_hash") != oauth1.BodyHash(`{"hello":"world"}`, "HMAC-SHA256") || values.Get("oauth_signature") == "" {
 			t.Fatalf("unexpected OAuth1 body params: %s", string(bodyBytes))
 		}
 	})
@@ -22305,7 +22306,7 @@ func parseOAuth1Header(header string) map[string]string {
 func assertOAuth1Signature(t *testing.T, r *http.Request, oauthValues map[string]string, consumerSecret, tokenSecret string, bodyPairs [][2]string) {
 	t.Helper()
 	baseString := oauth1TestSignatureBaseString(r, oauthValues, bodyPairs)
-	expected, err := oauth1Signature(baseString, consumerSecret, tokenSecret, oauthValues["oauth_signature_method"], "", "", nil)
+	expected, err := oauth1.Signature(baseString, consumerSecret, tokenSecret, oauthValues["oauth_signature_method"], "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22321,7 +22322,7 @@ func assertOAuth1RSASignature(t *testing.T, r *http.Request, oauthValues map[str
 		t.Fatalf("OAuth1 RSA signature was not base64: %v", err)
 	}
 	baseString := oauth1TestSignatureBaseString(r, oauthValues, bodyPairs)
-	hashType, digest, err := oauth1RSADigest(baseString, oauthValues["oauth_signature_method"])
+	hashType, digest, err := oauth1.RSADigest(baseString, oauthValues["oauth_signature_method"])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22337,8 +22338,8 @@ func oauth1TestSignatureBaseString(r *http.Request, oauthValues map[string]strin
 			oauthParams[key] = value
 		}
 	}
-	extraPairs := append(oauth1QueryPairs(r.URL.RawQuery), bodyPairs...)
-	parameterString := oauth1ParameterString(oauthParams, extraPairs)
+	extraPairs := append(oauth1.QueryPairs(r.URL.RawQuery), bodyPairs...)
+	parameterString := oauth1.ParameterString(oauthParams, extraPairs)
 	signedURL := *r.URL
 	if signedURL.Scheme == "" {
 		if r.TLS != nil {
@@ -22350,7 +22351,7 @@ func oauth1TestSignatureBaseString(r *http.Request, oauthValues map[string]strin
 	if signedURL.Host == "" {
 		signedURL.Host = r.Host
 	}
-	baseString := strings.ToUpper(r.Method) + "&" + oauth1Encode(oauth1BaseURL(&signedURL)) + "&" + oauth1Encode(parameterString)
+	baseString := strings.ToUpper(r.Method) + "&" + oauth1.Encode(oauth1.BaseURL(&signedURL)) + "&" + oauth1.Encode(parameterString)
 	return baseString
 }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"LiteAPI/internal/auth/awsv4"
+	"LiteAPI/internal/auth/oauth1"
 	"LiteAPI/internal/auth/wsse"
 	"LiteAPI/internal/codegen"
 	"LiteAPI/internal/grpcexec"
@@ -18,13 +19,11 @@ import (
 	"compress/gzip"
 	"compress/zlib"
 	"context"
-	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/md5"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -34,7 +33,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/pem"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -11037,153 +11035,17 @@ func applyAuthWithOAuth2Fetcher(req *http.Request, item *RequestItem, vars map[s
 	case "wsse":
 		wsse.ApplyHeader(req.Header, interpolate(auth.Username, vars), interpolate(auth.Password, vars), time.Now().UTC())
 	case "oauth1":
-		return signOAuth1(req, item, auth.OAuth1, vars, time.Now().UTC())
+		return oauth1.Sign(req, item, auth.OAuth1, vars, time.Now().UTC())
 	}
 	return nil
 }
 
-func signOAuth1(req *http.Request, item *RequestItem, auth OAuth1Auth, vars map[string]string, now time.Time) error {
-	if req == nil {
-		return errors.New("missing request for OAuth1 signing")
-	}
-	cfg := interpolateOAuth1Auth(auth, vars)
-	if cfg.ConsumerKey == "" {
-		return errors.New("OAuth1 consumer key is required")
-	}
-	method := strings.ToUpper(firstNonEmpty(cfg.SignatureMethod, "HMAC-SHA1"))
-	if cfg.Version == "" {
-		cfg.Version = "1.0"
-	}
-	if cfg.Placement == "" {
-		cfg.Placement = "header"
-	}
-	bodyString, err := oauth1BodyString(req)
-	if err != nil {
-		return err
-	}
-	isForm := strings.HasPrefix(strings.ToLower(req.Header.Get("Content-Type")), "application/x-www-form-urlencoded")
-	hasBody := req.Method != http.MethodGet && req.Method != http.MethodHead
-	dataPairs := [][2]string{}
-	if (cfg.Placement == "body" || hasBody) && isForm && bodyString != "" {
-		dataPairs = append(dataPairs, parseOAuth1FormPairs(bodyString)...)
-	}
-	if cfg.IncludeBodyHash && !isForm {
-		dataPairs = append(dataPairs, [2]string{"oauth_body_hash", oauth1BodyHash(bodyString, method)})
-	}
-	oauthParams := map[string]string{
-		"oauth_consumer_key":     cfg.ConsumerKey,
-		"oauth_nonce":            firstNonEmpty(cfg.Nonce, oauth1Nonce()),
-		"oauth_signature_method": method,
-		"oauth_timestamp":        firstNonEmpty(cfg.Timestamp, strconv.FormatInt(now.Unix(), 10)),
-		"oauth_version":          firstNonEmpty(cfg.Version, "1.0"),
-	}
-	if cfg.AccessToken != "" {
-		oauthParams["oauth_token"] = cfg.AccessToken
-	}
-	if cfg.CallbackURL != "" {
-		oauthParams["oauth_callback"] = cfg.CallbackURL
-	}
-	if cfg.Verifier != "" {
-		oauthParams["oauth_verifier"] = cfg.Verifier
-	}
-	bodyParams := [][2]string{}
-	for _, pair := range dataPairs {
-		if strings.HasPrefix(pair[0], "oauth_") {
-			oauthParams[pair[0]] = pair[1]
-			continue
-		}
-		bodyParams = append(bodyParams, pair)
-	}
-	extraParams := append(oauth1QueryPairs(req.URL.RawQuery), bodyParams...)
-	baseURL := oauth1BaseURL(req.URL)
-	parameterString := oauth1ParameterString(oauthParams, extraParams)
-	baseString := strings.ToUpper(req.Method) + "&" + oauth1Encode(baseURL) + "&" + oauth1Encode(parameterString)
-	signature, err := oauth1Signature(baseString, cfg.ConsumerSecret, cfg.AccessTokenSecret, method, cfg.PrivateKey, cfg.PrivateKeyType, item)
-	if err != nil {
-		return err
-	}
-	oauthParams["oauth_signature"] = signature
-	switch cfg.Placement {
-	case "header":
-		req.Header.Set("Authorization", oauth1AuthorizationHeader(oauthParams, cfg.Realm))
-	case "query":
-		q := req.URL.Query()
-		for key, value := range oauthParams {
-			if value != "" {
-				q.Set(key, value)
-			}
-		}
-		req.URL.RawQuery = q.Encode()
-	case "body":
-		params, _ := url.ParseQuery("")
-		if isForm && bodyString != "" {
-			params, _ = url.ParseQuery(bodyString)
-		}
-		for key, value := range oauthParams {
-			params.Set(key, value)
-		}
-		encoded := params.Encode()
-		setRequestBodyString(req, encoded)
-		if !isForm {
-			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		}
-	default:
-		return fmt.Errorf("unsupported OAuth1 placement %s", cfg.Placement)
-	}
-	return nil
-}
-
-func interpolateOAuth1Auth(auth OAuth1Auth, vars map[string]string) OAuth1Auth {
-	return OAuth1Auth{
-		ConsumerKey:       interpolate(auth.ConsumerKey, vars),
-		ConsumerSecret:    interpolate(auth.ConsumerSecret, vars),
-		AccessToken:       interpolate(auth.AccessToken, vars),
-		AccessTokenSecret: interpolate(auth.AccessTokenSecret, vars),
-		CallbackURL:       interpolate(auth.CallbackURL, vars),
-		Verifier:          interpolate(auth.Verifier, vars),
-		SignatureMethod:   interpolate(auth.SignatureMethod, vars),
-		PrivateKey:        interpolate(auth.PrivateKey, vars),
-		PrivateKeyType:    interpolate(auth.PrivateKeyType, vars),
-		Timestamp:         interpolate(auth.Timestamp, vars),
-		Nonce:             interpolate(auth.Nonce, vars),
-		Version:           interpolate(auth.Version, vars),
-		Realm:             interpolate(auth.Realm, vars),
-		Placement:         interpolate(auth.Placement, vars),
-		IncludeBodyHash:   auth.IncludeBodyHash,
-	}
-}
-
-func oauth1BodyString(req *http.Request) (string, error) {
-	if req == nil || req.Body == nil || req.ContentLength == 0 {
-		return "", nil
-	}
-	if req.GetBody != nil {
-		body, err := req.GetBody()
-		if err != nil {
-			return "", err
-		}
-		defer func() { _ = body.Close() }()
-		data, err := io.ReadAll(body)
-		if err != nil {
-			return "", err
-		}
-		return string(data), nil
-	}
-	if seeker, ok := req.Body.(interface {
-		io.Reader
-		io.Seeker
-	}); ok {
-		data, err := io.ReadAll(seeker)
-		if err != nil {
-			return "", err
-		}
-		if _, err := seeker.Seek(0, io.SeekStart); err != nil {
-			return "", err
-		}
-		return string(data), nil
-	}
-	return "", errors.New("OAuth1 signing requires a rewindable request body")
-}
+// OAuth 1.0a request signing moved to internal/auth/oauth1.
+//
+// setRequestBodyString stayed: it was declared inside that block but is generic,
+// and internal/auth/awsv4 already keeps its own copy for the same reason -- it
+// rewrites a body AND keeps GetBody consistent with it, which any signer that
+// hashes the payload depends on.
 
 func setRequestBodyString(req *http.Request, value string) {
 	data := []byte(value)
@@ -11194,261 +11056,7 @@ func setRequestBodyString(req *http.Request, value string) {
 	req.ContentLength = int64(len(data))
 }
 
-func parseOAuth1FormPairs(raw string) [][2]string {
-	pairs := [][2]string{}
-	if raw == "" {
-		return pairs
-	}
-	for _, part := range strings.Split(raw, "&") {
-		key, value, ok := strings.Cut(part, "=")
-		if !ok {
-			value = ""
-		}
-		decodedKey, err := url.QueryUnescape(key)
-		if err != nil {
-			decodedKey = key
-		}
-		decodedValue, err := url.QueryUnescape(value)
-		if err != nil {
-			decodedValue = value
-		}
-		pairs = append(pairs, [2]string{decodedKey, decodedValue})
-	}
-	return pairs
-}
-
-func oauth1QueryPairs(rawQuery string) [][2]string {
-	pairs := [][2]string{}
-	if rawQuery == "" {
-		return pairs
-	}
-	safeQuery := strings.ReplaceAll(rawQuery, "+", "%2B")
-	for _, part := range strings.Split(safeQuery, "&") {
-		key, value, ok := strings.Cut(part, "=")
-		if !ok {
-			value = ""
-		}
-		decodedKey, err := url.QueryUnescape(key)
-		if err != nil {
-			decodedKey = key
-		}
-		decodedValue, err := url.QueryUnescape(value)
-		if err != nil {
-			decodedValue = value
-		}
-		pairs = append(pairs, [2]string{decodedKey, decodedValue})
-	}
-	return pairs
-}
-
-func oauth1BaseURL(u *url.URL) string {
-	if u == nil {
-		return ""
-	}
-	scheme := strings.ToLower(u.Scheme)
-	host := strings.ToLower(u.Hostname())
-	port := u.Port()
-	isDefaultPort := (scheme == "http" && port == "80") || (scheme == "https" && port == "443")
-	if port != "" && !isDefaultPort {
-		host += ":" + port
-	}
-	path := u.EscapedPath()
-	if path == "" {
-		path = "/"
-	}
-	return scheme + "://" + host + path
-}
-
-func oauth1ParameterString(oauthParams map[string]string, extraPairs [][2]string) string {
-	pairs := make([][2]string, 0, len(oauthParams)+len(extraPairs))
-	for key, value := range oauthParams {
-		pairs = append(pairs, [2]string{oauth1Encode(key), oauth1Encode(value)})
-	}
-	for _, pair := range extraPairs {
-		pairs = append(pairs, [2]string{oauth1Encode(pair[0]), oauth1Encode(pair[1])})
-	}
-	sort.Slice(pairs, func(i, j int) bool {
-		if pairs[i][0] == pairs[j][0] {
-			return pairs[i][1] < pairs[j][1]
-		}
-		return pairs[i][0] < pairs[j][0]
-	})
-	out := make([]string, 0, len(pairs))
-	for _, pair := range pairs {
-		out = append(out, pair[0]+"="+pair[1])
-	}
-	return strings.Join(out, "&")
-}
-
-func oauth1Signature(baseString, consumerSecret, tokenSecret, method, privateKey, privateKeyType string, item *RequestItem) (string, error) {
-	signingKey := oauth1Encode(consumerSecret) + "&" + oauth1Encode(tokenSecret)
-	switch method {
-	case "PLAINTEXT":
-		return signingKey, nil
-	case "HMAC-SHA1":
-		return base64.StdEncoding.EncodeToString(hmacSHA1Bytes([]byte(signingKey), baseString)), nil
-	case "HMAC-SHA256":
-		return base64.StdEncoding.EncodeToString(hmacSHA256Bytes([]byte(signingKey), baseString)), nil
-	case "HMAC-SHA512":
-		mac := hmac.New(sha512.New, []byte(signingKey))
-		mac.Write([]byte(baseString))
-		return base64.StdEncoding.EncodeToString(mac.Sum(nil)), nil
-	case "RSA-SHA1", "RSA-SHA256", "RSA-SHA512":
-		privateKeyPEM, err := oauth1PrivateKeyMaterial(privateKey, privateKeyType, item)
-		if err != nil {
-			return "", err
-		}
-		rsaKey, err := parseOAuth1RSAPrivateKey(privateKeyPEM)
-		if err != nil {
-			return "", err
-		}
-		hashType, digest, err := oauth1RSADigest(baseString, method)
-		if err != nil {
-			return "", err
-		}
-		signature, err := rsa.SignPKCS1v15(rand.Reader, rsaKey, hashType, digest)
-		if err != nil {
-			return "", fmt.Errorf("OAuth1 RSA signing failed: %w", err)
-		}
-		return base64.StdEncoding.EncodeToString(signature), nil
-	default:
-		return "", fmt.Errorf("unsupported OAuth1 signature method %s", method)
-	}
-}
-
-func oauth1PrivateKeyMaterial(privateKey, privateKeyType string, item *RequestItem) (string, error) {
-	key := strings.TrimSpace(privateKey)
-	if key == "" {
-		return "", errors.New("OAuth1 RSA private key is required")
-	}
-	if parsedKey, parsedType := parseOAuth1PrivateKeyValue(key); parsedType == "file" {
-		key = parsedKey
-		privateKeyType = "file"
-	}
-	if strings.EqualFold(strings.TrimSpace(privateKeyType), "file") {
-		path := key
-		if !filepath.IsAbs(path) {
-			basePath := oauth1CollectionBasePath(item)
-			if basePath == "" {
-				return "", fmt.Errorf("OAuth1 private key path %q is relative but request file path is unknown", key)
-			}
-			path = filepath.Join(basePath, path)
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return "", fmt.Errorf("read OAuth1 private key %q: %w", path, err)
-		}
-		return string(data), nil
-	}
-	return key, nil
-}
-
-func oauth1CollectionBasePath(item *RequestItem) string {
-	if item == nil || strings.TrimSpace(item.FilePath) == "" {
-		return ""
-	}
-	dir := filepath.Clean(filepath.Dir(item.FilePath))
-	for {
-		for _, marker := range []string{"bruno.json", "collection.bru", "opencollection.yml"} {
-			if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
-				return dir
-			}
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return filepath.Clean(filepath.Dir(item.FilePath))
-}
-
-func parseOAuth1RSAPrivateKey(privateKeyPEM string) (*rsa.PrivateKey, error) {
-	block, _ := pem.Decode([]byte(privateKeyPEM))
-	if block == nil {
-		return nil, errors.New("OAuth1 RSA private key must be PEM encoded")
-	}
-	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
-		return key, nil
-	}
-	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("parse OAuth1 RSA private key: %w", err)
-	}
-	rsaKey, ok := key.(*rsa.PrivateKey)
-	if !ok {
-		return nil, errors.New("OAuth1 private key is not an RSA key")
-	}
-	return rsaKey, nil
-}
-
-func oauth1RSADigest(baseString, method string) (crypto.Hash, []byte, error) {
-	switch method {
-	case "RSA-SHA1":
-		sum := sha1.Sum([]byte(baseString))
-		return crypto.SHA1, sum[:], nil
-	case "RSA-SHA256":
-		sum := sha256.Sum256([]byte(baseString))
-		return crypto.SHA256, sum[:], nil
-	case "RSA-SHA512":
-		sum := sha512.Sum512([]byte(baseString))
-		return crypto.SHA512, sum[:], nil
-	default:
-		return 0, nil, fmt.Errorf("unsupported OAuth1 RSA signature method %s", method)
-	}
-}
-
-func oauth1AuthorizationHeader(oauthParams map[string]string, realm string) string {
-	keys := make([]string, 0, len(oauthParams))
-	for key := range oauthParams {
-		if strings.HasPrefix(key, "oauth_") {
-			keys = append(keys, key)
-		}
-	}
-	sort.Strings(keys)
-	parts := []string{}
-	if realm != "" {
-		parts = append(parts, `realm="`+strings.ReplaceAll(strings.ReplaceAll(realm, `\`, `\\`), `"`, `\"`)+`"`)
-	}
-	for _, key := range keys {
-		parts = append(parts, oauth1Encode(key)+`="`+oauth1Encode(oauthParams[key])+`"`)
-	}
-	return "OAuth " + strings.Join(parts, ", ")
-}
-
-func oauth1Nonce() string {
-	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	bytes := make([]byte, 32)
-	if _, err := rand.Read(bytes); err != nil {
-		return randomHex(16)
-	}
-	var b strings.Builder
-	for _, value := range bytes {
-		b.WriteByte(chars[int(value)%len(chars)])
-	}
-	return b.String()
-}
-
-func oauth1BodyHash(body, method string) string {
-	switch method {
-	case "HMAC-SHA512", "RSA-SHA512":
-		sum := sha512.Sum512([]byte(body))
-		return base64.StdEncoding.EncodeToString(sum[:])
-	case "HMAC-SHA256", "RSA-SHA256":
-		sum := sha256.Sum256([]byte(body))
-		return base64.StdEncoding.EncodeToString(sum[:])
-	default:
-		sum := sha1.Sum([]byte(body))
-		return base64.StdEncoding.EncodeToString(sum[:])
-	}
-}
-
-func oauth1Encode(value string) string {
-	encoded := url.QueryEscape(value)
-	encoded = strings.ReplaceAll(encoded, "+", "%20")
-	encoded = strings.ReplaceAll(encoded, "%7E", "~")
-	return encoded
-}
+func hmacSHA256Bytes(key []byte, value string) []byte { return oauth1.HMACSHA256Bytes(key, value) }
 
 type oauth2TokenResponse struct {
 	AccessToken  string
@@ -13179,21 +12787,10 @@ func applyOAuth2Token(req *http.Request, auth OAuth2Auth, token string, vars map
 	req.Header.Set("Authorization", strings.TrimSpace(prefix+" "+token))
 }
 
-func hmacSHA1Bytes(key []byte, value string) []byte {
-	mac := hmac.New(sha1.New, key)
-	mac.Write([]byte(value))
-	return mac.Sum(nil)
-}
-
 // AWS SigV4 signing and credential resolution moved to internal/auth/awsv4.
 //
 // hmacSHA256Bytes stays here: OAuth1 signing uses it too, so it is generic
 // crypto rather than part of the AWS surface.
-func hmacSHA256Bytes(key []byte, value string) []byte {
-	mac := hmac.New(sha256.New, key)
-	mac.Write([]byte(value))
-	return mac.Sum(nil)
-}
 
 func shouldRetryDigest(res *http.Response, auth AuthConfig) bool {
 	if res == nil || res.StatusCode != http.StatusUnauthorized || strings.ToLower(auth.Mode) != "digest" {
@@ -34404,14 +34001,6 @@ func isBruSectionClose(line, closeToken string) bool {
 	return strings.TrimLeft(line, " \t") == line && strings.TrimSpace(line) == closeToken
 }
 
-func parseOAuth1PrivateKeyValue(value string) (string, string) {
-	value = strings.TrimSpace(value)
-	if strings.HasPrefix(value, "@file(") && strings.HasSuffix(value, ")") {
-		return strings.TrimSuffix(strings.TrimPrefix(value, "@file("), ")"), "file"
-	}
-	return value, "text"
-}
-
 func oauth1PrivateKeyBruValue(auth OAuth1Auth) string {
 	if auth.PrivateKeyType == "file" && auth.PrivateKey != "" {
 		return "@file(" + auth.PrivateKey + ")"
@@ -34854,7 +34443,7 @@ func applyBruAuthSections(auth *AuthConfig, sections map[string][]string) {
 		auth.OAuth1.CallbackURL = values["callback_url"]
 		auth.OAuth1.Verifier = values["verifier"]
 		auth.OAuth1.SignatureMethod = values["signature_method"]
-		auth.OAuth1.PrivateKey, auth.OAuth1.PrivateKeyType = parseOAuth1PrivateKeyValue(values["private_key"])
+		auth.OAuth1.PrivateKey, auth.OAuth1.PrivateKeyType = oauth1.ParsePrivateKeyValue(values["private_key"])
 		auth.OAuth1.Timestamp = values["timestamp"]
 		auth.OAuth1.Nonce = values["nonce"]
 		auth.OAuth1.Version = values["version"]
