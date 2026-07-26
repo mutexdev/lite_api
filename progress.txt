@@ -6324,3 +6324,40 @@ US-026 - Store layer. DONE. Both named collapses complete.
   current behaviour and says why it is wrong-looking, rather than either
   pretending it is right or quietly changing a matcher I have no failing report
   about. Changing it is a one-line fix whenever someone decides to.
+
+=== CONSOLIDATION — testing what the restructure itself left thin ===
+
+  Rather than keep extracting ever-smaller App.svelte functions (the last two
+  slices moved 32 and 29 lines), measured what the six NEW Go packages actually
+  cover and filled the weakest spots.
+
+  visualizer     81.5% -> 93.4%
+  workspacestate 81.6% -> 85.6%
+  overall        83.3% -> 83.4%
+
+  Worth noting the measurement trap: `go test ./internal/X -cover` reported
+  gitworkbench at 25% and localserver at 21%, which looks alarming and is
+  meaningless — those packages are largely exercised by package main's tests,
+  and a per-package run cannot see them. The -coverpkg profile across the whole
+  suite gives 86.6% and 91.2%. A coverage number without knowing which tests
+  contributed is not a number.
+
+  THE VISUALIZER'S VALUE SEMANTICS decide what a user's template renders.
+  All three take interface{} straight out of encoding/json, so every value is
+  nil, bool, float64, string, []interface{} or map[string]interface{} — there
+  are no ints, and a test passing one exercises a case the renderer never sees.
+
+  Pinned: numbers never render in scientific notation (%v turns 1000000 into
+  1e+06, and an id shown that way is simply wrong on screen — control fails 2);
+  a whole number stays whole, so an id is "42" not "42.0"; truthiness follows
+  JavaScript for every JSON kind INCLUDING the surprise that the string "false"
+  is truthy, kept deliberately so a template behaves as its author expects from
+  the browser; {{#each}} over a single object iterates ONCE rather than
+  rendering nothing, while nil iterates ZERO times — wrapping nil as one item
+  would print empty rows for data that was never there.
+
+  SameCanonicalWorkspacePath was at 0.0%. It decides whether two spellings name
+  one workspace, and the interesting case is that an INVALID identity must not
+  compare equal to anything — including another invalid one. Returning true
+  there would make every malformed path look like the same workspace. Control
+  confirms.
