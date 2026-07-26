@@ -178,7 +178,8 @@ evidence for each story; this file carries the cross-story findings.
   investigated further; it may be a real shortcut-binding gap or simply that the
   handler needs a trusted event.
 
---- US-036 — split the frontend bundle (PARTIAL — blocked on US-025) ---
+--- US-036 — split the frontend bundle (PARTIAL when written; NOW MET, see the
+    US-036 re-measurement at the end of this file) ---
   MEASURED: initial JS 1,159,933 -> 533,898 bytes (54% smaller). CodeMirror
   (623,453 B across 11 packages) now loads only when a user first opens Body,
   Script, Tests or Docs.
@@ -3934,3 +3935,49 @@ US-026 - Store layer. DONE. Both named collapses complete.
   THE PLAN IS NOW COMPLETE except for one thing that is not mine to decide:
   US-019's 3->1 runtime consolidation changes what post-response and tests
   scripts can SEE. Measured, recommended, and left for a product call.
+
+--- US-036 — RE-MEASURED. The criterion is MET, and I did not do it directly. ---
+
+  The old entry said the 500 KB target "CANNOT BE MET IN THIS STORY" and needed
+  the 29 modal bodies extracted, which is "NOT scriptable". Both statements were
+  true when written. Neither is true now.
+
+  MEASURED FROM THE PRODUCTION BUILD, SERVED AND LOADED IN A BROWSER:
+
+      JS files fetched at startup   2
+      total encoded bytes           464,813      (target: under 500 KB)
+      codemirror chunk fetched      no
+      Preferences sections fetched  no
+      RunnerPanel fetched           no
+
+  Previously 532,602. The gap closed because the intervening work moved code out
+  of App.svelte - the workspace/tooltip stores, sidebarTree, commandPalette,
+  bulkEdit, keybindings, memo, virtualList, documentSize, HistoryPanel - and
+  App.svelte's own compiled output WAS the remaining chunk. The story's blocker
+  dissolved as a side effect of unrelated refactoring rather than by anyone
+  attacking it.
+
+  ALL SIX NAMED SURFACES ARE DYNAMICALLY IMPORTED, verified by chunk:
+      DevTools    ConsoleTab, PerformanceTab, TerminalTab, RequestDetailsPanel
+      Runner      RunnerPanel
+      Import      ImportPanel, ImportReplaceModal
+      Preferences Appearance/Proxy/General/Cache/Display/Keybindings/OAuth2
+      OpenAPI     SpecViewerModal, SpecDiffModal, SyncSettingsModal
+      CodeMirror  codemirror (623 KB, deferred)
+
+  I NEARLY REPORTED THIS WRONG, TWICE:
+
+  1. I first checked for chunks named "DevTools*" and "Preferences*" and
+     concluded three of six were unsplit. They are split - the chunks are named
+     after the COMPONENTS (ConsoleTab, ProxySection), not after the story. I
+     was grepping for the wrong vocabulary.
+
+  2. I then measured lazy-loading against the DEV SERVER and saw codemirror
+     loaded at startup. That is meaningless: vite dev serves unbundled modules
+     and applies no production chunking. Measuring a bundling claim against a
+     dev server can only ever mislead. Re-measured by serving dist/ and loading
+     it: 2 files, and importing RunnerPanel on demand made it 3.
+
+  The proof that the split WORKS, not merely that chunks exist: importing one
+  deferred chunk took the fetched count from 2 to 3, with RunnerPanel the only
+  addition.
