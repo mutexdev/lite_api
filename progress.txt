@@ -7668,3 +7668,43 @@ US-026 - Store layer. DONE. Both named collapses complete.
   The number was never the point of this work; the negative controls were. Those
   are per-slice, reproducible, and recorded above — a claim only counted here
   once a deliberate break proved the check would catch it.
+
+=== THE COVERAGE INSTRUMENT, FIXED — and the previous entry CORRECTED ===
+
+  I withdrew the 83.4% figure in the entry above. THAT WITHDRAWAL WAS WRONG.
+  The number was right; my four re-measurements were the artifacts.
+
+  THE CAUSE, found by counting lines in the profile itself: with -coverpkg over
+  a multi-package build, EVERY test binary instruments EVERY listed package and
+  writes a FULL profile. `go test -coverprofile` concatenates them, so one
+  source block appears ONCE PER BINARY — here 10,485 unique blocks became
+  283,457 lines across 28 binaries, some blocks repeated 28 times.
+
+  `go tool cover -func` treats each occurrence as a SEPARATE BLOCK. A block
+  exercised by one binary and not the other 27 reads as 1 covered out of 28
+  rather than 1 out of 1. So THE REPORTED PERCENTAGE FALLS AS TEST BINARIES ARE
+  ADDED, which is exactly backwards — and it is why this file already contains
+  one correction about figures that moved while only tests were added. The
+  earlier entry blamed caching; caching is a real second cause (-count=1 fixes
+  that one) but the concatenation is the larger one, and it was never found.
+
+  FIXED, not just documented:
+    tools/coverage/mergeprofile.go   collapses the profile so each block appears
+                                     once, taking the highest count any binary
+                                     recorded. Output is sorted, so two profiles
+                                     can be DIFFED and not merely compared.
+    qa/coverage.sh                   runs it for both scopes and prints both.
+
+  Verified: two full runs produce BYTE-IDENTICAL merged profiles.
+
+  AND THE SCOPE HAS TO BE STATED, which is the other half of why I got four
+  answers. These measure different things and I had been quoting them as if
+  interchangeable:
+
+    internal   83.4%  (10,485 blocks)  the extracted, unit-tested packages
+    all        78.6%  (20,071 blocks)  plus root package main
+
+  internal/urlbuild and internal/wsmessage are at 100.0% each.
+
+  The rule for this file from here: NEVER quote a coverage percentage without
+  the scope beside it, and never by hand — run qa/coverage.sh.
