@@ -7537,3 +7537,36 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Go side re-verified this round: 25 packages ok, golangci-lint 0 issues,
   binding surface 188.
+
+=== PHASE 6 — RUNTIME VERIFICATION (plan step 7) ===
+
+  `wails dev` with the Go bridge attached, driven through Playwright. This had
+  not run since ~15 slices ago — before the keyboard dispatcher rewrite, the
+  native menu mapping, the optimistic patch, and every preference normalizer.
+  NONE of those can be exercised by node --test, and svelte-check cannot tell
+  me whether Cmd+K still opens anything.
+
+  Verified live, each against the module that now owns it:
+    - the app boots and renders fully. ONE console error in the whole session,
+      a favicon 404. No application errors at any point.
+    - Cmd+K opens Global Search, Escape closes it — the resolve+switch
+      dispatcher that replaced the 158-line if-chain works.
+    - --sidebar-width, --code-font-family, data-theme and data-theme-variant
+      all read exactly what layout.ts, preferences.ts (codeFontFamilyFor) and
+      the theme normalizers produce.
+    - THE SIDEBAR CLAMP IS EXACT IN PRODUCTION: dragging to 9999 gives 420px,
+      to 10 gives 220px — the module's two constants, observed through CSS.
+    - writeWorkbenchLayout persists under the SCOPED key
+      `liteapi.workbench.v3.<scope>.sidebar-width`, both halves together. The
+      empty-scope guard is doing its job: a real scope exists, so writes happen.
+    - normalizedSearch + searchHit: "ECHO", "echo" and "  EcHo  " all match the
+      same request and "zzzz" matches none. That is the exact contract I pinned
+      when moving normalizedSearch next to searchHit.
+    - tabLabel's fallback is VISIBLE IN PRODUCTION — two open tabs read
+      "Request", the label for a tab whose item does not resolve.
+    - a real HTTP round trip: 501, 14 ms, 497 B, body rendered. And the failure
+      path first: "connection refused" surfaced correctly with timing intact.
+    - the network log recorded both, the failed one with status 0 — the same
+      `?? 0` fallback the looped numeric-column test pins.
+
+  Nothing regressed. The one 404 is a missing favicon, which predates all of it.
