@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -247,5 +248,78 @@ func TestResponseStoreIsConcurrencySafe(t *testing.T) {
 		if !bytes.Equal(got, bodies[i]) {
 			t.Errorf("body %d was corrupted by concurrent access", i)
 		}
+	}
+}
+
+// TestAppResponseStoreIsLazyAndRootedInDataDir covers the App wiring.
+//
+// Laziness is the point: newAppBase runs for every test App and for each
+// multi-window runtime, and creating <dataDir>/responses/ eagerly would leave
+// an empty directory behind for every App that never stores a response.
+func TestAppResponseStoreIsLazyAndRootedInDataDir(t *testing.T) {
+	dir := t.TempDir()
+	app := newAppInDirForTest(t, dir)
+
+	responsesDir := filepath.Join(dir, "responses")
+	if _, err := os.Stat(responsesDir); !os.IsNotExist(err) {
+		t.Errorf("responses/ exists before any body was stored (err=%v)", err)
+	}
+
+	store, err := app.responseStore()
+	if err != nil {
+		t.Fatalf("responseStore: %v", err)
+	}
+	if _, err := os.Stat(responsesDir); err != nil {
+		t.Errorf("responses/ was not created on first use: %v", err)
+	}
+
+	// The same store must come back: two stores over one directory would each
+	// keep their own memory front, doubling residency for no benefit.
+	again, err := app.responseStore()
+	if err != nil {
+		t.Fatalf("second responseStore: %v", err)
+	}
+	if store != again {
+		t.Error("responseStore returned a different instance on the second call")
+	}
+
+	handle, err := store.Put([]byte("stored through the app"))
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(responsesDir, string(handle))); err != nil {
+		t.Errorf("body was not written under the app's data dir: %v", err)
+	}
+}
+
+// TestAppResponseStoreIsConcurrencySafe. The lazy constructor is reached from
+// the request path, so two goroutines can race to create it.
+func TestAppResponseStoreIsConcurrencySafe(t *testing.T) {
+	app := newAppForTest(t)
+	var mu sync.Mutex
+	seen := map[*responseStore]struct{}{}
+
+	runConcurrently(t, 30*time.Second, func(int) {
+		store, err := app.responseStore()
+		if err != nil {
+			return
+		}
+		mu.Lock()
+		seen[store] = struct{}{}
+		mu.Unlock()
+	}, func(int) {
+		store, err := app.responseStore()
+		if err != nil {
+			return
+		}
+		mu.Lock()
+		seen[store] = struct{}{}
+		mu.Unlock()
+	})
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) != 1 {
+		t.Errorf("concurrent callers got %d distinct stores, want 1", len(seen))
 	}
 }

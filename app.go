@@ -207,6 +207,14 @@ type App struct {
 	// Guarded by a.mu, like a.state itself.
 	revision int64
 
+	// US-009. The response body store. Lazily created on first use rather than
+	// in the constructor: newAppBase is called for every test App and for the
+	// multi-window runtime, and creating <dataDir>/responses/ eagerly would make
+	// a directory for Apps that never store a response. Guarded by responsesMu,
+	// which is a leaf lock — never held while acquiring a.mu.
+	responsesMu sync.Mutex
+	responses   *responseStore
+
 	// US-013. Fingerprints of what each auxiliary file last contained, so a
 	// persist that changes nothing in a file does no work for that file.
 	// secretsFingerprint is guarded by a.mu; oauth2Fingerprint by a.oauth2Mu.
@@ -8707,6 +8715,29 @@ const (
 // error (improvement_v2.md §8 risk 4) it is parked and handed to the next
 // mutation, which does have a caller — the Wails binding, and through it the
 // user. Reading it clears it, so a single failure is reported once.
+// responseStore returns the App's body store, creating it on first use.
+//
+// Returns an error rather than a nil store when the directory cannot be made:
+// a caller that silently got nil would write a body nowhere and report success,
+// which is the failure mode this whole story exists to remove.
+func (a *App) responseStore() (*responseStore, error) {
+	a.responsesMu.Lock()
+	defer a.responsesMu.Unlock()
+	if a.responses != nil {
+		return a.responses, nil
+	}
+	dir := a.dataDir
+	if dir == "" {
+		dir = defaultDataDir()
+	}
+	store, err := newResponseStore(dir)
+	if err != nil {
+		return nil, err
+	}
+	a.responses = store
+	return store, nil
+}
+
 func (a *App) markDirty(scope persistScope) error {
 	_ = scope
 	// US-008. markDirty is the one call every mutation site already funnels
