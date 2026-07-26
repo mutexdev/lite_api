@@ -2813,3 +2813,57 @@ US-026 - Store layer. DONE. Both named collapses complete.
   already free of them. US-061 onward (extracting BEHAVIOUR into packages) is
   what makes removing them worthwhile, because that is when a caller in
   another package has to name the type properly anyway.
+
+--- US-067 — internal/auth/awsv4 (DONE) ---
+
+  1,271 lines of SigV4 signing and credential resolution out of app.go, plus
+  526 lines of tests, behind a 5-function API. app.go: 43,783 -> 42,677.
+
+  WHY THIS ONE FIRST: zero of its 55 declarations were methods on *App. That is
+  the property that decides whether behaviour can move at all, and it is worth
+  checking BEFORE picking a target - the line ranges in the story table say
+  nothing about it.
+
+  THE BOUNDARY GOT BETTER, NOT JUST DIFFERENT. Sign used to take
+  `vars map[string]string`. Every use of that map was interpolation, so it now
+  takes `resolve func(string) string` instead. The package no longer knows that
+  variables are stored in a map, or that interpolation exists - and US-069 can
+  move the interpolator without touching this package at all.
+
+  Same shape for the HTTP client: credential calls (STS, SSO, OIDC) must go
+  through the app's shared transport cache, but the package must not depend on
+  it. So it defaults to a plain client and package main overrides it in an init.
+  Dependency points one way.
+
+  !!! A REAL TEST DEFECT, FOUND BY A NEGATIVE CONTROL, PRE-EXISTING !!!
+
+  assertAWSV4Signature - the helper nearly every AWS test leans on - verified a
+  signature by RECOMPUTING it with the same functions the signer used. So:
+
+      change awsSigningKey's "AWS4" prefix to "AWS5"  -> every test passed
+      delete the canonical-header whitespace collapse -> every test passed
+
+  Both sides moved together. The tests could detect signing and verifying
+  disagreeing with each other; they could not detect both being wrong. That is
+  the whole value of an algorithm test and it was absent.
+
+  I did not introduce this - it is how the tests read in git history - but I
+  nearly shipped it, because the control I ran FIRST (breaking the SSO cache
+  filename) also passed and I could have written that off as a weak spot rather
+  than a pattern.
+
+  FIXED with two conformance tests that share NOTHING with the implementation:
+  the canonical request is a literal string and the signing key is derived with
+  bare crypto/hmac. Now the AWS5 break fails 2 tests and the whitespace break
+  fails 1.
+
+  The second test exists because the first one did not catch the whitespace
+  break: none of its header values contained a run of spaces. A conformance
+  test only covers the rules its fixture actually exercises.
+
+  A THIRD CONTROL PROVED NOTHING and I nearly counted it: `s/host;/HOST;/`
+  matched zero lines. A control that does not change the code is not a control.
+  Check the edit landed before believing the result.
+
+  Gates: go build, go vet, go test all ok (LiteAPI 38.2s, awsv4 0.4s);
+  svelte-check 209/0/0; eslint 0; npm test 223/223.

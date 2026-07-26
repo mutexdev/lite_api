@@ -1,6 +1,7 @@
 package main
 
 import (
+	"LiteAPI/internal/auth/awsv4"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -674,4 +675,13 @@ func sharedPACHTTPClient() *http.Client {
 		pacHTTPClient = &http.Client{Timeout: 5 * time.Second, Transport: transport}
 	})
 	return pacHTTPClient
+}
+
+// internal/auth/awsv4 resolves credentials over the network (STS, SSO, OIDC).
+// It defaults to a plain client so the package stands alone, but inside the app
+// those calls must go through the shared transport cache like every other
+// request -- same verified TLS, same inherited proxy. Wiring it here rather than
+// in the package keeps the dependency pointing one way.
+func init() {
+	awsv4.SetHTTPClient(sharedCredentialHTTPClient)
 }
