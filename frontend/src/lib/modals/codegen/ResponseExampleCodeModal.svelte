@@ -1,13 +1,13 @@
 <script lang="ts">
   // US-036 — the response-example Generate Code dialog, lifted out of App.svelte so its markup is not in the
   // initial chunk. Imported dynamically from inside the {#if} that gates it.
-  import type { main } from '../../../../wailsjs/go/models'
+  import type { types } from '../../../../wailsjs/go/models'
   import Modal from '../Modal.svelte'
 
-  export let generatedExample: main.ResponseExample
+  export let generatedExample: types.ResponseExample
   export let responseExampleCodeLanguage: string
   export let responseExampleGeneratedCode: string
-  export let changeResponseExampleCodeLanguage: (example: main.ResponseExample, language: string) => void
+  export let changeResponseExampleCodeLanguage: (example: types.ResponseExample, language: string) => void
   export let copyResponseExampleCode: () => void
   export let closeResponseExampleCode: () => void
 </script>

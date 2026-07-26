@@ -1,11 +1,11 @@
 <script lang="ts">
-  import type { main } from '../../../wailsjs/go/models'
+  import type { types } from '../../../wailsjs/go/models'
 
   // US-028 — runes.
   type Props = {
     requestType?: string
-    settings: main.RequestSettings
-    onChange: (updates: Partial<main.RequestSettings>) => void
+    settings: types.RequestSettings
+    onChange: (updates: Partial<types.RequestSettings>) => void
   }
 
   let { requestType = 'http', settings, onChange }: Props = $props()
@@ -15,9 +15,9 @@
     requestType === 'grpc' ? 'gRPC' : requestType === 'websocket' ? 'WebSocket' : requestType === 'graphql' ? 'GraphQL' : 'HTTP'
   )
 
-  function numberChange(field: keyof main.RequestSettings, event: Event) {
+  function numberChange(field: keyof types.RequestSettings, event: Event) {
     const value = Number((event.currentTarget as HTMLInputElement).value)
-    onChange({ [field]: Number.isFinite(value) ? value : 0 } as Partial<main.RequestSettings>)
+    onChange({ [field]: Number.isFinite(value) ? value : 0 } as Partial<types.RequestSettings>)
   }
 </script>
 

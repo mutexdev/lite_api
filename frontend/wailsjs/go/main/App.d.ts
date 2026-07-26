@@ -185,7 +185,7 @@ export function KillTerminalSession(arg1:string):Promise<void>;
 
 export function ListDotEnvFiles(arg1:string,arg2:string):Promise<Array<main.DotEnvFile>>;
 
-export function ListGRPCMethods(arg1:string,arg2:string,arg3:string):Promise<Array<main.GRPCMethodInfo>>;
+export function ListGRPCMethods(arg1:string,arg2:string,arg3:string):Promise<Array<types.GRPCMethodInfo>>;
 
 export function ListHistory(arg1:main.HistoryQuery):Promise<Array<main.HistoryEntry>>;
 
@@ -333,35 +333,35 @@ export function StringifyBru(arg1:main.RequestItem):Promise<string>;
 
 export function UnstageCollectionGitPaths(arg1:string,arg2:Array<string>):Promise<main.CollectionGitOperationResult>;
 
-export function UpdateCollectionAuth(arg1:string,arg2:main.AuthConfig):Promise<main.AppState>;
+export function UpdateCollectionAuth(arg1:string,arg2:types.AuthConfig):Promise<main.AppState>;
 
 export function UpdateCollectionClientCertificates(arg1:string,arg2:Array<types.ClientCertificateConfig>):Promise<main.AppState>;
 
 export function UpdateCollectionDocs(arg1:string,arg2:string):Promise<main.AppState>;
 
-export function UpdateCollectionHeaders(arg1:string,arg2:Array<main.KeyValue>):Promise<main.AppState>;
+export function UpdateCollectionHeaders(arg1:string,arg2:Array<types.KeyValue>):Promise<main.AppState>;
 
-export function UpdateCollectionPresets(arg1:string,arg2:main.CollectionPresets):Promise<main.AppState>;
+export function UpdateCollectionPresets(arg1:string,arg2:types.CollectionPresets):Promise<main.AppState>;
 
-export function UpdateCollectionProtobuf(arg1:string,arg2:main.CollectionProtobufConfig):Promise<main.AppState>;
+export function UpdateCollectionProtobuf(arg1:string,arg2:types.CollectionProtobufConfig):Promise<main.AppState>;
 
 export function UpdateCollectionProxy(arg1:string,arg2:types.ProxyConfig):Promise<main.AppState>;
 
 export function UpdateCollectionScripts(arg1:string,arg2:string,arg3:string,arg4:string):Promise<main.AppState>;
 
-export function UpdateCollectionSecurityConfig(arg1:string,arg2:main.CollectionSecurityConfig):Promise<main.AppState>;
+export function UpdateCollectionSecurityConfig(arg1:string,arg2:types.CollectionSecurityConfig):Promise<main.AppState>;
 
-export function UpdateCollectionVariables(arg1:string,arg2:Array<main.Variable>):Promise<main.AppState>;
+export function UpdateCollectionVariables(arg1:string,arg2:Array<types.Variable>):Promise<main.AppState>;
 
-export function UpdateEnvironmentVariables(arg1:string,arg2:string,arg3:Array<main.Variable>):Promise<main.AppState>;
+export function UpdateEnvironmentVariables(arg1:string,arg2:string,arg3:Array<types.Variable>):Promise<main.AppState>;
 
 export function UpdateFolderSettings(arg1:string,arg2:string,arg3:main.FolderConfig):Promise<main.AppState>;
 
 export function UpdateGlobalEnvironment(arg1:string,arg2:string,arg3:string,arg4:string):Promise<main.AppState>;
 
-export function UpdateGlobalEnvironmentVariables(arg1:string,arg2:string,arg3:Array<main.Variable>):Promise<main.AppState>;
+export function UpdateGlobalEnvironmentVariables(arg1:string,arg2:string,arg3:Array<types.Variable>):Promise<main.AppState>;
 
-export function UpdateOpenAPISyncConfig(arg1:string,arg2:main.OpenAPISyncConfig):Promise<main.AppState>;
+export function UpdateOpenAPISyncConfig(arg1:string,arg2:types.OpenAPISyncConfig):Promise<main.AppState>;
 
 export function UpdateOpenTabPanes(arg1:string,arg2:string,arg3:string):Promise<main.AppState>;
 
@@ -373,7 +373,7 @@ export function UpdateRequest(arg1:string,arg2:string,arg3:main.RequestPatch):Pr
 
 export function UpdateRequestNarrow(arg1:string,arg2:string,arg3:main.RequestPatch):Promise<main.RequestMutation>;
 
-export function UpdateResponseExample(arg1:string,arg2:string,arg3:string,arg4:main.ResponseExample):Promise<main.AppState>;
+export function UpdateResponseExample(arg1:string,arg2:string,arg3:string,arg4:types.ResponseExample):Promise<main.AppState>;
 
 export function VisualizerDocument(arg1:string,arg2:string):Promise<string>;
 

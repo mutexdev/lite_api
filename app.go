@@ -369,40 +369,13 @@ type ProxyPACConfig = types.ProxyPACConfig
 type ProxyPreferences = types.ProxyPreferences
 type ClientCertificateConfig = types.ClientCertificateConfig
 
-type CollectionPresets struct {
-	RequestType string `json:"requestType"`
-	RequestURL  string `json:"requestUrl"`
-}
-
-type CollectionProtobufConfig struct {
-	ProtoFiles  []CollectionProtoFile       `json:"protoFiles"`
-	ImportPaths []CollectionProtoImportPath `json:"importPaths"`
-}
-
-type CollectionSecurityConfig struct {
-	JSSandboxMode string `json:"jsSandboxMode"`
-}
-
-type CollectionProtoFile struct {
-	Path   string `json:"path"`
-	Type   string `json:"type,omitempty"`
-	Exists bool   `json:"exists,omitempty"`
-}
-
-type CollectionProtoImportPath struct {
-	Path    string `json:"path"`
-	Enabled bool   `json:"enabled"`
-	Exists  bool   `json:"exists,omitempty"`
-}
-
-type OpenAPISyncConfig struct {
-	SourceURL         string `json:"sourceUrl" yaml:"sourceUrl"`
-	GroupBy           string `json:"groupBy" yaml:"groupBy"`
-	LastSyncDate      string `json:"lastSyncDate,omitempty" yaml:"lastSyncDate,omitempty"`
-	SpecHash          string `json:"specHash,omitempty" yaml:"specHash,omitempty"`
-	AutoCheck         bool   `json:"autoCheck" yaml:"autoCheck"`
-	AutoCheckInterval int    `json:"autoCheckInterval" yaml:"autoCheckInterval"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type CollectionPresets = types.CollectionPresets
+type CollectionProtobufConfig = types.CollectionProtobufConfig
+type CollectionSecurityConfig = types.CollectionSecurityConfig
+type CollectionProtoFile = types.CollectionProtoFile
+type CollectionProtoImportPath = types.CollectionProtoImportPath
+type OpenAPISyncConfig = types.OpenAPISyncConfig
 
 type RequestItem struct {
 	ID             string            `json:"id"`
@@ -521,269 +494,34 @@ type grpcStreamSessionEvent struct {
 	At        time.Time `json:"at"`
 }
 
-type GRPCMethodInfo struct {
-	Path       string `json:"path"`
-	Service    string `json:"service"`
-	Name       string `json:"name"`
-	Type       string `json:"type"`
-	InputType  string `json:"inputType"`
-	OutputType string `json:"outputType"`
-	Template   string `json:"template"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type GRPCMethodInfo = types.GRPCMethodInfo
+type RequestBody = types.RequestBody
+type FileBodyEntry = types.FileBodyEntry
+type FormPart = types.FormPart
 
-type RequestBody struct {
-	Mode             string          `json:"mode"`
-	Text             string          `json:"text"`
-	JSON             string          `json:"json"`
-	XML              string          `json:"xml"`
-	GraphQLQuery     string          `json:"graphqlQuery"`
-	GraphQLVariables string          `json:"graphqlVariables"`
-	FormURLEncoded   []KeyValue      `json:"formUrlEncoded"`
-	Multipart        []FormPart      `json:"multipart"`
-	FilePath         string          `json:"filePath"`
-	FileContentType  string          `json:"fileContentType"`
-	Files            []FileBodyEntry `json:"files"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type KeyValue = types.KeyValue
+type Variable = types.Variable
+type RequestVars = types.RequestVars
+type AuthConfig = types.AuthConfig
+type OAuth1Auth = types.OAuth1Auth
+type OAuth2Auth = types.OAuth2Auth
+type OAuth2AdditionalParam = types.OAuth2AdditionalParam
+type AWSV4Auth = types.AWSV4Auth
 
-type FileBodyEntry struct {
-	FilePath    string `json:"filePath"`
-	ContentType string `json:"contentType"`
-	Selected    bool   `json:"selected"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type Assertion = types.Assertion
+type RequestSettings = types.RequestSettings
 
-type FormPart struct {
-	Name        string `json:"name"`
-	Value       string `json:"value"`
-	FilePath    string `json:"filePath"`
-	ContentType string `json:"contentType"`
-	Enabled     bool   `json:"enabled"`
-}
-
-type KeyValue struct {
-	Name        string `json:"name"`
-	Value       string `json:"value"`
-	Enabled     bool   `json:"enabled"`
-	Secret      bool   `json:"secret"`
-	Description string `json:"description"`
-}
-
-type Variable struct {
-	ID       string      `json:"id"`
-	Name     string      `json:"name"`
-	Value    interface{} `json:"value"`
-	Type     string      `json:"type"`
-	DataType string      `json:"dataType"`
-	Enabled  bool        `json:"enabled"`
-	Secret   bool        `json:"secret"`
-}
-
-type RequestVars struct {
-	Req []Variable `json:"req"`
-	Res []Variable `json:"res"`
-}
-
-type AuthConfig struct {
-	Mode        string     `json:"mode"`
-	Username    string     `json:"username"`
-	Password    string     `json:"password"`
-	Domain      string     `json:"domain"`
-	Token       string     `json:"token"`
-	APIKey      string     `json:"apiKey"`
-	APIValue    string     `json:"apiValue"`
-	APILocation string     `json:"apiLocation"`
-	OAuth2      OAuth2Auth `json:"oauth2"`
-	OAuth1      OAuth1Auth `json:"oauth1"`
-	AWSV4       AWSV4Auth  `json:"awsv4"`
-}
-
-type OAuth1Auth struct {
-	ConsumerKey       string `json:"consumerKey"`
-	ConsumerSecret    string `json:"consumerSecret"`
-	AccessToken       string `json:"accessToken"`
-	AccessTokenSecret string `json:"accessTokenSecret"`
-	CallbackURL       string `json:"callbackUrl"`
-	Verifier          string `json:"verifier"`
-	SignatureMethod   string `json:"signatureMethod"`
-	PrivateKey        string `json:"privateKey"`
-	PrivateKeyType    string `json:"privateKeyType"`
-	Timestamp         string `json:"timestamp"`
-	Nonce             string `json:"nonce"`
-	Version           string `json:"version"`
-	Realm             string `json:"realm"`
-	Placement         string `json:"placement"`
-	IncludeBodyHash   bool   `json:"includeBodyHash"`
-}
-
-type OAuth2Auth struct {
-	GrantType                     string                  `json:"grantType"`
-	CallbackURL                   string                  `json:"callbackUrl"`
-	AuthorizationURL              string                  `json:"authorizationUrl"`
-	AccessTokenURL                string                  `json:"accessTokenUrl"`
-	RefreshTokenURL               string                  `json:"refreshTokenUrl"`
-	Username                      string                  `json:"username"`
-	Password                      string                  `json:"password"`
-	ClientID                      string                  `json:"clientId"`
-	ClientSecret                  string                  `json:"clientSecret"`
-	Scope                         string                  `json:"scope"`
-	State                         string                  `json:"state"`
-	PKCE                          bool                    `json:"pkce"`
-	CredentialsPlacement          string                  `json:"credentialsPlacement"`
-	CredentialsID                 string                  `json:"credentialsId"`
-	TokenSource                   string                  `json:"tokenSource"`
-	TokenPlacement                string                  `json:"tokenPlacement"`
-	TokenHeaderPrefix             string                  `json:"tokenHeaderPrefix"`
-	TokenQueryKey                 string                  `json:"tokenQueryKey"`
-	AutoFetchToken                bool                    `json:"autoFetchToken"`
-	AutoRefreshToken              bool                    `json:"autoRefreshToken"`
-	AuthorizationAdditionalParams []OAuth2AdditionalParam `json:"authorizationAdditionalParams"`
-	TokenAdditionalParams         []OAuth2AdditionalParam `json:"tokenAdditionalParams"`
-	RefreshAdditionalParams       []OAuth2AdditionalParam `json:"refreshAdditionalParams"`
-	AdditionalParams              []KeyValue              `json:"additionalParams"`
-}
-
-type OAuth2AdditionalParam struct {
-	Name        string `json:"name"`
-	Value       string `json:"value"`
-	SendIn      string `json:"sendIn"`
-	Enabled     bool   `json:"enabled"`
-	Secret      bool   `json:"secret"`
-	Description string `json:"description"`
-}
-
-type AWSV4Auth struct {
-	AccessKeyID     string `json:"accessKeyId"`
-	SecretAccessKey string `json:"secretAccessKey"`
-	SessionToken    string `json:"sessionToken"`
-	Service         string `json:"service"`
-	Region          string `json:"region"`
-	ProfileName     string `json:"profileName"`
-	AccessKey       string `json:"accessKey,omitempty"`
-	SecretKey       string `json:"secretKey,omitempty"`
-}
-
-type Assertion struct {
-	Expression string `json:"expression"`
-	Operator   string `json:"operator"`
-	Value      string `json:"value"`
-	Enabled    bool   `json:"enabled"`
-	Passed     bool   `json:"passed"`
-	Message    string `json:"message"`
-}
-
-type RequestSettings struct {
-	TimeoutMs                  int  `json:"timeoutMs"`
-	FollowRedirects            bool `json:"followRedirects"`
-	MaxRedirects               int  `json:"maxRedirects"`
-	DisableParsingResponseJSON bool `json:"disableParsingResponseJson,omitempty"`
-	EncodeURL                  bool `json:"encodeUrl"`
-	StoreCookies               bool `json:"storeCookies"`
-	VerifyTLS                  bool `json:"verifyTls"`
-	KeepAliveInterval          int  `json:"keepAliveInterval"`
-}
-
-type Response struct {
-	Status        int               `json:"status"`
-	StatusText    string            `json:"statusText"`
-	Headers       map[string]string `json:"headers"`
-	HeaderEntries []KeyValue        `json:"headerEntries,omitempty"`
-	Metadata      []KeyValue        `json:"metadata,omitempty"`
-	Trailers      []KeyValue        `json:"trailers,omitempty"`
-	Body          string            `json:"body"`
-	BodyBase64    string            `json:"bodyBase64"`
-	// US-009. BodyHandle identifies the body in the response store; BodyHead is
-	// an inline prefix so a list or a collapsed view can render without a disk
-	// read. Both are additive for now — Body and BodyBase64 are still populated
-	// and still authoritative — so this step changes no behaviour and no
-	// existing test. They become the source of truth only once step 4 moves the
-	// readers, and Body/BodyBase64 are deleted last, after the migration has
-	// been exercised. See .ralph/plans/US-009.md.
-	//
-	// omitempty on both: a state.json written before this step has neither, and
-	// a response whose body was never stored should not carry empty strings
-	// into every persist.
-	BodyHandle string `json:"bodyHandle,omitempty"`
-	BodyHead   string `json:"bodyHead,omitempty"`
-	// US-058. Set by pm.visualizer.set. Rendered only inside a sandboxed
-	// iframe — see visualizer.go for why the containment is three layers.
-	Visualizer   *VisualizerPayload `json:"visualizer,omitempty"`
-	Size         int                `json:"size"`
-	DurationMs   int64              `json:"durationMs"`
-	Error        string             `json:"error"`
-	Cancelled    bool               `json:"cancelled,omitempty"`
-	PreviewMode  string             `json:"previewMode"`
-	TestResults  []TestResult       `json:"testResults"`
-	ScriptLogs   []ScriptLog        `json:"scriptLogs"`
-	Assertions   []Assertion        `json:"assertions"`
-	RequestedURL string             `json:"requestedUrl"`
-	SentAt       time.Time          `json:"sentAt"`
-	Cookies      []CookieEntry      `json:"cookies"`
-	Timings      ResponseTimings    `json:"timings"`
-}
-
-type ResponseExample struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Type        string                 `json:"type"`
-	Request     ResponseExampleRequest `json:"request"`
-	Response    ResponseExamplePayload `json:"response"`
-}
-
-type ResponseExampleRequest struct {
-	Method         string          `json:"method"`
-	URL            string          `json:"url"`
-	BodyMode       string          `json:"bodyMode"`
-	Body           string          `json:"body"`
-	Headers        []KeyValue      `json:"headers"`
-	Params         []KeyValue      `json:"params"`
-	FormURLEncoded []KeyValue      `json:"formUrlEncoded"`
-	MultipartForm  []FormPart      `json:"multipartForm"`
-	File           []FileBodyEntry `json:"file"`
-}
-
-type ResponseExamplePayload struct {
-	Status     int        `json:"status"`
-	StatusText string     `json:"statusText"`
-	Headers    []KeyValue `json:"headers"`
-	BodyType   string     `json:"bodyType"`
-	Body       string     `json:"body"`
-	Size       int        `json:"size"`
-	DurationMs int64      `json:"durationMs,omitempty"`
-}
-
-type TestResult struct {
-	Name    string `json:"name"`
-	Passed  bool   `json:"passed"`
-	Message string `json:"message"`
-}
-
-type ScriptLog struct {
-	Level   string   `json:"level"`
-	Message string   `json:"message"`
-	Args    []string `json:"args"`
-}
-
-type TimelineItem struct {
-	ID         string     `json:"id"`
-	Kind       string     `json:"kind"`
-	EventType  string     `json:"eventType,omitempty"`
-	EventName  string     `json:"eventName,omitempty"`
-	Message    string     `json:"message"`
-	At         time.Time  `json:"at"`
-	Duration   int64      `json:"duration"`
-	RequestID  string     `json:"requestId"`
-	Source     string     `json:"source,omitempty"`
-	Phase      string     `json:"phase,omitempty"`
-	Method     string     `json:"method,omitempty"`
-	URL        string     `json:"url,omitempty"`
-	Status     int        `json:"status,omitempty"`
-	StatusText string     `json:"statusText,omitempty"`
-	Error      string     `json:"error,omitempty"`
-	Payload    string     `json:"payload,omitempty"`
-	Metadata   []KeyValue `json:"metadata,omitempty"`
-	Trailers   []KeyValue `json:"trailers,omitempty"`
-	SourceFile string     `json:"sourceFile,omitempty"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type Response = types.Response
+type ResponseExample = types.ResponseExample
+type ResponseExampleRequest = types.ResponseExampleRequest
+type ResponseExamplePayload = types.ResponseExamplePayload
+type TestResult = types.TestResult
+type ScriptLog = types.ScriptLog
+type TimelineItem = types.TimelineItem
 
 type Environment struct {
 	ID        string     `json:"id"`
@@ -1179,21 +917,7 @@ type NetworkLog struct {
 	ResponseBody    string            `json:"responseBody,omitempty"`
 }
 
-type CookieEntry struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Value     string    `json:"value"`
-	Domain    string    `json:"domain"`
-	Path      string    `json:"path"`
-	Expires   time.Time `json:"expires"`
-	Session   bool      `json:"session"`
-	Secure    bool      `json:"secure"`
-	HTTPOnly  bool      `json:"httpOnly"`
-	SameSite  string    `json:"sameSite"`
-	HostOnly  bool      `json:"hostOnly"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
-}
+type CookieEntry = types.CookieEntry
 
 type CookieInput struct {
 	ID       string `json:"id"`

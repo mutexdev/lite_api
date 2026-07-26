@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { main } from '../../wailsjs/go/models'
+  import type { types } from '../../wailsjs/go/models'
   import KeyValueTable from './KeyValueTable.svelte'
 
   type Field = 'name' | 'value' | 'enabled'
@@ -10,7 +10,7 @@
   // that nothing binds adds a writable surface for no reason.
   type Props = {
     title?: string
-    params?: main.OAuth2AdditionalParam[]
+    params?: types.OAuth2AdditionalParam[]
     onAdd?: (sendIn: SendIn) => void | Promise<void>
     onChange?: (index: number, field: Field, value: string | boolean) => void | Promise<void>
     onRemove?: (index: number) => void | Promise<void>

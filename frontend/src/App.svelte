@@ -286,7 +286,7 @@
   type BodyTextField = 'json' | 'xml' | 'text' | 'graphqlQuery' | 'graphqlVariables'
   type VariableTooltipSource = 'global' | 'collection' | 'environment' | 'folder' | 'request' | 'runtime' | 'process' | 'path' | 'missing' | 'invalid'
   type IndexedVariable = {
-    variable: main.Variable
+    variable: types.Variable
     index: number
   }
   type TooltipResolution = {
@@ -616,7 +616,7 @@
   let gitCandidates = $state<main.GitCollectionCandidate[]>([])
   let selectedGitCollectionPaths = $state<string[]>([])
   let openCollectionPath = $state('/Users/mou/Documents/LiteAPI/Sample API Collection')
-  let grpcMethods = $state<main.GRPCMethodInfo[]>([])
+  let grpcMethods = $state<types.GRPCMethodInfo[]>([])
   let grpcMethodsRequestId = $state('')
   let grpcMethodMessage = $state('')
 
@@ -655,7 +655,7 @@
   let requestCodeLanguage = $state('curl')
   let requestGeneratedCode = $state('')
   let generatedGrpcurlCommand = $state('')
-  let responseExampleDrafts = $state<Record<string, main.ResponseExample>>({})
+  let responseExampleDrafts = $state<Record<string, types.ResponseExample>>({})
   let globalSearchOpen = $state(false)
   let globalSearchQuery = $state('')
   let globalSearchIndex = $state(0)
@@ -807,8 +807,8 @@
     return preferred || activeWorkspace?.path || ''
   }
 
-  function oauth2AuthWithDefaults(auth: main.OAuth2Auth | undefined, updates: Partial<main.OAuth2Auth> = {}) {
-    const merged = { ...(auth ?? {}), ...updates } as main.OAuth2Auth
+  function oauth2AuthWithDefaults(auth: types.OAuth2Auth | undefined, updates: Partial<types.OAuth2Auth> = {}) {
+    const merged = { ...(auth ?? {}), ...updates } as types.OAuth2Auth
     return {
       ...merged,
       grantType: merged.grantType || 'client_credentials',
@@ -817,11 +817,11 @@
       tokenPlacement: merged.tokenPlacement || 'header',
       tokenHeaderPrefix: merged.tokenHeaderPrefix || 'Bearer',
       tokenQueryKey: merged.tokenQueryKey || 'access_token'
-    } as main.OAuth2Auth
+    } as types.OAuth2Auth
   }
 
-  function authWithOAuth2Defaults(auth: main.AuthConfig | undefined, updates: Partial<main.AuthConfig> = {}) {
-    const next = { ...(auth ?? {}), ...updates } as main.AuthConfig
+  function authWithOAuth2Defaults(auth: types.AuthConfig | undefined, updates: Partial<types.AuthConfig> = {}) {
+    const next = { ...(auth ?? {}), ...updates } as types.AuthConfig
     if (next.mode === 'oauth2' || updates.oauth2 !== undefined) {
       next.oauth2 = oauth2AuthWithDefaults(auth?.oauth2, updates.oauth2)
     }
@@ -1235,7 +1235,7 @@
   void loadVisualizerDocument(activeCollection?.id, activeRequest?.id, activeRequest?.response?.visualizer)
   })
 
-  async function loadVisualizerDocument(collectionID: string | undefined, itemID: string | undefined, payload: main.VisualizerPayload | undefined) {
+  async function loadVisualizerDocument(collectionID: string | undefined, itemID: string | undefined, payload: types.VisualizerPayload | undefined) {
     if (!collectionID || !itemID || !payload) {
       visualizerDocument = ''
       return
@@ -1763,14 +1763,14 @@
     dotEnvRefreshTimer = undefined
   }
 
-  function visibleEnvironmentVariables(vars: main.Variable[] | undefined, tab: EnvironmentVariableTab, query: string): IndexedVariable[] {
+  function visibleEnvironmentVariables(vars: types.Variable[] | undefined, tab: EnvironmentVariableTab, query: string): IndexedVariable[] {
     return (vars ?? [])
       .map((variable, index) => ({ variable, index }))
       .filter(({ variable }) => (tab === 'secrets' ? Boolean(variable.secret) : !variable.secret))
       .filter(({ variable }) => environmentVariableMatches(variable, query))
   }
 
-  function environmentVariableMatches(variable: main.Variable, query: string) {
+  function environmentVariableMatches(variable: types.Variable, query: string) {
     if (!query) return true
     return [variable.name, variable.value, variable.type, variable.dataType].some((value) => searchHit(value, query))
   }
@@ -1796,7 +1796,7 @@
     return variableNamesForRequest(request).map((name) => resolveVariableTooltip(name, workspace, collection, request, environmentId, processEnvValues))
   }
 
-  function urlVariableSegments(value: string, infos: VariableTooltipInfo[], pathParams?: main.KeyValue[]): URLVariableSegment[] {
+  function urlVariableSegments(value: string, infos: VariableTooltipInfo[], pathParams?: types.KeyValue[]): URLVariableSegment[] {
     const segments: URLVariableSegment[] = []
     const infoByName = new Map(infos.map((info) => [info.name, info]))
     const tokenPattern = pathParams
@@ -1872,7 +1872,7 @@
     }
   }
 
-  function pathParamTooltipInfo(name: string, pathParams: main.KeyValue[]): VariableTooltipInfo {
+  function pathParamTooltipInfo(name: string, pathParams: types.KeyValue[]): VariableTooltipInfo {
     const validName = isValidVariableName(name)
     const index = pathParams.findIndex((param) => param.name === name)
     const row = index >= 0 ? pathParams[index] : undefined
@@ -1923,18 +1923,18 @@
     return names
   }
 
-  function syncPathParamsForURL(rawURL: string, currentRows: main.KeyValue[] = []) {
+  function syncPathParamsForURL(rawURL: string, currentRows: types.KeyValue[] = []) {
     return pathParamNamesFromURL(rawURL).map((name) => {
       const existing = currentRows.find((row) => row.name === name)
-      return existing ?? ({ name, value: '', enabled: true, secret: false, description: '' } as main.KeyValue)
+      return existing ?? ({ name, value: '', enabled: true, secret: false, description: '' } as types.KeyValue)
     })
   }
 
-  function queryParamsForURL(rawURL: string, currentRows: main.KeyValue[] = []) {
+  function queryParamsForURL(rawURL: string, currentRows: types.KeyValue[] = []) {
     const query = rawURL.split('#')[0]?.split('?').slice(1).join('?') ?? ''
     const disabledRows = currentRows.filter((row) => row.enabled === false).map((row) => ({ ...row }))
     if (!query) return disabledRows
-    const rows: main.KeyValue[] = []
+    const rows: types.KeyValue[] = []
     const decode = (value: string) => {
       try {
         return decodeURIComponent(value.replace(/\+/g, ' '))
@@ -1948,7 +1948,7 @@
       const name = decode(rawName ?? '')
       const value = decode(rawValueParts.join('='))
       const existing = currentRows.find((row) => row.enabled !== false && row.name === name)
-      rows.push({ ...(existing ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue)), name, value, enabled: true } as main.KeyValue)
+      rows.push({ ...(existing ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue)), name, value, enabled: true } as types.KeyValue)
     }
     return [...rows, ...disabledRows]
   }
@@ -1956,7 +1956,7 @@
   function variableNamesForRequest(request: main.RequestItem) {
     const names = new Set<string>()
     const scan = (value: unknown) => collectVariableNames(value, names)
-    const scanRows = (rows: main.KeyValue[] | undefined) => {
+    const scanRows = (rows: types.KeyValue[] | undefined) => {
       for (const row of rows ?? []) {
         if (row.enabled === false) continue
         scan(row.name)
@@ -1983,7 +1983,7 @@
     }
   }
 
-  function scanBodyVariables(body: main.RequestBody | undefined, scan: (value: unknown) => void, scanRows: (rows: main.KeyValue[] | undefined) => void) {
+  function scanBodyVariables(body: types.RequestBody | undefined, scan: (value: unknown) => void, scanRows: (rows: types.KeyValue[] | undefined) => void) {
     if (!body) return
     scan(body.json)
     scan(body.xml)
@@ -2078,8 +2078,8 @@
   }
 
   function findTooltipVariable(name: string, workspace: main.Workspace, collection: main.Collection, request: main.RequestItem, environmentId: string) {
-    let found: { variable: main.Variable; scope: string; source: VariableTooltipSource; index: number; environmentId?: string; globalEnvironmentId?: string } | undefined
-    const consider = (variables: main.Variable[] | undefined, scope: string, source: VariableTooltipSource, sourceId = '') => {
+    let found: { variable: types.Variable; scope: string; source: VariableTooltipSource; index: number; environmentId?: string; globalEnvironmentId?: string } | undefined
+    const consider = (variables: types.Variable[] | undefined, scope: string, source: VariableTooltipSource, sourceId = '') => {
       for (const [index, variable] of (variables ?? []).entries()) {
         if (variable.enabled === false || variable.name !== name) continue
         found = {
@@ -2203,7 +2203,7 @@
     const textarea = event.currentTarget as HTMLTextAreaElement
     bodyTextScrollLeft = textarea.scrollLeft
     bodyTextScrollTop = textarea.scrollTop
-    updateBody({ [field]: textarea.value } as Partial<main.RequestBody>)
+    updateBody({ [field]: textarea.value } as Partial<types.RequestBody>)
   }
 
   function syncBodyTextScroll(event: Event) {
@@ -2376,14 +2376,14 @@
         Object.values(value as Record<string, unknown>).forEach(scanObject)
       }
     }
-    const scanKeyValues = (rows: main.KeyValue[] | undefined) => {
+    const scanKeyValues = (rows: types.KeyValue[] | undefined) => {
       for (const row of rows ?? []) {
         if (row.enabled === false) continue
         scanText(row.name)
         scanText(row.value)
       }
     }
-    const scanVariables = (rows: main.Variable[] | undefined) => {
+    const scanVariables = (rows: types.Variable[] | undefined) => {
       for (const variable of rows ?? []) {
         if (variable.enabled === false) continue
         scanText(variable.name)
@@ -2426,7 +2426,7 @@
     return Array.from(prompts)
   }
 
-  function scanBodyPrompts(body: main.RequestBody | undefined, scanText: (value: unknown) => void, scanKeyValues: (rows: main.KeyValue[] | undefined) => void) {
+  function scanBodyPrompts(body: types.RequestBody | undefined, scanText: (value: unknown) => void, scanKeyValues: (rows: types.KeyValue[] | undefined) => void) {
     if (!body) return
     if (body.mode === 'json') {
       scanText(body.json)
@@ -2572,7 +2572,7 @@
     })
   }
 
-  function responseExampleIdentifier(example: main.ResponseExample) {
+  function responseExampleIdentifier(example: types.ResponseExample) {
     return example.id || example.name
   }
 
@@ -2631,7 +2631,7 @@
     return Boolean(item?.transient || collectionIsScratch(collection))
   }
 
-  function beginRenameResponseExample(example: main.ResponseExample) {
+  function beginRenameResponseExample(example: types.ResponseExample) {
     editingResponseExampleID = responseExampleIdentifier(example)
     responseExampleNameDraft = example.name
     deletingResponseExampleID = ''
@@ -2642,7 +2642,7 @@
     responseExampleNameDraft = ''
   }
 
-  async function renameResponseExample(example: main.ResponseExample) {
+  async function renameResponseExample(example: types.ResponseExample) {
     if (!activeCollection || !activeRequest) return
     const name = responseExampleNameDraft.trim()
     if (!name) return
@@ -2654,7 +2654,7 @@
     })
   }
 
-  async function cloneResponseExample(example: main.ResponseExample) {
+  async function cloneResponseExample(example: types.ResponseExample) {
     if (!activeCollection || !activeRequest) return
     await runAction('clone response example', async () => {
       workspaceStore.appState = await CloneResponseExample(activeCollection.id, activeRequest.id, responseExampleIdentifier(example))
@@ -2663,12 +2663,12 @@
     })
   }
 
-  function requestDeleteResponseExample(example: main.ResponseExample) {
+  function requestDeleteResponseExample(example: types.ResponseExample) {
     deletingResponseExampleID = responseExampleIdentifier(example)
     editingResponseExampleID = ''
   }
 
-  async function deleteResponseExample(example: main.ResponseExample) {
+  async function deleteResponseExample(example: types.ResponseExample) {
     if (!activeCollection || !activeRequest) return
     const id = responseExampleIdentifier(example)
     await runAction('delete response example', async () => {
@@ -2681,35 +2681,35 @@
     })
   }
 
-  function cloneResponseExampleDraft(example: main.ResponseExample) {
-    return JSON.parse(JSON.stringify(example)) as main.ResponseExample
+  function cloneResponseExampleDraft(example: types.ResponseExample) {
+    return JSON.parse(JSON.stringify(example)) as types.ResponseExample
   }
 
-  function responseExampleDraft(example: main.ResponseExample) {
+  function responseExampleDraft(example: types.ResponseExample) {
     return responseExampleDrafts[responseExampleIdentifier(example)] ?? example
   }
 
-  function beginEditResponseExampleDetails(example: main.ResponseExample) {
+  function beginEditResponseExampleDetails(example: types.ResponseExample) {
     const id = responseExampleIdentifier(example)
     editingResponseExampleDetailsID = id
     responseExampleDrafts = { ...responseExampleDrafts, [id]: cloneResponseExampleDraft(example) }
     deletingResponseExampleID = ''
   }
 
-  function cancelEditResponseExampleDetails(example: main.ResponseExample) {
+  function cancelEditResponseExampleDetails(example: types.ResponseExample) {
     const id = responseExampleIdentifier(example)
     if (editingResponseExampleDetailsID === id) editingResponseExampleDetailsID = ''
     const { [id]: _removed, ...remainingDrafts } = responseExampleDrafts
     responseExampleDrafts = remainingDrafts
   }
 
-  function updateResponseExampleDraft(example: main.ResponseExample, updater: (draft: main.ResponseExample) => main.ResponseExample) {
+  function updateResponseExampleDraft(example: types.ResponseExample, updater: (draft: types.ResponseExample) => types.ResponseExample) {
     const id = responseExampleIdentifier(example)
     const draft = cloneResponseExampleDraft(responseExampleDrafts[id] ?? example)
     responseExampleDrafts = { ...responseExampleDrafts, [id]: updater(draft) }
   }
 
-  function updateResponseExampleDescription(example: main.ResponseExample, value: string) {
+  function updateResponseExampleDescription(example: types.ResponseExample, value: string) {
     updateResponseExampleDraft(example, (draft) => {
       draft.description = value
       return draft
@@ -2732,9 +2732,9 @@
     return 'text'
   }
 
-  function updateResponseExampleResponseField(example: main.ResponseExample, field: keyof main.ResponseExamplePayload, value: string | number) {
+  function updateResponseExampleResponseField(example: types.ResponseExample, field: keyof types.ResponseExamplePayload, value: string | number) {
     updateResponseExampleDraft(example, (draft) => {
-      const response = { ...(draft.response ?? {}) } as main.ResponseExamplePayload
+      const response = { ...(draft.response ?? {}) } as types.ResponseExamplePayload
       if (field === 'status') {
         response.status = Number.parseInt(String(value), 10) || 0
       } else if (field === 'size') {
@@ -2747,9 +2747,9 @@
     })
   }
 
-  function updateResponseExampleRequestField(example: main.ResponseExample, field: keyof main.ResponseExampleRequest, value: string) {
+  function updateResponseExampleRequestField(example: types.ResponseExample, field: keyof types.ResponseExampleRequest, value: string) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       if (field === 'method') {
         request.method = value.toUpperCase()
       } else {
@@ -2772,18 +2772,18 @@
     })
   }
 
-  function prettifyResponseExampleRequestBody(example: main.ResponseExample) {
+  function prettifyResponseExampleRequestBody(example: types.ResponseExample) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.body = prettifyJSON(request.body ?? '')
       draft.request = request
       return draft
     })
   }
 
-  function prettifyResponseExampleResponseBody(example: main.ResponseExample) {
+  function prettifyResponseExampleResponseBody(example: types.ResponseExample) {
     updateResponseExampleDraft(example, (draft) => {
-      const response = { ...(draft.response ?? {}) } as main.ResponseExamplePayload
+      const response = { ...(draft.response ?? {}) } as types.ResponseExamplePayload
       response.body = prettifyJSON(response.body ?? '')
       draft.response = response
       return draft
@@ -2814,60 +2814,60 @@
       enabled: row.enabled,
       secret: row.secret ?? false,
       description: row.description ?? ''
-    }) as main.KeyValue)
+    }) as types.KeyValue)
   }
 
-  function addResponseExampleRequestParam(example: main.ResponseExample) {
+  function addResponseExampleRequestParam(example: types.ResponseExample) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
-      request.params = [...(request.params ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue]
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
+      request.params = [...(request.params ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue]
       draft.request = request
       return draft
     })
   }
 
-  function updateResponseExampleRequestParam(example: main.ResponseExample, index: number, field: keyof main.KeyValue, value: string | boolean) {
+  function updateResponseExampleRequestParam(example: types.ResponseExample, index: number, field: keyof types.KeyValue, value: string | boolean) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.params ?? [])]
-      const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue)
-      rows[index] = { ...current, [field]: value } as main.KeyValue
+      const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue)
+      rows[index] = { ...current, [field]: value } as types.KeyValue
       request.params = rows
       draft.request = request
       return draft
     })
   }
 
-  function replaceResponseExampleRequestParams(example: main.ResponseExample, rows: Array<{ name: string; value: string; enabled: boolean; secret?: boolean; description?: string }>) {
+  function replaceResponseExampleRequestParams(example: types.ResponseExample, rows: Array<{ name: string; value: string; enabled: boolean; secret?: boolean; description?: string }>) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.params = normalizeBulkKeyValueRows(rows)
       draft.request = request
       return draft
     })
   }
 
-  function moveResponseExampleRequestParam(example: main.ResponseExample, index: number, direction: -1 | 1) {
+  function moveResponseExampleRequestParam(example: types.ResponseExample, index: number, direction: -1 | 1) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.params = movedRows(request.params, index, direction)
       draft.request = request
       return draft
     })
   }
 
-  function reorderResponseExampleRequestParam(example: main.ResponseExample, from: number, to: number) {
+  function reorderResponseExampleRequestParam(example: types.ResponseExample, from: number, to: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.params = reorderedRows(request.params, from, to)
       draft.request = request
       return draft
     })
   }
 
-  function removeResponseExampleRequestParam(example: main.ResponseExample, index: number) {
+  function removeResponseExampleRequestParam(example: types.ResponseExample, index: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.params ?? [])]
       rows.splice(index, 1)
       request.params = rows
@@ -2876,48 +2876,48 @@
     })
   }
 
-  function addResponseExampleRequestFormRow(example: main.ResponseExample) {
+  function addResponseExampleRequestFormRow(example: types.ResponseExample) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
-      request.formUrlEncoded = [...(request.formUrlEncoded ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue]
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
+      request.formUrlEncoded = [...(request.formUrlEncoded ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue]
       draft.request = request
       return draft
     })
   }
 
-  function updateResponseExampleRequestFormRow(example: main.ResponseExample, index: number, field: keyof main.KeyValue, value: string | boolean) {
+  function updateResponseExampleRequestFormRow(example: types.ResponseExample, index: number, field: keyof types.KeyValue, value: string | boolean) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.formUrlEncoded ?? [])]
-      const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue)
-      rows[index] = { ...current, [field]: value } as main.KeyValue
+      const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue)
+      rows[index] = { ...current, [field]: value } as types.KeyValue
       request.formUrlEncoded = rows
       draft.request = request
       return draft
     })
   }
 
-  function moveResponseExampleRequestFormRow(example: main.ResponseExample, index: number, direction: -1 | 1) {
+  function moveResponseExampleRequestFormRow(example: types.ResponseExample, index: number, direction: -1 | 1) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.formUrlEncoded = movedRows(request.formUrlEncoded, index, direction)
       draft.request = request
       return draft
     })
   }
 
-  function reorderResponseExampleRequestFormRow(example: main.ResponseExample, from: number, to: number) {
+  function reorderResponseExampleRequestFormRow(example: types.ResponseExample, from: number, to: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.formUrlEncoded = reorderedRows(request.formUrlEncoded, from, to)
       draft.request = request
       return draft
     })
   }
 
-  function removeResponseExampleRequestFormRow(example: main.ResponseExample, index: number) {
+  function removeResponseExampleRequestFormRow(example: types.ResponseExample, index: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.formUrlEncoded ?? [])]
       rows.splice(index, 1)
       request.formUrlEncoded = rows
@@ -2926,48 +2926,48 @@
     })
   }
 
-  function addResponseExampleRequestMultipartRow(example: main.ResponseExample) {
+  function addResponseExampleRequestMultipartRow(example: types.ResponseExample) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
-      request.multipartForm = [...(request.multipartForm ?? []), { name: '', value: '', filePath: '', contentType: '', enabled: true } as main.FormPart]
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
+      request.multipartForm = [...(request.multipartForm ?? []), { name: '', value: '', filePath: '', contentType: '', enabled: true } as types.FormPart]
       draft.request = request
       return draft
     })
   }
 
-  function updateResponseExampleRequestMultipartRow(example: main.ResponseExample, index: number, field: keyof main.FormPart, value: string | boolean) {
+  function updateResponseExampleRequestMultipartRow(example: types.ResponseExample, index: number, field: keyof types.FormPart, value: string | boolean) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.multipartForm ?? [])]
-      const current = rows[index] ?? ({ name: '', value: '', filePath: '', contentType: '', enabled: true } as main.FormPart)
-      rows[index] = { ...current, [field]: value } as main.FormPart
+      const current = rows[index] ?? ({ name: '', value: '', filePath: '', contentType: '', enabled: true } as types.FormPart)
+      rows[index] = { ...current, [field]: value } as types.FormPart
       request.multipartForm = rows
       draft.request = request
       return draft
     })
   }
 
-  function moveResponseExampleRequestMultipartRow(example: main.ResponseExample, index: number, direction: -1 | 1) {
+  function moveResponseExampleRequestMultipartRow(example: types.ResponseExample, index: number, direction: -1 | 1) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.multipartForm = movedRows(request.multipartForm, index, direction)
       draft.request = request
       return draft
     })
   }
 
-  function reorderResponseExampleRequestMultipartRow(example: main.ResponseExample, from: number, to: number) {
+  function reorderResponseExampleRequestMultipartRow(example: types.ResponseExample, from: number, to: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.multipartForm = reorderedRows(request.multipartForm, from, to)
       draft.request = request
       return draft
     })
   }
 
-  function removeResponseExampleRequestMultipartRow(example: main.ResponseExample, index: number) {
+  function removeResponseExampleRequestMultipartRow(example: types.ResponseExample, index: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.multipartForm ?? [])]
       rows.splice(index, 1)
       request.multipartForm = rows
@@ -2976,23 +2976,23 @@
     })
   }
 
-  function addResponseExampleRequestFileRow(example: main.ResponseExample) {
+  function addResponseExampleRequestFileRow(example: types.ResponseExample) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.file ?? [])]
-      rows.push({ filePath: '', contentType: '', selected: rows.length === 0 } as main.FileBodyEntry)
+      rows.push({ filePath: '', contentType: '', selected: rows.length === 0 } as types.FileBodyEntry)
       request.file = rows
       draft.request = request
       return draft
     })
   }
 
-  function updateResponseExampleRequestFileRow(example: main.ResponseExample, index: number, field: keyof main.FileBodyEntry, value: string | boolean) {
+  function updateResponseExampleRequestFileRow(example: types.ResponseExample, index: number, field: keyof types.FileBodyEntry, value: string | boolean) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.file ?? [])]
-      const current = rows[index] ?? ({ filePath: '', contentType: '', selected: rows.length === 0 } as main.FileBodyEntry)
-      rows[index] = { ...current, [field]: value } as main.FileBodyEntry
+      const current = rows[index] ?? ({ filePath: '', contentType: '', selected: rows.length === 0 } as types.FileBodyEntry)
+      rows[index] = { ...current, [field]: value } as types.FileBodyEntry
       if (field === 'filePath') {
         rows[index].contentType = contentTypeForFilePath(String(value))
       }
@@ -3007,27 +3007,27 @@
     })
   }
 
-  function moveResponseExampleRequestFileRow(example: main.ResponseExample, index: number, direction: -1 | 1) {
+  function moveResponseExampleRequestFileRow(example: types.ResponseExample, index: number, direction: -1 | 1) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.file = movedRows(request.file, index, direction)
       draft.request = request
       return draft
     })
   }
 
-  function reorderResponseExampleRequestFileRow(example: main.ResponseExample, from: number, to: number) {
+  function reorderResponseExampleRequestFileRow(example: types.ResponseExample, from: number, to: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.file = reorderedRows(request.file, from, to)
       draft.request = request
       return draft
     })
   }
 
-  function removeResponseExampleRequestFileRow(example: main.ResponseExample, index: number) {
+  function removeResponseExampleRequestFileRow(example: types.ResponseExample, index: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.file ?? [])]
       const removedSelected = rows[index]?.selected
       rows.splice(index, 1)
@@ -3040,57 +3040,57 @@
     })
   }
 
-  function addResponseExampleRequestHeader(example: main.ResponseExample) {
+  function addResponseExampleRequestHeader(example: types.ResponseExample) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
-      request.headers = [...(request.headers ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue]
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
+      request.headers = [...(request.headers ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue]
       draft.request = request
       return draft
     })
   }
 
-  function updateResponseExampleRequestHeader(example: main.ResponseExample, index: number, field: keyof main.KeyValue, value: string | boolean) {
+  function updateResponseExampleRequestHeader(example: types.ResponseExample, index: number, field: keyof types.KeyValue, value: string | boolean) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.headers ?? [])]
-      const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue)
-      rows[index] = { ...current, [field]: value } as main.KeyValue
+      const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue)
+      rows[index] = { ...current, [field]: value } as types.KeyValue
       request.headers = rows
       draft.request = request
       return draft
     })
   }
 
-  function replaceResponseExampleRequestHeaders(example: main.ResponseExample, rows: Array<{ name: string; value: string; enabled: boolean; secret?: boolean; description?: string }>) {
+  function replaceResponseExampleRequestHeaders(example: types.ResponseExample, rows: Array<{ name: string; value: string; enabled: boolean; secret?: boolean; description?: string }>) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.headers = normalizeBulkKeyValueRows(rows)
       draft.request = request
       return draft
     })
   }
 
-  function moveResponseExampleRequestHeader(example: main.ResponseExample, index: number, direction: -1 | 1) {
+  function moveResponseExampleRequestHeader(example: types.ResponseExample, index: number, direction: -1 | 1) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.headers = movedRows(request.headers, index, direction)
       draft.request = request
       return draft
     })
   }
 
-  function reorderResponseExampleRequestHeader(example: main.ResponseExample, from: number, to: number) {
+  function reorderResponseExampleRequestHeader(example: types.ResponseExample, from: number, to: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.headers = reorderedRows(request.headers, from, to)
       draft.request = request
       return draft
     })
   }
 
-  function removeResponseExampleRequestHeader(example: main.ResponseExample, index: number) {
+  function removeResponseExampleRequestHeader(example: types.ResponseExample, index: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.headers ?? [])]
       rows.splice(index, 1)
       request.headers = rows
@@ -3099,19 +3099,19 @@
     })
   }
 
-  function addResponseExampleHeader(example: main.ResponseExample) {
+  function addResponseExampleHeader(example: types.ResponseExample) {
     updateResponseExampleDraft(example, (draft) => {
-      draft.response.headers = [...(draft.response.headers ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue]
+      draft.response.headers = [...(draft.response.headers ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue]
       return draft
     })
   }
 
-  function updateResponseExampleHeader(example: main.ResponseExample, index: number, field: keyof main.KeyValue, value: string | boolean) {
+  function updateResponseExampleHeader(example: types.ResponseExample, index: number, field: keyof types.KeyValue, value: string | boolean) {
     updateResponseExampleDraft(example, (draft) => {
       const rows = [...(draft.response.headers ?? [])]
       const oldContentTypeHeader = rows.find((row) => row.name?.toLowerCase() === 'content-type')
-      const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue)
-      rows[index] = { ...current, [field]: value } as main.KeyValue
+      const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue)
+      rows[index] = { ...current, [field]: value } as types.KeyValue
       const contentTypeHeader = rows.find((row) => row.name?.toLowerCase() === 'content-type')
       if (contentTypeHeader && oldContentTypeHeader && contentTypeHeader.value !== oldContentTypeHeader.value) {
         const nextBodyType = responseExampleBodyTypeForContentType(contentTypeHeader.value ?? '')
@@ -3124,28 +3124,28 @@
     })
   }
 
-  function replaceResponseExampleHeaders(example: main.ResponseExample, rows: Array<{ name: string; value: string; enabled: boolean; secret?: boolean; description?: string }>) {
+  function replaceResponseExampleHeaders(example: types.ResponseExample, rows: Array<{ name: string; value: string; enabled: boolean; secret?: boolean; description?: string }>) {
     updateResponseExampleDraft(example, (draft) => {
       draft.response.headers = normalizeBulkKeyValueRows(rows)
       return draft
     })
   }
 
-  function moveResponseExampleHeader(example: main.ResponseExample, index: number, direction: -1 | 1) {
+  function moveResponseExampleHeader(example: types.ResponseExample, index: number, direction: -1 | 1) {
     updateResponseExampleDraft(example, (draft) => {
       draft.response.headers = movedRows(draft.response.headers, index, direction)
       return draft
     })
   }
 
-  function reorderResponseExampleHeader(example: main.ResponseExample, from: number, to: number) {
+  function reorderResponseExampleHeader(example: types.ResponseExample, from: number, to: number) {
     updateResponseExampleDraft(example, (draft) => {
       draft.response.headers = reorderedRows(draft.response.headers, from, to)
       return draft
     })
   }
 
-  function removeResponseExampleHeader(example: main.ResponseExample, index: number) {
+  function removeResponseExampleHeader(example: types.ResponseExample, index: number) {
     updateResponseExampleDraft(example, (draft) => {
       const rows = [...(draft.response.headers ?? [])]
       rows.splice(index, 1)
@@ -3154,7 +3154,7 @@
     })
   }
 
-  async function saveResponseExampleDetails(example: main.ResponseExample) {
+  async function saveResponseExampleDetails(example: types.ResponseExample) {
     if (!activeCollection || !activeRequest) return
     const id = responseExampleIdentifier(example)
     const draft = responseExampleDrafts[id]
@@ -3168,7 +3168,7 @@
     })
   }
 
-  async function loadResponseExampleCode(example: main.ResponseExample, language = responseExampleCodeLanguage) {
+  async function loadResponseExampleCode(example: types.ResponseExample, language = responseExampleCodeLanguage) {
     if (!activeCollection || !activeRequest) return
     await runAction('generate response example code', async () => {
       responseExampleGeneratedCode = await GenerateResponseExampleCode(
@@ -3180,14 +3180,14 @@
     })
   }
 
-  async function beginGenerateResponseExampleCode(example: main.ResponseExample) {
+  async function beginGenerateResponseExampleCode(example: types.ResponseExample) {
     generatingResponseExampleID = responseExampleIdentifier(example)
     responseExampleCodeLanguage = 'curl'
     responseExampleGeneratedCode = ''
     await loadResponseExampleCode(example, responseExampleCodeLanguage)
   }
 
-  async function changeResponseExampleCodeLanguage(example: main.ResponseExample, language: string) {
+  async function changeResponseExampleCodeLanguage(example: types.ResponseExample, language: string) {
     responseExampleCodeLanguage = language
     await loadResponseExampleCode(example, language)
   }
@@ -4103,12 +4103,12 @@
 	    return collection?.openapi?.[0]
 	  }
 
-	  function openAPISyncIntervalMinutes(config: main.OpenAPISyncConfig | undefined) {
+	  function openAPISyncIntervalMinutes(config: types.OpenAPISyncConfig | undefined) {
 	    const minutes = Number(config?.autoCheckInterval || 5)
 	    return Number.isFinite(minutes) && minutes > 0 ? minutes : 5
 	  }
 
-	  function openAPISyncAutoCheckEnabled(config: main.OpenAPISyncConfig | undefined) {
+	  function openAPISyncAutoCheckEnabled(config: types.OpenAPISyncConfig | undefined) {
 	    return Boolean(config?.sourceUrl && config.autoCheck !== false)
 	  }
 
@@ -4144,7 +4144,7 @@
 	        specHash: existing?.specHash,
 	        autoCheck: openAPISyncSettingsAutoCheck,
 	        autoCheckInterval: openAPISyncSettingsInterval
-	      } as main.OpenAPISyncConfig)
+	      } as types.OpenAPISyncConfig)
 	      openAPISyncSourceURL = sourceUrl
 	      openAPISyncGroupBy = groupBy
 	      openAPISyncSettingsOpen = false
@@ -4513,7 +4513,7 @@
     })
   }
 
-  function editCookie(cookie: main.CookieEntry) {
+  function editCookie(cookie: types.CookieEntry) {
     cookieForm = {
       id: cookie.id,
       name: cookie.name,
@@ -4771,7 +4771,7 @@
     })
   }
 
-  function responseExampleIsActive(collectionId: string, itemId: string, example: main.ResponseExample) {
+  function responseExampleIsActive(collectionId: string, itemId: string, example: types.ResponseExample) {
     if (!activeTab || activeTab.kind !== 'response-example') return false
     const target = activeTab.exampleId || activeTab.exampleName || ''
     return activeTab.collectionId === collectionId
@@ -4779,7 +4779,7 @@
       && (target === responseExampleIdentifier(example) || target === example.name || activeTab.exampleName === example.name)
   }
 
-  async function openResponseExampleTabFor(collectionId: string, itemId: string, example: main.ResponseExample) {
+  async function openResponseExampleTabFor(collectionId: string, itemId: string, example: types.ResponseExample) {
     await runAction('open response example', async () => {
       workspaceStore.appState = await OpenResponseExampleTab(collectionId, itemId, responseExampleIdentifier(example))
       workspaceStore.selectedCollectionId = collectionId
@@ -4788,7 +4788,7 @@
     })
   }
 
-  async function openResponseExampleTab(example: main.ResponseExample) {
+  async function openResponseExampleTab(example: types.ResponseExample) {
     if (!activeCollection || !activeRequest) return
     await openResponseExampleTabFor(activeCollection.id, activeRequest.id, example)
   }
@@ -5841,51 +5841,51 @@
     patchRequest({ [field]: value } as unknown as main.RequestPatch)
   }
 
-	  function updateBody(updates: Partial<main.RequestBody>) {
+	  function updateBody(updates: Partial<types.RequestBody>) {
 	    if (!activeRequest) return
 	    patchRequest({ body: { ...activeRequest.body, ...updates } } as main.RequestPatch)
 	  }
 
-	  function updateFormUrlEncodedRow(index: number, field: keyof main.KeyValue, value: string | boolean) {
+	  function updateFormUrlEncodedRow(index: number, field: keyof types.KeyValue, value: string | boolean) {
 	    if (!activeRequest) return
 	    const rows = [...(activeRequest.body.formUrlEncoded ?? [])]
-	    const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue)
-	    rows[index] = { ...current, [field]: value } as main.KeyValue
-	    updateBody({ formUrlEncoded: rows } as Partial<main.RequestBody>)
+	    const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue)
+	    rows[index] = { ...current, [field]: value } as types.KeyValue
+	    updateBody({ formUrlEncoded: rows } as Partial<types.RequestBody>)
 	  }
 
 	  function addFormUrlEncodedRow() {
 	    if (!activeRequest) return
-	    const rows = [...(activeRequest.body.formUrlEncoded ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue]
-	    updateBody({ formUrlEncoded: rows } as Partial<main.RequestBody>)
+	    const rows = [...(activeRequest.body.formUrlEncoded ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue]
+	    updateBody({ formUrlEncoded: rows } as Partial<types.RequestBody>)
 	  }
 
 	  function removeFormUrlEncodedRow(index: number) {
 	    if (!activeRequest) return
 	    const rows = [...(activeRequest.body.formUrlEncoded ?? [])]
 	    rows.splice(index, 1)
-	    updateBody({ formUrlEncoded: rows } as Partial<main.RequestBody>)
+	    updateBody({ formUrlEncoded: rows } as Partial<types.RequestBody>)
 	  }
 
-	  function updateMultipartRow(index: number, field: keyof main.FormPart, value: string | boolean) {
+	  function updateMultipartRow(index: number, field: keyof types.FormPart, value: string | boolean) {
 	    if (!activeRequest) return
 	    const rows = [...(activeRequest.body.multipart ?? [])]
-	    const current = rows[index] ?? ({ name: '', value: '', filePath: '', contentType: '', enabled: true } as main.FormPart)
-	    rows[index] = { ...current, [field]: value } as main.FormPart
-	    updateBody({ multipart: rows } as Partial<main.RequestBody>)
+	    const current = rows[index] ?? ({ name: '', value: '', filePath: '', contentType: '', enabled: true } as types.FormPart)
+	    rows[index] = { ...current, [field]: value } as types.FormPart
+	    updateBody({ multipart: rows } as Partial<types.RequestBody>)
 	  }
 
 	  function addMultipartRow() {
 	    if (!activeRequest) return
-	    const rows = [...(activeRequest.body.multipart ?? []), { name: '', value: '', filePath: '', contentType: '', enabled: true } as main.FormPart]
-	    updateBody({ multipart: rows } as Partial<main.RequestBody>)
+	    const rows = [...(activeRequest.body.multipart ?? []), { name: '', value: '', filePath: '', contentType: '', enabled: true } as types.FormPart]
+	    updateBody({ multipart: rows } as Partial<types.RequestBody>)
 	  }
 
 	  function removeMultipartRow(index: number) {
 	    if (!activeRequest) return
 	    const rows = [...(activeRequest.body.multipart ?? [])]
 	    rows.splice(index, 1)
-	    updateBody({ multipart: rows } as Partial<main.RequestBody>)
+	    updateBody({ multipart: rows } as Partial<types.RequestBody>)
 	  }
 
 	  function contentTypeForFilePath(filePath: string) {
@@ -5912,28 +5912,28 @@
 	    return types[ext] ?? ''
 	  }
 
-	  function fileBodyRows(body: main.RequestBody | undefined) {
-	    const rows = (body?.files?.length ? body.files : body?.filePath || body?.fileContentType ? [{ filePath: body.filePath ?? '', contentType: body.fileContentType ?? '', selected: true } as main.FileBodyEntry] : []).map((row) => ({ ...row }))
+	  function fileBodyRows(body: types.RequestBody | undefined) {
+	    const rows = (body?.files?.length ? body.files : body?.filePath || body?.fileContentType ? [{ filePath: body.filePath ?? '', contentType: body.fileContentType ?? '', selected: true } as types.FileBodyEntry] : []).map((row) => ({ ...row }))
 	    if (rows.length > 0 && !rows.some((row) => row.selected)) {
 	      rows[0].selected = true
 	    }
 	    return rows
 	  }
 
-	  function fileBodyUpdate(rows: main.FileBodyEntry[]) {
+	  function fileBodyUpdate(rows: types.FileBodyEntry[]) {
 	    const selected = rows.find((row) => row.selected) ?? rows[0]
 	    updateBody({
 	      files: rows,
 	      filePath: selected?.filePath ?? '',
 	      fileContentType: selected?.contentType ?? ''
-	    } as Partial<main.RequestBody>)
+	    } as Partial<types.RequestBody>)
 	  }
 
-	  function updateFileBodyRow(index: number, field: keyof main.FileBodyEntry, value: string | boolean) {
+	  function updateFileBodyRow(index: number, field: keyof types.FileBodyEntry, value: string | boolean) {
 	    if (!activeRequest) return
 	    const rows = fileBodyRows(activeRequest.body)
-	    const current = rows[index] ?? ({ filePath: '', contentType: '', selected: rows.length === 0 } as main.FileBodyEntry)
-	    rows[index] = { ...current, [field]: value } as main.FileBodyEntry
+	    const current = rows[index] ?? ({ filePath: '', contentType: '', selected: rows.length === 0 } as types.FileBodyEntry)
+	    rows[index] = { ...current, [field]: value } as types.FileBodyEntry
 	    if (field === 'filePath') {
 	      rows[index].contentType = contentTypeForFilePath(String(value))
 	    }
@@ -5948,7 +5948,7 @@
 	  function addFileBodyRow() {
 	    if (!activeRequest) return
 	    const rows = fileBodyRows(activeRequest.body)
-	    rows.push({ filePath: '', contentType: '', selected: rows.length === 0 } as main.FileBodyEntry)
+	    rows.push({ filePath: '', contentType: '', selected: rows.length === 0 } as types.FileBodyEntry)
 	    fileBodyUpdate(rows)
 	  }
 
@@ -5963,42 +5963,42 @@
 	    fileBodyUpdate(rows)
 	  }
 
-  function updateAuth(updates: Partial<main.AuthConfig>) {
+  function updateAuth(updates: Partial<types.AuthConfig>) {
     if (!activeRequest) return
     patchRequest({ auth: authWithOAuth2Defaults(activeRequest.auth, updates) } as main.RequestPatch)
   }
 
-  function updateAWSV4Auth(updates: Partial<main.AWSV4Auth>) {
+  function updateAWSV4Auth(updates: Partial<types.AWSV4Auth>) {
     if (!activeRequest) return
-    updateAuth({ awsv4: { ...(activeRequest.auth.awsv4 ?? {}), ...updates } as main.AWSV4Auth })
+    updateAuth({ awsv4: { ...(activeRequest.auth.awsv4 ?? {}), ...updates } as types.AWSV4Auth })
   }
 
-  function updateOAuth1Auth(updates: Partial<main.OAuth1Auth>) {
+  function updateOAuth1Auth(updates: Partial<types.OAuth1Auth>) {
     if (!activeRequest) return
-    updateAuth({ oauth1: { ...(activeRequest.auth.oauth1 ?? {}), ...updates } as main.OAuth1Auth })
+    updateAuth({ oauth1: { ...(activeRequest.auth.oauth1 ?? {}), ...updates } as types.OAuth1Auth })
   }
 
-  function updateOAuth2Auth(updates: Partial<main.OAuth2Auth>) {
+  function updateOAuth2Auth(updates: Partial<types.OAuth2Auth>) {
     if (!activeRequest) return
-    updateAuth({ oauth2: { ...(activeRequest.auth.oauth2 ?? {}), ...updates } as main.OAuth2Auth })
+    updateAuth({ oauth2: { ...(activeRequest.auth.oauth2 ?? {}), ...updates } as types.OAuth2Auth })
   }
 
-  function oauth2ParamList(auth: main.OAuth2Auth | undefined, bucket: OAuth2ParamBucket) {
-    return [...(((auth ?? {}) as Record<OAuth2ParamBucket, main.OAuth2AdditionalParam[] | undefined>)[bucket] ?? [])]
+  function oauth2ParamList(auth: types.OAuth2Auth | undefined, bucket: OAuth2ParamBucket) {
+    return [...(((auth ?? {}) as Record<OAuth2ParamBucket, types.OAuth2AdditionalParam[] | undefined>)[bucket] ?? [])]
   }
 
-  function updateOAuth2ParamList(auth: main.OAuth2Auth | undefined, bucket: OAuth2ParamBucket, index: number, sendIn: OAuth2ParamSendIn, field: OAuth2ParamField, value: string | boolean) {
+  function updateOAuth2ParamList(auth: types.OAuth2Auth | undefined, bucket: OAuth2ParamBucket, index: number, sendIn: OAuth2ParamSendIn, field: OAuth2ParamField, value: string | boolean) {
     const rows = oauth2ParamList(auth, bucket)
-    const current = rows[index] ?? ({ name: '', value: '', sendIn, enabled: true, secret: false, description: '' } as main.OAuth2AdditionalParam)
-    rows[index] = { ...current, sendIn: current.sendIn || sendIn, enabled: current.enabled ?? true, [field]: value } as main.OAuth2AdditionalParam
+    const current = rows[index] ?? ({ name: '', value: '', sendIn, enabled: true, secret: false, description: '' } as types.OAuth2AdditionalParam)
+    rows[index] = { ...current, sendIn: current.sendIn || sendIn, enabled: current.enabled ?? true, [field]: value } as types.OAuth2AdditionalParam
     return rows
   }
 
-  function addOAuth2ParamList(auth: main.OAuth2Auth | undefined, bucket: OAuth2ParamBucket, sendIn: OAuth2ParamSendIn) {
-    return [...oauth2ParamList(auth, bucket), { name: '', value: '', sendIn, enabled: true, secret: false, description: '' } as main.OAuth2AdditionalParam]
+  function addOAuth2ParamList(auth: types.OAuth2Auth | undefined, bucket: OAuth2ParamBucket, sendIn: OAuth2ParamSendIn) {
+    return [...oauth2ParamList(auth, bucket), { name: '', value: '', sendIn, enabled: true, secret: false, description: '' } as types.OAuth2AdditionalParam]
   }
 
-  function removeOAuth2ParamList(auth: main.OAuth2Auth | undefined, bucket: OAuth2ParamBucket, index: number) {
+  function removeOAuth2ParamList(auth: types.OAuth2Auth | undefined, bucket: OAuth2ParamBucket, index: number) {
     const rows = oauth2ParamList(auth, bucket)
     rows.splice(index, 1)
     return rows
@@ -6006,25 +6006,25 @@
 
   function updateRequestOAuth2AdditionalParam(bucket: OAuth2ParamBucket, sendIn: OAuth2ParamSendIn, index: number, field: OAuth2ParamField, value: string | boolean) {
     if (!activeRequest) return
-    updateOAuth2Auth({ [bucket]: updateOAuth2ParamList(activeRequest.auth.oauth2, bucket, index, sendIn, field, value) } as Partial<main.OAuth2Auth>)
+    updateOAuth2Auth({ [bucket]: updateOAuth2ParamList(activeRequest.auth.oauth2, bucket, index, sendIn, field, value) } as Partial<types.OAuth2Auth>)
   }
 
   function addRequestOAuth2AdditionalParam(bucket: OAuth2ParamBucket, sendIn: OAuth2ParamSendIn) {
     if (!activeRequest) return
-    updateOAuth2Auth({ [bucket]: addOAuth2ParamList(activeRequest.auth.oauth2, bucket, sendIn) } as Partial<main.OAuth2Auth>)
+    updateOAuth2Auth({ [bucket]: addOAuth2ParamList(activeRequest.auth.oauth2, bucket, sendIn) } as Partial<types.OAuth2Auth>)
   }
 
   function removeRequestOAuth2AdditionalParam(bucket: OAuth2ParamBucket, index: number) {
     if (!activeRequest) return
-    updateOAuth2Auth({ [bucket]: removeOAuth2ParamList(activeRequest.auth.oauth2, bucket, index) } as Partial<main.OAuth2Auth>)
+    updateOAuth2Auth({ [bucket]: removeOAuth2ParamList(activeRequest.auth.oauth2, bucket, index) } as Partial<types.OAuth2Auth>)
   }
 
-  function updateSettings(updates: Partial<main.RequestSettings>) {
+  function updateSettings(updates: Partial<types.RequestSettings>) {
     if (!activeRequest) return
     patchRequest({ settings: { ...activeRequest.settings, ...updates } } as main.RequestPatch)
   }
 
-  function updateKeyValue(kind: 'params' | 'pathParams' | 'headers', index: number, field: keyof main.KeyValue, value: string | boolean) {
+  function updateKeyValue(kind: 'params' | 'pathParams' | 'headers', index: number, field: keyof types.KeyValue, value: string | boolean) {
     if (!activeRequest) return
     const rows = [...(activeRequest[kind] ?? [])]
     rows[index] = { ...rows[index], [field]: value }
@@ -6035,7 +6035,7 @@
   // diffing row by row: the text form has no stable row identity, so a
   // per-row diff would have to guess which line replaced which row and would
   // reorder or drop rows on any edit that changes their count.
-  function replaceKeyValues(kind: 'params' | 'pathParams' | 'headers', rows: main.KeyValue[]) {
+  function replaceKeyValues(kind: 'params' | 'pathParams' | 'headers', rows: types.KeyValue[]) {
     if (!activeRequest) return
     patchRequest({ [kind]: rows } as unknown as main.RequestPatch)
   }
@@ -6097,7 +6097,7 @@
     patchRequest({ wsMessages: rows } as main.RequestPatch)
   }
 
-  function updateAssertion(index: number, field: keyof main.Assertion, value: string | boolean) {
+  function updateAssertion(index: number, field: keyof types.Assertion, value: string | boolean) {
     if (!activeRequest) return
     const rows = [...(activeRequest.assertions ?? [])]
     rows[index] = { ...rows[index], [field]: value }
@@ -6140,7 +6140,7 @@
     patchRequest({ vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as main.RequestPatch)
   }
 
-  async function updateCollectionVariable(index: number, field: keyof main.Variable, value: string | boolean) {
+  async function updateCollectionVariable(index: number, field: keyof types.Variable, value: string | boolean) {
     if (!activeCollection) return
     const vars = [...(activeCollection.variables ?? [])]
     vars[index] = { ...vars[index], [field]: value }
@@ -6153,7 +6153,7 @@
     workspaceStore.appState = await UpdateCollectionVariables(activeCollection.id, vars)
   }
 
-  async function updateEnvironmentVariable(index: number, field: keyof main.Variable, value: string | boolean) {
+  async function updateEnvironmentVariable(index: number, field: keyof types.Variable, value: string | boolean) {
     if (!activeCollection || !selectedEnvironment) return
     const vars = [...(selectedEnvironment.variables ?? [])]
     vars[index] = field === 'dataType' ? { ...vars[index], dataType: String(value), type: String(value) } : { ...vars[index], [field]: value }
@@ -6176,7 +6176,7 @@
     workspaceStore.appState = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
   }
 
-  async function updateGlobalEnvironmentVariable(index: number, field: keyof main.Variable, value: string | boolean) {
+  async function updateGlobalEnvironmentVariable(index: number, field: keyof types.Variable, value: string | boolean) {
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     const vars = [...(selectedGlobalEnvironment.variables ?? [])]
     vars[index] = field === 'dataType' ? { ...vars[index], dataType: String(value), type: String(value) } : { ...vars[index], [field]: value }
@@ -6279,7 +6279,7 @@
     workspaceStore.appState = await UpdateCollectionHeaders(activeCollection.id, headers)
   }
 
-  async function updateCollectionAuth(updates: Partial<main.AuthConfig>) {
+  async function updateCollectionAuth(updates: Partial<types.AuthConfig>) {
     if (!activeCollection) return
     workspaceStore.appState = await UpdateCollectionAuth(activeCollection.id, authWithOAuth2Defaults(activeCollection.auth, updates))
   }
@@ -6346,7 +6346,7 @@
 
   async function updateCollectionSandboxMode(mode: JSSandboxMode) {
     if (!activeCollection || collectionSandboxMode(activeCollection) === mode) return
-    workspaceStore.appState = await UpdateCollectionSecurityConfig(activeCollection.id, { jsSandboxMode: mode } as main.CollectionSecurityConfig)
+    workspaceStore.appState = await UpdateCollectionSecurityConfig(activeCollection.id, { jsSandboxMode: mode } as types.CollectionSecurityConfig)
   }
 
   async function updateCollectionProxyAuth(updates: Partial<types.ProxyAuthConfig>) {
@@ -7050,22 +7050,22 @@
     workspaceStore.appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
   }
 
-  async function updateCollectionPresets(updates: Partial<main.CollectionPresets>) {
+  async function updateCollectionPresets(updates: Partial<types.CollectionPresets>) {
     if (!activeCollection) return
-    workspaceStore.appState = await UpdateCollectionPresets(activeCollection.id, { ...(activeCollection.presets ?? {}), ...updates } as main.CollectionPresets)
+    workspaceStore.appState = await UpdateCollectionPresets(activeCollection.id, { ...(activeCollection.presets ?? {}), ...updates } as types.CollectionPresets)
   }
 
-  async function updateCollectionProtobuf(protobuf: main.CollectionProtobufConfig) {
+  async function updateCollectionProtobuf(protobuf: types.CollectionProtobufConfig) {
     if (!activeCollection) return
     workspaceStore.appState = await UpdateCollectionProtobuf(activeCollection.id, protobuf)
   }
 
   function collectionProtobufConfig() {
-    return activeCollection?.protobuf ?? ({ protoFiles: [], importPaths: [] } as unknown as main.CollectionProtobufConfig)
+    return activeCollection?.protobuf ?? ({ protoFiles: [], importPaths: [] } as unknown as types.CollectionProtobufConfig)
   }
 
   function asCollectionProtobufConfig(value: unknown) {
-    return value as main.CollectionProtobufConfig
+    return value as types.CollectionProtobufConfig
   }
 
   async function addCollectionClientCertificate() {
@@ -7084,11 +7084,11 @@
     workspaceStore.appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
   }
 
-  async function updateCollectionProtoFile(index: number, field: keyof main.CollectionProtoFile, value: string) {
+  async function updateCollectionProtoFile(index: number, field: keyof types.CollectionProtoFile, value: string) {
     if (!activeCollection) return
     const protobuf = collectionProtobufConfig()
     const rows = [...(protobuf.protoFiles ?? [])]
-    rows[index] = { ...(rows[index] ?? { path: '', type: 'file' }), [field]: value } as main.CollectionProtoFile
+    rows[index] = { ...(rows[index] ?? { path: '', type: 'file' }), [field]: value } as types.CollectionProtoFile
     await updateCollectionProtobuf(asCollectionProtobufConfig({ ...protobuf, protoFiles: rows }))
   }
 
@@ -7097,7 +7097,7 @@
     const protobuf = collectionProtobufConfig()
     await updateCollectionProtobuf(asCollectionProtobufConfig({
       ...protobuf,
-      protoFiles: [...(protobuf.protoFiles ?? []), { path: 'protos/service.proto', type: 'file', exists: false } as main.CollectionProtoFile]
+      protoFiles: [...(protobuf.protoFiles ?? []), { path: 'protos/service.proto', type: 'file', exists: false } as types.CollectionProtoFile]
     }))
   }
 
@@ -7109,11 +7109,11 @@
     await updateCollectionProtobuf(asCollectionProtobufConfig({ ...protobuf, protoFiles: rows }))
   }
 
-  async function updateCollectionProtoImportPath(index: number, field: keyof main.CollectionProtoImportPath, value: string | boolean) {
+  async function updateCollectionProtoImportPath(index: number, field: keyof types.CollectionProtoImportPath, value: string | boolean) {
     if (!activeCollection) return
     const protobuf = collectionProtobufConfig()
     const rows = [...(protobuf.importPaths ?? [])]
-    rows[index] = { ...(rows[index] ?? { path: '', enabled: true }), [field]: value } as main.CollectionProtoImportPath
+    rows[index] = { ...(rows[index] ?? { path: '', enabled: true }), [field]: value } as types.CollectionProtoImportPath
     await updateCollectionProtobuf(asCollectionProtobufConfig({ ...protobuf, importPaths: rows }))
   }
 
@@ -7122,7 +7122,7 @@
     const protobuf = collectionProtobufConfig()
     await updateCollectionProtobuf(asCollectionProtobufConfig({
       ...protobuf,
-      importPaths: [...(protobuf.importPaths ?? []), { path: 'protos', enabled: true, exists: false } as main.CollectionProtoImportPath]
+      importPaths: [...(protobuf.importPaths ?? []), { path: 'protos', enabled: true, exists: false } as types.CollectionProtoImportPath]
     }))
   }
 
@@ -7134,34 +7134,34 @@
     await updateCollectionProtobuf(asCollectionProtobufConfig({ ...protobuf, importPaths: rows }))
   }
 
-  async function updateCollectionAWSV4Auth(updates: Partial<main.AWSV4Auth>) {
+  async function updateCollectionAWSV4Auth(updates: Partial<types.AWSV4Auth>) {
     if (!activeCollection) return
-    await updateCollectionAuth({ awsv4: { ...(activeCollection.auth?.awsv4 ?? {}), ...updates } as main.AWSV4Auth })
+    await updateCollectionAuth({ awsv4: { ...(activeCollection.auth?.awsv4 ?? {}), ...updates } as types.AWSV4Auth })
   }
 
-  async function updateCollectionOAuth1Auth(updates: Partial<main.OAuth1Auth>) {
+  async function updateCollectionOAuth1Auth(updates: Partial<types.OAuth1Auth>) {
     if (!activeCollection) return
-    await updateCollectionAuth({ oauth1: { ...(activeCollection.auth?.oauth1 ?? {}), ...updates } as main.OAuth1Auth })
+    await updateCollectionAuth({ oauth1: { ...(activeCollection.auth?.oauth1 ?? {}), ...updates } as types.OAuth1Auth })
   }
 
-  async function updateCollectionOAuth2Auth(updates: Partial<main.OAuth2Auth>) {
+  async function updateCollectionOAuth2Auth(updates: Partial<types.OAuth2Auth>) {
     if (!activeCollection) return
-    await updateCollectionAuth({ oauth2: { ...(activeCollection.auth?.oauth2 ?? {}), ...updates } as main.OAuth2Auth })
+    await updateCollectionAuth({ oauth2: { ...(activeCollection.auth?.oauth2 ?? {}), ...updates } as types.OAuth2Auth })
   }
 
   async function updateCollectionOAuth2AdditionalParam(bucket: OAuth2ParamBucket, sendIn: OAuth2ParamSendIn, index: number, field: OAuth2ParamField, value: string | boolean) {
     if (!activeCollection) return
-    await updateCollectionOAuth2Auth({ [bucket]: updateOAuth2ParamList(activeCollection.auth?.oauth2, bucket, index, sendIn, field, value) } as Partial<main.OAuth2Auth>)
+    await updateCollectionOAuth2Auth({ [bucket]: updateOAuth2ParamList(activeCollection.auth?.oauth2, bucket, index, sendIn, field, value) } as Partial<types.OAuth2Auth>)
   }
 
   async function addCollectionOAuth2AdditionalParam(bucket: OAuth2ParamBucket, sendIn: OAuth2ParamSendIn) {
     if (!activeCollection) return
-    await updateCollectionOAuth2Auth({ [bucket]: addOAuth2ParamList(activeCollection.auth?.oauth2, bucket, sendIn) } as Partial<main.OAuth2Auth>)
+    await updateCollectionOAuth2Auth({ [bucket]: addOAuth2ParamList(activeCollection.auth?.oauth2, bucket, sendIn) } as Partial<types.OAuth2Auth>)
   }
 
   async function removeCollectionOAuth2AdditionalParam(bucket: OAuth2ParamBucket, index: number) {
     if (!activeCollection) return
-    await updateCollectionOAuth2Auth({ [bucket]: removeOAuth2ParamList(activeCollection.auth?.oauth2, bucket, index) } as Partial<main.OAuth2Auth>)
+    await updateCollectionOAuth2Auth({ [bucket]: removeOAuth2ParamList(activeCollection.auth?.oauth2, bucket, index) } as Partial<types.OAuth2Auth>)
   }
 
   async function updateCollectionDocs(value: string) {
@@ -7179,8 +7179,8 @@
     )
   }
 
-  function folderAuthWithDefaults(updates: Partial<main.AuthConfig> = {}) {
-    const current = editableFolder?.auth ?? activeFolder?.auth ?? ({} as main.AuthConfig)
+  function folderAuthWithDefaults(updates: Partial<types.AuthConfig> = {}) {
+    const current = editableFolder?.auth ?? activeFolder?.auth ?? ({} as types.AuthConfig)
     const base = {
       mode: current.mode || '',
       username: current.username || '',
@@ -7191,10 +7191,10 @@
       apiValue: current.apiValue || '',
       apiLocation: current.apiLocation || 'header',
       oauth2: oauth2AuthWithDefaults(current.oauth2),
-      oauth1: current.oauth1 ?? ({} as main.OAuth1Auth),
-      awsv4: current.awsv4 ?? ({} as main.AWSV4Auth),
+      oauth1: current.oauth1 ?? ({} as types.OAuth1Auth),
+      awsv4: current.awsv4 ?? ({} as types.AWSV4Auth),
       ...updates
-    } as main.AuthConfig
+    } as types.AuthConfig
     return authWithOAuth2Defaults(base, updates)
   }
 
@@ -7247,7 +7247,7 @@
     await saveFolderSettings({ headers })
   }
 
-  async function updateFolderVariable(bucket: 'variables' | 'resVariables', index: number, field: keyof main.Variable, value: string | boolean) {
+  async function updateFolderVariable(bucket: 'variables' | 'resVariables', index: number, field: keyof types.Variable, value: string | boolean) {
     const folder = editableFolder ?? activeFolder
     if (!folder) return
     const vars = [...(bucket === 'variables' ? folder.variables ?? [] : folder.resVariables ?? [])]
@@ -7271,20 +7271,20 @@
     await saveFolderSettings({ [bucket]: vars } as Partial<main.FolderConfig>)
   }
 
-  async function updateFolderAuth(updates: Partial<main.AuthConfig>) {
+  async function updateFolderAuth(updates: Partial<types.AuthConfig>) {
     await saveFolderSettings({ auth: folderAuthWithDefaults(updates) })
   }
 
-  async function updateFolderAWSV4Auth(updates: Partial<main.AWSV4Auth>) {
-    await updateFolderAuth({ awsv4: { ...(editableFolder?.auth?.awsv4 ?? activeFolder?.auth?.awsv4 ?? {}), ...updates } as main.AWSV4Auth })
+  async function updateFolderAWSV4Auth(updates: Partial<types.AWSV4Auth>) {
+    await updateFolderAuth({ awsv4: { ...(editableFolder?.auth?.awsv4 ?? activeFolder?.auth?.awsv4 ?? {}), ...updates } as types.AWSV4Auth })
   }
 
-  async function updateFolderOAuth1Auth(updates: Partial<main.OAuth1Auth>) {
-    await updateFolderAuth({ oauth1: { ...(editableFolder?.auth?.oauth1 ?? activeFolder?.auth?.oauth1 ?? {}), ...updates } as main.OAuth1Auth })
+  async function updateFolderOAuth1Auth(updates: Partial<types.OAuth1Auth>) {
+    await updateFolderAuth({ oauth1: { ...(editableFolder?.auth?.oauth1 ?? activeFolder?.auth?.oauth1 ?? {}), ...updates } as types.OAuth1Auth })
   }
 
-  async function updateFolderOAuth2Auth(updates: Partial<main.OAuth2Auth>) {
-    await updateFolderAuth({ oauth2: { ...(editableFolder?.auth?.oauth2 ?? activeFolder?.auth?.oauth2 ?? {}), ...updates } as main.OAuth2Auth })
+  async function updateFolderOAuth2Auth(updates: Partial<types.OAuth2Auth>) {
+    await updateFolderAuth({ oauth2: { ...(editableFolder?.auth?.oauth2 ?? activeFolder?.auth?.oauth2 ?? {}), ...updates } as types.OAuth2Auth })
   }
 
   async function updateFolderScript(field: 'preScript' | 'postScript' | 'tests', value: string) {
@@ -7313,7 +7313,7 @@
     return body
   }
 
-  function responseHeaderValue(response: main.Response | undefined, name: string) {
+  function responseHeaderValue(response: types.Response | undefined, name: string) {
     const headers = response?.headers ?? {}
     const exact = headers[name]
     if (exact !== undefined) return String(exact)
@@ -7321,17 +7321,17 @@
     return match ? String(match[1]) : ''
   }
 
-  function responseScriptLogs(response: main.Response | undefined): ScriptLog[] {
+  function responseScriptLogs(response: types.Response | undefined): ScriptLog[] {
     return ((response as unknown as { scriptLogs?: ScriptLog[] })?.scriptLogs ?? [])
   }
 
-  function timelineTimestamp(entry: main.TimelineItem) {
+  function timelineTimestamp(entry: types.TimelineItem) {
     if (!entry.at) return 0
     const value = new Date(entry.at)
     return Number.isNaN(value.getTime()) ? 0 : value.getTime()
   }
 
-  function sortedTimelineEntries(entries: main.TimelineItem[]) {
+  function sortedTimelineEntries(entries: types.TimelineItem[]) {
     return [...entries].sort((left, right) => timelineTimestamp(right) - timelineTimestamp(left))
   }
 
@@ -8161,8 +8161,8 @@
     }
   }
 
-  function cookieGroups(cookies: main.CookieEntry[], query: string) {
-    const groups = new Map<string, main.CookieEntry[]>()
+  function cookieGroups(cookies: types.CookieEntry[], query: string) {
+    const groups = new Map<string, types.CookieEntry[]>()
     for (const cookie of cookies ?? []) {
       if (query && !cookieMatches(cookie, query)) continue
       const domain = cookie.domain || '(no domain)'
@@ -8177,15 +8177,15 @@
       }))
   }
 
-  function cookieMatches(cookie: main.CookieEntry, query: string) {
+  function cookieMatches(cookie: types.CookieEntry, query: string) {
     return [cookie.name, cookie.value, cookie.domain, cookie.path, cookie.sameSite, cookieFlags(cookie)].some((value) => searchHit(value, query))
   }
 
-  function cookieHeaderPreview(cookies: main.CookieEntry[]) {
+  function cookieHeaderPreview(cookies: types.CookieEntry[]) {
     return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ')
   }
 
-  function cookieFlags(cookie: main.CookieEntry) {
+  function cookieFlags(cookie: types.CookieEntry) {
     const flags = []
     if (cookie.secure) flags.push('secure')
     if (cookie.httpOnly) flags.push('httpOnly')
@@ -8194,13 +8194,13 @@
     return flags.join(', ') || 'none'
   }
 
-  function cookieExpiresInput(cookie: main.CookieEntry) {
+  function cookieExpiresInput(cookie: types.CookieEntry) {
     if (!cookie.expires) return ''
     const value = new Date(cookie.expires)
     return Number.isNaN(value.getTime()) || value.getFullYear() <= 1 ? '' : value.toISOString()
   }
 
-  function cookieExpiry(cookie: main.CookieEntry) {
+  function cookieExpiry(cookie: types.CookieEntry) {
     if (cookie.session) return 'session'
     if (!cookie.expires) return 'session'
     const value = new Date(cookie.expires)
@@ -9280,7 +9280,7 @@
                   onCopy={copyVariableTooltipValue}
                   onAdd={() => addKeyValue('params')}
 	                  onChange={(index, field, value) => updateKeyValue('params', index, field, value)}
-	                  onBulkChange={(rows) => replaceKeyValues('params', rows as unknown as main.KeyValue[])}
+	                  onBulkChange={(rows) => replaceKeyValues('params', rows as unknown as types.KeyValue[])}
 	                  onRemove={(index) => removeKeyValue('params', index)}
 	                />
 	                {#if activeRequest.pathParams?.length}
@@ -9302,7 +9302,7 @@
 	                    onSave={saveVariableTooltipEdit}
 	                    onCopy={copyVariableTooltipValue}
 	                    onChange={(index, field, value) => updateKeyValue('pathParams', index, field, value)}
-                  onBulkChange={(rows) => replaceKeyValues('pathParams', rows as unknown as main.KeyValue[])}
+                  onBulkChange={(rows) => replaceKeyValues('pathParams', rows as unknown as types.KeyValue[])}
 	                  />
 	                {/if}
 	              {:else if requestPaneTab === 'headers'}
@@ -9320,7 +9320,7 @@
                   onCopy={copyVariableTooltipValue}
                   onAdd={() => addKeyValue('headers')}
                   onChange={(index, field, value) => updateKeyValue('headers', index, field, value)}
-                  onBulkChange={(rows) => replaceKeyValues('headers', rows as unknown as main.KeyValue[])}
+                  onBulkChange={(rows) => replaceKeyValues('headers', rows as unknown as types.KeyValue[])}
                   onRemove={(index) => removeKeyValue('headers', index)}
                 />
               {:else if requestPaneTab === 'body'}

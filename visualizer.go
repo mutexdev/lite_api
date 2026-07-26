@@ -29,21 +29,16 @@ package main
 //     server's data are different trust levels.
 
 import (
+	"LiteAPI/internal/types"
 	"encoding/json"
 	"fmt"
 	"html"
 	"strings"
 )
 
-// VisualizerPayload is what pm.visualizer.set stored for a response.
-type VisualizerPayload struct {
-	Template string `json:"template"`
-	// Data is the raw JSON the script passed. Kept as text rather than a
-	// decoded map so what the script set is what the template sees, without a
-	// round trip through Go's type system reordering keys or turning integers
-	// into floats.
-	Data string `json:"data,omitempty"`
-}
+// VisualizerPayload moved to internal/types: Response embeds it, and a type
+// that a moved type embeds has to move too or the packages point both ways.
+type VisualizerPayload = types.VisualizerPayload
 
 // visualizerTemplateLimit bounds what a script may hand over. A template is
 // held in memory, persisted with the response and injected into a document; an

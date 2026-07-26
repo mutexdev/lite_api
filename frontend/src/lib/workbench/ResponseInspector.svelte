@@ -4,7 +4,7 @@
 </script>
 
 <script lang="ts">
-  import type { main } from '../../../wailsjs/go/models'
+  import type { main, types } from '../../../wailsjs/go/models'
   import { automaticPreviewLimit, base64ByteLength, compareHeaders, compareJsonStructure, contentDispositionFilename, contentType, embeddedPreviewLimit, findMatches, formatResponseBody, fullRenderLimit, lineDiff, normalizeResponseView, previewKind, responseTextForView, sliceBase64Bytes, sliceUtf8, utf8ByteLength } from './response'
   import { resolveLiveSessionEvents, type LiveSessionLog } from '../liveSessionEvents'
 
@@ -13,7 +13,7 @@
     request: main.RequestItem
     selectedTab?: string
     selectedView?: string
-    timeline?: main.TimelineItem[]
+    timeline?: types.TimelineItem[]
     scriptLogs?: Array<{ level: string; message: string }>
     // US-058. The document is built in Go so the CSP and escaping are covered
     // by Go tests; this component supplies only the sandbox attribute.
@@ -220,17 +220,17 @@
   // inside the function body — which is tracked — but the original bug was that
   // the ARGUMENT list was empty, so the statement had no dependency to
   // invalidate on. Passing them explicitly is still what makes it correct.
-  function websocketEvents(response: main.Response | undefined, size: number) {
+  function websocketEvents(response: types.Response | undefined, size: number) {
     if (size > fullRenderLimit || response?.previewMode !== 'websocket' || !response.body) return [] as Array<Record<string, string>>
     try { return JSON.parse(response.body) as Array<Record<string, string>> } catch { return [] }
   }
 
-  function grpcEvents(response: main.Response | undefined, size: number) {
+  function grpcEvents(response: types.Response | undefined, size: number) {
     if (size > fullRenderLimit || response?.previewMode !== 'grpc-stream' || !response.body) return [] as Array<Record<string, string>>
     try { return JSON.parse(response.body) as Array<Record<string, string>> } catch { return [] }
   }
 
-  function parsedJson(response: main.Response | undefined, size: number) {
+  function parsedJson(response: types.Response | undefined, size: number) {
     if (size > fullRenderLimit) return null
     try { return JSON.parse(response?.body ?? '') as Record<string, unknown> } catch { return null }
   }
@@ -250,16 +250,16 @@
     return { entries, truncated: false }
   }
 
-  function timelineMatchesFilter(entry: main.TimelineItem, filter: string) {
+  function timelineMatchesFilter(entry: types.TimelineItem, filter: string) {
     return filter === 'all' || `${entry.phase || ''} ${entry.kind || ''} ${entry.source || ''}`.toLowerCase().includes(filter)
   }
 
-  function timelineSearchText(entry: main.TimelineItem) {
-    const rows = (items: main.KeyValue[] | undefined) => (items ?? []).map((item) => `${item.name} ${item.value}`).join(' ')
+  function timelineSearchText(entry: types.TimelineItem) {
+    const rows = (items: types.KeyValue[] | undefined) => (items ?? []).map((item) => `${item.name} ${item.value}`).join(' ')
     return `${entry.phase} ${entry.kind} ${entry.source} ${entry.sourceFile} ${entry.method} ${entry.url} ${entry.message} ${entry.status} ${entry.statusText} ${entry.error} ${entry.payload} ${rows(entry.metadata)} ${rows(entry.trailers)}`.toLowerCase()
   }
 
-  function timelinePhase(entry: main.TimelineItem) {
+  function timelinePhase(entry: types.TimelineItem) {
     const value = `${entry.phase ?? ''} ${entry.kind ?? ''} ${entry.source ?? ''} ${entry.message ?? ''}`.toLowerCase()
     for (const phase of ['dns', 'connect', 'tls', 'upload', 'wait', 'download', 'redirect', 'oauth', 'script', 'nested']) {
       if (value.includes(phase)) return phase === 'script' ? 'scripts' : phase

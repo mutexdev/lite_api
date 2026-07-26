@@ -1,6 +1,7 @@
 package main
 
 import (
+	"LiteAPI/internal/types"
 	"crypto/tls"
 	"net/http/httptrace"
 	"strconv"
@@ -11,25 +12,7 @@ import (
 
 var timingTimelineSequence atomic.Uint64
 
-// ResponseTimings marks observed phases explicitly; zero without its matching
-// availability flag means the phase was not applicable or not exposed by Go.
-type ResponseTimings struct {
-	DNSMs             int64 `json:"dnsMs"`
-	ConnectMs         int64 `json:"connectMs"`
-	TLSMs             int64 `json:"tlsMs"`
-	UploadMs          int64 `json:"uploadMs"`
-	WaitMs            int64 `json:"waitMs"`
-	DownloadMs        int64 `json:"downloadMs"`
-	TotalMs           int64 `json:"totalMs"`
-	RedirectCount     int   `json:"redirectCount"`
-	ConnectionReused  bool  `json:"connectionReused"`
-	DNSAvailable      bool  `json:"dnsAvailable"`
-	ConnectAvailable  bool  `json:"connectAvailable"`
-	TLSAvailable      bool  `json:"tlsAvailable"`
-	UploadAvailable   bool  `json:"uploadAvailable"`
-	WaitAvailable     bool  `json:"waitAvailable"`
-	DownloadAvailable bool  `json:"downloadAvailable"`
-}
+type ResponseTimings = types.ResponseTimings
 type responseTimingTrace struct {
 	mu                                                                     sync.Mutex
 	start, dnsStart, connectStart, tlsStart, connAt, writeStart, firstByte time.Time
