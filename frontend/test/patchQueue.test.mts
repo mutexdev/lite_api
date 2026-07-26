@@ -224,3 +224,125 @@ test('pendingPatch is null when nothing was typed during the flush', async () =>
   await coalescer.flush()
   assert.equal(coalescer.pendingPatch, null)
 })
+
+// The three accessors, which coverage found untested.
+//
+// pendingPatch is not a convenience — it exists for the in-flight overwrite
+// hazard the class comment describes. While a flush is on the wire the user
+// keeps typing, and those characters queue here. The flush returns a result
+// describing the request as of when the call was MADE, so applying it verbatim
+// rewinds the input. The caller re-applies pendingPatch on top to undo that.
+//
+// If the accessor reported null while characters were queued, the caller would
+// have nothing to re-apply and the keystrokes typed during the flush would be
+// silently discarded. That is the failure this trio guards.
+
+test('hasPending and pendingTarget are false and null with nothing queued', () => {
+  const coalescer = new PatchCoalescer(async () => {}, { schedule: () => 1, cancel: () => {} })
+  assert.equal(coalescer.hasPending, false)
+  assert.equal(coalescer.pendingTarget, null)
+  assert.equal(coalescer.pendingPatch, null)
+})
+
+test('queuing exposes the pending target and patch', () => {
+  const coalescer = new PatchCoalescer<{ url?: string }>(async () => {}, { schedule: () => 1, cancel: () => {} })
+  coalescer.queue({ collectionId: 'c1', itemId: 'i1' }, { url: 'https://a.test' })
+
+  assert.equal(coalescer.hasPending, true)
+  assert.deepEqual(coalescer.pendingTarget, { collectionId: 'c1', itemId: 'i1' })
+  assert.deepEqual(coalescer.pendingPatch, { url: 'https://a.test' })
+})
+
+test('pendingPatch reflects the merged patch, not just the last one', () => {
+  const coalescer = new PatchCoalescer<{ url?: string; method?: string }>(
+    async () => {}, { schedule: () => 1, cancel: () => {} }
+  )
+  const target = { collectionId: 'c1', itemId: 'i1' }
+  coalescer.queue(target, { url: 'https://a.test' })
+  coalescer.queue(target, { method: 'POST' })
+
+  // Both edits must be visible: re-applying only the last would drop the URL
+  // the user typed first.
+  assert.deepEqual(coalescer.pendingPatch, { url: 'https://a.test', method: 'POST' })
+})
+
+test('flushing clears the pending state', async () => {
+  const coalescer = new PatchCoalescer<{ url?: string }>(async () => {}, { schedule: () => 1, cancel: () => {} })
+  coalescer.queue({ collectionId: 'c1', itemId: 'i1' }, { url: 'https://a.test' })
+  await coalescer.flush()
+
+  assert.equal(coalescer.hasPending, false)
+  assert.equal(coalescer.pendingPatch, null)
+  assert.equal(coalescer.pendingTarget, null, 'a flushed queue must not still name a target')
+})
+
+// The hazard itself, end to end: characters typed WHILE a flush is in flight
+// must still be readable afterwards, or they are lost.
+test('a patch queued during an in-flight flush is still pending after it resolves', async () => {
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => { release = resolve })
+
+  const coalescer = new PatchCoalescer<{ url?: string }>(
+    async () => { await gate },
+    { schedule: () => 1, cancel: () => {} }
+  )
+  const target = { collectionId: 'c1', itemId: 'i1' }
+  coalescer.queue(target, { url: 'first' })
+  const inFlight = coalescer.flush()
+
+  // The user keeps typing while the request is on the wire.
+  coalescer.queue(target, { url: 'second' })
+  release()
+  await inFlight
+
+  assert.equal(coalescer.hasPending, true, 'characters typed during the flush must survive it')
+  assert.deepEqual(coalescer.pendingPatch, { url: 'second' })
+})
+
+// The DEFAULT scheduler, which every other test in this file replaces.
+//
+// Coverage showed patchQueue's function percentage stuck even after the
+// accessors were covered: the default schedule/cancel closures were never
+// called, because every test injects fakes to control time. Those defaults are
+// what production actually runs, so the real setTimeout path was the one piece
+// never exercised.
+test('the default scheduler flushes on its own after the delay', async () => {
+  const sent: Array<{ url?: string }> = []
+  const coalescer = new PatchCoalescer<{ url?: string }>(
+    async (_target, patch) => { sent.push(patch) },
+    { delayMs: 5 } // real setTimeout, real clearTimeout
+  )
+
+  coalescer.queue({ collectionId: 'c1', itemId: 'i1' }, { url: 'https://a.test' })
+  assert.equal(coalescer.hasPending, true, 'queuing must not send immediately')
+
+  await new Promise((resolve) => setTimeout(resolve, 40))
+
+  assert.deepEqual(sent, [{ url: 'https://a.test' }], 'the timer must fire and deliver the patch')
+  assert.equal(coalescer.hasPending, false)
+})
+
+// A flushed patch is not delivered twice.
+//
+// NOT because of the cancel — a control proved that. Replacing the default
+// cancel with a no-op fails nothing, because flush() clears this.patch, so the
+// stray timer's flush finds nothing pending and returns early. The cancel is
+// belt-and-braces; the null check is what carries the guarantee.
+//
+// Worth stating rather than deleting: this test does exercise the real timer
+// path, and the property it asserts is one users depend on. It just is not the
+// cancel that provides it, and a comment claiming otherwise would send the next
+// person looking in the wrong place.
+test('a flushed patch is not delivered again when its timer fires', async () => {
+  const sent: Array<{ url?: string }> = []
+  const coalescer = new PatchCoalescer<{ url?: string }>(
+    async (_target, patch) => { sent.push(patch) },
+    { delayMs: 5 }
+  )
+
+  coalescer.queue({ collectionId: 'c1', itemId: 'i1' }, { url: 'https://a.test' })
+  await coalescer.flush()
+  await new Promise((resolve) => setTimeout(resolve, 40))
+
+  assert.equal(sent.length, 1, 'the cancelled timer must not deliver the patch a second time')
+})

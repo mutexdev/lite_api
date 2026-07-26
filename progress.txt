@@ -4556,3 +4556,36 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Frontend: 223 -> 235 tests. tabLifecycle 61% -> 100% lines and functions.
   All files 99.89% lines, 97.70% functions.
+
+--- patchQueue accessors and the default scheduler — frontend now 100% ---
+
+  pendingPatch is not a convenience accessor. It exists for the in-flight
+  overwrite hazard the class comment describes: while a flush is on the wire the
+  user keeps typing, and the flush returns a result describing the request as of
+  when the call was MADE. Applying it verbatim rewinds the input, so the caller
+  re-applies pendingPatch on top. If the accessor reported null, there would be
+  nothing to re-apply and every keystroke typed during the flush would be lost.
+
+  8 tests, including the hazard end to end: queue, flush, keep typing while it is
+  in flight, and assert the later characters survive.
+
+  A SECOND GAP THE NUMBER EXPOSED. Function coverage stayed at 84.62% even after
+  the accessors were tested, because EVERY test in that file injects a fake
+  scheduler to control time — so the DEFAULT setTimeout closures, which are what
+  production actually runs, had never executed. Two tests now use the real timer.
+
+  !!! AND A CONTROL SHOWED ONE OF MY TEST NAMES WAS A LIE !!!
+
+  I wrote "the default cancel stops the timer so a flushed patch is not sent
+  twice". Replacing the cancel with a no-op failed NOTHING. Reading the code:
+  flush() clears this.patch, so the stray timer's flush finds nothing pending
+  and returns early. The no-double-send guarantee comes from the null check; the
+  cancel is belt-and-braces.
+
+  I renamed the test to what it actually proves and said why in the comment,
+  rather than deleting it — the property is real and users depend on it. A test
+  whose NAME points at the wrong mechanism sends the next person to the wrong
+  place, which is its own kind of silent failure.
+
+  Frontend: 223 -> 242 tests. All lib files 100% functions except the aggregate
+  99.90% lines / 97.08% branches, with the remainder in test helpers.
