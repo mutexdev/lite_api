@@ -4844,3 +4844,30 @@ US-026 - Store layer. DONE. Both named collapses complete.
   Assertions are where this codebase's defects live, and the reason is
   structural: a broken assertion PASSES, so the test suite that would catch it
   is the very thing it disables. Every other subsystem fails loudly.
+
+--- expect().to.match() and expectNumber — correct, and worth saying so ---
+
+  Continued through the expect family after four defects in it. These two are
+  RIGHT, and confirming that is as much a result as finding another bug: it
+  means the family is not uniformly rotten, and the four defects were four
+  specific mistakes rather than a design that cannot be trusted.
+
+  match() takes two routes and the distinction matters. A real JavaScript
+  RegExp is tested through its OWN .test method, so /^ab+c$/i honours the `i`
+  flag; compiling that source with Go's regexp would silently drop the flag and
+  fail a response that does match. A plain string is compiled by Go.
+
+  Also correct, and both worth pinning:
+    - an INVALID pattern errors rather than returning false. A false would read
+      as "the response did not match" and send the user debugging their API
+      instead of their typo.
+    - NaN is rejected as a number even though typeof says otherwise. Letting it
+      through makes every > and < assertion against it silently false.
+
+  Controls: bypassing .test fails 1, downgrading an invalid pattern to false
+  fails 1, accepting NaN fails 1.
+
+  expect* family coverage now, lowest first: expectArray 75, expectType 75,
+  expectJSONBody 80, expectMatchesJSONSchema 82, expectContains 84 — and the
+  two that carried real bugs, expectProperty and expectContains, are at 92 and
+  84 with both directions pinned.
