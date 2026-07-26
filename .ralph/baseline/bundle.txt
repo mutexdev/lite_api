@@ -344,40 +344,41 @@ frontend/dist/assets/index-*.css        113609
 # ===========================================================================
 
 # ---------------------------------------------------------------------------
-# THE FOUR VIEW PANELS — NOT RELIABLY MEASURED. Read this before trusting any
-# number for them.
+# THE FOUR VIEW PANELS — measured correctly on the third attempt.
 #
 # US-036's remaining criterion is dynamic-importing the DevTools, Runner,
-# Import and Preferences PANELS, distinct from the 27 dialog bodies already
-# extracted. I measured them twice and got two contradictory answers, so BOTH
-# are wrong and neither should be quoted:
+# Import and Preferences panels, distinct from the 27 dialog bodies done.
 #
-#   attempt 1, slicing between {:else if} marker lines:
-#     runner 35,622 B | import 10,953 | devtools 6,016 | preferences 2,465
-#   attempt 2, tracking Svelte block depth:
-#     runner  4,818 B | import 10,913 | devtools     33 | preferences 24,353
+#   preferences  lines 11455-11902   24,353 B   the bulk of it
+#   import       lines 11238-11338   10,913 B
+#   runner       lines 10746-10832    4,818 B
+#   devtools     line  11340             33 B   -> {@render devToolsPanel()}
+#     devToolsPanel snippet  lines 8563-8851  15,912 B  (lives elsewhere)
+#                                    ~56,000 B in total
 #
-# devtools at 33 bytes is self-evidently wrong, which is what exposed the rest.
-# The faults, so the next attempt does not repeat them:
+# WHY THIS TOOK THREE ATTEMPTS, and the correction that matters most:
 #
-#   Attempt 1 assumed each branch ends where the next {:else if} begins. That is
-#   false for the LAST branch (preferences), which runs to the chain's {/if} —
-#   which is why it read 2,465 B when it is really an order of magnitude larger.
-#   It also cuts through nested blocks that open inside a branch and close after
-#   the boundary; extracting on those bounds produced "Block was left open".
+#   The first measurement sliced between {:else if} marker lines. Wrong for the
+#   LAST branch, which runs to the chain's {/if}, and it cuts through nested
+#   blocks — which is what produced "Block was left open" on the first
+#   extraction attempt.
 #
-#   Attempt 2 tracked {#if}/{#each}/{#await}/{#key} depth but processed a line's
-#   CLOSERS before testing whether that same line starts an {:else if}. A line
-#   that closes a nested block and opens a branch marker is then mis-attributed,
-#   terminating the branch early.
+#   The second tracked block depth but tested the branch marker AFTER applying
+#   a line's closers, so a line doing both terminated the branch early. The fix
+#   is to test first, and to treat {:else if} / {:else} / {:then} / {:catch} as
+#   continuations rather than openers or closers.
 #
-# A correct measurement has to treat {:else if}, {:else}, {:then} and {:catch}
-# as CONTINUATIONS of the enclosing block rather than as openers or closers, and
-# must evaluate the branch-marker test against the depth BEFORE that line's
-# closers are applied.
+#   The third attempt reproduced devtools = 33 B and I assumed it was still
+#   broken. It was not. That branch really is one line: {@render
+#   devToolsPanel()}. DevTools markup lives in a Svelte 5 SNIPPET at lines
+#   8563-8851 (15,912 B), not in the branch. Doubting a correct measurement
+#   cost as much here as trusting a wrong one did earlier — the resolution was
+#   reading six lines of source, which should have come first.
 #
-# What is known and trustworthy: preferences alone is ~24-25 KB of source and
-# carries roughly 60 real props across 470 lines. It is not a small extraction,
-# and the panels as a group are much larger than any dialog. Do this with the
-# bounds computed correctly and verified by eye on at least one panel before
-# extracting anything.
+# CONSEQUENCE FOR THE EXTRACTION: DevTools cannot be extracted by moving its
+# branch. The snippet has to move, and {@render devToolsPanel()} replaced with
+# the dynamically imported component. Check the other panels for {@render}
+# before assuming a branch holds its own markup.
+#
+# Preferences at 24,353 B carries ~60 real props across 448 lines: the largest
+# single extraction left in this story.
