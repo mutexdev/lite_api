@@ -1226,3 +1226,30 @@ US-041 - `pm.request` / `pm.response`. DONE.
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 40.5s 0,
   -race clean.
+
+US-042 - `pm` side effects. DONE.
+  pm.sendRequest, pm.cookies, pm.execution.setNextRequest and
+  pm.execution.skipRequest, all pure delegation to bru.
+
+  Delegation is the point, not laziness. Each of these has machinery that is
+  easy to overlook when reimplementing:
+    bru.sendRequest    records a timeline entry for the scripted request and
+                       enforces the recursion depth limit
+    bru.cookies        is bound to THIS request's jar and URL
+    bru.setNextRequest feeds the runner's control flow
+  A parallel implementation would give requests missing from the timeline,
+  cookies from the wrong host, and a setNextRequest the runner never sees -
+  none of which fails visibly. Postman's
+  pm.sendRequest(req, callback(err, response)) is already exactly
+  bru.sendRequest's signature, so it is a straight alias, not an adapter.
+
+  Tests assert JS object IDENTITY (pm.sendRequest === bru.sendRequest) AND
+  behaviour, because identity alone is satisfied by two equally broken
+  references. The setNextRequest test runs a real 3-request collection and
+  demands the skipped request never appear in the results.
+
+  Negative controls, both run and both caught:
+    setNextRequest as a no-op    identity fails AND the skipped request ran
+    pm.cookies as its own object cookie assertions quietly reported "absent"
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, -race clean.

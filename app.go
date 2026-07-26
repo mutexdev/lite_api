@@ -18886,6 +18886,7 @@ func installPostmanScriptAPI(runtime *goja.Runtime, bruObject, reqObject, resObj
 	_ = pm.Set("expect", runtime.Get("expect"))
 	installPostmanVariableScopes(runtime, pm, bruObject, scriptVars)
 	installPostmanRequestAPI(runtime, pm, reqObject, item)
+	installPostmanSideEffects(runtime, pm, bruObject)
 	// pm.response is deliberately ABSENT during the pre-request phase, because
 	// there is no response yet. The alternative — exposing the zero Response —
 	// would answer pm.response.code with 0 and pm.response.text() with "",
@@ -43942,6 +43943,34 @@ func brunoWorkspaceEnvironmentUIDForPath(path string) string {
 		return uid
 	}
 	return uid + strings.Repeat("0", 21-len(uid))
+}
+
+// installPostmanSideEffects wires pm's outward-facing calls to bru's (US-042).
+//
+// All three are pure delegation, deliberately. Each one has real machinery
+// behind it that is easy to overlook when reimplementing: bru.sendRequest
+// records a timeline entry for the scripted request and enforces the recursion
+// depth limit, bru.cookies is bound to THIS request's jar and URL, and
+// bru.setNextRequest feeds the runner's control flow. A parallel pm
+// implementation would produce requests missing from the timeline, cookies
+// from the wrong host, and a setNextRequest the runner never sees — none of
+// which fails visibly.
+func installPostmanSideEffects(runtime *goja.Runtime, pm, bruObject *goja.Object) {
+	// Postman's pm.sendRequest(req, callback(err, response)) is already the
+	// signature bru.sendRequest implements, so this is a straight alias rather
+	// than an adapter.
+	_ = pm.Set("sendRequest", bruObject.Get("sendRequest"))
+	_ = pm.Set("cookies", bruObject.Get("cookies"))
+
+	// pm.execution is where modern Postman puts run control.
+	execution := runtime.NewObject()
+	_ = execution.Set("setNextRequest", bruObject.Get("setNextRequest"))
+	if runner := bruObject.Get("runner"); runner != nil && !goja.IsUndefined(runner) {
+		if runnerObject := runner.ToObject(runtime); runnerObject != nil {
+			_ = execution.Set("skipRequest", runnerObject.Get("skipRequest"))
+		}
+	}
+	_ = pm.Set("execution", execution)
 }
 
 // installPostmanRequestAPI exposes pm.request over the existing `req` object

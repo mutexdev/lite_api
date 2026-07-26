@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -580,6 +581,170 @@ func TestPmResponseIsAbsentDuringThePreRequestPhase(t *testing.T) {
 	`)
 
 	for _, result := range testResultsFor(t, state, collectionID, itemID) {
+		if !result.Passed {
+			t.Errorf("%s: %s", result.Name, result.Message)
+		}
+	}
+}
+
+// US-042 — pm's side effects.
+//
+// All three delegate to bru, and the tests are built to fail if any of them
+// were reimplemented instead. Each has machinery that is easy to overlook:
+// bru.sendRequest records a timeline entry and enforces the recursion depth
+// limit, bru.cookies is bound to THIS request's jar and URL, and
+// bru.setNextRequest feeds the runner's control flow. A parallel implementation
+// would produce requests missing from the timeline, cookies from the wrong
+// host, and a setNextRequest the runner never sees — none of which fails
+// visibly.
+
+func TestPmSideEffectsAreTheSameObjectsAsBru(t *testing.T) {
+	app, collectionID, itemID, closeServer := scriptProbeFixture(t)
+	defer closeServer()
+
+	state := sendWithScripts(t, app, collectionID, itemID, "", "", `
+		test("pm.sendRequest IS bru.sendRequest", function () {
+			expect(pm.sendRequest === bru.sendRequest).to.equal(true)
+		})
+		test("pm.cookies IS bru.cookies", function () {
+			expect(pm.cookies === bru.cookies).to.equal(true)
+		})
+		test("pm.execution.setNextRequest IS bru.setNextRequest", function () {
+			expect(pm.execution.setNextRequest === bru.setNextRequest).to.equal(true)
+		})
+		test("pm.execution.skipRequest IS bru.runner.skipRequest", function () {
+			expect(pm.execution.skipRequest === bru.runner.skipRequest).to.equal(true)
+		})
+	`)
+
+	for _, result := range testResultsFor(t, state, collectionID, itemID) {
+		if !result.Passed {
+			t.Errorf("%s: %s", result.Name, result.Message)
+		}
+	}
+}
+
+// TestPmSendRequestPerformsARequest. Identity alone would be satisfied by two
+// equally broken references, so this actually sends one.
+func TestPmSendRequestPerformsARequest(t *testing.T) {
+	var hits int64
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&hits, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"from":"pm.sendRequest"}`)
+	}))
+	defer target.Close()
+
+	app, collectionID, itemID, closeServer := scriptProbeFixture(t)
+	defer closeServer()
+
+	tests := fmt.Sprintf(`
+		let seen = null
+		let failure = null
+		pm.sendRequest(%q, function (err, response) {
+			if (err) { failure = String(err); return }
+			seen = response
+		})
+		test("pm.sendRequest called back with a response", function () {
+			expect(failure).to.equal(null)
+			expect(seen === null).to.equal(false)
+		})
+		test("the response carries the target's body", function () {
+			expect(JSON.stringify(seen.body || seen.data)).to.contain("pm.sendRequest")
+		})
+	`, target.URL)
+
+	state := sendWithScripts(t, app, collectionID, itemID, "", "", tests)
+	for _, result := range testResultsFor(t, state, collectionID, itemID) {
+		if !result.Passed {
+			t.Errorf("%s: %s", result.Name, result.Message)
+		}
+	}
+	if got := atomic.LoadInt64(&hits); got != 1 {
+		t.Errorf("the target server saw %d requests, want 1", got)
+	}
+}
+
+// TestPmExecutionSetNextRequestDrivesTheRunner is the assertion that a
+// reimplementation would fail: the runner has to actually observe the jump.
+func TestPmExecutionSetNextRequestDrivesTheRunner(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"ok":true}`)
+	}))
+	defer server.Close()
+
+	app, collectionID, ids := iterationFixture(t, server.URL, 3)
+
+	// The first request jumps straight to the third, so the second must never
+	// appear in the results.
+	jump := `pm.execution.setNextRequest("iteration probe 2")`
+	if _, err := app.UpdateRequest(collectionID, ids[0], RequestPatch{Tests: &jump}); err != nil {
+		t.Fatalf("UpdateRequest: %v", err)
+	}
+
+	state, err := app.RunCollectionWithOptions(collectionID, "", RunnerOptions{SelectedItemIDs: ids})
+	if err != nil {
+		t.Fatalf("RunCollectionWithOptions: %v", err)
+	}
+
+	byName := resultsByName(state)
+	if _, ran := byName["iteration probe 0"]; !ran {
+		t.Error("the first request did not run")
+	}
+	if _, ran := byName["iteration probe 2"]; !ran {
+		t.Error("the jump target did not run — the runner never saw pm.execution.setNextRequest")
+	}
+	if _, ran := byName["iteration probe 1"]; ran {
+		t.Error("the skipped request ran anyway — the jump had no effect on the runner")
+	}
+}
+
+// TestPmCookiesReadTheSameJarAsBru. A parallel cookie implementation bound to
+// the wrong URL would return an empty list and every cookie assertion would
+// quietly pass as "not present".
+func TestPmCookiesReadTheSameJarAsBru(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "session", Value: "abc123", Path: "/"})
+		_, _ = fmt.Fprint(w, `{"ok":true}`)
+	}))
+	defer server.Close()
+
+	app := newAppForTest(t)
+	state, err := app.GetState()
+	if err != nil {
+		t.Fatalf("GetState: %v", err)
+	}
+	collectionID := state.Workspaces[0].Collections[0].ID
+	created, err := app.CreateRequest(collectionID, "http", "cookie probe")
+	if err != nil {
+		t.Fatalf("CreateRequest: %v", err)
+	}
+	var itemID string
+	for _, c := range created.Workspaces[0].Collections {
+		for _, item := range c.Items {
+			if item.Name == "cookie probe" {
+				itemID = item.ID
+			}
+		}
+	}
+	url := server.URL
+	if _, err := app.UpdateRequest(collectionID, itemID, RequestPatch{URL: &url}); err != nil {
+		t.Fatalf("UpdateRequest: %v", err)
+	}
+
+	// First send populates the jar; the second reads it from both surfaces.
+	sendWithScripts(t, app, collectionID, itemID, "", "", "")
+	final := sendWithScripts(t, app, collectionID, itemID, "", "", `
+		test("pm.cookies sees the jar bru sees", function () {
+			expect(pm.cookies.has("session")).to.equal(bru.cookies.has("session"))
+		})
+		test("the cookie set by the server is visible", function () {
+			expect(pm.cookies.has("session")).to.equal(true)
+			expect(String(pm.cookies.get("session"))).to.contain("abc123")
+		})
+	`)
+
+	for _, result := range testResultsFor(t, final, collectionID, itemID) {
 		if !result.Passed {
 			t.Errorf("%s: %s", result.Name, result.Message)
 		}
