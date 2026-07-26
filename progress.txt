@@ -1253,3 +1253,37 @@ US-042 - `pm` side effects. DONE.
     pm.cookies as its own object cookie assertions quietly reported "absent"
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, -race clean.
+
+US-043 - `pm.iterationData` / `pm.vault`. DONE.
+  pm.iterationData reads the Data scope US-046 populates - the DATA SCOPE
+  SPECIFICALLY, not the resolved chain. pm.iterationData means "what the data
+  file said for this iteration"; answering from the merged chain would report
+  environment and collection variables as iteration data, so a script guarding
+  on pm.iterationData.has("userId") would take the data-driven branch on a run
+  with NO data file at all. The negative control showed exactly that:
+  toObject returned host,label,notFromData,userId instead of label,userId.
+
+  toObject returns a COPY. It is a read in Postman, and handing out the live
+  scope lets a script mutate the iteration's variables through it - confirmed
+  by NC4, where a tampered snapshot changed the real value.
+
+  pm.vault is ASYNC, returning real goja promises. Postman's vault API returns
+  promises and scripts are written as `await pm.vault.get(...)`; a bare value
+  would satisfy await by accident and then break on .then().
+
+  pm.vault.set and .unset REJECT rather than writing, and this is a deliberate
+  scope limit worth stating plainly. The runtime cannot mark a value as secret:
+  scriptVariableContext holds plain maps with no Secret flag (Variable.Secret
+  exists only on the persisted model). A pm.vault.set would therefore land the
+  value in the environment scope as an ORDINARY variable and get written to
+  disk in the clear, while the script believed it had vaulted a token. An
+  explicit rejection naming "plain text" is the honest answer; silently
+  downgrading a secret is not. A test asserts the value reaches no scope.
+
+  Negative controls, all four run and all four caught:
+    vault.set resolves            rejection assertion failed
+    iterationData reads the chain other scopes leaked into the row
+    vault.get returns a value     "expected undefined to equal function"
+    toObject returns the live map "expected tampered to equal 7"
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, -race clean.

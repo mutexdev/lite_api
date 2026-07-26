@@ -18887,6 +18887,8 @@ func installPostmanScriptAPI(runtime *goja.Runtime, bruObject, reqObject, resObj
 	installPostmanVariableScopes(runtime, pm, bruObject, scriptVars)
 	installPostmanRequestAPI(runtime, pm, reqObject, item)
 	installPostmanSideEffects(runtime, pm, bruObject)
+	installPostmanIterationData(runtime, pm, scriptVars)
+	installPostmanVault(runtime, pm, bruObject)
 	// pm.response is deliberately ABSENT during the pre-request phase, because
 	// there is no response yet. The alternative — exposing the zero Response —
 	// would answer pm.response.code with 0 and pm.response.text() with "",
@@ -43943,6 +43945,105 @@ func brunoWorkspaceEnvironmentUIDForPath(path string) string {
 		return uid
 	}
 	return uid + strings.Repeat("0", 21-len(uid))
+}
+
+// installPostmanIterationData exposes the runner data file's current row
+// (US-043), reading the Data scope US-046 populates.
+//
+// Reads the Data scope specifically, NOT the resolved chain. pm.iterationData
+// means "what the data file said for this iteration", and answering it from
+// the merged chain would report environment and collection variables as
+// iteration data — so a script guarding on
+// `pm.iterationData.has("userId")` would take the data-driven branch on a run
+// with no data file at all.
+func installPostmanIterationData(runtime *goja.Runtime, pm *goja.Object, scriptVars *scriptVariableContext) {
+	data := func() map[string]interface{} {
+		if scriptVars == nil || scriptVars.Data == nil {
+			return map[string]interface{}{}
+		}
+		return scriptVars.Data
+	}
+
+	iterationData := runtime.NewObject()
+	_ = iterationData.Set("get", func(name string) goja.Value {
+		if value, ok := data()[name]; ok {
+			return runtime.ToValue(value)
+		}
+		return goja.Undefined()
+	})
+	_ = iterationData.Set("has", func(name string) bool {
+		_, ok := data()[name]
+		return ok
+	})
+	_ = iterationData.Set("toObject", func() map[string]interface{} {
+		// A copy: handing out the live scope would let a script mutate the
+		// iteration's variables through a method Postman defines as a read.
+		out := map[string]interface{}{}
+		for key, value := range data() {
+			out[key] = value
+		}
+		return out
+	})
+	_ = pm.Set("iterationData", iterationData)
+}
+
+// installPostmanVault maps pm.vault onto the existing secrets layer (US-043).
+//
+// Async on purpose: Postman's vault API returns promises, and scripts are
+// written as `await pm.vault.get("key")`. Returning a bare value would work
+// under await by accident and then break on `.then()`.
+//
+// set and unset deliberately REJECT rather than writing. The runtime has no way
+// to tell a secret variable from an ordinary one — scriptVariableContext holds
+// plain maps with no Secret flag — so a pm.vault.set would land the value in
+// the environment scope as an ordinary variable and get written to disk in the
+// clear. A script storing a token would believe it was vaulted while leaking
+// it. An explicit rejection is the honest answer; silently downgrading a
+// secret to plaintext is not.
+func installPostmanVault(runtime *goja.Runtime, pm, bruObject *goja.Object) {
+	getSecret, hasGetSecret := goja.AssertFunction(bruObject.Get("getSecretVar"))
+
+	resolved := func(value goja.Value) goja.Value {
+		promise, resolve, _ := runtime.NewPromise()
+		_ = resolve(value)
+		return runtime.ToValue(promise)
+	}
+	rejected := func(message string) goja.Value {
+		promise, _, reject := runtime.NewPromise()
+		_ = reject(runtime.NewGoError(errors.New(message)))
+		return runtime.ToValue(promise)
+	}
+
+	vault := runtime.NewObject()
+	_ = vault.Set("get", func(name string) goja.Value {
+		if !hasGetSecret {
+			return resolved(goja.Undefined())
+		}
+		value, err := getSecret(goja.Undefined(), runtime.ToValue(name))
+		if err != nil {
+			return rejected(err.Error())
+		}
+		return resolved(value)
+	})
+	_ = vault.Set("has", func(name string) goja.Value {
+		if !hasGetSecret {
+			return resolved(runtime.ToValue(false))
+		}
+		value, err := getSecret(goja.Undefined(), runtime.ToValue(name))
+		if err != nil {
+			return rejected(err.Error())
+		}
+		present := value != nil && !goja.IsUndefined(value) && !goja.IsNull(value)
+		return resolved(runtime.ToValue(present))
+	})
+	const writeMessage = "pm.vault.%s is not supported: this build cannot mark a value as secret from a script, and writing it would store the value in the environment in plain text"
+	_ = vault.Set("set", func(string, goja.Value) goja.Value {
+		return rejected(fmt.Sprintf(writeMessage, "set"))
+	})
+	_ = vault.Set("unset", func(string) goja.Value {
+		return rejected(fmt.Sprintf(writeMessage, "unset"))
+	})
+	_ = pm.Set("vault", vault)
 }
 
 // installPostmanSideEffects wires pm's outward-facing calls to bru's (US-042).

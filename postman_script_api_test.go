@@ -750,3 +750,218 @@ func TestPmCookiesReadTheSameJarAsBru(t *testing.T) {
 		}
 	}
 }
+
+// US-043 — pm.iterationData and pm.vault.
+
+// TestPmIterationDataReadsOnlyTheDataFile is the distinction that matters.
+// pm.iterationData means "what the data file said for THIS iteration". Reading
+// the merged chain instead would report environment and collection variables
+// as iteration data, so a script guarding on
+// pm.iterationData.has("userId") would take the data-driven branch on a run
+// with no data file at all.
+func TestPmIterationDataReadsOnlyTheDataFile(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"ok":true}`)
+	}))
+	defer server.Close()
+
+	dataPath := writeDataFile(t, "rows.csv", "userId,label\n11,alpha\n22,beta\n")
+	app, collectionID, ids := iterationFixture(t, server.URL, 1)
+
+	tests := `
+		pm.environment.set("notFromData", "environment")
+		test("iteration data carries the row's columns", function () {
+			expect(pm.iterationData.get("userId")).to.equal("22")
+			expect(pm.iterationData.get("label")).to.equal("beta")
+			expect(pm.iterationData.has("userId")).to.equal(true)
+		})
+		test("iteration data does NOT include other scopes", function () {
+			expect(pm.iterationData.has("notFromData")).to.equal(false)
+			expect(typeof pm.iterationData.get("notFromData")).to.equal("undefined")
+		})
+		test("toObject returns just the row", function () {
+			var keys = Object.keys(pm.iterationData.toObject()).sort()
+			expect(keys.join(",")).to.equal("label,userId")
+		})
+	`
+	if _, err := app.UpdateRequest(collectionID, ids[0], RequestPatch{Tests: &tests}); err != nil {
+		t.Fatalf("UpdateRequest: %v", err)
+	}
+
+	state, err := app.RunCollectionWithOptions(collectionID, "", RunnerOptions{
+		SelectedItemIDs: ids,
+		DataFile:        dataPath,
+	})
+	if err != nil {
+		t.Fatalf("RunCollectionWithOptions: %v", err)
+	}
+
+	results := testResultsFor(t, state, collectionID, ids[0])
+	if len(results) != 3 {
+		t.Fatalf("got %d results, want 3 — the tests script did not run", len(results))
+	}
+	for _, result := range results {
+		if !result.Passed {
+			t.Errorf("%s: %s", result.Name, result.Message)
+		}
+	}
+}
+
+// TestPmIterationDataIsEmptyWithoutADataFile. The guard scripts actually write
+// is `if (pm.iterationData.has(...))`, so a run with no data file must answer
+// false rather than falling through to another scope.
+func TestPmIterationDataIsEmptyWithoutADataFile(t *testing.T) {
+	app, collectionID, itemID, closeServer := scriptProbeFixture(t)
+	defer closeServer()
+
+	state := sendWithScripts(t, app, collectionID, itemID, "", "", `
+		pm.environment.set("anything", "1")
+		test("no data file means no iteration data", function () {
+			expect(pm.iterationData.has("anything")).to.equal(false)
+			expect(Object.keys(pm.iterationData.toObject()).length).to.equal(0)
+		})
+	`)
+
+	for _, result := range testResultsFor(t, state, collectionID, itemID) {
+		if !result.Passed {
+			t.Errorf("%s: %s", result.Name, result.Message)
+		}
+	}
+}
+
+// TestPmIterationDataToObjectIsACopy. toObject is a read in Postman; handing
+// out the live scope would let a script mutate the iteration's variables
+// through it.
+func TestPmIterationDataToObjectIsACopy(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"ok":true}`)
+	}))
+	defer server.Close()
+
+	dataPath := writeDataFile(t, "rows.csv", "userId\n7\n")
+	app, collectionID, ids := iterationFixture(t, server.URL, 1)
+
+	tests := `
+		var snapshot = pm.iterationData.toObject()
+		snapshot.userId = "tampered"
+		test("mutating the snapshot does not change the iteration data", function () {
+			expect(pm.iterationData.get("userId")).to.equal("7")
+		})
+	`
+	if _, err := app.UpdateRequest(collectionID, ids[0], RequestPatch{Tests: &tests}); err != nil {
+		t.Fatalf("UpdateRequest: %v", err)
+	}
+	state, err := app.RunCollectionWithOptions(collectionID, "", RunnerOptions{
+		SelectedItemIDs: ids,
+		DataFile:        dataPath,
+	})
+	if err != nil {
+		t.Fatalf("RunCollectionWithOptions: %v", err)
+	}
+	for _, result := range testResultsFor(t, state, collectionID, ids[0]) {
+		if !result.Passed {
+			t.Errorf("%s: %s", result.Name, result.Message)
+		}
+	}
+}
+
+// TestPmVaultIsAsync. Postman's vault API returns promises and scripts are
+// written as `await pm.vault.get(...)`. A bare value would satisfy await by
+// accident and then break on .then().
+func TestPmVaultIsAsync(t *testing.T) {
+	app, collectionID, itemID, closeServer := scriptProbeFixture(t)
+	defer closeServer()
+
+	state := sendWithScripts(t, app, collectionID, itemID, "", "", `
+		bru.setEnvVar("vaultedToken", "s3cret")
+		test("get returns a thenable", function () {
+			var result = pm.vault.get("vaultedToken")
+			expect(typeof result.then).to.equal("function")
+		})
+		test("has returns a thenable", function () {
+			expect(typeof pm.vault.has("vaultedToken").then).to.equal("function")
+		})
+	`)
+
+	for _, result := range testResultsFor(t, state, collectionID, itemID) {
+		if !result.Passed {
+			t.Errorf("%s: %s", result.Name, result.Message)
+		}
+	}
+}
+
+// TestPmVaultReadsTheSecretsLayer exercises the await path end to end.
+func TestPmVaultReadsTheSecretsLayer(t *testing.T) {
+	app, collectionID, itemID, closeServer := scriptProbeFixture(t)
+	defer closeServer()
+
+	state := sendWithScripts(t, app, collectionID, itemID, "", "", `
+		bru.setEnvVar("vaultedToken", "s3cret")
+		test("await reads the value", async function () {
+			var value = await pm.vault.get("vaultedToken")
+			expect(String(value)).to.equal("s3cret")
+		})
+		test("has reports presence", async function () {
+			expect(await pm.vault.has("vaultedToken")).to.equal(true)
+			expect(await pm.vault.has("neverSet")).to.equal(false)
+		})
+	`)
+
+	results := testResultsFor(t, state, collectionID, itemID)
+	if len(results) != 2 {
+		t.Fatalf("got %d results, want 2 — the async assertions did not resolve", len(results))
+	}
+	for _, result := range results {
+		if !result.Passed {
+			t.Errorf("%s: %s", result.Name, result.Message)
+		}
+	}
+}
+
+// TestPmVaultWritesAreRejected. The runtime cannot mark a value as secret —
+// scriptVariableContext holds plain maps with no Secret flag — so a
+// pm.vault.set would land the value in the environment as an ordinary variable
+// and get written to disk in the clear. A script storing a token would believe
+// it was vaulted while leaking it. The rejection has to be explicit.
+func TestPmVaultWritesAreRejected(t *testing.T) {
+	app, collectionID, itemID, closeServer := scriptProbeFixture(t)
+	defer closeServer()
+
+	state := sendWithScripts(t, app, collectionID, itemID, "", "", `
+		test("set rejects rather than storing in the clear", async function () {
+			var rejected = false
+			var message = ""
+			try {
+				await pm.vault.set("leaked", "token")
+			} catch (e) {
+				rejected = true
+				message = String(e)
+			}
+			expect(rejected).to.equal(true)
+			expect(message.indexOf("plain text") >= 0).to.equal(true)
+		})
+		test("the value was not written to any scope", function () {
+			expect(bru.hasEnvVar("leaked")).to.equal(false)
+			expect(bru.hasVar("leaked")).to.equal(false)
+		})
+		test("unset rejects too", async function () {
+			var rejected = false
+			try {
+				await pm.vault.unset("leaked")
+			} catch (e) {
+				rejected = true
+			}
+			expect(rejected).to.equal(true)
+		})
+	`)
+
+	results := testResultsFor(t, state, collectionID, itemID)
+	if len(results) != 3 {
+		t.Fatalf("got %d results, want 3", len(results))
+	}
+	for _, result := range results {
+		if !result.Passed {
+			t.Errorf("%s: %s", result.Name, result.Message)
+		}
+	}
+}
