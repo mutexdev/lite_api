@@ -5038,3 +5038,27 @@ US-026 - Store layer. DONE. Both named collapses complete.
   is not escaped ends the string literal early and the whole script fails to
   parse, taking every other link in the same response with it. Both escape
   points (header names, pointer segments) have their own control.
+
+--- The response-example snapshot — 20/25/21% -> 100/100/95% ---
+
+  Saving a response example records the request beside it, and that record is
+  what "copy as curl" regenerates from later. Two properties hold, and both fail
+  silently.
+
+  It must be INTERPOLATED. A snapshot holding "{{baseUrl}}/users" produces a
+  curl command with a literal {{baseUrl}}, which the shell reads as a brace
+  expansion — a command that neither runs nor explains itself.
+
+  It must NOT MUTATE the request it snapshots. These functions copy each row
+  before interpolating. Writing in place would bake today's variable values into
+  the user's request permanently and lose the variables they wrote, which is not
+  recoverable and would look like the request had simply changed on its own.
+  That is the control worth having, and it fires.
+
+  Also pinned: disabled rows are omitted (recording them makes the example claim
+  a field the server never saw), a file part shows its path rather than an empty
+  value, a multi-attachment body records the SELECTED entry rather than the
+  first, both spellings of each form mode reach the same branch (the hyphenated
+  one is what imported collections use), and GraphQL is snapshotted as the JSON
+  envelope rather than the bare query — a curl built from the query alone posts
+  something the server rejects as malformed, and that control fails 3 tests.
