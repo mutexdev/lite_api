@@ -99,7 +99,18 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    max-width: 170px;
+    /* US-075. `max-width: 170px` alone was a FIXED cap, unrelated to the space
+       actually available. Once the command bar shrank .environment-menu below
+       the button's content width, the button kept its content width and painted
+       outside its own parent — measured at a 1200px viewport as an 11px overlap
+       with "Cookies" ("Development" ended at x=666, "Cookies" started at 655).
+       The inner span already ellipsizes, but it never got the chance, because
+       nothing ever forced the button narrower.
+
+       min(170px, 100%) keeps the original cap and adds the missing one: never
+       wider than the container. Flex can then shrink the button, which makes
+       the span ellipsize as it was always meant to. */
+    max-width: min(170px, 100%);
     min-height: 30px;
     padding: 4px 7px;
     border-color: transparent;

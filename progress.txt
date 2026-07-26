@@ -23,7 +23,7 @@ evidence for each story; this file carries the cross-story findings.
 --- STATUS BOARD (update this every story) ---
   Branch: ralph/postman-switchable-v2   Spec: improvement_v2.md   Stories: 73
 
-  PASSED (22, incl. bug fix US-076):
+  PASSED (23, incl. bug fixes US-075 + US-076):
     Phase 0  US-002 US-003 US-004 US-005 US-006 US-007
     Phase 1  US-008 US-012 US-013 US-014 US-015 US-016 US-017 US-018
              US-020 US-021 US-022 US-023 US-024
@@ -35,20 +35,69 @@ evidence for each story; this file carries the cross-story findings.
     US-019                goja runtime pool.
   NEXT UP, recommended order: US-019, then US-009/010/011 as a deliberate unit.
   After Phase 1: Phase 2 (US-025..US-037), and US-077 BEFORE Phase 4.
-  BROWSER QA OWED (criterion on several passed stories, not yet done):
-    US-014, US-021, US-022 each carry "Verify in browser using browser tools".
+  BROWSER QA — DONE for US-014 and US-021 against the real Wails dev endpoint
+    (localhost:34115, which carries the Go bindings; NOT vite's 5173, which does
+    not). US-014: revision deltas [1,1,1] through the real bridge, narrow payload
+    2,265 B vs 68,808 B full state on the small default workspace, and
+    startRevision 0 confirming the counter is not persisted. US-021: 13 pushes
+    for 6 sends + disconnect, indices contiguous from 0, routing ids correct,
+    x-websocket-events header = 13 = push count, echo payload observed.
+    STILL OWED: US-022 (gRPC push) — needs a local gRPC streaming server.
   DEFERRED BY THE USER:
     US-001 — CI workflow is written, linted and parses; the "a deliberately
              broken PR fails the workflow" criterion needs a real push to the
              live GitHub repo. User: "you can ignore PR CI flow we can tackle
              it latter finish others".
-  BUGS FILED BY THIS RUN:
+  BUGS FILED BY THIS RUN — BOTH NOW FIXED:
     US-076  FIXED — workspace pointer captured across the runner's lock release
-    US-075  OPEN  — top toolbar overlaps at 1200px (measured via
-                    getBoundingClientRect); needs browser tools to fix and verify
+    US-075  FIXED — toolbar overlap at 1200px; verified at 1024/1200/1440
   SEQUENCING CONSTRAINT:
     US-077 (internal/ layout) MUST land BEFORE Phase 4 (US-060..US-071), or
     all nine package extractions get moved twice.
+
+--- US-075 — top toolbar overflow at 1200px (FIXED, verified in browser) ---
+  The Phase 0 report reproduced EXACTLY, to the pixel: "Development" ended at
+  x=666 while "Cookies" started at x=655 — an 11px overlap at a 1200px viewport.
+
+  ROOT CAUSE, found by walking the computed box chain rather than guessing:
+    .environment-menu        width  96,  right 636
+    .environment-menu>button width 146,  right 686   <-- 50px OUTSIDE its parent
+  The button carried `max-width: 170px`, a FIXED cap unrelated to the space
+  actually available. Flex shrank .environment-menu, the button kept its content
+  width, and painted over its neighbour. The inner span already had
+  overflow:hidden + text-overflow:ellipsis — it simply never got the chance,
+  because nothing ever forced the button narrower.
+  FIX: max-width: min(170px, 100%). One line. Keeps the original cap, adds the
+  missing one.
+
+  MEASURED AFTER (Playwright against the real Wails dev endpoint, not vite):
+    1024px  0 real overlaps  0 clipped-without-label  button escape 0px
+    1200px  0 real overlaps  0 clipped-without-label  button escape 0px
+    1440px  0 real overlaps  0 clipped-without-label  env name fully legible
+    no horizontal page scroll at any width
+
+  TWO MEASUREMENT MISTAKES I MADE, recorded because both would have produced a
+  false report:
+   1. My first overlap detector compared adjacent .topbar CHILDREN, which are
+      stacked ROWS, and "found" an 888px overlap. Meaningless. Real detection
+      needs intersection on BOTH axes.
+   2. The corrected detector then flagged 2 overlaps inside
+      .recovery-center-list — an absolutely-positioned dropdown that happened to
+      be OPEN. An overlay drawn above content is correct behaviour, not a defect.
+      The detector now excludes anything under a positioned ancestor.
+   Also: checking `title` on the leaf element alone reported 4 items as clipped
+   with no accessible text. Walking ancestors showed all 4 are labelled. The
+   shallow check would have invented work that did not exist.
+
+  SEPARATE FINDING, verified and NOT fixed here — DEAD RESPONSIVE CSS:
+    style.css:1965 and :5460 both set `grid-template-columns` on .topbar, but
+    .topbar is `display: flex`. Confirmed live at a 1100px viewport (below the
+    1180px breakpoint): computed display is `flex` while grid-template-columns
+    is `minmax(0px, 1fr)` — applied and INERT, since it only affects grid
+    containers. Both media queries have never done anything. Left in place
+    deliberately: they are evidence that responsive handling was INTENDED here
+    and silently never worked, which US-037 should resolve properly rather than
+    have me delete the trace of it.
 
 --- US-076 — stale workspace pointer across the runner's lock release (FIXED) ---
   A real, silent data-loss bug, confirmed by negative control rather than by
