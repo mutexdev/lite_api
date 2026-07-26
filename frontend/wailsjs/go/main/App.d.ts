@@ -210,6 +210,8 @@ export function PullCollectionGit(arg1:string,arg2:string,arg3:string):Promise<m
 
 export function PushCollectionGit(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<main.CollectionGitOperationResult>;
 
+export function ReadResponseBody(arg1:string,arg2:number,arg3:number):Promise<main.ResponseBodySlice>;
+
 export function RefreshChangedCollections():Promise<main.CollectionWatchRefreshResult>;
 
 export function RefreshCollection(arg1:string):Promise<main.AppState>;

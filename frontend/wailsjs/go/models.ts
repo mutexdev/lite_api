@@ -3499,6 +3499,28 @@ export namespace main {
 	        this.cancelled = source["cancelled"];
 	    }
 	}
+	export class ResponseBodySlice {
+	    raw: string;
+	    base64: string;
+	    offset: number;
+	    length: number;
+	    totalSize: number;
+	    truncated: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ResponseBodySlice(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.raw = source["raw"];
+	        this.base64 = source["base64"];
+	        this.offset = source["offset"];
+	        this.length = source["length"];
+	        this.totalSize = source["totalSize"];
+	        this.truncated = source["truncated"];
+	    }
+	}
 	
 	
 	

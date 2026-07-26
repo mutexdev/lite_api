@@ -418,6 +418,10 @@ export function PushCollectionGit(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['PushCollectionGit'](arg1, arg2, arg3, arg4);
 }
 
+export function ReadResponseBody(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ReadResponseBody'](arg1, arg2, arg3);
+}
+
 export function RefreshChangedCollections() {
   return window['go']['main']['App']['RefreshChangedCollections']();
 }
