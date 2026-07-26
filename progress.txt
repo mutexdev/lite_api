@@ -5496,3 +5496,42 @@ US-026 - Store layer. DONE. Both named collapses complete.
   was loud: a package that is NOT in go.mod fails the build, but a wrong guess
   that happens to already be a dependency would have compiled. Check the import
   block after every move, not just the exit code.
+
+=== RESTRUCTURE PHASE 2 — wave 3, secrets and the HTTP executor ===
+
+  app_env_secrets.go    31 decls, 651 lines
+  app_execute_http.go   12 decls, 414 lines
+
+  app.go: 11,654 -> 10,641 lines. Down 38% from 17,314 at the start.
+
+  WROTE DOWN AN INVARIANT THAT MOTION WOULD OTHERWISE HAVE DELETED.
+  executeHTTP must be called WITHOUT a.mu held. It takes no lock in its own
+  body, but its helpers do: appTLSSettingsSnapshot does RLock/RUnlock then Lock,
+  collectionProxyResolution does RLock/defer RUnlock. Calling it under a.mu
+  self-deadlocks on the first helper that wants the write lock.
+
+  Nothing in the NAME says so — there is no Locked suffix to carry it — and
+  until now the rule was expressed only by the fact that its two callers sat a
+  few hundred lines above it. They are now ~3,000 lines away in app.go. Added as
+  a doc comment in a SEPARATE commit from the motion, so the motion diff stays
+  mechanically checkable.
+
+  THE RAW-STRING HAZARD IS REAL, AND I HAVE NOW MEASURED IT.
+  A naive duplicate-declaration scan (`cat *.go | grep -E '^func |^const '`)
+  reports `const checks = [` and `const identity = [` as duplicate top-level
+  declarations. They are neither: they are JAVASCRIPT inside backtick-quoted Go
+  string literals in the test fixtures. This is exactly why decls.go is built on
+  go/parser rather than line walking — a line-based splitter would treat those
+  as declaration boundaries and truncate a test mid-literal into a file that
+  still compiles.
+
+  The only other "duplicates" are grouped `const (` / `var (` openers and
+  currentProcessCPUTime, which is the devtools_cpu_unix / _other build-tag pair.
+  Both expected.
+
+  STALE EDITOR DIAGNOSTICS ARE NOT EVIDENCE. Mid-split, the language server
+  reported ~40 "redeclared in this block" and "already declared at app.go:13101"
+  errors. app.go is 10,641 lines; those positions do not exist. Confirmed with
+  `go clean -cache && go build ./...` — exit 0. Checked rather than dismissed,
+  because copy-without-delete is precisely the failure the C2 control exists for
+  and it would present exactly this way.
