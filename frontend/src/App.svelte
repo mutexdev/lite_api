@@ -12803,51 +12803,18 @@
 		{/if}
 
 		{#if openAPISyncSettingsOpen && activeCollection}
-		  <Modal labelledBy="openapi-settings-title" onClose={cancelOpenAPISyncSettings} dialogClass="prompt-dialog openapi-settings-dialog" testId="openapi-sync-settings-modal">
-		      <form on:submit|preventDefault={saveOpenAPISyncSettings}>
-	        <header>
-	          <h2 id="openapi-settings-title">Connection Settings</h2>
-	          <button type="button" class="icon-button" title="Cancel" on:click={cancelOpenAPISyncSettings}>x</button>
-	        </header>
-	        <div class="prompt-fields">
-	          <label>
-	            <span>Spec Source</span>
-	            <input
-	              aria-label="OpenAPI sync settings source"
-	              data-testid="openapi-sync-settings-source"
-	              placeholder="https://api.example.com/openapi.json"
-	              bind:value={openAPISyncSettingsSourceURL}
-	            />
-	          </label>
-	          <label class="checkbox-line openapi-settings-toggle">
-	            <input type="checkbox" data-testid="openapi-sync-settings-auto-check" bind:checked={openAPISyncSettingsAutoCheck} />
-	            <span>Auto-check for updates</span>
-	          </label>
-	          {#if openAPISyncSettingsAutoCheck}
-	            <div class="openapi-settings-intervals">
-	              <span>Check interval</span>
-	              <div class="segmented compact" data-testid="openapi-sync-settings-intervals">
-	                {#each openAPISyncCheckIntervals as minutes (minutes)}
-	                  <button
-	                    type="button"
-	                    class:active={openAPISyncSettingsInterval === minutes}
-	                    data-testid={`openapi-sync-settings-interval-${minutes}`}
-	                    on:click={() => (openAPISyncSettingsInterval = minutes)}
-	                  >
-	                    {minutes} min
-	                  </button>
-	                {/each}
-	              </div>
-	            </div>
-	          {/if}
-	        </div>
-	        <div class="button-row modal-footer">
-	          <button type="button" class="danger-button" data-testid="openapi-sync-settings-disconnect" on:click={disconnectOpenAPISync} disabled={busy !== ''}>Disconnect sync</button>
-	          <button type="button" data-testid="openapi-sync-settings-cancel" on:click={cancelOpenAPISyncSettings}>Cancel</button>
-	          <button class="primary" type="submit" data-testid="openapi-sync-settings-save" disabled={busy !== ''}>Save</button>
-	        </div>
-	      </form>
-		  </Modal>
+		  {#await import('./lib/modals/openapi/SyncSettingsModal.svelte') then SyncSettingsModal}
+		    <svelte:component this={SyncSettingsModal.default}
+		      bind:openAPISyncSettingsSourceURL
+		      bind:openAPISyncSettingsAutoCheck
+		      bind:openAPISyncSettingsInterval
+		      {openAPISyncCheckIntervals}
+		      {busy}
+		      {saveOpenAPISyncSettings}
+		      {cancelOpenAPISyncSettings}
+		      {disconnectOpenAPISync}
+		    />
+		  {/await}
 	{/if}
 
 	{#if tabLifecycleDialog}

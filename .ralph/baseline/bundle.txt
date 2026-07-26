@@ -181,3 +181,18 @@ frontend/dist/assets/index-*.css        113609
 # sub-1 KB dialogs will each yield a few hundred bytes.
 #
 # Running total: 1,159,933 -> 522,246 (55.0% smaller). 22,246 above target.
+
+# Hand extraction #6 — openapi-settings (2,385 B of source):
+#   initial chunk 522,246 -> 520,971  (-1,275)
+#
+# ESLint refused the shortcut, which is worth recording. A helper that generated
+# `export let x: any` for every prop tripped @typescript-eslint/no-explicit-any
+# (8 errors) and could not be committed. That is the SAME shortcut the abandoned
+# scripted extraction depended on — so the repo's own lint config independently
+# rules that approach out, not just my judgement about it.
+#
+# Also: guessing prop names from memory produced two that do not exist
+# (openAPISyncSettingsBusy, toggleOpenAPISyncAutoCheck). Read the body and take
+# the identifiers from it; do not reconstruct them.
+#
+# Running total: 1,159,933 -> 520,971 (55.1% smaller). 20,971 above target.
