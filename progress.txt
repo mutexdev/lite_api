@@ -4445,3 +4445,34 @@ US-026 - Store layer. DONE. Both named collapses complete.
   version, per-platform CWD, a live network interface, a real transport chain.
   Those need either the network or a signature change to be testable, and I
   would rather say so than write tests that call them and assert nothing.
+
+--- The last two PURE uncovered functions: scopes and drift fingerprints ---
+
+  Both turned out to be about DETERMINISM, and both had the same latent hazard.
+
+  openAPIScopeNames builds the space-separated OAuth2 scope string from a spec's
+  `scopes` object — a Go map. Map iteration order is RANDOM per range, so
+  without the sort the scope string would differ between two imports of the same
+  spec: the request would be non-deterministic on disk and every save would
+  produce a spurious diff. The test ranges 50 times and asserts the result never
+  moves, which is the only way to catch an unsorted map walk reliably.
+
+  openAPILocalDriftMultipartNames builds the multipart side of the drift
+  comparison. It encodes name AND kind, so swapping a text field for a file
+  upload registers as drift; without the kind the two would look identical and
+  the drift report would say nothing changed.
+
+  MY TEST WAS WRONG AGAIN, AND THE CODE WAS RIGHT. I asserted input order; the
+  function sorts. Sorting is correct — a drift fingerprint must be
+  order-independent or reordering two form parts would report as a change.
+  Corrected the test and added the order-independence property explicitly,
+  rather than bending the code to my assumption. Third time this session that a
+  failing test was my error rather than the code's; each time the right move was
+  to read the code and understand WHY before touching it.
+
+  Controls: unsorted scopes fails 1, unsorted drift fails 2, undetected file
+  kind fails 2.
+
+  0%-covered: 30 -> 11, and what remains is environment-bound without exception:
+  DNS resolution, OS version, per-platform CWD, a live network interface, a real
+  transport chain, and two trivial setter seams.

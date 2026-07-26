@@ -248,3 +248,60 @@ func TestMultipartPartsRemovedFromTheSpecAreDropped(t *testing.T) {
 		t.Fatalf("a part absent from the spec must not survive: %+v", got)
 	}
 }
+
+// The multipart drift fingerprint, the last uncovered function in this package.
+//
+// Local drift detection compares what the collection has on disk against what
+// the spec declares, and this builds the multipart side of that comparison. It
+// encodes name AND kind, so a part switching between text and file registers as
+// drift — without the kind, swapping a text field for a file upload would look
+// identical and the drift report would say nothing changed.
+func TestDriftMultipartNamesEncodeNameAndKind(t *testing.T) {
+	got := openAPILocalDriftMultipartNames([]types.FormPart{
+		{Name: "title", Value: "Quarterly"},
+		{Name: "doc", FilePath: "/tmp/report.pdf"},
+	})
+	if len(got) != 2 {
+		t.Fatalf("got %v, want 2 entries", got)
+	}
+	// SORTED, not in input order. My first draft asserted input order and the
+	// code was right: a drift fingerprint has to be order-independent, or
+	// reordering two form parts would report as a change to the request.
+	if got[0] != "doc:file" || got[1] != "title:text" {
+		t.Errorf("got %v, want the entries sorted: [doc:file title:text]", got)
+	}
+}
+
+// Order-independence, stated directly since it is why the sort is there.
+func TestDriftMultipartNamesAreOrderIndependent(t *testing.T) {
+	a := openAPILocalDriftMultipartNames([]types.FormPart{
+		{Name: "title", Value: "v"}, {Name: "doc", FilePath: "/x"},
+	})
+	b := openAPILocalDriftMultipartNames([]types.FormPart{
+		{Name: "doc", FilePath: "/x"}, {Name: "title", Value: "v"},
+	})
+	if len(a) != len(b) || a[0] != b[0] || a[1] != b[1] {
+		t.Fatalf("%v vs %v — reordering parts must not look like drift", a, b)
+	}
+}
+
+// The property that makes it a drift signal at all: the same name with a
+// different kind must not compare equal.
+func TestDriftMultipartNamesDistinguishTextFromFile(t *testing.T) {
+	asText := openAPILocalDriftMultipartNames([]types.FormPart{{Name: "doc", Value: "inline"}})
+	asFile := openAPILocalDriftMultipartNames([]types.FormPart{{Name: "doc", FilePath: "/tmp/x"}})
+	if asText[0] == asFile[0] {
+		t.Fatalf("both encoded as %q — swapping a text field for a file upload would not register as drift", asText[0])
+	}
+}
+
+func TestDriftMultipartNamesSkipUnnamedParts(t *testing.T) {
+	got := openAPILocalDriftMultipartNames([]types.FormPart{
+		{Name: "  ", Value: "v"},
+		{Name: "", FilePath: "/tmp/x"},
+		{Name: "kept", Value: "v"},
+	})
+	if len(got) != 1 || got[0] != "kept:text" {
+		t.Fatalf("got %v; an unnamed part cannot be compared and must be skipped", got)
+	}
+}
