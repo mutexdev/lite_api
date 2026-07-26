@@ -3856,3 +3856,47 @@ US-026 - Store layer. DONE. Both named collapses complete.
   confirmed the hash moved, then restored it and confirmed it came back. Same
   discipline as the Go negative controls: verify the instrument before trusting
   the reading.
+
+--- US-019 — MEASURED. The analysis above was right about the risk and WRONG
+    about the size of the prize. ---
+
+  I previously wrote "US-018 already banked the large win here... what remains
+  is object construction, and pooling it is not obviously safe." The first half
+  understated things. Runtime construction is not a rounding error:
+
+      BenchmarkNewScriptRuntime          ~0.5-0.6 ms    734 KB    8,482 allocs
+      BenchmarkPostResponsePhaseRuntimes ~1.5-1.7 ms  2,203 KB   25,448 allocs
+
+  The post-response phase builds THREE runtimes back to back (response
+  variables, post script, tests). Collapsing those to one would save roughly
+  1.5 MB and 17,000 allocations PER REQUEST. That is worth doing.
+
+  Benchmarks committed as internal/scripting/runtime_cost_test.go so the number
+  can be re-checked rather than re-argued.
+
+  WHAT STILL BLOCKS IT, AND IT IS NOT FEASIBILITY. The three runtimes are built
+  from DIFFERENT variable maps:
+      RunPostResponseVariables            scriptVars.Combined
+      RunPostResponseScriptWithJarStateMeta   vars
+      EvaluateRuntimeTestsWithJarStateMeta    vars
+  and RunPostResponseVariables additionally sets every combined variable as a
+  GLOBAL, plus $bru and $req. Sharing one runtime therefore changes what a
+  post-response script and a tests script can SEE. That is a semantics change,
+  not a mechanical refactor.
+
+  It is probably a change in the RIGHT direction - in Postman, state a
+  post-response script sets is visible to tests, and today it is not - but
+  "which variables should a tests script see" is a product decision about
+  script compatibility, not something to settle inside a performance refactor.
+  The order the three run in also becomes observable where today it is not.
+
+  MY RECOMMENDATION, stated plainly: do the 3 -> 1 consolidation, accept the
+  visibility change deliberately, and pin the new semantics in tests FIRST -
+  what a tests script sees from the post script, and in what order. The
+  regression net already exists (script_isolation_test.go, 5 tests, written
+  before any of this). What does not exist is a decision about the semantics,
+  and that is not mine to make silently.
+
+  The sync.Pool half of the story remains infeasible as written, for the reason
+  recorded above: every shim closes over per-request state, so a pooled runtime
+  would leak the previous request's url, headers and env on any missed reset.
