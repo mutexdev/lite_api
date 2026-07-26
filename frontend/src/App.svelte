@@ -419,7 +419,7 @@
   let nativeWindowBusy = $state(false)
   let nativeWindowError = $state('')
   let hydratedActiveTabID = $state('')
-  let selectedEnvironmentId = $state('')
+  const selectedEnvironmentId = $derived(workspaceStore.selectedEnvironmentId)
   let loading = $state(true)
   let loadingStatus = $state('Opening workspace')
   let busy = $state('')
@@ -536,7 +536,7 @@
   let cookieForm = $state<CookieForm>(emptyCookieForm())
   let rawCookieHeader = $state('session=abc123; Path=/; HttpOnly')
   let rawCookieURL = $state('http://127.0.0.1/')
-  let selectedCollectionId = $state('')
+  const selectedCollectionId = $derived(workspaceStore.selectedCollectionId)
   let selectedFolderPath = $state('')
   let folderSettingsTab = $state<FolderSettingsTab>('headers')
   let folderSettingDrafts = $state<Record<string, main.FolderConfig>>({})
@@ -929,8 +929,8 @@
     return `"${escaped}", ${defaultCodeFontFamily}`
   }
 
-  const activeWorkspace = $derived(appState?.workspaces?.find((workspace) => workspace.id === appState?.activeWorkspaceId) ?? appState?.workspaces?.[0])
-  const activeTab = $derived(appState?.openTabs?.find((tab) => tab.id === appState?.activeTabId))
+  const activeWorkspace = $derived(workspaceStore.activeWorkspace)
+  const activeTab = $derived(workspaceStore.activeTab)
   $effect(() => {
   if (activeTab?.id && activeTab.id !== hydratedActiveTabID) {
       hydratedActiveTabID = activeTab.id
@@ -942,8 +942,8 @@
       }
     }
   })
-  const selectedCollection = $derived(activeWorkspace?.collections?.find((collection) => collection.id === selectedCollectionId))
-  const activeCollection = $derived(selectedCollection ?? activeWorkspace?.collections?.find((collection) => collection.id === activeTab?.collectionId) ?? activeWorkspace?.collections?.[0])
+  const selectedCollection = $derived(workspaceStore.selectedCollection)
+  const activeCollection = $derived(workspaceStore.activeCollection)
 	$effect(() => {
   if (activeView === 'git' && activeCollection?.id && gitWorkbenchCollectionID !== activeCollection.id && !gitWorkbenchLoading) {
   		gitWorkbenchSnapshot = undefined
@@ -953,7 +953,7 @@
   		void refreshGitWorkbench()
   	}
 	})
-  const activeRequest = $derived(activeCollection?.items?.find((item) => item.id === activeTab?.itemId) ?? activeCollection?.items?.[0])
+  const activeRequest = $derived(workspaceStore.activeRequest)
   const shareCollectionUnsupportedTypes = $derived(collectionShareUnsupportedTypes(activeCollection))
   $effect(() => {
   if ((activeCollection?.id ?? '') !== openAPISyncCollectionId) {
@@ -1258,8 +1258,8 @@
   })
   const activeFolder = $derived(activeCollection?.folders?.find((folder) => folder.path === selectedFolderPath) ?? activeCollection?.folders?.[0])
   const editableFolder = $derived(activeFolder ? folderSettingDrafts[activeFolder.path] ?? activeFolder : undefined)
-  const selectedEnvironment = $derived(activeCollection?.environments?.find((env) => env.id === selectedEnvironmentId) ?? activeCollection?.environments?.[0])
-  const activeGlobalEnvironment = $derived(activeWorkspace?.globalEnvironments?.find((env) => env.id === activeWorkspace?.activeGlobalEnvironmentId))
+  const selectedEnvironment = $derived(workspaceStore.selectedEnvironment)
+  const activeGlobalEnvironment = $derived(workspaceStore.activeGlobalEnvironment)
   const selectedGlobalEnvironment = $derived(activeGlobalEnvironment ?? activeWorkspace?.globalEnvironments?.[0])
   const selectedDotEnvFile = $derived(dotEnvFiles.find((file) => dotEnvFileKey(file) === selectedDotEnvKey))
   const globalEnvironmentVariableQuery = $derived(normalizedSearch(globalEnvironmentVariableSearch))
@@ -2303,7 +2303,7 @@
       loadingStatus = 'Preparing workbench'
       applyDevToolsShellPreferences(appState?.preferences?.devTools)
       if (devToolsOpen) await refreshDevToolsSnapshot()
-      selectedEnvironmentId = activeCollection?.environments?.[0]?.id ?? ''
+      workspaceStore.selectedEnvironmentId = activeCollection?.environments?.[0]?.id ?? ''
     })
     loading = false
   }
@@ -2515,7 +2515,7 @@
     if (!activeCollection) return
     await runAction('create request', async () => {
       workspaceStore.appState = await CreateRequest(activeCollection.id, requestType, requestName)
-      selectedCollectionId = activeCollection.id
+      workspaceStore.selectedCollectionId = activeCollection.id
       activeView = 'request'
     })
   }
@@ -3625,7 +3625,7 @@
     if (!activeCollection) return
     await runAction('create environment', async () => {
       workspaceStore.appState = await CreateEnvironment(activeCollection.id, environmentName)
-      selectedEnvironmentId = activeCollection?.environments?.at(-1)?.id ?? selectedEnvironmentId
+      workspaceStore.selectedEnvironmentId = activeCollection?.environments?.at(-1)?.id ?? selectedEnvironmentId
       environmentVariableTab = 'variables'
       activeView = 'environments'
     })
@@ -3651,8 +3651,8 @@
       const nextState = await SetActiveWorkspace(workspaceId)
       const workspace = nextState.workspaces?.find((candidate) => candidate.id === workspaceId)
       workspaceStore.appState = nextState
-      selectedCollectionId = workspace?.collections?.[0]?.id ?? ''
-      selectedEnvironmentId = workspace?.collections?.[0]?.environments?.[0]?.id ?? ''
+      workspaceStore.selectedCollectionId = workspace?.collections?.[0]?.id ?? ''
+      workspaceStore.selectedEnvironmentId = workspace?.collections?.[0]?.environments?.[0]?.id ?? ''
     })
   }
 
@@ -4465,7 +4465,7 @@
     if (!activeWorkspace) return
     await runAction('open collection', async () => {
       workspaceStore.appState = await OpenCollection(activeWorkspace.id, openCollectionPath)
-      selectedCollectionId = appState?.workspaces?.find((workspace) => workspace.id === activeWorkspace.id)?.collections?.at(-1)?.id ?? selectedCollectionId
+      workspaceStore.selectedCollectionId = appState?.workspaces?.find((workspace) => workspace.id === activeWorkspace.id)?.collections?.at(-1)?.id ?? selectedCollectionId
       activeView = 'request'
     })
   }
@@ -4480,7 +4480,7 @@
   async function resetDemoData() {
     await runAction('reset demo data', async () => {
       workspaceStore.appState = await ResetDemoData()
-      selectedEnvironmentId = activeCollection?.environments?.[0]?.id ?? ''
+      workspaceStore.selectedEnvironmentId = activeCollection?.environments?.[0]?.id ?? ''
       activeView = 'request'
     })
   }
@@ -4581,7 +4581,7 @@
       // it is the authoritative list the backend just produced, and it is
       // correct even on the path where applyNarrow had to refetch.
       const nextTab = result.openTabs?.find((tab) => tab.id === tabId)
-      selectedCollectionId = nextTab?.collectionId ?? selectedCollectionId
+      workspaceStore.selectedCollectionId = nextTab?.collectionId ?? selectedCollectionId
       activeView = 'request'
       if (nextTab?.kind === 'response-example') responseTab = 'examples'
     })
@@ -4728,7 +4728,7 @@
       const nextState = await CloseTab(tabID)
       workspaceStore.appState = nextState
       const nextTab = nextState.openTabs?.find((tab) => tab.id === nextState.activeTabId)
-      selectedCollectionId = nextTab?.collectionId ?? selectedCollectionId
+      workspaceStore.selectedCollectionId = nextTab?.collectionId ?? selectedCollectionId
       activeView = 'request'
       if (nextTab?.kind === 'response-example') responseTab = 'examples'
     })
@@ -4754,7 +4754,7 @@
       const nextState = await ReopenLastClosedTab(activeTab?.collectionId ?? '')
       workspaceStore.appState = nextState
       const nextTab = nextState.openTabs?.find((tab) => tab.id === nextState.activeTabId)
-      selectedCollectionId = nextTab?.collectionId ?? selectedCollectionId
+      workspaceStore.selectedCollectionId = nextTab?.collectionId ?? selectedCollectionId
       activeView = 'request'
       if (nextTab?.kind === 'response-example') responseTab = 'examples'
     })
@@ -4772,7 +4772,7 @@
   async function openRequestTab(collectionId: string, itemId: string) {
     await runAction('open request', async () => {
       workspaceStore.appState = await OpenRequestTab(collectionId, itemId)
-      selectedCollectionId = collectionId
+      workspaceStore.selectedCollectionId = collectionId
       activeView = 'request'
     })
   }
@@ -4788,7 +4788,7 @@
   async function openResponseExampleTabFor(collectionId: string, itemId: string, example: main.ResponseExample) {
     await runAction('open response example', async () => {
       workspaceStore.appState = await OpenResponseExampleTab(collectionId, itemId, responseExampleIdentifier(example))
-      selectedCollectionId = collectionId
+      workspaceStore.selectedCollectionId = collectionId
       activeView = 'request'
       responseTab = 'examples'
     })
@@ -4803,7 +4803,7 @@
     if (!activeCollection) return
     await runAction('connect git remote', async () => {
       workspaceStore.appState = await ConnectCollectionGitRemote(activeCollection.id, gitRemoteURL)
-      selectedCollectionId = activeCollection.id
+      workspaceStore.selectedCollectionId = activeCollection.id
     })
   }
 
@@ -4811,17 +4811,17 @@
     if (!collectionId) return
     await runAction('remove git remote', async () => {
       workspaceStore.appState = await DisconnectCollectionGitRemote(collectionId)
-      if (selectedCollectionId === collectionId) selectedCollectionId = ''
+      if (selectedCollectionId === collectionId) workspaceStore.selectedCollectionId = ''
     })
   }
 
   function selectCollection(collectionId: string) {
-    selectedCollectionId = collectionId
+    workspaceStore.selectedCollectionId = collectionId
     activeView = 'collection'
   }
 
   function selectFolderSettings(collection: main.Collection, folderPath: string) {
-    selectedCollectionId = collection.id
+    workspaceStore.selectedCollectionId = collection.id
     selectedFolderPath = collection.folders?.find((folder) => folder.path === folderPath || folder.displayPath === folderPath)?.path ?? folderPath
     collectionTab = 'folders'
     activeView = 'collection'
@@ -4888,7 +4888,7 @@
     const collectionID = renameCollectionTarget.id
     await runAction('rename collection', async () => {
       workspaceStore.appState = await RenameCollection(collectionID, renameCollectionDraft)
-      selectedCollectionId = collectionID
+      workspaceStore.selectedCollectionId = collectionID
       renameCollectionTarget = undefined
       renameCollectionDraft = ''
     })
@@ -4936,7 +4936,7 @@
         .flatMap((workspace) => workspace.collections ?? [])
         .find((collection) => !previousIDs.has(collection.id))
       workspaceStore.appState = nextState
-      selectedCollectionId = cloned?.id ?? sourceID
+      workspaceStore.selectedCollectionId = cloned?.id ?? sourceID
       selectedFolderPath = ''
       cancelCloneCollectionModal()
     })
@@ -4944,7 +4944,7 @@
 
   function openNewFolderModal(parentPath = '', collection = activeCollection) {
     if (!collection || collection.notFoundLocally) return
-    selectedCollectionId = collection.id
+    workspaceStore.selectedCollectionId = collection.id
     newFolderTarget = collection
     newFolderParentPath = parentPath
     newFolderNameDraft = ''
@@ -5034,12 +5034,12 @@
   function openFolderInfoModal(collection: main.Collection, folderPath: string) {
     const folder = collection.folders?.find((candidate) => candidate.path === folderPath || candidate.displayPath === folderPath)
     if (!folder) return
-    selectedCollectionId = collection.id
+    workspaceStore.selectedCollectionId = collection.id
     itemInfoTarget = { kind: 'folder', collection, folder }
   }
 
   function openRequestInfoModal(collection: main.Collection, request: main.RequestItem) {
-    selectedCollectionId = collection.id
+    workspaceStore.selectedCollectionId = collection.id
     itemInfoTarget = { kind: 'request', collection, request }
   }
 
@@ -5058,7 +5058,7 @@
         .find((collection) => collection.id === collectionID)
       const createdFolder = (nextCollection?.folders ?? []).find((folder) => folder.path === expectedPath)
       workspaceStore.appState = nextState
-      selectedCollectionId = collectionID
+      workspaceStore.selectedCollectionId = collectionID
       selectedFolderPath = createdFolder?.path ?? expectedPath
       collectionTab = 'folders'
       activeView = 'collection'
@@ -5070,7 +5070,7 @@
     if (collection.notFoundLocally) return
     const folder = collection.folders?.find((candidate) => candidate.path === folderPath || candidate.displayPath === folderPath)
     if (!folder) return
-    selectedCollectionId = collection.id
+    workspaceStore.selectedCollectionId = collection.id
     renameFolderTarget = { collection, folder }
     renameFolderNameDraft = folder.name || slashPathBase(folder.displayPath || folder.path)
     renameFolderDirectoryDraft = sanitizeCollectionFolderName(slashPathBase(folder.path))
@@ -5120,7 +5120,7 @@
         .find((collection) => collection.id === collectionID)
       const renamedFolder = (nextCollection?.folders ?? []).find((folder) => folder.displayPath === expectedDisplayPath)
       workspaceStore.appState = nextState
-      selectedCollectionId = collectionID
+      workspaceStore.selectedCollectionId = collectionID
       selectedFolderPath = renamedFolder?.path ?? sourcePath
       collectionTab = 'folders'
       activeView = 'collection'
@@ -5134,7 +5134,7 @@
     if (!folder) return
     const sourceName = folder.name || slashPathBase(folder.displayPath || folder.path)
     const cloneName = `${sourceName} copy`
-    selectedCollectionId = collection.id
+    workspaceStore.selectedCollectionId = collection.id
     cloneFolderTarget = { collection, folder }
     cloneFolderNameDraft = cloneName
     cloneFolderDirectoryDraft = `${sanitizeCollectionFolderName(sourceName)} copy`
@@ -5173,7 +5173,7 @@
     await runAction('clone folder', async () => {
       const nextState = await CloneFolder(collectionID, sourcePath, cloneFolderNameDraft, cloneFolderDirectoryDraft)
       workspaceStore.appState = nextState
-      selectedCollectionId = collectionID
+      workspaceStore.selectedCollectionId = collectionID
       cancelCloneFolderModal()
     })
   }
@@ -5181,7 +5181,7 @@
   function openCloneRequestModal(collection: main.Collection, request: main.RequestItem) {
     if (collection.notFoundLocally) return
     const sourceName = request.name || 'Request'
-    selectedCollectionId = collection.id
+    workspaceStore.selectedCollectionId = collection.id
     cloneRequestTarget = { collection, request }
     cloneRequestNameDraft = `${sourceName} copy`
     cloneRequestFilenameDraft = `${sanitizeCollectionFolderName(sourceName)} copy`
@@ -5220,7 +5220,7 @@
     await runAction('clone request', async () => {
       const nextState = await CloneRequest(collectionID, requestID, cloneRequestNameDraft, cloneRequestFilenameDraft)
       workspaceStore.appState = nextState
-      selectedCollectionId = collectionID
+      workspaceStore.selectedCollectionId = collectionID
       activeView = 'request'
       cancelCloneRequestModal()
     })
@@ -5235,7 +5235,7 @@
 
   function openRenameRequestModal(collection: main.Collection, request: main.RequestItem) {
     if (collection.notFoundLocally) return
-    selectedCollectionId = collection.id
+    workspaceStore.selectedCollectionId = collection.id
     renameRequestTarget = { collection, request }
     renameRequestNameDraft = request.name || 'Request'
     renameRequestFilenameDraft = requestFilesystemBaseName(request)
@@ -5274,7 +5274,7 @@
     await runAction('rename request', async () => {
       const nextState = await RenameRequest(collectionID, requestID, renameRequestNameDraft, renameRequestFilenameDraft)
       workspaceStore.appState = nextState
-      selectedCollectionId = collectionID
+      workspaceStore.selectedCollectionId = collectionID
       activeView = 'request'
       cancelRenameRequestModal()
     })
@@ -5282,7 +5282,7 @@
 
   function openDeleteRequestModal(collection: main.Collection, request: main.RequestItem) {
     if (collection.notFoundLocally) return
-    selectedCollectionId = collection.id
+    workspaceStore.selectedCollectionId = collection.id
     deleteRequestTarget = { collection, request }
   }
 
@@ -5302,7 +5302,7 @@
         workspaceStore.appState = result.state
         await refreshRecoveryEntries()
       }
-      selectedCollectionId = collectionID
+      workspaceStore.selectedCollectionId = collectionID
       activeView = 'request'
       cancelDeleteRequestModal()
     })
@@ -5312,7 +5312,7 @@
     if (collection.notFoundLocally) return
     const folder = collection.folders?.find((candidate) => candidate.path === folderPath || candidate.displayPath === folderPath)
     if (!folder) return
-    selectedCollectionId = collection.id
+    workspaceStore.selectedCollectionId = collection.id
     deleteFolderTarget = { collection, folder }
   }
 
@@ -5332,7 +5332,7 @@
         .find((collection) => collection.id === collectionID)
       workspaceStore.appState = nextState
       await refreshRecoveryEntries()
-      selectedCollectionId = collectionID
+      workspaceStore.selectedCollectionId = collectionID
       if (slashPathHasPrefix(selectedFolderPath, sourcePath)) {
         selectedFolderPath = ''
       }
@@ -5358,7 +5358,7 @@
       const result = await RemoveCollectionRecoverable(collectionID)
       workspaceStore.appState = result.state
       await refreshRecoveryEntries()
-      if (selectedCollectionId === collectionID) selectedCollectionId = ''
+      if (selectedCollectionId === collectionID) workspaceStore.selectedCollectionId = ''
       removeCollectionTarget = undefined
       activeView = 'collection'
     })
@@ -5697,7 +5697,7 @@
     if (!activeWorkspace) return
     await runAction('open git collections', async () => {
       workspaceStore.appState = await OpenGitCollections(activeWorkspace.id, selectedGitCollectionPaths, gitCloneURL)
-      selectedCollectionId = appState?.workspaces
+      workspaceStore.selectedCollectionId = appState?.workspaces
         ?.find((workspace) => workspace.id === activeWorkspace.id)
         ?.collections?.find((collection) => selectedGitCollectionPaths.includes(collection.path))?.id ?? selectedCollectionId
       activeView = 'request'
@@ -8108,11 +8108,11 @@
     if (result.type === 'request' && result.itemId) {
       await openRequestTab(result.collectionId, result.itemId)
     } else if (result.type === 'folder') {
-      selectedCollectionId = result.collectionId
+      workspaceStore.selectedCollectionId = result.collectionId
       requestSearch = result.name
       activeView = 'request'
     } else {
-      selectedCollectionId = result.collectionId
+      workspaceStore.selectedCollectionId = result.collectionId
       activeView = 'collection'
     }
   }
@@ -8844,28 +8844,14 @@
       <header class="topbar">
         <WorkspaceCommandBar
           {sidebarCollapsed}
-          workspaceName={activeWorkspace?.name ?? 'Workspace'}
-          workspaceOptions={appState.workspaces.map((workspace) => ({ id: workspace.id, name: workspace.name }))}
-          workspaceValue={appState.activeWorkspaceId}
-          collectionName={activeCollection?.name ?? 'No collection'}
-          requestName={activeRequest?.name ?? 'No request'}
           {activeView}
-          globalEnvironmentOptions={(activeWorkspace?.globalEnvironments ?? []).map((environment) => ({ id: environment.id, name: environment.name }))}
-          environmentOptions={(activeCollection?.environments ?? []).map((environment) => ({ id: environment.id, name: environment.name }))}
-          globalEnvironmentValue={activeWorkspace?.activeGlobalEnvironmentId ?? ''}
-          environmentValue={selectedEnvironmentId}
-          globalEnvironmentName={activeGlobalEnvironment?.name ?? 'none'}
-          environmentName={selectedEnvironmentId ? (selectedEnvironment?.name ?? 'No environment') : 'No environment'}
           notificationCount={unreadNotificationCount}
-          gitConnected={Boolean(activeCollection?.remote)}
           runningCollectionName={activeCollectionRun?.collectionName ?? ''}
           cancellingRun={collectionRunCancellationRequested}
-          canCreateRequest={Boolean(activeCollection)}
-          canCreateFolder={Boolean(activeCollection && !activeCollection.notFoundLocally)}
           onCommand={runWorkbenchCommand}
           onWorkspaceChange={setActiveWorkspace}
           onGlobalEnvironmentChange={setActiveGlobalEnvironment}
-          onEnvironmentChange={(environmentID) => { selectedEnvironmentId = environmentID }}
+          onEnvironmentChange={(environmentID) => { workspaceStore.selectedEnvironmentId = environmentID }}
         >
           {#snippet recovery()}
             {#if recoveryEntries.length > 0}

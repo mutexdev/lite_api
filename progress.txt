@@ -2614,3 +2614,36 @@ US-026 continued - appState moved into workspaceStore. DONE.
 
   Gates: svelte-check 205/0/0, eslint 0, npm test 223/223, vite build succeeds
   (initial chunk 417,731 B), go test 39.5s 0.
+
+US-026 continued - selection chain into the store, command bar collapsed. DONE
+  for WorkspaceCommandBar; KeyValueTable's 33 remain.
+
+  The store now owns selectedCollectionId and selectedEnvironmentId (41
+  assignment sites moved, same compile-error guarantee - the NC produces
+  "Cannot assign to 'selectedCollectionId' because it is a constant") and
+  derives activeTab, selectedCollection, activeCollection, activeRequest,
+  selectedEnvironment and activeGlobalEnvironment. App.svelte keeps aliases, so
+  its ~200 reads of those are untouched.
+
+  WORKSPACECOMMANDBAR: 23 PROPS -> 10. The fourteen that went were each
+  computed INLINE at the call site and passed down, so the same expression
+  existed in App.svelte and the prop existed in the component - two places to
+  keep in step for one value. They are now single store getters.
+
+  What deliberately STAYED as props: sidebarCollapsed and activeView (the
+  shell's own view state), notificationCount and the two run indicators
+  (derived from surfaces outside the workspace), and the callbacks. Moving
+  those would put App.svelte's shell state in a module named for the workspace,
+  which is a worse home for it than a prop.
+
+  Two decisions recorded in the store because they are not obvious:
+    selectedCollection is kept SEPARATE from activeCollection. The fallback
+      chain is explicit-selection, then the active tab's collection, then the
+      first. Collapsing them would make a deleted selection silently jump the
+      user to an unrelated collection instead of following their tab.
+    environmentName returns 'No environment' when nothing is selected rather
+      than the first environment's name. Falling back would tell the user they
+      are sending against an environment they never picked.
+
+  Gates: svelte-check 205/0/0, eslint 0, npm test 223/223, vite build succeeds,
+  go test 38.5s 0.

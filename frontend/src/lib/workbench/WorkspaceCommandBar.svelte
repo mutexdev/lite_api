@@ -1,30 +1,23 @@
 <script lang="ts">
+  import { workspaceStore } from '../stores/workspaceStore.svelte'
   import type { Snippet } from 'svelte'
   import CommandOverflowMenu from './CommandOverflowMenu.svelte'
   import EnvironmentContextMenu from './EnvironmentContextMenu.svelte'
-  import type { CommandOption, WorkbenchCommandID, WorkbenchCommandItem } from './workbenchCommands'
+  import type { WorkbenchCommandID, WorkbenchCommandItem } from './workbenchCommands'
 
-  // US-028 — runes. 23 props, none bound by the parent.
+  // US-026 — fourteen data props collapsed to store reads.
+  //
+  // What remains as props is what the store does not own: the shell's own view
+  // state (sidebarCollapsed, activeView), values derived from surfaces outside
+  // the workspace (notificationCount, the run indicators) and the callbacks.
+  // Putting those in the store too would move App.svelte's shell state into a
+  // module named for the workspace, which is a worse home for it.
   type Props = {
     sidebarCollapsed?: boolean
-    workspaceName?: string
-    workspaceOptions?: CommandOption[]
-    workspaceValue?: string
-    collectionName?: string
-    requestName?: string
     activeView?: string
-    globalEnvironmentOptions?: CommandOption[]
-    environmentOptions?: CommandOption[]
-    globalEnvironmentValue?: string
-    environmentValue?: string
-    globalEnvironmentName?: string
-    environmentName?: string
     notificationCount?: number
-    gitConnected?: boolean
     runningCollectionName?: string
     cancellingRun?: boolean
-    canCreateFolder?: boolean
-    canCreateRequest?: boolean
     onCommand: (id: WorkbenchCommandID, invoker: HTMLElement | null) => void | Promise<void>
     onWorkspaceChange: (id: string) => void | Promise<void>
     onGlobalEnvironmentChange: (id: string) => void | Promise<void>
@@ -35,30 +28,35 @@
 
   let {
     sidebarCollapsed = false,
-    workspaceName = 'Workspace',
-    workspaceOptions = [],
-    workspaceValue = '',
-    collectionName = 'Collection',
-    requestName = 'Request',
     activeView = 'request',
-    globalEnvironmentOptions = [],
-    environmentOptions = [],
-    globalEnvironmentValue = '',
-    environmentValue = '',
-    globalEnvironmentName = 'none',
-    environmentName = 'No environment',
     notificationCount = 0,
-    gitConnected = false,
     runningCollectionName = '',
     cancellingRun = false,
-    canCreateFolder = false,
-    canCreateRequest = false,
     onCommand,
     onWorkspaceChange,
     onGlobalEnvironmentChange,
     onEnvironmentChange,
     recovery
   }: Props = $props()
+
+  // Read straight from the store rather than received as props. Each of these
+  // was previously computed inline at the call site in App.svelte and passed
+  // down, which meant the same expression existed there and the prop existed
+  // here — two places to keep in step for one value.
+  const workspaceName = $derived(workspaceStore.activeWorkspace?.name ?? 'Workspace')
+  const workspaceOptions = $derived(workspaceStore.workspaceOptions)
+  const workspaceValue = $derived(workspaceStore.activeWorkspaceId)
+  const collectionName = $derived(workspaceStore.activeCollection?.name ?? 'No collection')
+  const requestName = $derived(workspaceStore.activeRequest?.name ?? 'No request')
+  const globalEnvironmentOptions = $derived(workspaceStore.globalEnvironmentOptions)
+  const environmentOptions = $derived(workspaceStore.environmentOptions)
+  const globalEnvironmentValue = $derived(workspaceStore.activeWorkspace?.activeGlobalEnvironmentId ?? '')
+  const environmentValue = $derived(workspaceStore.selectedEnvironmentId)
+  const globalEnvironmentName = $derived(workspaceStore.activeGlobalEnvironment?.name ?? 'none')
+  const environmentName = $derived(workspaceStore.environmentName)
+  const gitConnected = $derived(Boolean(workspaceStore.activeCollection?.remote))
+  const canCreateRequest = $derived(workspaceStore.canCreateRequest)
+  const canCreateFolder = $derived(workspaceStore.canCreateFolder)
 
   const newItems = $derived([
     { id: 'new-http', label: 'HTTP', group: 'Request', disabled: !canCreateRequest, disabledReason: 'Open a collection first' },
