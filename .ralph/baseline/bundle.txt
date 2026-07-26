@@ -160,3 +160,13 @@ frontend/dist/assets/index-*.css        113609
 # Running total: 1,159,933 -> 525,321 (54.7% smaller). 25,321 above target.
 # Three extractions have averaged ~2,400 B off the initial chunk each, so the
 # remaining ~26 bodies comfortably cover the gap.
+
+# Hand extraction #4 — share-collection (3,606 B of source):
+#   initial chunk 525,321 -> 522,890  (-2,431); new chunk ShareCollectionModal
+#
+# Second case needing a BINDABLE prop rather than a one-way one: the format
+# cards assign to shareCollectionFormat directly, so it must write back to
+# App.svelte. Bound with bind:shareCollectionFormat, which leaves App.svelte's
+# own reset-to-'zip' logic working unchanged.
+#
+# Running total: 1,159,933 -> 522,890 (54.9% smaller). 22,890 above target.
