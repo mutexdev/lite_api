@@ -5468,3 +5468,31 @@ US-026 - Store layer. DONE. Both named collapses complete.
   Gap found in tools/extraction/decls.go: it moves declarations but not the
   imports they need, so every move is followed by goimports on both files.
   Acceptable — goimports is exact and the build catches any miss immediately.
+
+=== RESTRUCTURE PHASE 2 — wave 2, the subsystems that own a mutex ===
+
+  app_oauth2.go      83 decls, 1,741 lines   (oauth2Mu, oauth2PendingMu)
+  app_grpc.go        40 decls, 1,187 lines   (grpcStreamMu)
+  app_websocket.go   20 decls,   526 lines   (websocketMu)
+
+  app.go: 15,044 -> 11,654 lines. Down 32% from 17,314 at the start of the
+  restructure.
+
+  These three were picked for wave 2 because each owns a DEDICATED mutex, so
+  the file boundary and the lock boundary now coincide. The session types moved
+  with them, which is what finally puts websocketSession next to its own
+  close/responseLocked methods instead of 9,000 lines away.
+
+  GOIMPORTS GUESSED THE WRONG PACKAGE. Moving the gRPC block left `proto.Message`
+  needing an import, and goimports resolved bare `proto` to
+  go.starlark.net/lib/proto — a module this project does not depend on. It
+  failed loudly (no required module provides package), so the build caught it,
+  but the lesson generalises: goimports resolves by package NAME, and short
+  ambiguous names like proto/types/config have many candidates. The correct
+  import (google.golang.org/protobuf/proto) was recovered from
+  `git show HEAD:app.go`.
+
+  Worth stating because the failure mode had two possible shapes and only one
+  was loud: a package that is NOT in go.mod fails the build, but a wrong guess
+  that happens to already be a dependency would have compiled. Check the import
+  block after every move, not just the exit code.
