@@ -31847,13 +31847,10 @@ func interpolate(input string, vars map[string]string) string {
 			}
 		}
 	}
-	if strings.Contains(out, "{{$timestamp}}") {
-		out = strings.ReplaceAll(out, "{{$timestamp}}", strconv.FormatInt(time.Now().Unix(), 10))
-	}
-	if strings.Contains(out, "{{$isoTimestamp}}") {
-		out = strings.ReplaceAll(out, "{{$isoTimestamp}}", time.Now().UTC().Format(time.RFC3339))
-	}
-	return out
+	// US-050. Was two hardcoded ReplaceAll calls; now the full Postman set,
+	// resolved per OCCURRENCE rather than once per string. See
+	// dynamic_variables.go for why that distinction matters.
+	return interpolateDynamicVariables(out)
 }
 
 // variableScan holds the per-call state of an interpolation: the variable map

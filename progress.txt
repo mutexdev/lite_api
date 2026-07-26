@@ -34,7 +34,26 @@ evidence for each story; this file carries the cross-story findings.
     its surface opens: 29 dialogs, the Runner panel, all 7 Preferences sections,
     all 4 DevTools tabs, the Import panel, and CodeMirror.
 
-  US-010 + US-011 COMPLETE. US-009 is at step 4 of 5.
+  US-010 + US-011 + US-050 COMPLETE. US-009 is at step 4 of 5.
+
+--- US-050 — Postman dynamic variables (PASSED) ---
+  Was 2 hardcoded ReplaceAll calls ($timestamp, $isoTimestamp); now the full
+  Postman set — 22 variables including $guid, $randomInt, $randomEmail, $randomIP.
+  Before this, every other placeholder went out on the wire LITERALLY, so an
+  imported collection sent the string "{{$randomEmail}}" as an email address.
+
+  Both of the story's subtle rules proven by negative control, and both fail in
+  the direction that looks like success:
+    resolve-once-per-string (the ReplaceAll shape) -> "all 20 occurrences
+      produced the same value". A user generating ten records would get ten
+      identical ones and no error.
+    unknown-resolves-to-empty -> "prefix {{$nope}} suffix" became "prefix
+      suffix". A typo silently emptied looks like a deliberate blank field;
+      left literal, the user sees their own mistake in the request.
+
+  crypto/rand rather than math/rand: these values land in request bodies, and a
+  user generating test credentials should not get a sequence predictable from
+  one sample. The cost is nothing next to the HTTP request that follows.
 
 --- END-OF-SESSION REGRESSION CHECK (all 69 commits) ---
   Driven against the real Wails dev endpoint, not vite:
