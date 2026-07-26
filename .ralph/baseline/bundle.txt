@@ -568,3 +568,23 @@ frontend/dist/assets/index-*.css        113609
 #   internal <section>/<details> boundaries first, since that decomposition is
 #   what made Preferences tractable after I had written it off as too large.
 # ---------------------------------------------------------------------------
+
+# Import panel — the section decomposition does NOT transfer. Checked, recorded.
+#
+# Preferences divided into seven <section> blocks, each needing a handful of
+# props, which is what made it tractable after I had written it off. I applied
+# the same check to Import expecting the same result. It does not hold:
+#
+#   the whole branch is ONE <section class="panel import-panel">
+#   its only internal heading (h3 "Git Repository") sits inside an {:else}
+#   branch of an {#if} chain over importSourceMode, so it is not a separable
+#   block — extracting it would mean lifting one arm of a conditional
+#
+# So Import genuinely needs the full treatment: ~39 props read from the body
+# top to bottom, in one deliberate pass. That is the thing I could not do
+# reliably at the end of a long session, and it remains the honest answer
+# rather than something a smarter decomposition avoids.
+#
+# The lesson generalises the other way: "look for a smaller unit" is worth
+# checking every time and worth nothing if the markup does not offer one.
+# Preferences offered one; Import does not.
