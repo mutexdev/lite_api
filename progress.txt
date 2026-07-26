@@ -4973,3 +4973,42 @@ US-026 - Store layer. DONE. Both named collapses complete.
   perl patterns against tab-indented Go. The runner caught every one. Without
   it I would have recorded four "0 failing" results and concluded the scanner
   was untestable, which is the opposite of true.
+
+--- Auth prompt scanning, and form-urlencoded bodies from scripts ---
+
+  scanAuthPromptVariables (16.7% -> 100%) is fifty-odd hand-written scanText
+  lines, one per credential field. The failure mode is a field somebody forgot:
+  its prompt is never raised, so the request is signed with the literal
+  "{{?client_secret}}" as the secret. That fails with a message about bad
+  credentials, pointing nowhere near the missing prompt.
+
+  A LIST OF EXAMPLES CANNOT GUARD A LIST OF FIELDS. The test would name the same
+  fields the implementation already names, and a field added to both lists by
+  the same person on the same day is exactly the case that goes wrong. So the
+  test walks types.AuthConfig by reflection, puts a distinct marker in every
+  string field including the nested oauth1/oauth2/awsv4 structs, and asserts
+  every marker was seen. Adding a credential field without a scan line fails,
+  with nobody having to remember. That control is the one I ran first.
+
+  scriptFormURLEncodedBody (8.3% -> 100%) serialises whatever shape a script
+  assigned to pm.request.body. Nothing here can fail loudly: a wrong
+  serialisation is a body the server parses into the wrong fields, coming back
+  400 or, worse, 200 having done something else. Pinned: keys sort (Go map order
+  is randomised, so without it the same script produces a different body every
+  run and breaks signing and caching), array values repeat the key, spaces
+  encode as %20 not +, separators inside a value are escaped so a value cannot
+  forge a field, and a string body passes through unre-encoded.
+
+  A CONTROL THAT LANDS AND COMPILES CAN STILL BE MEASURING NOTHING.
+  Two controls reported "0 failing". Both were `perl -0p s///` over the whole
+  file, which replaces the FIRST match — and in a 17k-line file the first
+  `sort.Strings(keys)` is at line 1799, in a different function, 10,800 lines
+  above the one I meant. The edit landed, it compiled, the guard passed it, and
+  the result read as a hole in my tests. Scoped to the function both fire (2 and
+  1 failing).
+
+  The landing guard checks that SOMETHING changed, not that the RIGHT thing
+  changed. tools/extraction/infunc.py now takes a function name and edits only
+  within its body, and exits "PATTERN NOT IN <func>" rather than silently
+  wandering off. This is the same class of error as the line-number/type-name
+  lesson from the extraction work: an anchor that is not unique is not an anchor.
