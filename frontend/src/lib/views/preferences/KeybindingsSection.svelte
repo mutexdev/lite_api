@@ -10,8 +10,9 @@
   // neither is, unlike WorkbenchCommandID. `never[]` was a shortcut that failed
   // the same way `any` does: it typechecks in isolation and breaks at the call
   // site.
-  type KeyBindingDefinition = { name: string; mac?: string; windows?: string; readOnly?: boolean; hidden?: boolean }
-  type KeyBindingSection = { heading: string; bindings: Record<string, KeyBindingDefinition> }
+  // US-057 moved these into lib/keybindings.ts alongside the default table, so
+  // the mirrored declarations noted above are gone and there is one source.
+  import type { KeyBindingDefinition, KeyBindingSection } from '../../keybindings' 
 
   export let keyBindingSections: KeyBindingSection[]
   export let visibleKeyBindingEntries: (section: KeyBindingSection) => Array<[string, KeyBindingDefinition]>
@@ -29,6 +30,8 @@
   export let resetKeyBinding: (action: string) => void
   export let resetAllKeyBindings: () => void
   export let updateKeybindingsEnabled: (enabled: boolean) => void
+  export let keyBindingPreset: string
+  export let updateKeyBindingPreset: (preset: string) => void
 </script>
 
             <section class="keybindings-preference-section">
@@ -46,6 +49,21 @@
                   </span>
                 </summary>
                 <div class:settings-disabled={!keybindingsAreEnabled(state.preferences)} class="keybindings-table-wrap">
+                <label class="field-grid">
+                  <span class="field-label">Preset</span>
+                  <select
+                    data-testid="keybinding-preset"
+                    aria-label="Keybinding preset"
+                    value={keyBindingPreset}
+                    on:change={(event) => updateKeyBindingPreset(event.currentTarget.value)}
+                  >
+                    <option value="default">LiteAPI defaults</option>
+                    <option value="postman">Postman</option>
+                  </select>
+                </label>
+                <p class="muted">
+                  A preset changes the defaults only. Shortcuts you have customized stay as you set them, and are listed as customized below.
+                </p>
                 <table class="keybindings-table">
                   <thead>
                     <tr>

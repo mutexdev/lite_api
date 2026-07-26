@@ -1052,26 +1052,30 @@ type DevToolsProcessMetric struct {
 }
 
 type Preferences struct {
-	Theme                  string                `json:"theme"`
-	ThemeVariantLight      string                `json:"themeVariantLight,omitempty"`
-	ThemeVariantDark       string                `json:"themeVariantDark,omitempty"`
-	KeybindingsEnabled     *bool                 `json:"keybindingsEnabled,omitempty"`
-	KeyBindings            map[string]KeyBinding `json:"keyBindings,omitempty"`
-	Layout                 LayoutPreferences     `json:"layout"`
-	Display                DisplayPreferences    `json:"display"`
-	Font                   FontPreferences       `json:"font"`
-	Request                RequestPreferences    `json:"request"`
-	General                GeneralPreferences    `json:"general"`
-	AutoSave               AutoSavePreferences   `json:"autoSave"`
-	Cache                  CachePreferences      `json:"cache"`
-	DevTools               DevToolsPreferences   `json:"devTools"`
-	Autosave               bool                  `json:"autosave"`
-	DefaultCollectionPath  string                `json:"defaultCollectionPath"`
-	CodeFontSize           int                   `json:"codeFontSize"`
-	StoreCookies           bool                  `json:"storeCookies"`
-	OAuth2UseSystemBrowser bool                  `json:"oauth2UseSystemBrowser"`
-	ProxyMode              string                `json:"proxyMode"`
-	Proxy                  ProxyPreferences      `json:"proxy"`
+	Theme              string                `json:"theme"`
+	ThemeVariantLight  string                `json:"themeVariantLight,omitempty"`
+	ThemeVariantDark   string                `json:"themeVariantDark,omitempty"`
+	KeybindingsEnabled *bool                 `json:"keybindingsEnabled,omitempty"`
+	KeyBindings        map[string]KeyBinding `json:"keyBindings,omitempty"`
+	// US-057. Which default set the keybindings layer on top of. User overrides
+	// in KeyBindings still win, so switching preset never silently replaces a
+	// shortcut somebody deliberately set.
+	KeyBindingPreset       string              `json:"keyBindingPreset,omitempty"`
+	Layout                 LayoutPreferences   `json:"layout"`
+	Display                DisplayPreferences  `json:"display"`
+	Font                   FontPreferences     `json:"font"`
+	Request                RequestPreferences  `json:"request"`
+	General                GeneralPreferences  `json:"general"`
+	AutoSave               AutoSavePreferences `json:"autoSave"`
+	Cache                  CachePreferences    `json:"cache"`
+	DevTools               DevToolsPreferences `json:"devTools"`
+	Autosave               bool                `json:"autosave"`
+	DefaultCollectionPath  string              `json:"defaultCollectionPath"`
+	CodeFontSize           int                 `json:"codeFontSize"`
+	StoreCookies           bool                `json:"storeCookies"`
+	OAuth2UseSystemBrowser bool                `json:"oauth2UseSystemBrowser"`
+	ProxyMode              string              `json:"proxyMode"`
+	Proxy                  ProxyPreferences    `json:"proxy"`
 }
 
 type LayoutPreferences struct {
@@ -8373,6 +8377,7 @@ func normalizePreferences(preferences Preferences) Preferences {
 		preferences.KeybindingsEnabled = boolPtr(true)
 	}
 	preferences.KeyBindings = normalizeKeyBindings(preferences.KeyBindings)
+	preferences.KeyBindingPreset = normalizeKeyBindingPreset(preferences.KeyBindingPreset)
 	if preferences.CodeFontSize <= 0 {
 		preferences.CodeFontSize = 13
 	}
@@ -8587,6 +8592,19 @@ func normalizeThemeVariant(value, mode string) string {
 	default:
 		return value
 	}
+}
+
+// normalizeKeyBindingPreset rejects anything but a known preset id.
+//
+// An unknown id is coerced to "default" rather than preserved: a preset name
+// this build does not recognise would otherwise be stored, resolve to no
+// overrides, and leave the user looking at a selector showing a preset that
+// is not in effect.
+func normalizeKeyBindingPreset(value string) string {
+	if strings.TrimSpace(strings.ToLower(value)) == "postman" {
+		return "postman"
+	}
+	return ""
 }
 
 func normalizeKeyBindings(bindings map[string]KeyBinding) map[string]KeyBinding {

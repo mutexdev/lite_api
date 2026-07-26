@@ -24336,3 +24336,65 @@ paths:
 		t.Fatalf("expected Swagger rejection, got %v", err)
 	}
 }
+
+// TestKeyBindingPresetNormalizes is US-057's persistence half.
+//
+// An unrecognised preset id must be coerced rather than stored: kept as-is it
+// would resolve to no overrides while the selector still showed it, leaving
+// the user looking at a preset that is demonstrably not in effect.
+func TestKeyBindingPresetNormalizes(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"postman", "postman"},
+		{"Postman", "postman"},
+		{"  POSTMAN  ", "postman"},
+		{"default", ""},
+		{"", ""},
+		{"nonsense", ""},
+	} {
+		if got := normalizeKeyBindingPreset(tc.in); got != tc.want {
+			t.Errorf("normalizeKeyBindingPreset(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestKeyBindingPresetPersists(t *testing.T) {
+	app := newAppForTest(t)
+
+	state, err := app.UpdatePreferences(Preferences{KeyBindingPreset: "postman"})
+	if err != nil {
+		t.Fatalf("UpdatePreferences: %v", err)
+	}
+	if state.Preferences.KeyBindingPreset != "postman" {
+		t.Fatalf("preset = %q, want postman", state.Preferences.KeyBindingPreset)
+	}
+
+	// And it survives a reload, or selecting a preset would silently revert on
+	// the next launch. The flush is required: writes are deferred behind a
+	// dirty flag, so reading the directory without it races the write and the
+	// test would fail for a reason that has nothing to do with the preset.
+	if err := app.FlushPendingWrites(); err != nil {
+		t.Fatalf("FlushPendingWrites: %v", err)
+	}
+	// newAppInDirForTest, not NewAppWithDir: a raw constructor leaves a
+	// background persist writer running past the test, writing into a
+	// t.TempDir() that cleanup is concurrently removing. There is a guard test
+	// for exactly this, and it caught my first attempt.
+	reloaded := newAppInDirForTest(t, app.dataDir)
+	loaded, err := reloaded.GetState()
+	if err != nil {
+		t.Fatalf("GetState: %v", err)
+	}
+	if loaded.Preferences.KeyBindingPreset != "postman" {
+		t.Errorf("after reload preset = %q, want postman", loaded.Preferences.KeyBindingPreset)
+	}
+
+	// Switching back clears it rather than storing "default", so the zero value
+	// and the default preset are the same thing on disk.
+	back, err := reloaded.UpdatePreferences(Preferences{KeyBindingPreset: "default"})
+	if err != nil {
+		t.Fatalf("UpdatePreferences: %v", err)
+	}
+	if back.Preferences.KeyBindingPreset != "" {
+		t.Errorf("preset = %q, want empty for the default", back.Preferences.KeyBindingPreset)
+	}
+}

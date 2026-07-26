@@ -536,6 +536,7 @@ export namespace main {
 	    themeVariantDark?: string;
 	    keybindingsEnabled?: boolean;
 	    keyBindings?: Record<string, KeyBinding>;
+	    keyBindingPreset?: string;
 	    layout: LayoutPreferences;
 	    display: DisplayPreferences;
 	    font: FontPreferences;
@@ -563,6 +564,7 @@ export namespace main {
 	        this.themeVariantDark = source["themeVariantDark"];
 	        this.keybindingsEnabled = source["keybindingsEnabled"];
 	        this.keyBindings = this.convertValues(source["keyBindings"], KeyBinding, true);
+	        this.keyBindingPreset = source["keyBindingPreset"];
 	        this.layout = this.convertValues(source["layout"], LayoutPreferences);
 	        this.display = this.convertValues(source["display"], DisplayPreferences);
 	        this.font = this.convertValues(source["font"], FontPreferences);

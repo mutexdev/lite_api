@@ -1642,3 +1642,61 @@ US-056 - Bulk edit. DONE. Partly pre-existing, like US-055.
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 38.2s 0,
   svelte-check 200/0/0, eslint 0, npm test 145/145 (was 125; +20 bulk edit).
+
+US-057 - Postman keybinding preset. DONE.
+  Preferences.KeyBindingPreset persisted in Go; lib/keybindings.ts holds the
+  defaults, the preset table and the collision rule; a Preset selector sits in
+  the Keybindings section of Preferences.
+
+  LAYERING IS THE WHOLE DESIGN, and the order is the point:
+    built-in defaults  <  preset  <  user overrides
+  mergedKeyBinding was already the single merge point, so inserting the preset
+  there made the dispatcher, the Preferences display AND the existing collision
+  validation preset-aware for free. A shortcut somebody deliberately set is
+  never silently replaced by switching preset.
+
+  Moved the default table OUT of App.svelte into lib/keybindings.ts. It was
+  untestable where it was, and the story's criterion - "collisions still
+  rejected" - is only meaningful if tested against the REAL table. A test that
+  restated the defaults would drift and then pass while the shipped table
+  collided. This also deleted the mirrored type declarations in
+  KeybindingsSection.svelte that a comment there already flagged as a
+  duplicate.
+
+  THE POSTMAN PRESET IS DELIBERATELY SMALL, and that is a finding, not an
+  omission. These defaults descend from Bruno's, which were modelled on
+  Postman, so the great majority ALREADY match: Cmd+Enter send, Cmd+S save,
+  Cmd+W close tab, Cmd+\ sidebar, Cmd+, settings, Cmd+O import. Restating
+  those would imply a change where there is none and would have to be kept in
+  sync with the defaults forever - there is a test that FAILS if a preset entry
+  merely restates its default. I deliberately did not invent Postman bindings I
+  was not confident about; a wrong shortcut presented as "Postman" is worse
+  than an absent one.
+
+  The substantive entry is Cmd/Ctrl+T: Postman reserves it for New Tab, this
+  app binds Open in Terminal, a command Postman has no equivalent of. Freeing
+  it is the point, and moving Open in Terminal to an unclaimed combo is what
+  stops the freeing from creating a collision - which is exactly what the
+  story's criterion guards.
+
+  Hidden entries are excluded from collision detection: the tab-number row is
+  declared once as a hidden display range (Cmd+1 - Cmd+8) AND as eight
+  individual actions, so counting both reports a collision that does not exist
+  and makes the real check useless.
+
+  TWO OF MY OWN MISTAKES, both caught by existing tests rather than by me:
+    - The persistence test read the directory without flushing. Writes are
+      deferred behind a dirty flag, so it raced the write.
+    - I used NewAppWithDir directly, which
+      TestEveryTestAppGoesThroughAWriterStoppingConstructor rejects: a raw
+      constructor leaves a background writer running into a t.TempDir() that
+      cleanup is removing. Switched to newAppInDirForTest. That guard was
+      written earlier in this project for precisely this and it worked.
+
+  Negative controls, all three run and all three caught:
+    preset collides (Terminal keeps Cmd+T)  collision test fails
+    hidden entries counted                  hidden-exclusion test fails
+    preset restates a default               dead-weight test fails
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 37.7s 0,
+  -race clean, svelte-check 201/0/0, eslint 0, npm test 158/158 (+13).
