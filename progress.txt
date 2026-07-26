@@ -5798,3 +5798,50 @@ US-026 - Store layer. DONE. Both named collapses complete.
   EntryMatches, RedactedValue). Five tests that reach into Store's unexported
   path field moved into the package with it; the eight that exercise the App
   bindings stayed in main.
+
+=== CORRECTION — the "script sandbox bypasses the shared transport" finding was WRONG ===
+
+  I reported this three times, as: "internal/scripting exposes SetHTTPClient and
+  package main never calls it, so fetch/sendRequest inside user scripts use a
+  bare &http.Client{Timeout: 30s}, bypassing the transport cache, TLS posture,
+  proxy configuration and client certificates that every other outbound request
+  goes through."
+
+  WRONG ON EVERY CLAUSE. Reading the call site and US-017 settles it:
+
+  1. internal/scripting/scripting.go:2476 says, at the call site:
+       "US-017: shared client. Posture deliberately unchanged: script
+        sendRequest has never used the collection's proxy or TLS settings, and
+        adopting them here would let a verify-off request reach a script's
+        outbound call without anything in the UI saying so."
+
+  2. http_transport_cache.go:614 (US-017) consolidated six one-off clients and
+     names the sixth as "the script runtime's sendRequest", consolidated
+     "WITHOUT adopting the user's proxy or TLS settings, and that is
+     deliberate... letting a 'disable SSL verification' toggle reach a token
+     endpoint would be a security regression dressed up as a refactor."
+
+  3. The two clients are BEHAVIOURALLY IDENTICAL. scripting's default is
+     &http.Client{Timeout: 30s} with a nil Transport, which IS
+     http.DefaultTransport. sharedCredentialHTTPClient resolves a pristine spec,
+     and TestTransportCachePristineSpecKeepsCallerTransport asserts that returns
+     http.DefaultTransport and occupies no cache entry. Same object, same pool,
+     same verified TLS, same ProxyFromEnvironment.
+
+  So there is nothing to bypass: the credential client deliberately has no
+  proxy, no custom CA and no client certificate either. Wiring the seam would
+  change nothing observable.
+
+  HOW I GOT IT WRONG: I took the init() comment ("must go through the shared
+  transport cache like every other request") — which is about awsv4 and
+  transport — and generalised it to a third package without reading that
+  package's own call site. The seam exists for TESTABILITY, not because
+  production forgot to connect it. An unwired seam looks identical to a
+  forgotten one, and only the call site distinguishes them.
+
+  Left the code alone and added internal/scripting/http_client_posture_test.go
+  to pin what is actually true: the sandbox carries no TLS or proxy posture of
+  its own, always has a timeout, and SetHTTPClient rejects nil. Controls:
+  giving the sandbox its own Transport fails 1; removing the nil guard fails 1.
+  The comment in that file explains the trap so the next reader does not repeat
+  it.
