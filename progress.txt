@@ -4905,3 +4905,45 @@ US-026 - Store layer. DONE. Both named collapses complete.
   This is the second redundancy the controls surfaced today, after the
   []interface{} fast path in expectContains. Both are worth knowing before
   someone "simplifies" one away believing it load-bearing.
+
+--- Post-response variable extraction — 10% -> 100% ---
+
+  This is the "capture a token out of the response into a variable" feature. It
+  filters hard: the action must be type set-variable, its phase must be one of
+  two spellings, and it must name something. EVERY ONE OF THOSE FILTERS DROPS
+  SILENTLY. An action that fails one simply is not there — no error, no warning
+  — and the next request sends an empty token while the user stares at their
+  auth configuration.
+
+  8 tests. The two that carry the most weight:
+    - both phase spellings (after-response / post-response) are in the wild;
+      accepting only one drops every action written the other way
+    - the nested `variable` block OVERRIDES the outer name, so ignoring it
+      captures into the WRONG VARIABLE. The request succeeds. A different
+      variable than the user named holds the token.
+
+  Controls: one phase spelling fails 1, ignoring the nested block fails 2,
+  ignoring the selector expression fails 1, dropping the name normalisation
+  fails 1.
+
+  !!! I WROTE THE TAUTOLOGY MYSELF, AND A CONTROL CAUGHT IT !!!
+
+  My first assertion was:
+
+      got[0].Name != types.ResponseVariableRuntimeName("token")
+
+  — the expectation built with the SAME function the loader calls. For a plain
+  name that function is the identity, so the assertion could not fail whether
+  the loader called it or not. The control proved it: dropping the
+  normalisation failed NOTHING.
+
+  Fixed by asserting the literal "token", and by adding a case where the
+  function actually does something — "~token" and "@token" must load as "token",
+  since the marker prefix is file-format syntax and a script looking up
+  "~token" finds nothing.
+
+  This is the fifth tautology of the session and the FIRST one that was mine.
+  The four signers were written that way by someone else; this one I typed
+  today, in a file whose header comment warns about exactly this. Knowing the
+  failure mode is not the same as not committing it — the control is what
+  caught it, not the knowledge.
