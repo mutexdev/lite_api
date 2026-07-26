@@ -120,6 +120,7 @@ export namespace main {
 	}
 	export class NetworkLog {
 	    id: string;
+	    source?: string;
 	    method: string;
 	    url: string;
 	    status: number;
@@ -141,6 +142,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
+	        this.source = source["source"];
 	        this.method = source["method"];
 	        this.url = source["url"];
 	        this.status = source["status"];

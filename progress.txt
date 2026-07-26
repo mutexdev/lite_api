@@ -2131,3 +2131,51 @@ US-072 - Mock server core. DONE.
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 38.7s 0,
   -race clean.
+
+US-073 - Mock server UI. DONE. Closes the mock pair with US-072.
+  Collection > Mock Server tab: configurable port (0 = OS picks), Start/Stop,
+  Reload examples, running URL and route count. Mock calls land in the existing
+  DevTools network panel.
+
+  THE SELF-TEST THE STORY ASKS FOR BY NAME is a Go test, not a browser check:
+  TestSelfTestSendRequestAgainstOwnMock creates a request, saves a response
+  example through the REAL example API, starts the mock, points a collection
+  variable at its URL, and sends through the app's own SendRequest. Every other
+  mock test drives it with net/http, which shares nothing with the app's send
+  path - its transport cache, header handling and interpolation are all
+  untested by those. A mock that answers curl but not the app is a mock nobody
+  in this app can use.
+
+  ANOTHER OF MY ASSERTIONS TESTED NOTHING, and a negative control found it.
+  The self-test checked the DevTools half with
+    strings.Contains(entry.URL, "/self-test") && Contains(entry.URL,
+    "127.0.0.1")
+  Passing nil as the recorder - removing mock logging ENTIRELY - left it
+  passing. The reason: the app's own outgoing request has THE SAME URL as the
+  mock's handling of it, so a URL match cannot tell them apart.
+
+  Fixed by adding NetworkLog.Source ("mock" for mock-served calls), which the
+  DevTools panel needs anyway: without it the two rows are identical and
+  someone debugging a mock cannot tell which is which. The test now asserts
+  BOTH a mock entry and an outgoing entry exist, and NC2 fails correctly.
+
+  Logging is written in a deferred closure so it covers every exit path. The
+  404 and 400 branches return early, and a log written only on success would
+  leave exactly the calls someone is debugging invisible - NC3 confirms
+  (1 entry instead of 3).
+
+  Bodies are read under io.LimitReader(networkLogBodyLimit): the body is only
+  used for the log, and an unbounded read lets one client hand the app however
+  much memory it likes.
+
+  recordMockNetworkLog takes the state lock ITSELF, because it runs on the
+  mock's own goroutine - a handler must never assume the caller's locking.
+
+  Negative controls, all four run and all four caught:
+    mock serves a different body   self-test body assertion fails
+    mock logging removed           (after the fix) "never reached the log"
+    log only on the success path   1 entry instead of 3
+    (US-072's five still hold)
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 38.4s 0,
+  -race clean, svelte-check 205/0/0, eslint 0, npm test 197/197.

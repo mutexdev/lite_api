@@ -1180,7 +1180,13 @@ type Notification struct {
 }
 
 type NetworkLog struct {
-	ID              string            `json:"id"`
+	ID string `json:"id"`
+	// US-073. Where the entry came from. Empty for an ordinary outgoing
+	// request, "mock" for a call the built-in mock server answered. Without it
+	// the app's request to its own mock and the mock's handling of it are two
+	// rows with the same URL and no way to tell apart — which is exactly the
+	// confusion someone debugging a mock is in.
+	Source          string            `json:"source,omitempty"`
 	Method          string            `json:"method"`
 	URL             string            `json:"url"`
 	Status          int               `json:"status"`

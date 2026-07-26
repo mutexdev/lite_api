@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -82,7 +83,7 @@ func mockCollectionFixture() Collection {
 
 func startFixtureMock(t *testing.T) *mockServer {
 	t.Helper()
-	mock, err := startMockServer(mockCollectionFixture(), 0)
+	mock, err := startMockServer(mockCollectionFixture(), 0, nil)
 	if err != nil {
 		t.Fatalf("startMockServer: %v", err)
 	}
@@ -264,7 +265,7 @@ func TestMockServerDropsRecordedContentLength(t *testing.T) {
 		collection.Items[0].Examples[0].Response.Headers,
 		KeyValue{Name: "Content-Length", Value: "99999", Enabled: true},
 	)
-	mock, err := startMockServer(collection, 0)
+	mock, err := startMockServer(collection, 0, nil)
 	if err != nil {
 		t.Fatalf("startMockServer: %v", err)
 	}
@@ -292,7 +293,7 @@ func TestMockServerDisabledHeadersAreNotSent(t *testing.T) {
 		collection.Items[0].Examples[0].Response.Headers,
 		KeyValue{Name: "X-Disabled", Value: "should not appear", Enabled: false},
 	)
-	mock, err := startMockServer(collection, 0)
+	mock, err := startMockServer(collection, 0, nil)
 	if err != nil {
 		t.Fatalf("startMockServer: %v", err)
 	}
@@ -409,10 +410,10 @@ func TestMockServerLifecycleThroughTheBindings(t *testing.T) {
 }
 
 func TestStartMockServerRejectsABadPort(t *testing.T) {
-	if _, err := startMockServer(mockCollectionFixture(), -1); err == nil {
+	if _, err := startMockServer(mockCollectionFixture(), -1, nil); err == nil {
 		t.Error("a negative port should be rejected")
 	}
-	if _, err := startMockServer(mockCollectionFixture(), 70000); err == nil {
+	if _, err := startMockServer(mockCollectionFixture(), 70000, nil); err == nil {
 		t.Error("a port above the range should be rejected")
 	}
 }
@@ -421,5 +422,183 @@ func TestStartMockServerRejectsAnUnknownCollection(t *testing.T) {
 	app := newAppForTest(t)
 	if _, err := app.StartMockServer("no-such-collection", 0); err == nil {
 		t.Error("an unknown collection should be an error")
+	}
+}
+
+// TestSelfTestSendRequestAgainstOwnMock is the self-test US-073 asks for by
+// name: LiteAPI sends a request through its own request path to its own mock
+// server and gets the saved example back.
+//
+// This is the assertion that proves the feature end to end. Every other test
+// here drives the mock with net/http, which shares nothing with the app's own
+// send path — its transport cache, header handling, interpolation and response
+// recording are all untested by those. A mock that answers curl but not the app
+// is a mock nobody in this app can use.
+func TestSelfTestSendRequestAgainstOwnMock(t *testing.T) {
+	app := newAppForTest(t)
+	state, err := app.GetState()
+	if err != nil {
+		t.Fatalf("GetState: %v", err)
+	}
+	collectionID := state.Workspaces[0].Collections[0].ID
+
+	// A request with a saved example, which is what the mock will serve.
+	created, err := app.CreateRequest(collectionID, "http", "self test target")
+	if err != nil {
+		t.Fatalf("CreateRequest: %v", err)
+	}
+	var itemID string
+	for _, collection := range created.Workspaces[0].Collections {
+		for _, item := range collection.Items {
+			if item.Name == "self test target" {
+				itemID = item.ID
+			}
+		}
+	}
+	targetURL := "{{mockBase}}/self-test"
+	if _, err := app.UpdateRequest(collectionID, itemID, RequestPatch{URL: &targetURL}); err != nil {
+		t.Fatalf("UpdateRequest: %v", err)
+	}
+
+	// Created through the real API rather than assigned to the struct, so the
+	// example is stored exactly as the app stores one.
+	withExample, err := app.CreateResponseExample(collectionID, itemID, "self test", "")
+	if err != nil {
+		t.Fatalf("CreateResponseExample: %v", err)
+	}
+	var exampleID string
+	if item, ok := findItemInState(withExample, collectionID, itemID); ok && len(item.Examples) > 0 {
+		exampleID = item.Examples[0].ID
+	}
+	if exampleID == "" {
+		t.Fatal("the response example was not created")
+	}
+	if _, err := app.UpdateResponseExample(collectionID, itemID, exampleID, ResponseExample{
+		ID:      exampleID,
+		Name:    "self test",
+		Type:    "http",
+		Request: ResponseExampleRequest{Method: "GET", URL: targetURL},
+		Response: ResponseExamplePayload{
+			Status:     200,
+			StatusText: "OK",
+			Headers:    []KeyValue{{Name: "Content-Type", Value: "application/json", Enabled: true}},
+			Body:       `{"served":"by the mock"}`,
+		},
+	}); err != nil {
+		t.Fatalf("UpdateResponseExample: %v", err)
+	}
+
+	status, err := app.StartMockServer(collectionID, 0)
+	if err != nil {
+		t.Fatalf("StartMockServer: %v", err)
+	}
+	defer func() { _, _ = app.StopMockServer(collectionID) }()
+	if status.Routes == 0 {
+		t.Fatal("the mock built no routes from the saved example")
+	}
+
+	// Point the request at the mock through a collection variable, which is how
+	// a user would actually do it.
+	collectionVars := []Variable{{
+		ID: newID("var"), Name: "mockBase", Value: status.URL,
+		Type: "string", DataType: "string", Enabled: true,
+	}}
+	if _, err := app.UpdateCollectionVariables(collectionID, collectionVars); err != nil {
+		t.Fatalf("UpdateCollectionVariables: %v", err)
+	}
+
+	final, err := app.SendRequest(collectionID, itemID, "")
+	if err != nil {
+		t.Fatalf("SendRequest: %v", err)
+	}
+
+	item, ok := findItemInState(final, collectionID, itemID)
+	if !ok || item.Response == nil {
+		t.Fatal("no response was recorded")
+	}
+	if item.Response.Status != 200 {
+		t.Errorf("status = %d, want 200 from the mock", item.Response.Status)
+	}
+	if item.Response.Body != `{"served":"by the mock"}` {
+		t.Errorf("body = %q, want the saved example's body", item.Response.Body)
+	}
+	if got := item.Response.Headers["Content-Type"]; !strings.Contains(got, "application/json") {
+		t.Errorf("content type = %q, want the example's", got)
+	}
+
+	// US-073 also requires the mock's own calls to appear in the DevTools
+	// network panel. Two entries are expected: the app's outgoing request and
+	// the mock's handling of it.
+	// Matched on Source, not the URL. The app's own outgoing request and the
+	// mock's handling of it have the SAME URL, so a URL match cannot tell them
+	// apart — a negative control that removed the mock's logging entirely left
+	// a URL-based assertion still passing.
+	var mockEntries, outgoingEntries int
+	for _, entry := range final.NetworkLog {
+		if !strings.Contains(entry.URL, "/self-test") {
+			continue
+		}
+		if entry.Source == "mock" {
+			mockEntries++
+		} else {
+			outgoingEntries++
+		}
+	}
+	if mockEntries == 0 {
+		t.Error("the mock's call never reached the DevTools network log")
+	}
+	if outgoingEntries == 0 {
+		t.Error("the app's own outgoing request is missing from the network log")
+	}
+}
+
+// TestMockCallsAreLoggedForEveryExitPath. The 404 and 400 branches return
+// early, so a log written only on the success path would leave exactly the
+// calls someone is debugging invisible.
+func TestMockCallsAreLoggedForEveryExitPath(t *testing.T) {
+	var logged []NetworkLog
+	var mu sync.Mutex
+	mock, err := startMockServer(mockCollectionFixture(), 0, func(entry NetworkLog) {
+		mu.Lock()
+		logged = append(logged, entry)
+		mu.Unlock()
+	})
+	if err != nil {
+		t.Fatalf("startMockServer: %v", err)
+	}
+	defer func() { _ = mock.stop() }()
+
+	// Success.
+	if _, err := http.Get(mock.status().URL + "/v1/users"); err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	// 404, no such route.
+	if _, err := http.Get(mock.status().URL + "/nothing"); err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	// 400, unknown example name.
+	request, _ := http.NewRequest(http.MethodGet, mock.status().URL+"/v1/users", nil)
+	request.Header.Set(mockSelectionHeader, "missing")
+	if _, err := http.DefaultClient.Do(request); err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(logged) != 3 {
+		t.Fatalf("got %d log entries, want one per call including the error paths", len(logged))
+	}
+
+	statuses := map[int]bool{}
+	for _, entry := range logged {
+		statuses[entry.Status] = true
+		if entry.Method == "" || entry.URL == "" {
+			t.Errorf("incomplete log entry: %+v", entry)
+		}
+	}
+	for _, want := range []int{200, 404, 400} {
+		if !statuses[want] {
+			t.Errorf("no log entry for the %d path", want)
+		}
 	}
 }

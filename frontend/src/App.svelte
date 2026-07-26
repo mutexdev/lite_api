@@ -156,6 +156,10 @@
     RestoreRecoveryEntry,
     ResizeTerminalSession,
     RunCollectionWithOptions,
+    StartMockServer,
+    StopMockServer,
+    MockServerStatusFor,
+    RefreshMockServer,
     ListHistory,
     ClearHistory,
     CreateRequestFromHistory,
@@ -223,7 +227,7 @@
   type DevToolsNetworkDetailTab = 'request' | 'response' | 'network'
   type RequestPaneTab = 'params' | 'body' | 'headers' | 'auth' | 'vars' | 'script' | 'assert' | 'tests' | 'docs' | 'app' | 'settings'
   type ResponseTab = 'response' | 'headers' | 'metadata' | 'trailers' | 'timeline' | 'console' | 'tests' | 'visualizer' | 'examples'
-  type CollectionTab = 'overview' | 'folders' | 'headers' | 'vars' | 'auth' | 'presets' | 'proxy' | 'clientCert' | 'protobuf' | 'script' | 'tests'
+  type CollectionTab = 'overview' | 'folders' | 'headers' | 'vars' | 'auth' | 'presets' | 'mock' | 'proxy' | 'clientCert' | 'protobuf' | 'script' | 'tests'
   type FolderSettingsTab = 'headers' | 'vars' | 'auth' | 'script' | 'tests' | 'docs'
   type EnvironmentVariableTab = 'variables' | 'secrets'
 	  type ImportSourceMode = 'files' | 'url' | 'paste' | 'git'
@@ -756,6 +760,7 @@
     { id: 'vars', label: 'Vars' },
     { id: 'auth', label: 'Auth' },
     { id: 'presets', label: 'Presets' },
+    { id: 'mock', label: 'Mock Server' },
     { id: 'proxy', label: 'Proxy' },
     { id: 'clientCert', label: 'Client Certificates' },
     { id: 'protobuf', label: 'Protobuf' },
@@ -1009,6 +1014,46 @@
   // once here so a change has a single place to happen.
   const visualizerSandboxAttribute = 'allow-scripts'
   let visualizerDocument = ''
+
+  // US-073 — mock server controls. Port 0 means "let the OS choose", which is
+  // the default because a fixed port collides with whatever else is running and
+  // fails at bind time with an error the user then has to diagnose.
+  let mockServerStatus: main.MockServerStatus | undefined
+  let mockServerPort = 0
+
+  async function refreshMockServerStatus(collectionID: string | undefined) {
+    if (!collectionID) {
+      mockServerStatus = undefined
+      return
+    }
+    try {
+      mockServerStatus = await MockServerStatusFor(collectionID)
+    } catch (err) {
+      error = String(err)
+    }
+  }
+
+  async function startMockServer(collectionID: string) {
+    await runAction('start mock server', async () => {
+      mockServerStatus = await StartMockServer(collectionID, Math.max(0, Math.floor(Number(mockServerPort) || 0)))
+    })
+  }
+
+  async function stopMockServer(collectionID: string) {
+    await runAction('stop mock server', async () => {
+      mockServerStatus = await StopMockServer(collectionID)
+    })
+  }
+
+  // Applies collection edits to a running mock without rebinding, so the port
+  // every open client is pointed at survives saving an example.
+  async function refreshMockServerRoutes(collectionID: string) {
+    await runAction('refresh mock server', async () => {
+      mockServerStatus = await RefreshMockServer(collectionID)
+    })
+  }
+
+  $: void refreshMockServerStatus(collectionTab === 'mock' ? activeCollection?.id : undefined)
 
   // US-032. The network log is virtualised: only the rows near the viewport are
   // put in the DOM. Spacer rows above and below carry the height of everything
@@ -10562,6 +10607,46 @@
 		                  <div class="empty-state wide">This collection auth mode is marked partial until its backend signer is implemented.</div>
 		                {/if}
               </div>
+            {:else if collectionTab === 'mock'}
+              {#if activeCollection}
+                <section class="panel-section">
+                  <h3>Mock Server</h3>
+                  <p class="muted">
+                    Answers requests from this collection's saved response examples. Binds to 127.0.0.1 only — a mock replays recorded traffic, which often contains credentials.
+                  </p>
+                  <div class="field-grid">
+                    <label class="field-label" for="mock-port">Port</label>
+                    <input
+                      id="mock-port"
+                      data-testid="mock-port"
+                      type="number"
+                      min="0"
+                      max="65535"
+                      bind:value={mockServerPort}
+                      disabled={mockServerStatus?.running}
+                    />
+                    <span class="muted">0 lets the operating system pick a free port.</span>
+                  </div>
+                  <div class="button-row">
+                    {#if mockServerStatus?.running}
+                      <button type="button" data-testid="mock-stop" on:click={() => stopMockServer(activeCollection.id)} disabled={busy !== ''}>Stop</button>
+                      <button type="button" data-testid="mock-refresh" on:click={() => refreshMockServerRoutes(activeCollection.id)} disabled={busy !== ''}>Reload examples</button>
+                    {:else}
+                      <button class="primary" type="button" data-testid="mock-start" on:click={() => startMockServer(activeCollection.id)} disabled={busy !== ''}>Start</button>
+                    {/if}
+                  </div>
+                  {#if mockServerStatus?.running}
+                    <p data-testid="mock-status">
+                      Running at <code>{mockServerStatus.url}</code> — {mockServerStatus.routes} route{mockServerStatus.routes === 1 ? '' : 's'}.
+                    </p>
+                    <p class="muted">
+                      Send <code>x-mock-response-name</code> to choose a specific example. Calls appear in Dev Tools → Network.
+                    </p>
+                  {:else}
+                    <p class="muted" data-testid="mock-status">Not running.</p>
+                  {/if}
+                </section>
+              {/if}
             {:else if collectionTab === 'presets'}
               <div class="field-grid">
                 <span class="field-label">Request Type</span>

@@ -23,6 +23,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -58,6 +59,11 @@ type mockServer struct {
 	listener     net.Listener
 	server       *http.Server
 	port         int
+	// US-073. Calls are reported to the app so they land in the same DevTools
+	// network panel as real requests. A function rather than an *App so the
+	// server stays testable without one, and so the handler cannot reach into
+	// app state on a goroutine it does not own the locks for.
+	record func(NetworkLog)
 
 	mu     sync.RWMutex
 	routes map[string][]ResponseExample
@@ -161,6 +167,38 @@ func selectMockExample(examples []ResponseExample, requestedName string) (Respon
 
 func (m *mockServer) handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		// Read under a limit rather than with ReadAll: the body is only used
+		// for the log, and an unbounded read lets one client hand the app
+		// however much memory it likes.
+		requestBody, _ := io.ReadAll(io.LimitReader(r.Body, networkLogBodyLimit))
+
+		// The status and size are captured by the closure below so one log
+		// entry covers every exit path, including the 404 and 400 branches
+		// that return early.
+		status := 0
+		var responseBody string
+		defer func() {
+			if m.record == nil {
+				return
+			}
+			m.record(NetworkLog{
+				ID:              newID("network"),
+				Source:          "mock",
+				Method:          r.Method,
+				URL:             fmt.Sprintf("http://127.0.0.1:%d%s", m.port, r.URL.RequestURI()),
+				Status:          status,
+				StatusText:      http.StatusText(status),
+				DurationMs:      time.Since(started).Milliseconds(),
+				Size:            len(responseBody),
+				At:              started,
+				RequestHeaders:  mockHeaderMap(r.Header),
+				RequestBody:     string(requestBody),
+				ResponseHeaders: mockHeaderMap(w.Header()),
+				ResponseBody:    responseBody,
+			})
+		}()
+
 		m.mu.RLock()
 		examples := m.routes[mockRouteKey(r.Method, r.URL.Path)]
 		routeCount := len(m.routes)
@@ -171,17 +209,21 @@ func (m *mockServer) handler() http.Handler {
 			// mock is indistinguishable from a typo in the request, and the
 			// user cannot see the routing table any other way.
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = fmt.Fprintf(w, `{"error":"no saved example matches %s %s","routes":%d}`,
+			status = http.StatusNotFound
+			responseBody = fmt.Sprintf(`{"error":"no saved example matches %s %s","routes":%d}`,
 				r.Method, r.URL.Path, routeCount)
+			w.WriteHeader(status)
+			_, _ = io.WriteString(w, responseBody)
 			return
 		}
 
 		example, err := selectMockExample(examples, r.Header.Get(mockSelectionHeader))
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			_, _ = fmt.Fprintf(w, `{"error":%q}`, err.Error())
+			status = http.StatusBadRequest
+			responseBody = fmt.Sprintf(`{"error":%q}`, err.Error())
+			w.WriteHeader(status)
+			_, _ = io.WriteString(w, responseBody)
 			return
 		}
 
@@ -199,12 +241,13 @@ func (m *mockServer) handler() http.Handler {
 			w.Header().Add(name, header.Value)
 		}
 
-		status := example.Response.Status
+		status = example.Response.Status
 		if status <= 0 {
 			status = http.StatusOK
 		}
+		responseBody = example.Response.Body
 		w.WriteHeader(status)
-		_, _ = w.Write([]byte(example.Response.Body))
+		_, _ = io.WriteString(w, responseBody)
 	})
 }
 
@@ -213,7 +256,19 @@ func (m *mockServer) handler() http.Handler {
 // Port 0 asks the OS for a free port, which is the sane default: a fixed port
 // collides with whatever else the user is running and fails at bind time with
 // an error they then have to diagnose.
-func startMockServer(collection Collection, port int) (*mockServer, error) {
+// mockHeaderMap flattens an http.Header for the network log, which stores a
+// single value per name.
+func mockHeaderMap(header http.Header) map[string]string {
+	out := make(map[string]string, len(header))
+	for name, values := range header {
+		if len(values) > 0 {
+			out[name] = strings.Join(values, ", ")
+		}
+	}
+	return out
+}
+
+func startMockServer(collection Collection, port int, record func(NetworkLog)) (*mockServer, error) {
 	if port < 0 || port > 65535 {
 		return nil, fmt.Errorf("port %d is out of range", port)
 	}
@@ -231,6 +286,7 @@ func startMockServer(collection Collection, port int) (*mockServer, error) {
 		listener:     listener,
 		port:         listener.Addr().(*net.TCPAddr).Port,
 		routes:       buildMockRoutes(collection),
+		record:       record,
 	}
 	mock.server = &http.Server{
 		Handler: mock.handler(),
@@ -312,7 +368,7 @@ func (a *App) StartMockServer(collectionID string, port int) (MockServerStatus, 
 		delete(a.mocks(), collectionID)
 	}
 
-	mock, err := startMockServer(snapshot, port)
+	mock, err := startMockServer(snapshot, port, a.recordMockNetworkLog)
 	if err != nil {
 		return MockServerStatus{}, err
 	}
@@ -373,6 +429,21 @@ func (a *App) RefreshMockServer(collectionID string) (MockServerStatus, error) {
 	}
 	mock.update(snapshot)
 	return mock.status(), nil
+}
+
+// recordMockNetworkLog puts a mock call into the same DevTools network panel
+// as a real request.
+//
+// Takes the state lock itself, because it runs on the mock's own goroutine —
+// the handler must never assume the caller's locking.
+func (a *App) recordMockNetworkLog(entry NetworkLog) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.state.NetworkLog = append([]NetworkLog{entry}, a.state.NetworkLog...)
+	if len(a.state.NetworkLog) > 100 {
+		a.state.NetworkLog = a.state.NetworkLog[:100]
+	}
+	_ = a.markDirty(persistScopeState)
 }
 
 // stopAllMockServers is called on shutdown. A listener left bound outlives the
