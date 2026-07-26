@@ -23,19 +23,28 @@ evidence for each story; this file carries the cross-story findings.
 --- STATUS BOARD (update this every story) ---
   Branch: ralph/postman-switchable-v2   Spec: improvement_v2.md   Stories: 73
 
-  PASSED (26, incl. bug fixes US-075 + US-076):
+  PASSED (27, incl. bug fixes US-075 + US-076):
     Phase 0  US-002 US-003 US-004 US-005 US-006 US-007
     Phase 1  US-008 US-012 US-013 US-014 US-015 US-016 US-017 US-018
              US-020 US-021 US-022 US-023 US-024
-    Phase 2  US-025 US-030 US-035 US-038
-  PHASE 1 REMAINING (4):
+    Phase 2  US-025 US-030 US-035 US-036 US-038
+
+  US-036 COMPLETE — initial JS chunk 1,159,933 -> 463,476 bytes (60.0% smaller,
+    36,524 under the 500 KB target). Every dialog and panel now loads only when
+    its surface opens: 29 dialogs, the Runner panel, all 7 Preferences sections,
+    all 4 DevTools tabs, the Import panel, and CodeMirror.
+
+  REMAINING (4 stories + carried debts):
     US-009 US-010 US-011  response body store — the highest-risk trio in the
-                          whole document; a mistake corrupts saved data rather
-                          than merely being slow. US-009 must go first.
-    US-019                goja runtime pool.
-  NEXT UP: US-025 (it BLOCKS finishing US-036), then US-019, then
-  US-009/010/011 as a deliberate unit.
-  After Phase 1: Phase 2 (US-025..US-037), and US-077 BEFORE Phase 4.
+                          document; a mistake corrupts saved data rather than
+                          merely being slow. US-009 must go first.
+    US-019                goja runtime pool. Analysis in this log: the
+                          sync.Pool criterion is not achievable as written
+                          (shims close over per-request state); the 4->2
+                          runtime sharing is, with the TimelinePhase hazard.
+  THEN: Phase 3 (US-039..US-059), Phase 4 (US-060..US-071) — with US-077 FIRST —
+  and Phase 5 (US-072..US-074), all untouched.
+
   BROWSER QA — DONE for US-014 and US-021 against the real Wails dev endpoint
     (localhost:34115, which carries the Go bindings; NOT vite's 5173, which does
     not). US-014: revision deltas [1,1,1] through the real bridge, narrow payload
