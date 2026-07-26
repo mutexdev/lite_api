@@ -5274,3 +5274,30 @@ US-026 - Store layer. DONE. Both named collapses complete.
   Two controls needed rewriting before they measured anything: one escaped
   wrongly through two layers of shell quoting (moved to a Python driver), and
   one left a variable unused so it did not compile. Neither was a test gap.
+
+--- The oauth_body_hash parameter, and integer coercion — 43% -> 100% ---
+
+  A body hash binds a request's body to its signature so a proxy cannot swap the
+  body while the signature still verifies. It only does that if the digest
+  matches the one the SERVER computes, and the server picks its algorithm from
+  the signature method. A mismatch is not a local error: the request goes out,
+  the server recomputes a different digest, and the response is a 401 saying
+  nothing about which side hashed differently.
+
+  SHA-1 is the default, and that is a COMPATIBILITY requirement rather than a
+  security choice: OAuth 1.0a's body-hash extension specifies it for HMAC-SHA1
+  and PLAINTEXT, and the digest's job here is to match whatever the server used.
+  The method name is matched exactly — accepting "hmac-sha256" would produce a
+  SHA-1 digest under a SHA-256 signature, the exact mismatch these tests exist
+  to catch.
+
+  IntValueOK's second return is the whole point: the same setting is an int, a
+  float64 after a JSON round trip, or a string from a form field, and a caller
+  that ignores the ok and takes the zero gets a timeout of 0 or a redirect limit
+  of 0 — meaningful settings that nobody chose. "Unreadable" and "zero" are
+  asserted as distinguishable in both directions.
+
+  A control's failure count came back BLANK rather than zero. The mutation
+  returned raw digest bytes, so grep saw binary and stopped reporting matches;
+  with -a it shows 2 failing. A blank is not a zero, and I nearly filed it as
+  one.
