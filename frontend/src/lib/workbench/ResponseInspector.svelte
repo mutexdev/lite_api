@@ -13,6 +13,10 @@
   export let selectedView = 'pretty'
   export let timeline: main.TimelineItem[] = []
   export let scriptLogs: Array<{ level: string; message: string }> = []
+  // US-058. The document is built in Go so the CSP and escaping are covered by
+  // Go tests; this component supplies only the sandbox attribute.
+  export let visualizerDocument = ''
+  export let visualizerSandbox = 'allow-scripts'
   // US-021/US-022. The accumulated live-session log, pushed event by event.
   // The response body now carries only a trailing window, so this is what makes
   // a long session's full history visible while it is open.
@@ -310,6 +314,24 @@
       <div class="empty-state">No timeline entries match this filter.</div>
     {:else}
       <div class="timeline">{#each filteredTimeline as entry, index (`${entry.id}:${entry.phase ?? ''}:${entry.at ?? ''}:${index}`)}<article class="timeline-entry"><button type="button" aria-expanded={expandedTimelineID === entry.id} on:click={() => expandedTimelineID = expandedTimelineID === entry.id ? '' : entry.id}><span>{entry.status || entry.statusText || '-'}</span><strong>{entry.method || entry.kind}</strong><span>{entry.url || entry.message}</span><small>{timelinePhase(entry)} · {entry.duration || 0} ms</small></button>{#if expandedTimelineID === entry.id}<div class="timeline-detail">{#if entry.sourceFile}<small>Source: {entry.sourceFile}</small>{/if}{#if entry.source}<small>Kind/source: {entry.kind} · {entry.source}</small>{/if}<code>{entry.error || entry.payload || entry.message}</code>{#if (entry.metadata?.length ?? 0) > 0}<table data-testid="timeline-grpc-metadata"><tbody>{#each entry.metadata ?? [] as row, index (index)}<tr><td>{row.name}</td><td>{row.value}</td></tr>{/each}</tbody></table>{/if}{#if (entry.trailers?.length ?? 0) > 0}<table data-testid="timeline-grpc-trailers"><tbody>{#each entry.trailers ?? [] as row, index (index)}<tr><td>{row.name}</td><td>{row.value}</td></tr>{/each}</tbody></table>{/if}</div>{/if}</article>{/each}</div>
+    {/if}
+  {:else if selectedTab === 'visualizer'}
+    {#if !visualizerDocument}
+      <div class="empty-state">No visualizer. Call pm.visualizer.set(template, data) in a script.</div>
+    {:else}
+      <!--
+        sandbox WITHOUT allow-same-origin is the containment. Adding it would
+        put this frame in the app's origin, where it could read localStorage
+        and script the parent — and the attribute would still look like a
+        sandbox in the markup. The CSP inside the document denies the network.
+      -->
+      <iframe
+        class="visualizer-frame"
+        data-testid="response-visualizer"
+        title="Response visualizer"
+        sandbox={visualizerSandbox}
+        srcdoc={visualizerDocument}
+      ></iframe>
     {/if}
   {:else if selectedTab === 'console'}
     {#if scriptLogs.length === 0}<div class="empty-state">No console output</div>{:else}<div class="console-log-list">{#each scriptLogs as log, index (index)}<div class={`console-row ${log.level || 'log'}`}><span>{log.level || 'log'}</span><code>{log.message}</code></div>{/each}</div>{/if}

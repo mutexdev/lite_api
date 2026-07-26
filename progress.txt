@@ -1700,3 +1700,57 @@ US-057 - Postman keybinding preset. DONE.
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 37.7s 0,
   -race clean, svelte-check 201/0/0, eslint 0, npm test 158/158 (+13).
+
+US-058 - Visualizer. DONE.
+  pm.visualizer.set(template, data) -> Response.Visualizer, carried through
+  scriptControls so a visualizer set in ANY phase reaches the response (the
+  pre-request script runs before a response exists), later phase winning.
+  VisualizerDocument binding builds the srcdoc; a Visualizer response tab
+  renders it in a sandboxed iframe, and the tab appears only when a script
+  actually set one - an always-present empty tab teaches people to ignore it.
+
+  THIS RENDERS ATTACKER-INFLUENCED CONTENT: the template comes from whoever
+  wrote the collection, the data from whatever the server returned. Three
+  INDEPENDENT layers, each tested separately because they fail independently
+  and every failure is silent - a missing CSP still renders correctly, an
+  unescaped value still renders correctly, right up until someone controls the
+  data.
+
+  1. sandbox="allow-scripts" WITHOUT allow-same-origin. This pairing is the
+     whole thing. Granting both puts the frame in the app's origin where it can
+     read localStorage, reach document.cookie and script the parent - and the
+     attribute still LOOKS like a sandbox in the diff.
+  2. CSP default-src 'none' inside the document. Without it a template could
+     exfiltrate the response it was handed by encoding it into an image URL,
+     and the sandbox would not stop that: an opaque origin can still make
+     requests. 'unsafe-inline' for script/style is safe ONLY because every
+     destination is denied.
+  3. HTML escaping in {{ }}. Containment is not a licence to let the frame's
+     own DOM be hijacked; the template author's markup and the server's data
+     are different trust levels. {{{ }}} is raw, deliberately, and tested as a
+     distinction rather than an accident of the parser.
+
+  The template engine is a BOUNDED Handlebars subset ({{path}}, {{{path}}},
+  #each with {{this}}/{{@index}}, #if/#else). Unrecognised helpers are left
+  VISIBLE rather than dropped: a partial Handlebars that silently ignores what
+  it does not know renders a plausible-but-wrong page, which is worse than a
+  visible gap.
+
+  MY OWN TEST HAD A FALSE POSITIVE THAT NEARLY SENT ME TO EDIT UNRELATED CODE.
+  TestFrontendSandboxMatchesTheGoConstant first searched the WHOLE
+  ResponseInspector.svelte for "allow-same-origin" and " src=" and failed - on
+  a PRE-EXISTING PDF-preview iframe at line 265 that uses
+  sandbox="allow-same-origin" with a data: URL. That one is not a bug: it
+  grants no allow-scripts, so nothing can execute in it. I scoped the test to
+  the visualizer's own tag instead of "fixing" code this story does not own.
+  Flagged to the user rather than silently changed.
+
+  Negative controls, all five run and all five caught:
+    sandbox gains allow-same-origin (Go)    constant test fails
+    CSP default-src *                       strict-CSP test fails
+    interpolation stops escaping            script tag injected, attr broken out
+    unsupported helper dropped              rendered "abc"
+    iframe markup gains allow-same-origin   drift guard fails
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 38.4s 0,
+  svelte-check 201/0/0, eslint 0, npm test 158/158.

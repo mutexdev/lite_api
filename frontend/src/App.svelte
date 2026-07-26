@@ -154,6 +154,7 @@
     RestoreRecoveryEntry,
     ResizeTerminalSession,
     RunCollectionWithOptions,
+    VisualizerDocument,
     SelectRunnerDataFile,
     SaveResponseExample,
 		SetCollectionGitRemote,
@@ -216,7 +217,7 @@
   type DevToolsNetworkSortDirection = '' | 'asc' | 'desc'
   type DevToolsNetworkDetailTab = 'request' | 'response' | 'network'
   type RequestPaneTab = 'params' | 'body' | 'headers' | 'auth' | 'vars' | 'script' | 'assert' | 'tests' | 'docs' | 'app' | 'settings'
-  type ResponseTab = 'response' | 'headers' | 'metadata' | 'trailers' | 'timeline' | 'console' | 'tests' | 'examples'
+  type ResponseTab = 'response' | 'headers' | 'metadata' | 'trailers' | 'timeline' | 'console' | 'tests' | 'visualizer' | 'examples'
   type CollectionTab = 'overview' | 'folders' | 'headers' | 'vars' | 'auth' | 'presets' | 'proxy' | 'clientCert' | 'protobuf' | 'script' | 'tests'
   type FolderSettingsTab = 'headers' | 'vars' | 'auth' | 'script' | 'tests' | 'docs'
   type EnvironmentVariableTab = 'variables' | 'secrets'
@@ -707,6 +708,7 @@
     { id: 'timeline', label: 'Timeline' },
     { id: 'console', label: 'Console' },
     { id: 'tests', label: 'Tests' },
+    { id: 'visualizer', label: 'Visualizer' },
     { id: 'examples', label: 'Examples' }
   ]
 
@@ -983,7 +985,30 @@
   $: appZoomPercentage = normalizedZoomPercentage(state?.preferences?.display?.zoomPercentage)
   $: codeFont = normalizedCodeFont(state?.preferences?.font?.codeFont)
   $: codeFontSize = normalizedCodeFontSize(state?.preferences?.font?.codeFontSize ?? state?.preferences?.codeFontSize)
-  $: activeResponseTabs = activeRequest?.type === 'grpc' ? responseTabs : responseTabs.filter((tab) => tab.id !== 'metadata' && tab.id !== 'trailers')
+  $: activeResponseTabs = (activeRequest?.type === 'grpc' ? responseTabs : responseTabs.filter((tab) => tab.id !== 'metadata' && tab.id !== 'trailers'))
+    // US-058. Shown only when a script set a visualizer. A tab that is always
+    // there and always empty teaches people to ignore it.
+    .filter((tab) => tab.id !== 'visualizer' || Boolean(activeRequest?.response?.visualizer))
+
+  // Fetched from the backend rather than assembled here so the CSP and the
+  // escaping stay under Go's tests; the frontend supplies only the sandbox.
+  // Mirrors VisualizerSandbox in visualizer.go, which a Go test pins. Declared
+  // once here so a change has a single place to happen.
+  const visualizerSandboxAttribute = 'allow-scripts'
+  let visualizerDocument = ''
+  $: void loadVisualizerDocument(activeCollection?.id, activeRequest?.id, activeRequest?.response?.visualizer)
+
+  async function loadVisualizerDocument(collectionID: string | undefined, itemID: string | undefined, payload: main.VisualizerPayload | undefined) {
+    if (!collectionID || !itemID || !payload) {
+      visualizerDocument = ''
+      return
+    }
+    try {
+      visualizerDocument = await VisualizerDocument(collectionID, itemID)
+    } catch {
+      visualizerDocument = ''
+    }
+  }
   $: if (activeRequest?.type !== 'grpc' && (responseTab === 'metadata' || responseTab === 'trailers')) responseTab = 'headers'
   $: if (activeCollection && selectedFolderPath && !(activeCollection.folders ?? []).some((folder) => folder.path === selectedFolderPath)) {
     selectedFolderPath = ''
@@ -9450,6 +9475,8 @@
             <div class="response-content" id={`response-panel-${responseTab}`} role="tabpanel" aria-labelledby={`response-tab-${responseTab}`} tabindex="0">
               {#if responseTab !== 'examples'}
                 <ResponseInspector
+                  {visualizerDocument}
+                  visualizerSandbox={visualizerSandboxAttribute}
                   request={activeRequest}
                   selectedTab={responseTab}
                   selectedView={responseView}

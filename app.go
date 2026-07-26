@@ -715,20 +715,23 @@ type Response struct {
 	// omitempty on both: a state.json written before this step has neither, and
 	// a response whose body was never stored should not carry empty strings
 	// into every persist.
-	BodyHandle   string          `json:"bodyHandle,omitempty"`
-	BodyHead     string          `json:"bodyHead,omitempty"`
-	Size         int             `json:"size"`
-	DurationMs   int64           `json:"durationMs"`
-	Error        string          `json:"error"`
-	Cancelled    bool            `json:"cancelled,omitempty"`
-	PreviewMode  string          `json:"previewMode"`
-	TestResults  []TestResult    `json:"testResults"`
-	ScriptLogs   []ScriptLog     `json:"scriptLogs"`
-	Assertions   []Assertion     `json:"assertions"`
-	RequestedURL string          `json:"requestedUrl"`
-	SentAt       time.Time       `json:"sentAt"`
-	Cookies      []CookieEntry   `json:"cookies"`
-	Timings      ResponseTimings `json:"timings"`
+	BodyHandle string `json:"bodyHandle,omitempty"`
+	BodyHead   string `json:"bodyHead,omitempty"`
+	// US-058. Set by pm.visualizer.set. Rendered only inside a sandboxed
+	// iframe — see visualizer.go for why the containment is three layers.
+	Visualizer   *VisualizerPayload `json:"visualizer,omitempty"`
+	Size         int                `json:"size"`
+	DurationMs   int64              `json:"durationMs"`
+	Error        string             `json:"error"`
+	Cancelled    bool               `json:"cancelled,omitempty"`
+	PreviewMode  string             `json:"previewMode"`
+	TestResults  []TestResult       `json:"testResults"`
+	ScriptLogs   []ScriptLog        `json:"scriptLogs"`
+	Assertions   []Assertion        `json:"assertions"`
+	RequestedURL string             `json:"requestedUrl"`
+	SentAt       time.Time          `json:"sentAt"`
+	Cookies      []CookieEntry      `json:"cookies"`
+	Timings      ResponseTimings    `json:"timings"`
 }
 
 type ResponseExample struct {
@@ -6521,6 +6524,9 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 	// still authoritative, so a failed cache write must not fail a request the
 	// user just saw succeed. See migrateResponseBodiesLocked for where that
 	// contract inverts.
+	if controls.Visualizer != nil {
+		response.Visualizer = controls.Visualizer
+	}
 	_ = a.attachResponseBody(&response)
 	item.Response = &response
 	item.Timeline = append(item.Timeline, scriptTimeline...)
@@ -17935,11 +17941,13 @@ type scriptRequestState struct {
 	maxRedirects               int
 	disableParsingResponseJSON bool
 	runtime                    *goja.Runtime
-	skipRequest                bool
-	stopExecution              bool
-	nextRequestSet             bool
-	nextRequestName            *string
-	onFail                     goja.Value
+	// US-058. Set by pm.visualizer.set, applied to the response afterwards.
+	visualizer      *VisualizerPayload
+	skipRequest     bool
+	stopExecution   bool
+	nextRequestSet  bool
+	nextRequestName *string
+	onFail          goja.Value
 }
 
 type scriptControls struct {
@@ -17947,6 +17955,11 @@ type scriptControls struct {
 	StopExecution   bool
 	NextRequestSet  bool
 	NextRequestName *string
+	// US-058. Carried through the same merge as the other controls so a
+	// visualizer set in ANY phase reaches the response, with a later phase
+	// winning — a tests script refining what the post-response script set is
+	// the normal case, not a conflict.
+	Visualizer *VisualizerPayload
 }
 
 type scriptRuntimeMeta struct {
@@ -18016,6 +18029,9 @@ func (controls *scriptControls) merge(state *scriptRequestState) {
 	if state.nextRequestSet {
 		controls.NextRequestSet = true
 		controls.NextRequestName = state.nextRequestName
+	}
+	if state.visualizer != nil {
+		controls.Visualizer = state.visualizer
 	}
 }
 
@@ -18896,7 +18912,7 @@ func newScriptRuntimeWithMeta(item RequestItem, response Response, vars map[stri
 		}
 		return goja.Undefined()
 	})
-	installPostmanScriptAPI(runtime, bruObject, reqObject, resObject, scriptVars, response, item, meta)
+	installPostmanScriptAPI(runtime, bruObject, reqObject, resObject, scriptVars, reqState, response, item, meta)
 	return runtime, reqObject, reqState, resObject
 }
 
@@ -18912,7 +18928,7 @@ func newScriptRuntimeWithMeta(item RequestItem, response Response, vars map[stri
 // This is the core only. pm.environment / pm.collectionVariables / pm.globals
 // (US-040), pm.request / pm.response (US-041), pm.sendRequest / pm.cookies
 // (US-042) and pm.iterationData / pm.vault (US-043) land separately.
-func installPostmanScriptAPI(runtime *goja.Runtime, bruObject, reqObject, resObject *goja.Object, scriptVars *scriptVariableContext, response Response, item RequestItem, meta scriptRuntimeMeta) {
+func installPostmanScriptAPI(runtime *goja.Runtime, bruObject, reqObject, resObject *goja.Object, scriptVars *scriptVariableContext, reqState *scriptRequestState, response Response, item RequestItem, meta scriptRuntimeMeta) {
 	pm := runtime.NewObject()
 	_ = pm.Set("test", runtime.Get("test"))
 	_ = pm.Set("expect", runtime.Get("expect"))
@@ -18920,6 +18936,7 @@ func installPostmanScriptAPI(runtime *goja.Runtime, bruObject, reqObject, resObj
 	installPostmanRequestAPI(runtime, pm, reqObject, item)
 	installPostmanSideEffects(runtime, pm, bruObject)
 	installPostmanIterationData(runtime, pm, scriptVars)
+	installPostmanVisualizer(runtime, pm, reqState)
 	installPostmanVault(runtime, pm, bruObject)
 	// pm.response is deliberately ABSENT during the pre-request phase, because
 	// there is no response yet. The alternative — exposing the zero Response —
@@ -44123,6 +44140,38 @@ func brunoWorkspaceEnvironmentUIDForPath(path string) string {
 		return uid
 	}
 	return uid + strings.Repeat("0", 21-len(uid))
+}
+
+// installPostmanVisualizer implements pm.visualizer.set (US-058).
+//
+// Recorded on the request state rather than applied to the response directly:
+// the pre-request script runs before a response exists, and a visualizer set
+// there must still reach the response that follows.
+func installPostmanVisualizer(runtime *goja.Runtime, pm *goja.Object, reqState *scriptRequestState) {
+	visualizer := runtime.NewObject()
+	_ = visualizer.Set("set", func(call goja.FunctionCall) goja.Value {
+		template := call.Argument(0).String()
+		data := ""
+		if len(call.Arguments) > 1 {
+			value := call.Argument(1)
+			if value != nil && !goja.IsUndefined(value) && !goja.IsNull(value) {
+				if encoded, err := json.Marshal(value.Export()); err == nil {
+					data = string(encoded)
+				}
+			}
+		}
+		payload, err := normalizeVisualizerPayload(VisualizerPayload{Template: template, Data: data})
+		if err != nil {
+			// Thrown rather than silently dropped: a template over the limit
+			// that vanished would leave an empty Visualizer tab and no reason.
+			panic(runtime.NewGoError(err))
+		}
+		if reqState != nil {
+			reqState.visualizer = &payload
+		}
+		return goja.Undefined()
+	})
+	_ = pm.Set("visualizer", visualizer)
 }
 
 // installPostmanIterationData exposes the runner data file's current row

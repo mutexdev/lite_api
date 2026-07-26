@@ -1128,6 +1128,20 @@ export namespace main {
 	        this.message = source["message"];
 	    }
 	}
+	export class VisualizerPayload {
+	    template: string;
+	    data?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new VisualizerPayload(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.template = source["template"];
+	        this.data = source["data"];
+	    }
+	}
 	export class Response {
 	    status: number;
 	    statusText: string;
@@ -1139,6 +1153,7 @@ export namespace main {
 	    bodyBase64: string;
 	    bodyHandle?: string;
 	    bodyHead?: string;
+	    visualizer?: VisualizerPayload;
 	    size: number;
 	    durationMs: number;
 	    error: string;
@@ -1169,6 +1184,7 @@ export namespace main {
 	        this.bodyBase64 = source["bodyBase64"];
 	        this.bodyHandle = source["bodyHandle"];
 	        this.bodyHead = source["bodyHead"];
+	        this.visualizer = this.convertValues(source["visualizer"], VisualizerPayload);
 	        this.size = source["size"];
 	        this.durationMs = source["durationMs"];
 	        this.error = source["error"];
@@ -3679,6 +3695,7 @@ export namespace main {
 	        this.scratch = source["scratch"];
 	    }
 	}
+	
 	
 	
 	

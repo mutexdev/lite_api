@@ -698,6 +698,10 @@ export function UpdateResponseExample(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['UpdateResponseExample'](arg1, arg2, arg3, arg4);
 }
 
+export function VisualizerDocument(arg1, arg2) {
+  return window['go']['main']['App']['VisualizerDocument'](arg1, arg2);
+}
+
 export function WriteTerminalSession(arg1, arg2) {
   return window['go']['main']['App']['WriteTerminalSession'](arg1, arg2);
 }

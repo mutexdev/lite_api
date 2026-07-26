@@ -350,4 +350,6 @@ export function UpdateRequestNarrow(arg1:string,arg2:string,arg3:main.RequestPat
 
 export function UpdateResponseExample(arg1:string,arg2:string,arg3:string,arg4:main.ResponseExample):Promise<main.AppState>;
 
+export function VisualizerDocument(arg1:string,arg2:string):Promise<string>;
+
 export function WriteTerminalSession(arg1:string,arg2:string):Promise<main.TerminalSession>;
