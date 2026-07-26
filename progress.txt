@@ -23,11 +23,11 @@ evidence for each story; this file carries the cross-story findings.
 --- STATUS BOARD (update this every story) ---
   Branch: ralph/postman-switchable-v2   Spec: improvement_v2.md   Stories: 73
 
-  PASSED (25, incl. bug fixes US-075 + US-076):
+  PASSED (26, incl. bug fixes US-075 + US-076):
     Phase 0  US-002 US-003 US-004 US-005 US-006 US-007
     Phase 1  US-008 US-012 US-013 US-014 US-015 US-016 US-017 US-018
              US-020 US-021 US-022 US-023 US-024
-    Phase 2  US-030 US-035 US-038
+    Phase 2  US-025 US-030 US-035 US-038
   PHASE 1 REMAINING (4):
     US-009 US-010 US-011  response body store — the highest-risk trio in the
                           whole document; a mistake corrupts saved data rather
@@ -56,7 +56,7 @@ evidence for each story; this file carries the cross-story findings.
     US-077 (internal/ layout) MUST land BEFORE Phase 4 (US-060..US-071), or
     all nine package extractions get moved twice.
 
---- US-025 — extract inlined modals (27 of 29; a real a11y bug fixed) ---
+--- US-025 — extract inlined modals (PASSED: 29 of 29; real a11y bug fixed) ---
   THE STORY'S PREMISE WAS WRONG, and measuring first is the whole value here.
   It asks that focus traps, inert app-shell blocking, returnFocus with
   preventScroll, aria-modal and aria-labelledby stay "intact" through the
@@ -71,13 +71,16 @@ evidence for each story; this file carries the cross-story findings.
   extraction would have copied it into 29 tidy files and the story would have
   "passed".
 
-  lib/modals/Modal.svelte now IMPLEMENTS the four guarantees once. 27 of 29
-  dialogs converted. App.svelte 13,340 -> 13,232 lines.
+  lib/modals/Modal.svelte now IMPLEMENTS the four guarantees once. ALL 29
+  dialogs converted; the only role="dialog" left in App.svelte is a
+  querySelector guard in script. App.svelte 13,340 -> 13,204 lines.
 
-  Retired as redundant: handleCreationDialogKeydown,
-  handleCommandPaletteKeydown, handleTabLifecycleDialogKeydown, and the
+  Retired as redundant: handleCreationDialogKeydown, handleCommandPaletteKeydown,
+  handleTabLifecycleDialogKeydown, handleImportReplaceConfirmationKeydown, the
+  shared containModalTab helper, and the
   `inert={creationOpen || commandPaletteOpen}` binding — which was always only
   half the story, since Modal applies inert for EVERY dialog rather than two.
+  All per-dialog focus machinery is now gone from App.svelte.
 
   METHOD THAT MADE 20 BULK EDITS SAFE: a script that finds each dialog's
   matching close by tracking div depth and derives onClose from the header's
@@ -92,12 +95,12 @@ evidence for each story; this file carries the cross-story findings.
   inert lifted on close with no leak. command-palette matters most — it is one
   of the two that previously DID work, so it is the regression risk.
 
-  NOT VERIFIED: the new-request dialog. Its trigger is a menu I could not drive
-  from script, so it was never opened. Typechecks and builds, but the runtime
-  guarantees are unexercised — recorded rather than assumed.
-
-  2 REMAIN: import-replace-confirmation (own returnFocus bookkeeping) and
-  oauth2-auth (wraps an iframe surface).
+  new-request, flagged unverified in the previous entry, is now verified too:
+  inert while open, 0 reachable behind, focus could not escape, Escape closed,
+  inert lifted. Note Cmd+N did NOT open it from a synthetic KeyboardEvent even
+  though the button advertises the shortcut — the "+ New" button route did. Not
+  investigated further; it may be a real shortcut-binding gap or simply that the
+  handler needs a trusted event.
 
 --- US-036 — split the frontend bundle (PARTIAL — blocked on US-025) ---
   MEASURED: initial JS 1,159,933 -> 533,898 bytes (54% smaller). CodeMirror

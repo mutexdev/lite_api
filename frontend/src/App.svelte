@@ -3758,15 +3758,6 @@
     await applyPlannedImport()
   }
 
-  function handleImportReplaceConfirmationKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      event.stopPropagation()
-      void cancelImportReplaceConfirmation()
-      return
-    }
-    containModalTab(event)
-  }
 
 	  async function applyPlannedImport() {
 	    if (importApplyInFlight || !importDestinationWorkspaceID || importReadyRows.length === 0) return
@@ -6476,24 +6467,6 @@
     creationReturnFocus = null
   }
 
-  function containModalTab(event: KeyboardEvent) {
-    if (event.key !== 'Tab') return false
-    const dialog = event.currentTarget as HTMLElement
-    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
-      'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
-    )).filter((element) => element.offsetParent !== null)
-    if (focusable.length === 0) return false
-    const first = focusable[0]
-    const last = focusable[focusable.length - 1]
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault()
-      last.focus()
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault()
-      first.focus()
-    }
-    return true
-  }
 
 
   async function submitCreationFlow() {
@@ -11972,17 +11945,13 @@
 {/if}
 
 {#if importReplaceConfirmationOpen}
-  <div class="prompt-backdrop">
-    <div
-      class="prompt-dialog"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="import-replace-confirmation-title"
-      aria-describedby="import-replace-confirmation-description"
-      tabindex="-1"
-      data-testid="import-replace-confirmation-modal"
-      on:keydown={handleImportReplaceConfirmationKeydown}
-    >
+  <Modal
+    labelledBy="import-replace-confirmation-title"
+    describedBy="import-replace-confirmation-description"
+    onClose={() => void cancelImportReplaceConfirmation()}
+    testId="import-replace-confirmation-modal"
+    closeOnBackdrop={false}
+  >
       <header>
         <h2 id="import-replace-confirmation-title">Replace existing collections?</h2>
       </header>
@@ -11991,8 +11960,7 @@
         <button type="button" bind:this={importReplaceConfirmationCancelButton} data-testid="import-replace-confirmation-cancel" on:click={cancelImportReplaceConfirmation}>Cancel</button>
         <button class="danger-button" type="button" data-testid="import-replace-confirmation-confirm" on:click={confirmImportReplace}>Replace collections</button>
       </div>
-    </div>
-  </div>
+    </Modal>
 {/if}
 
 {#if workspaceWindowPickerOpen}
@@ -12158,8 +12126,13 @@
 {/if}
 
 {#if oauth2AuthorizationRequest}
-  <div class="prompt-backdrop oauth2-auth-backdrop">
-    <div class="prompt-dialog oauth2-auth-dialog" role="dialog" aria-modal="true" aria-labelledby="oauth2-auth-title">
+  <Modal
+    labelledBy="oauth2-auth-title"
+    onClose={closeOAuth2Authorization}
+    dialogClass="prompt-dialog oauth2-auth-dialog"
+    backdropClass="prompt-backdrop oauth2-auth-backdrop"
+    closeOnBackdrop={false}
+  >
       <header>
         <h2 id="oauth2-auth-title">OAuth2 Authorization</h2>
         <button type="button" class="icon-button" title="Close" on:click={closeOAuth2Authorization}>x</button>
@@ -12189,8 +12162,7 @@
       {#if oauth2CallbackMessage}
         <p class="oauth2-auth-message">{oauth2CallbackMessage}</p>
       {/if}
-    </div>
-  </div>
+    </Modal>
 {/if}
 
 {#if creatingResponseExample && activeRequest}
