@@ -6,16 +6,16 @@
   // That is the same decomposition that made Preferences tractable, applied to
   // a snippet rather than a branch. The tab is only rendered when selected, so
   // the dynamic import loads on first use of the Performance tab specifically.
-  import type { main } from '../../../../wailsjs/go/models'
+  import type { types } from '../../../../wailsjs/go/models'
 
-  export let devToolsSnapshot: main.DevToolsSnapshot | null | undefined
-  export let devToolsPerformanceProcesses: main.DevToolsProcessMetric[]
+  export let devToolsSnapshot: types.DevToolsSnapshot | null | undefined
+  export let devToolsPerformanceProcesses: types.DevToolsProcessMetric[]
   export let displayedDevToolsCPUPercent: number | undefined
   export let displayedDevToolsMemoryBytes: number | undefined
   export let displayedDevToolsUptimeSeconds: number | undefined
   export let devToolsPerformanceView: string
   export let displayedDevToolsPID: number | undefined
-  export let selectedDevToolsPerformanceProcess: main.DevToolsProcessMetric | undefined
+  export let selectedDevToolsPerformanceProcess: types.DevToolsProcessMetric | undefined
   export let formatCPUPercent: (value: number | undefined) => string
   export let formatRuntimeBytes: (bytes: number | undefined) => string
   export let formatUptime: (seconds: number | undefined) => string

@@ -3,10 +3,10 @@
   // markup is not in the initial chunk. Preferences is decomposed section by
   // section: as a whole it carries ~60 props, but each <section> needs only a
   // handful.
-  import type { main, types } from '../../../../wailsjs/go/models'
+  import type { types } from '../../../../wailsjs/go/models'
 
-  export let state: main.AppState
-  export let preferencesProxyMode: (preferences: main.Preferences | undefined) => 'pac' | 'inherit' | 'off' | 'manual'
+  export let state: types.AppState
+  export let preferencesProxyMode: (preferences: types.Preferences | undefined) => 'pac' | 'inherit' | 'off' | 'manual'
   export let updatePreferencesProxy: (patch: Record<string, unknown>) => void
   export let updatePreferencesProxyAuth: (patch: Record<string, unknown>) => void
   export let updatePreferencesProxyConfig: (patch: Record<string, unknown>) => void

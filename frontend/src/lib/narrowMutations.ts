@@ -29,9 +29,9 @@
 //     happen, but treating "impossible" as "need not be handled" is how a
 //     desynchronised UI becomes permanent; recovery costs one GetState.
 
-import type { main } from '../../wailsjs/go/models'
+import type { main, types } from '../../wailsjs/go/models'
 
-export type AppStateLike = main.AppState
+export type AppStateLike = types.AppState
 
 /** What the caller must do after applying a narrow result. */
 export type MergeOutcome =

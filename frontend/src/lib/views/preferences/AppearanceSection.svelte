@@ -10,7 +10,7 @@
   //
   // App.svelte imports it dynamically from inside the preferences branch, so it
   // loads only when a user opens Preferences.
-  import type { main } from '../../../../wailsjs/go/models'
+  import type { types } from '../../../../wailsjs/go/models'
 
   // Mirrors App.svelte's local ThemeMode. Checked first whether it was
   // exported anywhere importable — it is not, unlike WorkbenchCommandID, which
@@ -20,7 +20,7 @@
   type ThemeMode = 'system' | 'light' | 'dark'
   type ThemeVariant = { id: string; name: string; preview: Record<string, string> }
 
-  export let state: main.AppState
+  export let state: types.AppState
   export let selectedThemeMode: ThemeMode
   export let themeModes: Array<{ id: ThemeMode; label: string }>
   export let lightThemeVariants: ThemeVariant[]

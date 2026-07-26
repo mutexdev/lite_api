@@ -1,10 +1,10 @@
 <script lang="ts">
   // US-036 — the Remove Collection confirmation, lifted out of App.svelte so its markup is not in the
   // initial chunk. Imported dynamically from inside the {#if} that gates it.
-  import type { main } from '../../../../wailsjs/go/models'
+  import type { types } from '../../../../wailsjs/go/models'
   import Modal from '../Modal.svelte'
 
-  export let removeCollectionTarget: main.Collection
+  export let removeCollectionTarget: types.Collection
   export let busy: string
   export let confirmRemoveCollection: () => void
   export let cancelRemoveCollectionModal: () => void

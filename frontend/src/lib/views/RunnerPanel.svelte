@@ -7,7 +7,7 @@
   // First of the four VIEW panels. DevTools cannot be done this way: its branch
   // is a single {@render devToolsPanel()} and the markup lives in a Svelte 5
   // snippet elsewhere in App.svelte.
-  import type { main } from '../../../wailsjs/go/models'
+  import type { types } from '../../../wailsjs/go/models'
 
   // Bindable: the delay field writes back to App.svelte.
   export let runnerDelayMs: number
@@ -17,13 +17,13 @@
   export let chooseRunnerDataFile: () => void
   export let normalizedRunnerIterations: (value: number) => number
 
-  export let state: main.AppState
+  export let state: types.AppState
   export let busy: string
   export let activeCollectionRun: { collectionName: string } | undefined
   export let collectionRunCancellationRequested: boolean
   export let runnerCancelledCount: number
   export let runnerCompletedCancelled: boolean
-  export let runnerConfigItems: main.RequestItem[]
+  export let runnerConfigItems: types.RequestItem[]
   export let runnerSelectedCount: number
   export let runnerItemSelected: (id: string) => boolean
   export let setRunnerItemSelected: (id: string, selected: boolean) => void

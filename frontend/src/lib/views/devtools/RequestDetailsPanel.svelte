@@ -6,15 +6,15 @@
   // decomposition that made Preferences and DevTools tractable, one level
   // deeper. It renders only when a network row is selected, so the dynamic
   // import loads on first inspection of a request.
-  import type { main } from '../../../../wailsjs/go/models'
+  import type { types } from '../../../../wailsjs/go/models'
 
-  export let selectedDevToolsNetworkRow: main.NetworkLog
+  export let selectedDevToolsNetworkRow: types.NetworkLog
   export let devToolsNetworkDetailTab: string
   export let devToolsNetworkDetailTabs: Array<{ id: string; label: string }>
   export let networkHeaderRows: (headers: Record<string, string> | undefined) => Array<[string, string]>
   export let networkLogBody: (value: string | undefined) => string
-  export let networkLogLines: (row: main.NetworkLog | undefined) => string[]
-  export let normalizedNetworkMethod: (row: main.NetworkLog) => string
+  export let networkLogLines: (row: types.NetworkLog | undefined) => string[]
+  export let normalizedNetworkMethod: (row: types.NetworkLog) => string
   export let startDevToolsDetailsPanelResize: (event: MouseEvent) => void
 </script>
 

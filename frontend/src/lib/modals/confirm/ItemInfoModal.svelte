@@ -1,15 +1,15 @@
 <script lang="ts">
   // US-036 — the item Info dialog, lifted out of App.svelte so its markup is not in the
   // initial chunk. Imported dynamically from inside the {#if} that gates it.
-  import type { main } from '../../../../wailsjs/go/models'
+  import type { types } from '../../../../wailsjs/go/models'
   import Modal from '../Modal.svelte'
 
   // Mirrors App.svelte's local CollectionItemInfoTarget. Written out rather
   // than widened to `any`: eslint forbids `any`, and the discriminated union is
   // what makes `itemInfoTarget.kind === 'folder'` in the markup type-safe.
   type CollectionItemInfoTarget =
-    | { kind: 'folder'; collection: main.Collection; folder: main.FolderConfig }
-    | { kind: 'request'; collection: main.Collection; request: main.RequestItem }
+    | { kind: 'folder'; collection: types.Collection; folder: types.FolderConfig }
+    | { kind: 'request'; collection: types.Collection; request: types.RequestItem }
 
   export let itemInfoTarget: CollectionItemInfoTarget
   export let itemInfoDisplayName: (target: CollectionItemInfoTarget) => string

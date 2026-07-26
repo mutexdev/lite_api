@@ -260,8 +260,8 @@
     returnFocus: HTMLElement | null
   }
   type CollectionItemInfoTarget =
-    | { kind: 'folder'; collection: main.Collection; folder: main.FolderConfig }
-    | { kind: 'request'; collection: main.Collection; request: main.RequestItem }
+    | { kind: 'folder'; collection: types.Collection; folder: types.FolderConfig }
+    | { kind: 'request'; collection: types.Collection; request: types.RequestItem }
   type RequestCodeTarget = {
     collectionId: string
     itemId: string
@@ -448,7 +448,7 @@
   let environmentVariableTab = $state<EnvironmentVariableTab>('variables')
   let globalEnvironmentVariableSearch = $state('')
   let environmentVariableSearch = $state('')
-  let dotEnvFiles = $state<main.DotEnvFile[]>([])
+  let dotEnvFiles = $state<types.DotEnvFile[]>([])
   let selectedDotEnvKey = $state('')
   let dotEnvScope = $state('workspace')
   let dotEnvName = $state('.env')
@@ -490,21 +490,21 @@
   let openAPISyncContent = $state('')
   let openAPISyncPreserveValues = $state(true)
 	  let openAPISyncEndpointDecisions = $state<Record<string, string>>({})
-	  let openAPISyncResult = $state<main.OpenAPISyncResult | undefined>()
-	  let openAPILocalDriftResult = $state<main.OpenAPILocalDriftResult | undefined>()
+	  let openAPISyncResult = $state<types.OpenAPISyncResult | undefined>()
+	  let openAPILocalDriftResult = $state<types.OpenAPILocalDriftResult | undefined>()
 	  let openAPISyncSettingsOpen = $state(false)
 	  let openAPISyncSettingsSourceURL = $state('')
 	  let openAPISyncSettingsAutoCheck = $state(true)
 	  let openAPISyncSettingsInterval = $state(5)
 	  let openAPISyncAutoCheckLastRun = $state<Record<string, number>>({})
-		  let openAPISyncUpdateStatus = $state<Record<string, main.OpenAPISyncUpdateCheckResult>>({})
+		  let openAPISyncUpdateStatus = $state<Record<string, types.OpenAPISyncUpdateCheckResult>>({})
 		  let openAPISyncUpdateErrors = $state<Record<string, string>>({})
 		  let openAPISyncPollTimer: ReturnType<typeof window.setInterval> | undefined
 			  let openAPISyncInitialPollTimer: ReturnType<typeof window.setTimeout> | undefined
 			  let openAPISpecViewerOpen = $state(false)
-			  let openAPISpecViewerResult = $state<main.OpenAPISyncSpecViewResult | undefined>()
+			  let openAPISpecViewerResult = $state<types.OpenAPISyncSpecViewResult | undefined>()
 			  let openAPISpecDiffOpen = $state(false)
-			  let openAPISpecDiffResult = $state<main.OpenAPISyncSpecDiffResult | undefined>()
+			  let openAPISpecDiffResult = $state<types.OpenAPISyncSpecDiffResult | undefined>()
 			  let openAPISpecDiffActiveChangeIndex = $state(0)
 			  let requestSearch = $state('')
   let requestSearchInput = $state<HTMLInputElement | undefined>()
@@ -540,7 +540,7 @@
   const selectedCollectionId = $derived(workspaceStore.selectedCollectionId)
   let selectedFolderPath = $state('')
   let folderSettingsTab = $state<FolderSettingsTab>('headers')
-  let folderSettingDrafts = $state<Record<string, main.FolderConfig>>({})
+  let folderSettingDrafts = $state<Record<string, types.FolderConfig>>({})
   let folderSettingsSaveQueue = $state(Promise.resolve())
   let gitRemoteURL = $state('')
   let gitRemoteCollectionId = $state('')
@@ -552,47 +552,47 @@
   let gitCloneInProgress = $state(false)
   let showShareCollectionModal = $state(false)
   let shareCollectionFormat = $state('zip')
-  let shareCollectionResult: main.CollectionExportResult | undefined
+  let shareCollectionResult: types.CollectionExportResult | undefined
   let showGenerateDocsModal = $state(false)
-  let renameCollectionTarget = $state<main.Collection | undefined>()
+  let renameCollectionTarget = $state<types.Collection | undefined>()
   let renameCollectionDraft = $state('')
-  let cloneCollectionTarget = $state<main.Collection | undefined>()
+  let cloneCollectionTarget = $state<types.Collection | undefined>()
   let cloneCollectionNameDraft = $state('')
   let cloneCollectionFolderDraft = $state('')
   let cloneCollectionLocationDraft = $state('')
   let cloneCollectionFolderEditing = $state(false)
-  let newFolderTarget = $state<main.Collection | undefined>()
+  let newFolderTarget = $state<types.Collection | undefined>()
   let newFolderParentPath = $state('')
   let newFolderNameDraft = $state('')
   let newFolderDirectoryDraft = $state('')
   let newFolderDirectoryEditing = $state(false)
   let newFolderShowFilesystemName = $state(false)
-  let renameFolderTarget = $state<{ collection: main.Collection; folder: main.FolderConfig } | undefined>()
+  let renameFolderTarget = $state<{ collection: types.Collection; folder: types.FolderConfig } | undefined>()
   let renameFolderNameDraft = $state('')
   let renameFolderDirectoryDraft = $state('')
   let renameFolderDirectoryEditing = $state(false)
   let renameFolderShowFilesystemName = $state(false)
-  let cloneFolderTarget = $state<{ collection: main.Collection; folder: main.FolderConfig } | undefined>()
+  let cloneFolderTarget = $state<{ collection: types.Collection; folder: types.FolderConfig } | undefined>()
   let cloneFolderNameDraft = $state('')
   let cloneFolderDirectoryDraft = $state('')
   let cloneFolderDirectoryEditing = $state(false)
   let cloneFolderShowFilesystemName = $state(false)
   let itemInfoTarget = $state<CollectionItemInfoTarget | undefined>()
-  let cloneRequestTarget = $state<{ collection: main.Collection; request: main.RequestItem } | undefined>()
+  let cloneRequestTarget = $state<{ collection: types.Collection; request: types.RequestItem } | undefined>()
   let cloneRequestNameDraft = $state('')
   let cloneRequestFilenameDraft = $state('')
   let cloneRequestFilenameEditing = $state(false)
   let cloneRequestShowFilesystemName = $state(false)
-  let renameRequestTarget = $state<{ collection: main.Collection; request: main.RequestItem } | undefined>()
+  let renameRequestTarget = $state<{ collection: types.Collection; request: types.RequestItem } | undefined>()
   let renameRequestNameDraft = $state('')
   let renameRequestFilenameDraft = $state('')
   let renameRequestFilenameEditing = $state(false)
   let renameRequestShowFilesystemName = $state(false)
-  let deleteRequestTarget = $state<{ collection: main.Collection; request: main.RequestItem } | undefined>()
-  let deleteFolderTarget = $state<{ collection: main.Collection; folder: main.FolderConfig } | undefined>()
-  let removeCollectionTarget = $state<main.Collection | undefined>()
+  let deleteRequestTarget = $state<{ collection: types.Collection; request: types.RequestItem } | undefined>()
+  let deleteFolderTarget = $state<{ collection: types.Collection; folder: types.FolderConfig } | undefined>()
+  let removeCollectionTarget = $state<types.Collection | undefined>()
   let generateDocsDeselectedEnvIds = $state<string[]>([])
-  let generateDocsResult: main.GenerateCollectionDocsResult | undefined
+  let generateDocsResult: types.GenerateCollectionDocsResult | undefined
   let generateDocsSelectAllInput = $state<HTMLInputElement | undefined>()
   let gitCloneProgress = $state<GitCloneProgress[]>([])
   let gitNotFoundMessage = $state('')
@@ -613,7 +613,7 @@
 	let gitWorkbenchRemoteBranch = $state('')
 	let gitWorkbenchSetUpstream = $state(false)
 	let gitWorkbenchHeading = $state<HTMLHeadingElement | null>(null)
-  let gitCandidates = $state<main.GitCollectionCandidate[]>([])
+  let gitCandidates = $state<types.GitCollectionCandidate[]>([])
   let selectedGitCollectionPaths = $state<string[]>([])
   let openCollectionPath = $state('/Users/mou/Documents/LiteAPI/Sample API Collection')
   let grpcMethods = $state<types.GRPCMethodInfo[]>([])
@@ -666,7 +666,7 @@
   let pinnedUnreadNotificationIDs = $state<Set<string> | null>(null)
   let devToolsOpen = $state(false)
   let devToolsTab = $state<DevToolsTab>('console')
-  let devToolsSnapshot = $state<main.DevToolsSnapshot | null>(null)
+  let devToolsSnapshot = $state<types.DevToolsSnapshot | null>(null)
   let devToolsPerformanceView = $state('cumulative')
   let devToolsDrawerHeight = $state(320)
   let devToolsDetailsPanelWidth = $state(400)
@@ -686,7 +686,7 @@
   let devToolsNetworkColumnWidths = $state([80, 70, 180, 300, 110, 100, 80])
   let devToolsNetworkResizingColumn = $state(-1)
   let devToolsNetworkPreferencesKey = $state('')
-  let terminalSessions = $state<main.TerminalSession[]>([])
+  let terminalSessions = $state<types.TerminalSession[]>([])
   let terminalActiveSessionId = $state('')
   let terminalOutput = $state('')
   let terminalInput = $state('')
@@ -1071,7 +1071,7 @@
       docsServerStatus = await StartDocsServer(
         collectionID,
         Math.max(0, Math.floor(Number(docsServerPort) || 0)),
-        { environmentIds: [] } as main.GenerateCollectionDocsOptions
+        { environmentIds: [] } as types.GenerateCollectionDocsOptions
       )
     })
   }
@@ -1612,7 +1612,7 @@
     return 'windows'
   }
 
-  function keybindingsAreEnabled(preferences: main.Preferences | undefined) {
+  function keybindingsAreEnabled(preferences: types.Preferences | undefined) {
     return preferences?.keybindingsEnabled !== false
   }
 
@@ -1635,7 +1635,7 @@
   function mergedKeyBinding(action: string): KeyBindingDefinition | undefined {
     const base = presetKeyBindings[action]
     if (!base) return undefined
-    const override = appState?.preferences?.keyBindings?.[action] as main.KeyBinding | undefined
+    const override = appState?.preferences?.keyBindings?.[action] as types.KeyBinding | undefined
     return {
       ...base,
       ...(override ?? {}),
@@ -1792,7 +1792,7 @@
     }
   }
 
-  function variableTooltipsForRequest(workspace: main.Workspace, collection: main.Collection, request: main.RequestItem, environmentId: string, processEnvValues: Record<string, string>): VariableTooltipInfo[] {
+  function variableTooltipsForRequest(workspace: types.Workspace, collection: types.Collection, request: types.RequestItem, environmentId: string, processEnvValues: Record<string, string>): VariableTooltipInfo[] {
     return variableNamesForRequest(request).map((name) => resolveVariableTooltip(name, workspace, collection, request, environmentId, processEnvValues))
   }
 
@@ -1953,7 +1953,7 @@
     return [...rows, ...disabledRows]
   }
 
-  function variableNamesForRequest(request: main.RequestItem) {
+  function variableNamesForRequest(request: types.RequestItem) {
     const names = new Set<string>()
     const scan = (value: unknown) => collectVariableNames(value, names)
     const scanRows = (rows: types.KeyValue[] | undefined) => {
@@ -2006,7 +2006,7 @@
 	    }
 	  }
 
-  function resolveVariableTooltip(name: string, workspace: main.Workspace, collection: main.Collection, request: main.RequestItem, environmentId: string, processEnvValues: Record<string, string>): VariableTooltipInfo {
+  function resolveVariableTooltip(name: string, workspace: types.Workspace, collection: types.Collection, request: types.RequestItem, environmentId: string, processEnvValues: Record<string, string>): VariableTooltipInfo {
     const validName = isValidVariableName(name)
     if (!validName) {
       return {
@@ -2077,7 +2077,7 @@
     }
   }
 
-  function findTooltipVariable(name: string, workspace: main.Workspace, collection: main.Collection, request: main.RequestItem, environmentId: string) {
+  function findTooltipVariable(name: string, workspace: types.Workspace, collection: types.Collection, request: types.RequestItem, environmentId: string) {
     let found: { variable: types.Variable; scope: string; source: VariableTooltipSource; index: number; environmentId?: string; globalEnvironmentId?: string } | undefined
     const consider = (variables: types.Variable[] | undefined, scope: string, source: VariableTooltipSource, sourceId = '') => {
       for (const [index, variable] of (variables ?? []).entries()) {
@@ -2109,7 +2109,7 @@
     return /^[\w.-]+$/.test(name)
   }
 
-  function resolveTooltipValue(value: string, workspace: main.Workspace, collection: main.Collection, request: main.RequestItem, environmentId: string, processEnvValues: Record<string, string>, seen: Set<string>): TooltipResolution {
+  function resolveTooltipValue(value: string, workspace: types.Workspace, collection: types.Collection, request: types.RequestItem, environmentId: string, processEnvValues: Record<string, string>, seen: Set<string>): TooltipResolution {
     let containsSecret = false
     const resolvedValue = value.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (_match, rawName: string) => {
       const name = rawName.trim()
@@ -2263,7 +2263,7 @@
         if (info.index < 0) throw new Error(`Path parameter ${info.name} was not found`)
         const pathParams = [...(activeRequest.pathParams ?? [])]
         pathParams[info.index] = { ...pathParams[info.index], value, enabled: true }
-        workspaceStore.appState = await UpdateRequest(activeCollection.id, activeRequest.id, { pathParams } as unknown as main.RequestPatch)
+        workspaceStore.appState = await UpdateRequest(activeCollection.id, activeRequest.id, { pathParams } as unknown as types.RequestPatch)
         workspaceStore.appState = await SaveRequest(activeCollection.id, activeRequest.id)
       } else if (info.source === 'request' || info.source === 'missing') {
         const req = [...(activeRequest.vars?.req ?? [])]
@@ -2274,7 +2274,7 @@
         }
         const collectionId = activeCollection.id
         const requestId = activeRequest.id
-        workspaceStore.appState = await UpdateRequest(collectionId, requestId, { vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as main.RequestPatch)
+        workspaceStore.appState = await UpdateRequest(collectionId, requestId, { vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as types.RequestPatch)
         workspaceStore.appState = await SaveRequest(collectionId, requestId)
       }
       variableTooltips.cancelEdit()
@@ -2350,7 +2350,7 @@
     }
   }
 
-  function collectPromptNames(collection: main.Collection, request: main.RequestItem, environmentId: string) {
+  function collectPromptNames(collection: types.Collection, request: types.RequestItem, environmentId: string) {
     const prompts = new Set<string>()
     const scanText = (value: unknown) => {
       if (value === null || value === undefined) return
@@ -2457,7 +2457,7 @@
 	    }
   }
 
-  function folderChainForRequest(collection: main.Collection, request: main.RequestItem) {
+  function folderChainForRequest(collection: types.Collection, request: types.RequestItem) {
     const folderPath = request.folderPath ?? ''
     if (!folderPath) return []
     return [...(collection.folders ?? [])]
@@ -2576,7 +2576,7 @@
     return example.id || example.name
   }
 
-  function responseExampleForTab(tab: main.OpenTab | undefined) {
+  function responseExampleForTab(tab: types.OpenTab | undefined) {
     if (!tab || tab.kind !== 'response-example') return undefined
     const collection = activeWorkspace?.collections?.find((candidate) => candidate.id === tab.collectionId)
     const item = collection?.items?.find((candidate) => candidate.id === tab.itemId)
@@ -2584,7 +2584,7 @@
     return item?.examples?.find((example) => responseExampleIdentifier(example) === target || example.name === target)
   }
 
-  function tabLabel(tab: main.OpenTab) {
+  function tabLabel(tab: types.OpenTab) {
     const collection = activeWorkspace?.collections?.find((candidate) => candidate.id === tab.collectionId)
     const item = collection?.items?.find((candidate) => candidate.id === tab.itemId)
     if (tab.kind === 'response-example') {
@@ -2600,7 +2600,7 @@
     return upper
   }
 
-  function tabMethod(tab: main.OpenTab) {
+  function tabMethod(tab: types.OpenTab) {
     if (tab.kind === 'response-example') return ''
     const collection = activeWorkspace?.collections?.find((candidate) => candidate.id === tab.collectionId)
     const item = collection?.items?.find((candidate) => candidate.id === tab.itemId)
@@ -2623,11 +2623,11 @@
     collapsedSidebarFolders = { ...collapsedSidebarFolders, [key]: !collapsedSidebarFolders[key] }
   }
 
-  function collectionIsScratch(collection: main.Collection | undefined) {
+  function collectionIsScratch(collection: types.Collection | undefined) {
     return Boolean(collection?.scratch || (collection && activeWorkspace?.scratchCollectionId === collection.id))
   }
 
-  function requestIsTransient(collection: main.Collection | undefined, item: main.RequestItem | undefined) {
+  function requestIsTransient(collection: types.Collection | undefined, item: types.RequestItem | undefined) {
     return Boolean(item?.transient || collectionIsScratch(collection))
   }
 
@@ -3201,11 +3201,11 @@
     await copyText(responseExampleGeneratedCode)
   }
 
-  function requestSupportsGenerateCode(item: main.RequestItem | undefined) {
+  function requestSupportsGenerateCode(item: types.RequestItem | undefined) {
     return item?.type === 'http' || item?.type === 'graphql'
   }
 
-  function requestCodeEnvironmentId(collection: main.Collection) {
+  function requestCodeEnvironmentId(collection: types.Collection) {
     if (collection.id === activeCollection?.id) return selectedEnvironmentId
     return collection.environments?.[0]?.id ?? ''
   }
@@ -3222,7 +3222,7 @@
     { id: 'fetch', label: 'JavaScript (fetch)' }
   ])
 
-  async function beginGenerateRequestCode(collection: main.Collection, item: main.RequestItem) {
+  async function beginGenerateRequestCode(collection: types.Collection, item: types.RequestItem) {
     if (!requestSupportsGenerateCode(item)) return
     if (!item.url?.trim()) {
       error = 'URL is required'
@@ -3285,7 +3285,7 @@
     const requestForPrompts = {
       ...activeRequest,
       grpcMessages: message ? [message] : []
-    } as main.RequestItem
+    } as types.RequestItem
     const promptNames = collectPromptNames(activeCollection, requestForPrompts, selectedEnvironmentId)
     return promptNames.length > 0 ? await promptForVariables(promptNames) : {}
   }
@@ -3345,7 +3345,7 @@
     })
   }
 
-  function selectedWSMessageIndex(request: main.RequestItem) {
+  function selectedWSMessageIndex(request: types.RequestItem) {
     const messages = request.wsMessages ?? []
     if (messages.length === 0) return 0
     const selected = messages.findIndex((message) => message.selected)
@@ -3357,8 +3357,8 @@
     const messages = (activeRequest.wsMessages ?? []).map((message, messageIndex) => ({
       ...message,
       selected: messageIndex === index
-    })) as main.WSMessage[]
-    const requestForPrompts = { ...activeRequest, wsMessages: messages } as main.RequestItem
+    })) as types.WSMessage[]
+    const requestForPrompts = { ...activeRequest, wsMessages: messages } as types.RequestItem
     const promptNames = collectPromptNames(activeCollection, requestForPrompts, selectedEnvironmentId)
     return promptNames.length > 0 ? await promptForVariables(promptNames) : {}
   }
@@ -3504,11 +3504,11 @@
     }
   }
 
-  function runnerItemIsRunnable(item: main.RequestItem) {
+  function runnerItemIsRunnable(item: types.RequestItem) {
     return !item.type || item.type === 'http' || item.type === 'graphql' || item.type === 'grpc'
   }
 
-  function runnerSelectableItems(collection: main.Collection | undefined) {
+  function runnerSelectableItems(collection: types.Collection | undefined) {
     return (collection?.items ?? []).filter(runnerItemIsRunnable)
   }
 
@@ -3574,7 +3574,7 @@
     const environmentId = selectedEnvironmentId
     const viewAtStart = activeView
     await runAction('run collection', async () => {
-      let completedRunState: main.AppState | undefined
+      let completedRunState: types.AppState | undefined
       activeCollectionRun = { collectionId: collection.id, collectionName: collection.name || 'collection' }
       collectionRunCancellationRequested = false
       lastCollectionRunCancelled = false
@@ -3585,7 +3585,7 @@
           bailOnFailure: runnerBailOnFailure,
           iterations: normalizedRunnerIterations(runnerIterations),
           dataFile: runnerDataFile
-        } as main.RunnerOptions)
+        } as types.RunnerOptions)
         workspaceStore.appState = completedRunState
         if (activeView === viewAtStart && activeCollection?.id === collection.id) activeView = 'runner'
       } finally {
@@ -3752,7 +3752,7 @@
     workspaceStore.appState = await UpdateGlobalEnvironment(activeWorkspace.id, selectedGlobalEnvironment.id, name, color)
   }
 
-  function dotEnvFileKey(file: Pick<main.DotEnvFile, 'scope' | 'name'>) {
+  function dotEnvFileKey(file: Pick<types.DotEnvFile, 'scope' | 'name'>) {
     return `${file.scope}:${file.name}`
   }
 
@@ -3795,7 +3795,7 @@
     dotEnvDirty = true
   }
 
-  function selectDotEnvFile(file: main.DotEnvFile) {
+  function selectDotEnvFile(file: types.DotEnvFile) {
     selectedDotEnvKey = dotEnvFileKey(file)
     dotEnvScope = file.scope
     dotEnvName = file.name
@@ -3861,7 +3861,7 @@
   async function exportCollection() {
     if (!activeCollection) return
     await runAction('export collection', async () => {
-      const result = await ExportCollectionWithOptions(activeCollection.id, { format: 'yaml' } as main.CollectionExportOptions)
+      const result = await ExportCollectionWithOptions(activeCollection.id, { format: 'yaml' } as types.CollectionExportOptions)
       exportText = result.content ?? ''
       activeView = 'import'
     })
@@ -4088,7 +4088,7 @@
 	  if (!applySucceeded) importStatus = 'Import could not be applied. Review the current preview and try again.'
   }
 
-	  function openAPISyncOptions(): main.OpenAPISyncOptions {
+	  function openAPISyncOptions(): types.OpenAPISyncOptions {
 	    return {
 	      sourceUrl: openAPISyncSourceURL,
       content: openAPISyncContent,
@@ -4096,10 +4096,10 @@
       preserveValues: openAPISyncPreserveValues,
       removeDeleted: false,
       endpointDecisions: openAPISyncEndpointDecisions
-	    } as main.OpenAPISyncOptions
+	    } as types.OpenAPISyncOptions
 	  }
 
-	  function openAPISyncConfigFor(collection: main.Collection | undefined) {
+	  function openAPISyncConfigFor(collection: types.Collection | undefined) {
 	    return collection?.openapi?.[0]
 	  }
 
@@ -4242,7 +4242,7 @@
 	    return date.toLocaleTimeString()
 	  }
 
-		  function openAPISyncAutoCheckStatusLine(collection: main.Collection | undefined) {
+		  function openAPISyncAutoCheckStatusLine(collection: types.Collection | undefined) {
 		    const config = openAPISyncConfigFor(collection)
 		    if (!config?.sourceUrl) return ''
 		    const cadence = openAPISyncAutoCheckEnabled(config)
@@ -4271,11 +4271,11 @@
 	    return value
 	  }
 
-		  function defaultOpenAPISyncDecision(change: main.OpenAPISyncEndpointChange) {
+		  function defaultOpenAPISyncDecision(change: types.OpenAPISyncEndpointChange) {
 		    return change.defaultDecision || 'accept-incoming'
 		  }
 
-  function reconcileOpenAPISyncEndpointDecisions(result: main.OpenAPISyncResult | undefined) {
+  function reconcileOpenAPISyncEndpointDecisions(result: types.OpenAPISyncResult | undefined) {
     const changes = result?.changes ?? []
     if (changes.length === 0) {
       openAPISyncEndpointDecisions = {}
@@ -4328,7 +4328,7 @@
         resetIds,
         restoreIds,
         deleteIds
-      } as main.OpenAPILocalDriftOptions)
+      } as types.OpenAPILocalDriftOptions)
       openAPILocalDriftResult = await CheckOpenAPILocalDrift(collectionId)
     })
   }
@@ -4410,7 +4410,7 @@
 		    openAPISpecDiffActiveChangeIndex = 0
 		  }
 
-		  function openAPISyncSpecDiffSummary(result: main.OpenAPISyncSpecDiffResult | undefined) {
+		  function openAPISyncSpecDiffSummary(result: types.OpenAPISyncSpecDiffResult | undefined) {
 		    if (!result) return ''
 		    return `${result.added ?? 0} added · ${result.updated ?? 0} updated · ${result.removed ?? 0} removed · ${result.unchanged ?? 0} unchanged`
 		  }
@@ -4428,11 +4428,11 @@
 		    void scrollOpenAPISpecDiffChangeIntoView()
 		  }
 
-		  function openAPISpecDiffLineIsActive(lineIndex: number, line: main.OpenAPISyncSpecDiffLine) {
+		  function openAPISpecDiffLineIsActive(lineIndex: number, line: types.OpenAPISyncSpecDiffLine) {
 		    return (line.kind ?? 'same') !== 'same' && openAPISpecDiffChangeLineIndexes[openAPISpecDiffActiveChangeIndex] === lineIndex
 		  }
 
-		  async function openOpenAPILocalDriftRequest(change: main.OpenAPISyncEndpointChange) {
+		  async function openOpenAPILocalDriftRequest(change: types.OpenAPISyncEndpointChange) {
 		    if (!activeCollection || !change.itemId) return
 		    await openRequestTab(activeCollection.id, change.itemId)
 		  }
@@ -4502,7 +4502,7 @@
 
   async function saveCookieForm() {
     await runAction('save cookie', async () => {
-      workspaceStore.appState = await SaveCookie(cookieForm as unknown as main.CookieInput)
+      workspaceStore.appState = await SaveCookie(cookieForm as unknown as types.CookieInput)
       cookieForm = emptyCookieForm()
     })
   }
@@ -4814,18 +4814,18 @@
     activeView = 'collection'
   }
 
-  function selectFolderSettings(collection: main.Collection, folderPath: string) {
+  function selectFolderSettings(collection: types.Collection, folderPath: string) {
     workspaceStore.selectedCollectionId = collection.id
     selectedFolderPath = collection.folders?.find((folder) => folder.path === folderPath || folder.displayPath === folderPath)?.path ?? folderPath
     collectionTab = 'folders'
     activeView = 'collection'
   }
 
-  function collectionDocsRequestIsExportable(item: main.RequestItem) {
+  function collectionDocsRequestIsExportable(item: types.RequestItem) {
     return !item.type || item.type === 'http' || item.type === 'graphql' || item.type === 'websocket' || item.type === 'grpc'
   }
 
-  function collectionShareUnsupportedTypes(collection: main.Collection | undefined) {
+  function collectionShareUnsupportedTypes(collection: types.Collection | undefined) {
     const labels: string[] = []
     for (const item of collection?.items ?? []) {
       const label = item.type === 'grpc' ? 'gRPC' : item.type === 'websocket' ? 'WebSocket' : ''
@@ -4997,17 +4997,17 @@
     return normalizedValue !== '' && normalizedPrefix !== '' && (normalizedValue === normalizedPrefix || normalizedValue.startsWith(`${normalizedPrefix}/`))
   }
 
-  function collectionRequestExtension(collection: main.Collection) {
+  function collectionRequestExtension(collection: types.Collection) {
     return collection.format === 'yml' || collection.format === 'yaml' ? '.yml' : '.bru'
   }
 
-  function requestInfoFilename(collection: main.Collection, request: main.RequestItem) {
+  function requestInfoFilename(collection: types.Collection, request: types.RequestItem) {
     const fileName = slashPathBase(request.filePath)
     if (fileName) return fileName
     return `${sanitizeCollectionFolderName(request.name || 'Request')}${collectionRequestExtension(collection)}`
   }
 
-  function folderInfoFilename(folder: main.FolderConfig) {
+  function folderInfoFilename(folder: types.FolderConfig) {
     return slashPathBase(folder.path) || folder.name || slashPathBase(folder.displayPath) || 'folder'
   }
 
@@ -5025,14 +5025,14 @@
     return requestInfoFilename(target.collection, target.request)
   }
 
-  function openFolderInfoModal(collection: main.Collection, folderPath: string) {
+  function openFolderInfoModal(collection: types.Collection, folderPath: string) {
     const folder = collection.folders?.find((candidate) => candidate.path === folderPath || candidate.displayPath === folderPath)
     if (!folder) return
     workspaceStore.selectedCollectionId = collection.id
     itemInfoTarget = { kind: 'folder', collection, folder }
   }
 
-  function openRequestInfoModal(collection: main.Collection, request: main.RequestItem) {
+  function openRequestInfoModal(collection: types.Collection, request: types.RequestItem) {
     workspaceStore.selectedCollectionId = collection.id
     itemInfoTarget = { kind: 'request', collection, request }
   }
@@ -5060,7 +5060,7 @@
     })
   }
 
-  function openRenameFolderModal(collection: main.Collection, folderPath: string) {
+  function openRenameFolderModal(collection: types.Collection, folderPath: string) {
     if (collection.notFoundLocally) return
     const folder = collection.folders?.find((candidate) => candidate.path === folderPath || candidate.displayPath === folderPath)
     if (!folder) return
@@ -5122,7 +5122,7 @@
     })
   }
 
-  function openCloneFolderModal(collection: main.Collection, folderPath: string) {
+  function openCloneFolderModal(collection: types.Collection, folderPath: string) {
     if (collection.notFoundLocally) return
     const folder = collection.folders?.find((candidate) => candidate.path === folderPath || candidate.displayPath === folderPath)
     if (!folder) return
@@ -5172,7 +5172,7 @@
     })
   }
 
-  function openCloneRequestModal(collection: main.Collection, request: main.RequestItem) {
+  function openCloneRequestModal(collection: types.Collection, request: types.RequestItem) {
     if (collection.notFoundLocally) return
     const sourceName = request.name || 'Request'
     workspaceStore.selectedCollectionId = collection.id
@@ -5220,14 +5220,14 @@
     })
   }
 
-  function requestFilesystemBaseName(request: main.RequestItem) {
+  function requestFilesystemBaseName(request: types.RequestItem) {
     const filePath = request.filePath ?? ''
     const fileName = slashPathBase(filePath)
     const withoutExtension = fileName.replace(/\.(bru|ya?ml)$/i, '')
     return sanitizeCollectionFolderName(withoutExtension || request.name || 'Request')
   }
 
-  function openRenameRequestModal(collection: main.Collection, request: main.RequestItem) {
+  function openRenameRequestModal(collection: types.Collection, request: types.RequestItem) {
     if (collection.notFoundLocally) return
     workspaceStore.selectedCollectionId = collection.id
     renameRequestTarget = { collection, request }
@@ -5274,7 +5274,7 @@
     })
   }
 
-  function openDeleteRequestModal(collection: main.Collection, request: main.RequestItem) {
+  function openDeleteRequestModal(collection: types.Collection, request: types.RequestItem) {
     if (collection.notFoundLocally) return
     workspaceStore.selectedCollectionId = collection.id
     deleteRequestTarget = { collection, request }
@@ -5302,7 +5302,7 @@
     })
   }
 
-  function openDeleteFolderModal(collection: main.Collection, folderPath: string) {
+  function openDeleteFolderModal(collection: types.Collection, folderPath: string) {
     if (collection.notFoundLocally) return
     const folder = collection.folders?.find((candidate) => candidate.path === folderPath || candidate.displayPath === folderPath)
     if (!folder) return
@@ -5392,7 +5392,7 @@
     return bytes
   }
 
-  function downloadCollectionExport(result: main.CollectionExportResult) {
+  function downloadCollectionExport(result: types.CollectionExportResult) {
     if (result.contentBase64) {
       downloadBlob(result.filename, new Blob([bytesFromBase64(result.contentBase64)], { type: result.mimeType || 'application/octet-stream' }))
     } else {
@@ -5405,7 +5405,7 @@
     await runAction('share collection', async () => {
       const result = await ExportCollectionWithOptions(activeCollection.id, {
         format: shareCollectionFormat
-      } as main.CollectionExportOptions)
+      } as types.CollectionExportOptions)
       shareCollectionResult = result
       if (result.content) exportText = result.content
       downloadCollectionExport(result)
@@ -5418,7 +5418,7 @@
     await runAction('generate documentation', async () => {
       const result = await GenerateCollectionDocs(activeCollection.id, {
         environmentIds: generateDocsSelectedEnvIds
-      } as main.GenerateCollectionDocsOptions)
+      } as types.GenerateCollectionDocsOptions)
       generateDocsResult = result
       exportText = result.html
       downloadTextFile(result.fileName, result.html, 'text/html')
@@ -5712,7 +5712,7 @@
   // so two mutations dispatched inside one tick would both compare against the
   // same stale revision — making the second look like a gap and refetch for
   // nothing.
-  async function applyNarrow(merge: (current: main.AppState, held: number) => MergeOutcome): Promise<void> {
+  async function applyNarrow(merge: (current: types.AppState, held: number) => MergeOutcome): Promise<void> {
     if (!appState) {
       // Nothing to patch onto. Only reachable before the boot fetch has landed.
       workspaceStore.appState = await GetState()
@@ -5737,7 +5737,7 @@
   // The backend call is deferred, but the UI is NOT: applyOptimisticPatch below
   // updates local appState synchronously, so the input never lags behind the
   // keyboard. The authoritative result overwrites it when the flush lands.
-  const requestPatchCoalescer = new PatchCoalescer<main.RequestPatch>(
+  const requestPatchCoalescer = new PatchCoalescer<types.RequestPatch>(
     async ({ collectionId, itemId }, patch) => {
       const result = await UpdateRequestNarrow(collectionId, itemId, patch)
       await applyNarrow((current, held) => applyRequestMutation(current, held, result))
@@ -5758,7 +5758,7 @@
   // Applies a patch to the local copy without touching the revision: no server
   // mutation has happened yet, so claiming one would desynchronise US-014's gap
   // detection and make the next real result look like a missed update.
-  function applyOptimisticPatch(collectionId: string, itemId: string, patch: main.RequestPatch) {
+  function applyOptimisticPatch(collectionId: string, itemId: string, patch: types.RequestPatch) {
     if (!appState) return
     workspaceStore.appState = {
       ...appState,
@@ -5770,15 +5770,15 @@
             : {
                 ...collection,
                 items: (collection.items ?? []).map((item) =>
-                  item.id !== itemId ? item : ({ ...item, ...patch, draft: true } as main.RequestItem),
+                  item.id !== itemId ? item : ({ ...item, ...patch, draft: true } as types.RequestItem),
                 ),
               },
         ),
       })),
-    } as main.AppState
+    } as types.AppState
   }
 
-  function patchRequest(patch: main.RequestPatch) {
+  function patchRequest(patch: types.RequestPatch) {
     if (!activeCollection || !activeRequest) return
     const collectionId = activeCollection.id
     const requestId = activeRequest.id
@@ -5799,7 +5799,7 @@
     patchRequest({
       url,
       pathParams: syncPathParamsForURL(url, activeRequest.pathParams ?? [])
-    } as unknown as main.RequestPatch)
+    } as unknown as types.RequestPatch)
   }
 
   async function loadGrpcMethods() {
@@ -5814,14 +5814,14 @@
     if (!activeRequest || !path) return
     const method = grpcMethods.find((candidate) => candidate.path === path)
     const messages = [...(activeRequest.grpcMessages ?? [])]
-    const first = messages[0] ?? ({ name: 'message 1', content: '{}' } as main.GrpcMessage)
+    const first = messages[0] ?? ({ name: 'message 1', content: '{}' } as types.GrpcMessage)
     const content = method?.template || first.content || '{}'
-    messages[0] = { ...first, name: first.name || 'message 1', content } as main.GrpcMessage
+    messages[0] = { ...first, name: first.name || 'message 1', content } as types.GrpcMessage
     await patchRequest({
       method: path,
       grpcMethodType: method?.type ?? activeRequest.grpcMethodType,
       grpcMessages: messages
-    } as main.RequestPatch)
+    } as types.RequestPatch)
   }
 
   async function regenerateGrpcMessage(index: number) {
@@ -5831,19 +5831,19 @@
     await runAction('generate gRPC message', async () => {
       const content = await GenerateGRPCMessage(activeCollection.id, activeRequest.id, selectedEnvironmentId, methodPath)
       const rows = [...(activeRequest.grpcMessages ?? [])]
-      const current = rows[index] ?? ({ name: `message ${index + 1}`, content: '{}' } as main.GrpcMessage)
-      rows[index] = { ...current, name: current.name || `message ${index + 1}`, content } as main.GrpcMessage
-      await patchRequest({ grpcMessages: rows } as main.RequestPatch)
+      const current = rows[index] ?? ({ name: `message ${index + 1}`, content: '{}' } as types.GrpcMessage)
+      rows[index] = { ...current, name: current.name || `message ${index + 1}`, content } as types.GrpcMessage
+      await patchRequest({ grpcMessages: rows } as types.RequestPatch)
     })
   }
 
-  function patchField(field: keyof main.RequestPatch, value: unknown) {
-    patchRequest({ [field]: value } as unknown as main.RequestPatch)
+  function patchField(field: keyof types.RequestPatch, value: unknown) {
+    patchRequest({ [field]: value } as unknown as types.RequestPatch)
   }
 
 	  function updateBody(updates: Partial<types.RequestBody>) {
 	    if (!activeRequest) return
-	    patchRequest({ body: { ...activeRequest.body, ...updates } } as main.RequestPatch)
+	    patchRequest({ body: { ...activeRequest.body, ...updates } } as types.RequestPatch)
 	  }
 
 	  function updateFormUrlEncodedRow(index: number, field: keyof types.KeyValue, value: string | boolean) {
@@ -5965,7 +5965,7 @@
 
   function updateAuth(updates: Partial<types.AuthConfig>) {
     if (!activeRequest) return
-    patchRequest({ auth: authWithOAuth2Defaults(activeRequest.auth, updates) } as main.RequestPatch)
+    patchRequest({ auth: authWithOAuth2Defaults(activeRequest.auth, updates) } as types.RequestPatch)
   }
 
   function updateAWSV4Auth(updates: Partial<types.AWSV4Auth>) {
@@ -6021,14 +6021,14 @@
 
   function updateSettings(updates: Partial<types.RequestSettings>) {
     if (!activeRequest) return
-    patchRequest({ settings: { ...activeRequest.settings, ...updates } } as main.RequestPatch)
+    patchRequest({ settings: { ...activeRequest.settings, ...updates } } as types.RequestPatch)
   }
 
   function updateKeyValue(kind: 'params' | 'pathParams' | 'headers', index: number, field: keyof types.KeyValue, value: string | boolean) {
     if (!activeRequest) return
     const rows = [...(activeRequest[kind] ?? [])]
     rows[index] = { ...rows[index], [field]: value }
-    patchRequest({ [kind]: rows } as unknown as main.RequestPatch)
+    patchRequest({ [kind]: rows } as unknown as types.RequestPatch)
   }
 
   // US-056. Bulk edit replaces the whole list in one patch rather than
@@ -6037,91 +6037,91 @@
   // reorder or drop rows on any edit that changes their count.
   function replaceKeyValues(kind: 'params' | 'pathParams' | 'headers', rows: types.KeyValue[]) {
     if (!activeRequest) return
-    patchRequest({ [kind]: rows } as unknown as main.RequestPatch)
+    patchRequest({ [kind]: rows } as unknown as types.RequestPatch)
   }
 
   function addKeyValue(kind: 'params' | 'headers') {
     if (!activeRequest) return
     const rows = [...(activeRequest[kind] ?? []), { name: '', value: '', enabled: true, secret: false, description: '' }]
-    patchRequest({ [kind]: rows } as unknown as main.RequestPatch)
+    patchRequest({ [kind]: rows } as unknown as types.RequestPatch)
   }
 
   function removeKeyValue(kind: 'params' | 'headers', index: number) {
     if (!activeRequest) return
     const rows = [...(activeRequest[kind] ?? [])]
     rows.splice(index, 1)
-    patchRequest({ [kind]: rows } as unknown as main.RequestPatch)
+    patchRequest({ [kind]: rows } as unknown as types.RequestPatch)
   }
 
-  function updateGrpcMessage(index: number, field: keyof main.GrpcMessage, value: string) {
+  function updateGrpcMessage(index: number, field: keyof types.GrpcMessage, value: string) {
     if (!activeRequest) return
     const rows = [...(activeRequest.grpcMessages ?? [])]
-    const current = rows[index] ?? ({ name: '', content: '' } as main.GrpcMessage)
+    const current = rows[index] ?? ({ name: '', content: '' } as types.GrpcMessage)
     rows[index] = { ...current, [field]: value }
-    patchRequest({ grpcMessages: rows } as main.RequestPatch)
+    patchRequest({ grpcMessages: rows } as types.RequestPatch)
   }
 
   function addGrpcMessage() {
     if (!activeRequest) return
     const nextIndex = (activeRequest.grpcMessages?.length ?? 0) + 1
-    const rows = [...(activeRequest.grpcMessages ?? []), { name: `message ${nextIndex}`, content: '{}' } as main.GrpcMessage]
-    patchRequest({ grpcMessages: rows } as main.RequestPatch)
+    const rows = [...(activeRequest.grpcMessages ?? []), { name: `message ${nextIndex}`, content: '{}' } as types.GrpcMessage]
+    patchRequest({ grpcMessages: rows } as types.RequestPatch)
   }
 
   function removeGrpcMessage(index: number) {
     if (!activeRequest) return
     const rows = [...(activeRequest.grpcMessages ?? [])]
     rows.splice(index, 1)
-    patchRequest({ grpcMessages: rows } as main.RequestPatch)
+    patchRequest({ grpcMessages: rows } as types.RequestPatch)
   }
 
-  function updateWSMessage(index: number, field: keyof main.WSMessage, value: string | boolean) {
+  function updateWSMessage(index: number, field: keyof types.WSMessage, value: string | boolean) {
     if (!activeRequest) return
     const rows = [...(activeRequest.wsMessages ?? [])]
-    const current = rows[index] ?? ({ name: `message ${index + 1}`, type: 'text', content: '', selected: false } as main.WSMessage)
-    rows[index] = { ...current, [field]: value } as main.WSMessage
-    patchRequest({ wsMessages: rows } as main.RequestPatch)
+    const current = rows[index] ?? ({ name: `message ${index + 1}`, type: 'text', content: '', selected: false } as types.WSMessage)
+    rows[index] = { ...current, [field]: value } as types.WSMessage
+    patchRequest({ wsMessages: rows } as types.RequestPatch)
   }
 
   function addWSMessage() {
     if (!activeRequest) return
     const nextIndex = (activeRequest.wsMessages?.length ?? 0) + 1
-    const rows = [...(activeRequest.wsMessages ?? []), { name: `message ${nextIndex}`, type: 'json', content: '{}', selected: true } as main.WSMessage]
-    patchRequest({ wsMessages: rows } as main.RequestPatch)
+    const rows = [...(activeRequest.wsMessages ?? []), { name: `message ${nextIndex}`, type: 'json', content: '{}', selected: true } as types.WSMessage]
+    patchRequest({ wsMessages: rows } as types.RequestPatch)
   }
 
   function removeWSMessage(index: number) {
     if (!activeRequest) return
     const rows = [...(activeRequest.wsMessages ?? [])]
     rows.splice(index, 1)
-    patchRequest({ wsMessages: rows } as main.RequestPatch)
+    patchRequest({ wsMessages: rows } as types.RequestPatch)
   }
 
   function updateAssertion(index: number, field: keyof types.Assertion, value: string | boolean) {
     if (!activeRequest) return
     const rows = [...(activeRequest.assertions ?? [])]
     rows[index] = { ...rows[index], [field]: value }
-    patchRequest({ assertions: rows } as main.RequestPatch)
+    patchRequest({ assertions: rows } as types.RequestPatch)
   }
 
   function addAssertion() {
     if (!activeRequest) return
     const rows = [...(activeRequest.assertions ?? []), { expression: 'res.status', operator: 'equals', value: '200', enabled: true, passed: false, message: '' }]
-    patchRequest({ assertions: rows } as main.RequestPatch)
+    patchRequest({ assertions: rows } as types.RequestPatch)
   }
 
   function removeAssertion(index: number) {
     if (!activeRequest) return
     const rows = [...(activeRequest.assertions ?? [])]
     rows.splice(index, 1)
-    patchRequest({ assertions: rows } as main.RequestPatch)
+    patchRequest({ assertions: rows } as types.RequestPatch)
   }
 
   function updateRequestVariable(index: number, field: 'name' | 'value' | 'enabled', value: string | boolean) {
     if (!activeRequest) return
     const req = [...(activeRequest.vars?.req ?? [])]
     req[index] = { ...req[index], [field]: value }
-    patchRequest({ vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as main.RequestPatch)
+    patchRequest({ vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as types.RequestPatch)
   }
 
   function addRequestVariable() {
@@ -6130,14 +6130,14 @@
       ...(activeRequest.vars?.req ?? []),
       { id: `req-var-${Date.now()}`, name: '', value: '', type: 'text', dataType: 'string', enabled: true, secret: false }
     ]
-    patchRequest({ vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as main.RequestPatch)
+    patchRequest({ vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as types.RequestPatch)
   }
 
   function removeRequestVariable(index: number) {
     if (!activeRequest) return
     const req = [...(activeRequest.vars?.req ?? [])]
     req.splice(index, 1)
-    patchRequest({ vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as main.RequestPatch)
+    patchRequest({ vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as types.RequestPatch)
   }
 
   async function updateCollectionVariable(index: number, field: keyof types.Variable, value: string | boolean) {
@@ -6340,7 +6340,7 @@
     }
   }
 
-  function collectionSandboxMode(collection: main.Collection | undefined = activeCollection): JSSandboxMode {
+  function collectionSandboxMode(collection: types.Collection | undefined = activeCollection): JSSandboxMode {
     return collection?.securityConfig?.jsSandboxMode === 'developer' ? 'developer' : 'safe'
   }
 
@@ -6386,7 +6386,7 @@
     } as types.ProxyPreferences
   }
 
-  function preferencesProxyMode(preferences: main.Preferences | undefined) {
+  function preferencesProxyMode(preferences: types.Preferences | undefined) {
     const proxy = preferences?.proxy
     if (proxy?.disabled) return 'off'
     if (proxy?.source === 'pac') return 'pac'
@@ -6415,7 +6415,7 @@
       ...appState.preferences,
       proxy,
       proxyMode: preferenceProxyModeValue(proxy)
-    } as main.Preferences
+    } as types.Preferences
     workspaceStore.appState = await UpdatePreferences(preferences)
   }
 
@@ -6441,12 +6441,12 @@
     await updatePreferencesProxyConfig({ auth: { ...(current?.auth ?? {}), ...updates } as types.ProxyAuthConfig })
   }
 
-  async function updateAppearancePreferences(updates: Partial<main.Preferences>) {
+  async function updateAppearancePreferences(updates: Partial<types.Preferences>) {
     if (!appState) return
     workspaceStore.appState = await UpdatePreferences({
       ...appState.preferences,
       ...updates
-    } as main.Preferences)
+    } as types.Preferences)
   }
 
   async function updateThemeMode(mode: ThemeMode) {
@@ -6468,8 +6468,8 @@
       layout: {
         ...(appState.preferences.layout ?? {}),
         responsePaneOrientation: orientation
-      } as main.LayoutPreferences
-    } as main.Preferences)
+      } as types.LayoutPreferences
+    } as types.Preferences)
   }
 
   async function toggleResponsePaneOrientation() {
@@ -6483,8 +6483,8 @@
       display: {
         ...(appState.preferences.display ?? {}),
         zoomPercentage: normalizedZoomPercentage(percentage)
-      } as main.DisplayPreferences
-    } as main.Preferences)
+      } as types.DisplayPreferences
+    } as types.Preferences)
   }
 
   async function incrementZoomPercentage(delta: number) {
@@ -6495,12 +6495,12 @@
     await setZoomPercentage(zoomDefaultPercentage)
   }
 
-  async function updateFontPreferences(updates: Partial<main.FontPreferences>) {
+  async function updateFontPreferences(updates: Partial<types.FontPreferences>) {
     if (!appState) return
     const nextFont = {
       ...(appState.preferences.font ?? {}),
       ...updates
-    } as main.FontPreferences
+    } as types.FontPreferences
     const nextSize = normalizedCodeFontSize(nextFont.codeFontSize ?? appState.preferences.codeFontSize)
     workspaceStore.appState = await UpdatePreferences({
       ...appState.preferences,
@@ -6508,9 +6508,9 @@
         ...nextFont,
         codeFont: normalizedCodeFont(nextFont.codeFont),
         codeFontSize: nextSize
-      } as main.FontPreferences,
+      } as types.FontPreferences,
       codeFontSize: nextSize
-    } as main.Preferences)
+    } as types.Preferences)
   }
 
   async function updateCodeFont(value: string) {
@@ -6521,30 +6521,30 @@
     await updateFontPreferences({ codeFontSize: normalizedCodeFontSize(value) })
   }
 
-  async function updateRequestPreferences(updates: Partial<main.RequestPreferences>) {
+  async function updateRequestPreferences(updates: Partial<types.RequestPreferences>) {
     requestPreferencesSaveQueue = requestPreferencesSaveQueue.catch(() => {}).then(async () => {
       if (!appState) return
-      const current = appState.preferences.request ?? ({} as main.RequestPreferences)
+      const current = appState.preferences.request ?? ({} as types.RequestPreferences)
       const next = {
         sslVerification: updates.sslVerification ?? (current.sslVerification !== false),
         customCaCertificate: {
           enabled: current.customCaCertificate?.enabled ?? false,
           filePath: current.customCaCertificate?.filePath ?? '',
           ...(updates.customCaCertificate ?? {})
-        } as main.CustomCaCertificatePreferences,
+        } as types.CustomCaCertificatePreferences,
         keepDefaultCaCertificates: {
           enabled: current.keepDefaultCaCertificates?.enabled !== false,
           ...(updates.keepDefaultCaCertificates ?? {})
-        } as main.KeepDefaultCaCertificatesPreferences,
+        } as types.KeepDefaultCaCertificatesPreferences,
         storeCookies: updates.storeCookies ?? current.storeCookies ?? appState.preferences.storeCookies ?? true,
         sendCookies: updates.sendCookies ?? current.sendCookies ?? true,
         timeout: normalizedRequestTimeout(updates.timeout ?? current.timeout)
-      } as main.RequestPreferences
+      } as types.RequestPreferences
       workspaceStore.appState = await UpdatePreferences({
         ...appState.preferences,
         request: next,
         storeCookies: next.storeCookies ?? true
-      } as main.Preferences)
+      } as types.Preferences)
     })
     await requestPreferencesSaveQueue
   }
@@ -6558,7 +6558,7 @@
         ...(appState.preferences.request?.customCaCertificate ?? {}),
         enabled: true,
         filePath
-      } as main.CustomCaCertificatePreferences
+      } as types.CustomCaCertificatePreferences
     })
   }
 
@@ -6567,21 +6567,21 @@
       customCaCertificate: {
         ...(appState?.preferences?.request?.customCaCertificate ?? {}),
         filePath: ''
-      } as main.CustomCaCertificatePreferences
+      } as types.CustomCaCertificatePreferences
     })
   }
 
-  async function updateGeneralPreferences(updates: Partial<main.GeneralPreferences>) {
+  async function updateGeneralPreferences(updates: Partial<types.GeneralPreferences>) {
     if (!appState) return
     const next = {
       ...(appState.preferences.general ?? {}),
       ...updates
-    } as main.GeneralPreferences
+    } as types.GeneralPreferences
     workspaceStore.appState = await UpdatePreferences({
       ...appState.preferences,
       general: next,
       defaultCollectionPath: next.defaultLocation ?? ''
-    } as main.Preferences)
+    } as types.Preferences)
   }
 
   async function browseDefaultLocation() {
@@ -6594,18 +6594,18 @@
     await updateGeneralPreferences({ defaultLocation: '' })
   }
 
-  async function updateAutoSavePreferences(updates: Partial<main.AutoSavePreferences>) {
+  async function updateAutoSavePreferences(updates: Partial<types.AutoSavePreferences>) {
     if (!appState) return
-    const current = appState.preferences.autoSave ?? ({} as main.AutoSavePreferences)
+    const current = appState.preferences.autoSave ?? ({} as types.AutoSavePreferences)
     const next = {
       enabled: updates.enabled ?? current.enabled ?? appState.preferences.autosave ?? false,
       interval: normalizedAutoSaveInterval(updates.interval ?? current.interval)
-    } as main.AutoSavePreferences
+    } as types.AutoSavePreferences
     workspaceStore.appState = await UpdatePreferences({
       ...appState.preferences,
       autoSave: next,
       autosave: next.enabled
-    } as main.Preferences)
+    } as types.Preferences)
     if (!next.enabled) {
       clearAutoSaveTimer()
     } else if (activeCollection && activeRequest?.draft) {
@@ -6619,9 +6619,9 @@
       ...appState.preferences,
       cache: {
         ...(appState.preferences.cache ?? {}),
-        sslSession: { enabled } as main.SSLSessionCachePreferences
-      } as main.CachePreferences
-    } as main.Preferences)
+        sslSession: { enabled } as types.SSLSessionCachePreferences
+      } as types.CachePreferences
+    } as types.Preferences)
     if (!enabled) {
       workspaceStore.appState = await ClearSSLSessionCache()
     }
@@ -6645,9 +6645,9 @@
       ...appState.preferences,
       cache: {
         ...(appState.preferences.cache ?? {}),
-        file: { enabled } as main.FileCachePreferences
-      } as main.CachePreferences
-    } as main.Preferences)
+        file: { enabled } as types.FileCachePreferences
+      } as types.CachePreferences
+    } as types.Preferences)
     await refreshFileCacheSize()
   }
 
@@ -6950,7 +6950,7 @@
         ...(appState.preferences.keyBindings?.[action] ?? {}),
         name: binding.name,
         [os]: keyBindingSignature(combo)
-      } as main.KeyBinding
+      } as types.KeyBinding
     }
     await updateAppearancePreferences({ keyBindings: nextBindings })
   }
@@ -6980,14 +6980,14 @@
     return Math.max(220, Math.min(720, height))
   }
 
-  function applyDevToolsShellPreferences(preferences: main.DevToolsPreferences | undefined) {
+  function applyDevToolsShellPreferences(preferences: types.DevToolsPreferences | undefined) {
     devToolsOpen = preferences?.open ?? false
     devToolsTab = normalizedDevToolsTab(preferences?.activeTab)
     devToolsDrawerHeight = normalizedDevToolsDrawerHeight(preferences?.drawerHeight)
     devToolsDetailsPanelWidth = normalizedDevToolsDetailsPanelWidth(preferences?.detailsPanelWidth)
   }
 
-  async function updateDevToolsShellPreferences(updates: Partial<main.DevToolsPreferences>) {
+  async function updateDevToolsShellPreferences(updates: Partial<types.DevToolsPreferences>) {
     const next = {
       ...(appState?.preferences?.devTools ?? {}),
       ...updates,
@@ -6995,7 +6995,7 @@
       drawerHeight: normalizedDevToolsDrawerHeight(updates.drawerHeight ?? appState?.preferences?.devTools?.drawerHeight ?? devToolsDrawerHeight),
       detailsPanelWidth: normalizedDevToolsDetailsPanelWidth(updates.detailsPanelWidth ?? appState?.preferences?.devTools?.detailsPanelWidth ?? devToolsDetailsPanelWidth),
       network: appState?.preferences?.devTools?.network ?? devToolsNetworkPreferencePayload(devToolsNetworkSortKey, devToolsNetworkSortDirection, devToolsNetworkColumnWidths)
-    } as main.DevToolsPreferences
+    } as types.DevToolsPreferences
     devToolsOpen = next.open ?? false
     devToolsTab = normalizedDevToolsTab(next.activeTab)
     devToolsDrawerHeight = normalizedDevToolsDrawerHeight(next.drawerHeight)
@@ -7004,7 +7004,7 @@
     workspaceStore.appState = await UpdatePreferences({
       ...appState.preferences,
       devTools: next
-    } as main.Preferences)
+    } as types.Preferences)
   }
 
   async function recordKeyBinding(action: string, event: KeyboardEvent) {
@@ -7198,7 +7198,7 @@
     return authWithOAuth2Defaults(base, updates)
   }
 
-  async function saveFolderSettings(updates: Partial<main.FolderConfig>) {
+  async function saveFolderSettings(updates: Partial<types.FolderConfig>) {
     if (!activeCollection || !activeFolder) return
     const currentFolder = editableFolder ?? activeFolder
     const nextFolder = {
@@ -7212,7 +7212,7 @@
       tests: currentFolder.tests ?? '',
       docs: currentFolder.docs ?? '',
       ...updates
-    } as main.FolderConfig
+    } as types.FolderConfig
     const targetPath = currentFolder.path
     folderSettingDrafts = { ...folderSettingDrafts, [nextFolder.path]: nextFolder }
     folderSettingsSaveQueue = folderSettingsSaveQueue
@@ -7252,7 +7252,7 @@
     if (!folder) return
     const vars = [...(bucket === 'variables' ? folder.variables ?? [] : folder.resVariables ?? [])]
     vars[index] = field === 'dataType' ? { ...vars[index], dataType: String(value), type: String(value) } : { ...vars[index], [field]: value }
-    await saveFolderSettings({ [bucket]: vars } as Partial<main.FolderConfig>)
+    await saveFolderSettings({ [bucket]: vars } as Partial<types.FolderConfig>)
   }
 
   async function addFolderVariable(bucket: 'variables' | 'resVariables') {
@@ -7260,7 +7260,7 @@
     if (!folder) return
     const vars = [...(bucket === 'variables' ? folder.variables ?? [] : folder.resVariables ?? [])]
     vars.push({ id: `ui-folder-var-${Date.now()}`, name: '', value: '', type: 'string', dataType: 'string', enabled: true, secret: false })
-    await saveFolderSettings({ [bucket]: vars } as Partial<main.FolderConfig>)
+    await saveFolderSettings({ [bucket]: vars } as Partial<types.FolderConfig>)
   }
 
   async function removeFolderVariable(bucket: 'variables' | 'resVariables', index: number) {
@@ -7268,7 +7268,7 @@
     if (!folder) return
     const vars = [...(bucket === 'variables' ? folder.variables ?? [] : folder.resVariables ?? [])]
     vars.splice(index, 1)
-    await saveFolderSettings({ [bucket]: vars } as Partial<main.FolderConfig>)
+    await saveFolderSettings({ [bucket]: vars } as Partial<types.FolderConfig>)
   }
 
   async function updateFolderAuth(updates: Partial<types.AuthConfig>) {
@@ -7335,7 +7335,7 @@
     return [...entries].sort((left, right) => timelineTimestamp(right) - timelineTimestamp(left))
   }
 
-  function devToolsConsoleLogs(workspace: main.Workspace | undefined): DevToolsConsoleLog[] {
+  function devToolsConsoleLogs(workspace: types.Workspace | undefined): DevToolsConsoleLog[] {
     const rows: DevToolsConsoleLog[] = []
     for (const collection of workspace?.collections ?? []) {
       for (const item of collection.items ?? []) {
@@ -7352,7 +7352,7 @@
     return rows
   }
 
-  function normalizedNetworkMethod(row: main.NetworkLog) {
+  function normalizedNetworkMethod(row: types.NetworkLog) {
     return (row.method || 'GET').toUpperCase()
   }
 
@@ -7384,12 +7384,12 @@
     }
   }
 
-  function devToolsNetworkPreferencesKeyFor(preferences: main.DevToolsNetworkPreferences | undefined) {
+  function devToolsNetworkPreferencesKeyFor(preferences: types.DevToolsNetworkPreferences | undefined) {
     const payload = devToolsNetworkPreferencePayload(normalizedDevToolsNetworkSortKey(preferences?.sortKey), normalizedDevToolsNetworkSortDirection(preferences?.sortDirection), preferences?.columnWidths ?? defaultDevToolsNetworkColumnWidths())
     return JSON.stringify(payload)
   }
 
-  function applyDevToolsNetworkPreferences(preferences: main.DevToolsNetworkPreferences | undefined) {
+  function applyDevToolsNetworkPreferences(preferences: types.DevToolsNetworkPreferences | undefined) {
     const payload = devToolsNetworkPreferencePayload(normalizedDevToolsNetworkSortKey(preferences?.sortKey), normalizedDevToolsNetworkSortDirection(preferences?.sortDirection), preferences?.columnWidths ?? defaultDevToolsNetworkColumnWidths())
     devToolsNetworkSortKey = payload.sortKey
     devToolsNetworkSortDirection = payload.sortDirection
@@ -7397,7 +7397,7 @@
     devToolsNetworkPreferencesKey = JSON.stringify(payload)
   }
 
-  async function updateDevToolsNetworkPreferences(updates: Partial<main.DevToolsNetworkPreferences>) {
+  async function updateDevToolsNetworkPreferences(updates: Partial<types.DevToolsNetworkPreferences>) {
     const payload = devToolsNetworkPreferencePayload(normalizedDevToolsNetworkSortKey(updates.sortKey ?? devToolsNetworkSortKey), normalizedDevToolsNetworkSortDirection(updates.sortDirection ?? devToolsNetworkSortDirection), updates.columnWidths ?? devToolsNetworkColumnWidths)
     devToolsNetworkSortKey = payload.sortKey
     devToolsNetworkSortDirection = payload.sortDirection
@@ -7410,14 +7410,14 @@
         ...(appState.preferences.devTools ?? {}),
         network: payload
       }
-    } as main.Preferences)
+    } as types.Preferences)
   }
 
-  function filteredDevToolsNetworkRows(rows: main.NetworkLog[], filters: Record<string, boolean>) {
+  function filteredDevToolsNetworkRows(rows: types.NetworkLog[], filters: Record<string, boolean>) {
     return rows.filter((row) => filters[normalizedNetworkMethod(row)] === true)
   }
 
-  function sortedDevToolsNetworkRows(rows: main.NetworkLog[], key: DevToolsNetworkSortKey | '', direction: DevToolsNetworkSortDirection) {
+  function sortedDevToolsNetworkRows(rows: types.NetworkLog[], key: DevToolsNetworkSortKey | '', direction: DevToolsNetworkSortDirection) {
     if (!key || !direction) return rows
     const multiplier = direction === 'asc' ? 1 : -1
     return [...rows].sort((left, right) => {
@@ -7430,7 +7430,7 @@
     })
   }
 
-  function devToolsNetworkSortValue(row: main.NetworkLog, key: DevToolsNetworkSortKey) {
+  function devToolsNetworkSortValue(row: types.NetworkLog, key: DevToolsNetworkSortKey) {
     if (key === 'method') return normalizedNetworkMethod(row)
     if (key === 'status') return row.status ?? 0
     if (key === 'domain') return devToolsNetworkDomain(row)
@@ -7549,7 +7549,7 @@
     window.addEventListener('mouseup', handleUp)
   }
 
-  function selectDevToolsNetworkRow(row: main.NetworkLog) {
+  function selectDevToolsNetworkRow(row: types.NetworkLog) {
     selectedDevToolsNetworkLogID = row.id
     devToolsNetworkDetailTab = 'request'
   }
@@ -7651,7 +7651,7 @@
     })
   }
 
-  async function openFolderInTerminal(collection: main.Collection, folderPath: string) {
+  async function openFolderInTerminal(collection: types.Collection, folderPath: string) {
     if (!collection || collection.notFoundLocally) return
     await runAction('open folder terminal', async () => {
       const cwd = await ResolveCollectionFolderPath(collection.id, folderPath)
@@ -7676,7 +7676,7 @@
     })
   }
 
-  async function revealFolderInFolder(collection: main.Collection, folderPath: string) {
+  async function revealFolderInFolder(collection: types.Collection, folderPath: string) {
     if (!collection || collection.notFoundLocally) return
     await runAction('reveal folder', async () => {
       await RevealCollectionFolderInFolder(collection.id, folderPath)
@@ -7684,7 +7684,7 @@
     })
   }
 
-  async function revealRequestInFolder(collection: main.Collection, item: main.RequestItem) {
+  async function revealRequestInFolder(collection: types.Collection, item: types.RequestItem) {
     if (!collection || collection.notFoundLocally) return
     await runAction('reveal request', async () => {
       await RevealRequestInFolder(collection.id, item.id)
@@ -7731,13 +7731,13 @@
     }
   }
 
-  function terminalSessionLabel(session: main.TerminalSession) {
+  function terminalSessionLabel(session: types.TerminalSession) {
     const parts = (session.cwd || '').split(/[\\/]/).filter(Boolean)
     const leaf = parts[parts.length - 1]
     return leaf || 'Terminal'
   }
 
-  function terminalSessionStatus(session: main.TerminalSession) {
+  function terminalSessionStatus(session: types.TerminalSession) {
     if (session.exited) return `Exited ${session.exitCode}`
     return session.pid ? `PID ${session.pid}` : 'Starting'
   }
@@ -7752,7 +7752,7 @@
       .trimStart()
   }
 
-  function devToolsNetworkDomain(row: main.NetworkLog) {
+  function devToolsNetworkDomain(row: types.NetworkLog) {
     try {
       const parsed = new URL(row.url)
       return parsed.host || row.url || '-'
@@ -7761,7 +7761,7 @@
     }
   }
 
-  function devToolsNetworkPath(row: main.NetworkLog) {
+  function devToolsNetworkPath(row: types.NetworkLog) {
     try {
       const parsed = new URL(row.url)
       return `${parsed.pathname || '/'}${parsed.search}`
@@ -7770,14 +7770,14 @@
     }
   }
 
-  function networkLogTime(row: main.NetworkLog) {
+  function networkLogTime(row: types.NetworkLog) {
     if (!row.at) return '-'
     const value = new Date(row.at)
     if (Number.isNaN(value.getTime())) return '-'
     return value.toLocaleTimeString()
   }
 
-  function networkLogTimestamp(row: main.NetworkLog) {
+  function networkLogTimestamp(row: types.NetworkLog) {
     if (!row.at) return 0
     const value = new Date(row.at)
     return Number.isNaN(value.getTime()) ? 0 : value.getTime()
@@ -7799,7 +7799,7 @@
     return value?.trim() ? value : ''
   }
 
-  function networkLogLines(row: main.NetworkLog | undefined) {
+  function networkLogLines(row: types.NetworkLog | undefined) {
     if (!row) return []
     return [
       `Started: ${networkLogTime(row)}`,
@@ -7823,13 +7823,13 @@
   }
 
   function requestCommandState(
-    request: main.RequestItem | undefined,
-    collection: main.Collection | undefined,
+    request: types.RequestItem | undefined,
+    collection: types.Collection | undefined,
     environmentName: string | undefined,
     action: string,
     webSocketConnected: boolean,
     grpcConnected: boolean,
-    preferences: main.Preferences | undefined,
+    preferences: types.Preferences | undefined,
     httpInFlight: boolean,
     cancellationPending: boolean,
     backgroundCancellation: RequestCommandState['backgroundCancellation']
@@ -7883,7 +7883,7 @@
     return 'request'
   }
 
-  function runnerCancellationCount(snapshot: main.RunnerSnapshot | undefined) {
+  function runnerCancellationCount(snapshot: types.RunnerSnapshot | undefined) {
     const count = snapshot?.cancelled
     return typeof count === 'number' && Number.isFinite(count) && count > 0 ? count : 0
   }
@@ -7933,15 +7933,15 @@
   // changes whenever anything the grouping reads has changed. Keying on the
   // collection object alone would go stale on an in-place edit; keying on its
   // item count would miss a rename.
-  const groupedItemsMemo = new KeyedMemo<{ folder: string; items: main.RequestItem[] }[]>()
+  const groupedItemsMemo = new KeyedMemo<{ folder: string; items: types.RequestItem[] }[]>()
 
-  function groupedItems(collection: main.Collection, query = '') {
+  function groupedItems(collection: types.Collection, query = '') {
     const revision = appState?.revision ?? 0
     return groupedItemsMemo.get(`${collection.id}:${revision}:${query}`, () => computeGroupedItems(collection, query))
   }
 
-  function computeGroupedItems(collection: main.Collection, query = '') {
-    const groups: { folder: string; items: main.RequestItem[] }[] = []
+  function computeGroupedItems(collection: types.Collection, query = '') {
+    const groups: { folder: string; items: types.RequestItem[] }[] = []
     const indexByFolder = new Map<string, number>()
     const addGroup = (folder: string) => {
       let index = indexByFolder.get(folder)
@@ -7963,23 +7963,23 @@
     return groups
   }
 
-  function filteredFolders(collection: main.Collection, query = '') {
+  function filteredFolders(collection: types.Collection, query = '') {
     const folders = collection.folders ?? []
     if (!query.trim()) return folders
     return folders.filter((folder) => folderMatches(folder, query))
   }
 
-  function sidebarCollections(workspace: main.Workspace | undefined, query: string) {
+  function sidebarCollections(workspace: types.Workspace | undefined, query: string) {
     const collections = workspace?.collections ?? []
     if (!query) return collections
     return collections.filter((collection) => collectionMatches(collection, query) || filteredFolders(collection, query).length > 0 || filteredItems(collection, query).length > 0)
   }
 
-  function sidebarRequestCount(workspace: main.Workspace | undefined, query: string) {
+  function sidebarRequestCount(workspace: types.Workspace | undefined, query: string) {
     return (workspace?.collections ?? []).reduce((total, collection) => total + filteredItems(collection, query).length, 0)
   }
 
-  function buildGlobalSearchResults(workspace: main.Workspace | undefined, query: string): GlobalSearchResult[] {
+  function buildGlobalSearchResults(workspace: types.Workspace | undefined, query: string): GlobalSearchResult[] {
     const collections = workspace?.collections ?? []
     const normalized = normalizeGlobalSearchQuery(query)
     if (!normalized) {
@@ -8053,7 +8053,7 @@
     return results.sort(sortGlobalSearchResults)
   }
 
-  function filteredItems(collection: main.Collection, query: string) {
+  function filteredItems(collection: types.Collection, query: string) {
     const items = collection.items ?? []
     if (!query || collectionMatches(collection, query)) return items
     return items.filter((item) => requestMatches(collection, item, query))
@@ -8076,7 +8076,7 @@
     return terms.every((term) => haystack.includes(term))
   }
 
-  function globalSearchItemPath(collection: main.Collection, item: main.RequestItem) {
+  function globalSearchItemPath(collection: types.Collection, item: types.RequestItem) {
     return [collection.name, item.folderPath, item.name].filter(Boolean).join('/')
   }
 
@@ -8128,15 +8128,15 @@
     }
   }
 
-  function collectionMatches(collection: main.Collection, query: string) {
+  function collectionMatches(collection: types.Collection, query: string) {
     return [collection.name, collection.format, collection.path].some((value) => searchHit(value, query))
   }
 
-  function folderMatches(folder: main.FolderConfig, query: string) {
+  function folderMatches(folder: types.FolderConfig, query: string) {
     return [folder.displayPath, folder.path, folder.name].some((value) => searchHit(value, query))
   }
 
-  function requestMatches(collection: main.Collection, item: main.RequestItem, query: string) {
+  function requestMatches(collection: types.Collection, item: types.RequestItem, query: string) {
     const exampleValues = (item.examples ?? []).flatMap((example) => [example.name, example.description, example.request?.url])
     return [collection.name, item.folderPath, item.name, item.method, item.type, item.url, ...exampleValues].some((value) => searchHit(value, query))
   }
@@ -8208,35 +8208,35 @@
     return value.toLocaleString()
   }
 
-  function notificationsForDisplay(notifications: main.Notification[]) {
+  function notificationsForDisplay(notifications: types.Notification[]) {
     return [...notifications].sort((a, b) => notificationTime(b) - notificationTime(a))
   }
 
-  function notificationTime(notification: main.Notification) {
+  function notificationTime(notification: types.Notification) {
     const value = new Date(notification.at)
     return Number.isNaN(value.getTime()) ? 0 : value.getTime()
   }
 
-  function notificationTitle(notification: main.Notification | undefined) {
+  function notificationTitle(notification: types.Notification | undefined) {
     return notification?.title || notification?.message || 'Notification'
   }
 
-  function notificationDescription(notification: main.Notification | undefined) {
+  function notificationDescription(notification: types.Notification | undefined) {
     return notification?.description || notification?.message || ''
   }
 
-  function notificationType(notification: main.Notification | undefined) {
+  function notificationType(notification: types.Notification | undefined) {
     return notification?.type || notification?.level || 'Info'
   }
 
-  function notificationDate(notification: main.Notification | undefined) {
+  function notificationDate(notification: types.Notification | undefined) {
     if (!notification?.at) return ''
     const value = new Date(notification.at)
     if (Number.isNaN(value.getTime())) return ''
     return value.toLocaleString()
   }
 
-  function notificationLevelClass(notification: main.Notification | undefined) {
+  function notificationLevelClass(notification: types.Notification | undefined) {
     const level = (notification?.level || '').toLowerCase()
     if (level === 'success') return 'success'
     if (level === 'warning' || level === 'warn') return 'warning'
@@ -8262,7 +8262,7 @@
     pinnedUnreadNotificationIDs = null
   }
 
-  async function selectNotification(notification: main.Notification) {
+  async function selectNotification(notification: types.Notification) {
     selectedNotificationID = notification.id
     if (!notification.read) {
       workspaceStore.appState = await MarkNotificationRead(notification.id)

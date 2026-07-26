@@ -2,9 +2,9 @@
   // US-036 — the General section of the Preferences panel, extracted so its
   // markup is not in the initial chunk. Preferences is decomposed section by
   // section: as a whole it carries ~60 props, each section only a handful.
-  import type { main } from '../../../../wailsjs/go/models'
+  import type { types } from '../../../../wailsjs/go/models'
 
-  export let state: main.AppState
+  export let state: types.AppState
   export let customCaFileName: (filePath: string | undefined) => string
   export let browseDefaultLocation: () => void
   export let clearDefaultLocation: () => void
@@ -25,7 +25,7 @@
 	                    data-testid="ssl-verification-toggle"
 	                    type="checkbox"
 	                    checked={state.preferences.request?.sslVerification !== false}
-	                    on:change={(event) => updateRequestPreferences({ sslVerification: event.currentTarget.checked } as Partial<main.RequestPreferences>)}
+	                    on:change={(event) => updateRequestPreferences({ sslVerification: event.currentTarget.checked } as Partial<types.RequestPreferences>)}
 	                  />
 	                  SSL/TLS Certificate Verification
 	                </label>
@@ -39,7 +39,7 @@
 	                      customCaCertificate: {
 	                        ...(state?.preferences.request?.customCaCertificate ?? {}),
 	                        enabled: event.currentTarget.checked
-	                      } as main.CustomCaCertificatePreferences
+	                      } as types.CustomCaCertificatePreferences
 	                    })}
 	                  />
 	                  Use Custom CA Certificate
@@ -69,7 +69,7 @@
 	                    checked={state.preferences.request?.keepDefaultCaCertificates?.enabled !== false}
 	                    disabled={!((state.preferences.request?.customCaCertificate?.enabled ?? false) && state.preferences.request?.customCaCertificate?.filePath)}
 	                    on:change={(event) => updateRequestPreferences({
-	                      keepDefaultCaCertificates: { enabled: event.currentTarget.checked } as main.KeepDefaultCaCertificatesPreferences
+	                      keepDefaultCaCertificates: { enabled: event.currentTarget.checked } as types.KeepDefaultCaCertificatesPreferences
 	                    })}
 	                  />
 	                  Keep Default CA Certificates
@@ -80,7 +80,7 @@
 	                    data-testid="store-cookies-toggle"
 	                    type="checkbox"
 	                    checked={state.preferences.request?.storeCookies ?? state.preferences.storeCookies ?? true}
-	                    on:change={(event) => updateRequestPreferences({ storeCookies: event.currentTarget.checked } as Partial<main.RequestPreferences>)}
+	                    on:change={(event) => updateRequestPreferences({ storeCookies: event.currentTarget.checked } as Partial<types.RequestPreferences>)}
 	                  />
 	                  Store Cookies automatically
 	                </label>
@@ -90,7 +90,7 @@
 	                    data-testid="send-cookies-toggle"
 	                    type="checkbox"
 	                    checked={state.preferences.request?.sendCookies ?? true}
-	                    on:change={(event) => updateRequestPreferences({ sendCookies: event.currentTarget.checked } as Partial<main.RequestPreferences>)}
+	                    on:change={(event) => updateRequestPreferences({ sendCookies: event.currentTarget.checked } as Partial<types.RequestPreferences>)}
 	                  />
 	                  Send Cookies automatically
 	                </label>
@@ -101,7 +101,7 @@
 	                    data-testid="request-timeout-input"
 	                    value={state.preferences.request?.timeout ?? 0}
 	                    inputmode="numeric"
-	                    on:input={(event) => updateRequestPreferences({ timeout: Number(event.currentTarget.value) } as Partial<main.RequestPreferences>)}
+	                    on:input={(event) => updateRequestPreferences({ timeout: Number(event.currentTarget.value) } as Partial<types.RequestPreferences>)}
 	                  />
 	                </div>
 	                <label class="inline-toggle">
@@ -110,7 +110,7 @@
 	                    data-testid="autosave-enabled-toggle"
 	                    type="checkbox"
 	                    checked={state.preferences.autoSave?.enabled ?? state.preferences.autosave ?? false}
-	                    on:change={(event) => updateAutoSavePreferences({ enabled: event.currentTarget.checked } as Partial<main.AutoSavePreferences>)}
+	                    on:change={(event) => updateAutoSavePreferences({ enabled: event.currentTarget.checked } as Partial<types.AutoSavePreferences>)}
 	                  />
 	                  Enable Auto Save
 	                </label>
@@ -122,7 +122,7 @@
 	                    value={state.preferences.autoSave?.interval ?? 1000}
 	                    disabled={!(state.preferences.autoSave?.enabled ?? state.preferences.autosave ?? false)}
 	                    inputmode="numeric"
-	                    on:input={(event) => updateAutoSavePreferences({ interval: Number(event.currentTarget.value) } as Partial<main.AutoSavePreferences>)}
+	                    on:input={(event) => updateAutoSavePreferences({ interval: Number(event.currentTarget.value) } as Partial<types.AutoSavePreferences>)}
 	                  />
 	                </div>
 	                <div class="field-grid default-location-grid">

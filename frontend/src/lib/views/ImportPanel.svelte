@@ -11,7 +11,7 @@
   // missed prop names, the second got all 35 names right and all 37 signatures
   // wrong. importReadyRows, for instance, reads like a count and is a
   // CollectionImportPreviewRow[].
-  import type { main } from '../../../wailsjs/go/models'
+  import type { main, types } from '../../../wailsjs/go/models'
 
   // Mirrors App.svelte's local types; neither is exported from an importable
   // module (checked — unlike WorkbenchCommandID, which is).
@@ -40,7 +40,7 @@
   export let importApplyButton: HTMLButtonElement | null = null
   export let importPickerButton: HTMLButtonElement | null = null
 
-  export let state: main.AppState
+  export let state: types.AppState
   export let busy: string
   export let importStatus: string
   export let importReadyRows: main.CollectionImportPreviewRow[]

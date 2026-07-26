@@ -1,10 +1,10 @@
 <script lang="ts">
   // US-036 — the Delete Folder confirmation, lifted out of App.svelte so its markup is not in the
   // initial chunk. Imported dynamically from inside the {#if} that gates it.
-  import type { main } from '../../../../wailsjs/go/models'
+  import type { types } from '../../../../wailsjs/go/models'
   import Modal from '../Modal.svelte'
 
-  export let deleteFolderTarget: { folder: main.FolderConfig }
+  export let deleteFolderTarget: { folder: types.FolderConfig }
   export let busy: string
   export let slashPathBase: (path: string) => string
   export let confirmDeleteFolder: () => void

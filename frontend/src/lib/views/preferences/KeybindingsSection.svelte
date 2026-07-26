@@ -2,9 +2,9 @@
   // US-036 — the Keybindings section of the Preferences panel, extracted so its
   // markup is not in the initial chunk. Preferences is decomposed section by
   // section: as a whole it carries ~60 props, each section only a handful.
-  import type { main } from '../../../../wailsjs/go/models'
+  import type { types } from '../../../../wailsjs/go/models'
 
-  export let state: main.AppState
+  export let state: types.AppState
   // Mirrors App.svelte's local KeyBindingSection / KeyBindingDefinition.
   // Checked first whether either was exported from a module this could import —
   // neither is, unlike WorkbenchCommandID. `never[]` was a shortcut that failed
@@ -20,7 +20,7 @@
   export let keyBindingCanEdit: (action: string) => boolean
   export let keyBindingIsCustomized: (action: string) => boolean
   export let keybindingDraft: string
-  export let keybindingsAreEnabled: (preferences: main.Preferences | undefined) => boolean
+  export let keybindingsAreEnabled: (preferences: types.Preferences | undefined) => boolean
   export let keybindingError: string
   export let recordingKeybindingAction: string
   export let formatKeyBinding: (combo: string) => string

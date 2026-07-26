@@ -9,7 +9,7 @@
 // untouched, and every one of its ~120 assignment sites MUST be rewritten
 // because assigning to a $derived is a compile error. There is no silent
 // half-migrated state available here.
-import type { main } from '../../../wailsjs/go/models'
+import type { types } from '../../../wailsjs/go/models'
 
 class WorkspaceStore {
   /**
@@ -20,7 +20,7 @@ class WorkspaceStore {
    * something with a setter: the call sites are assignments and keeping them
    * that way is what makes the rewrite mechanical and checkable.
    */
-  appState = $state<main.AppState | null>(null)
+  appState = $state<types.AppState | null>(null)
 
   get workspaces() {
     return this.appState?.workspaces ?? []

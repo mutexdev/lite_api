@@ -2762,3 +2762,54 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   REMAINING: 76 types. The cost is now known rather than estimated, and each
   cluster is independently green.
+
+--- US-060 — internal/types, COMPLETE for app.go ---
+
+  89 types moved. app.go now declares exactly ONE exported struct: App itself,
+  which stays because 266 methods hang off it and methods cannot cross packages.
+
+    internal/types   22 files, ~1,150 lines
+    app.go           43,783 lines, 0 data types
+    aliases in main  89
+
+  TerminalSession was the last one and worth a note: it moved, but the
+  terminalSessionProcess beside it did NOT. One is what the frontend sees, the
+  other owns the live pty and the exec.Cmd. The split between them is exactly
+  the line this story is about — data crosses the boundary, running processes
+  do not.
+
+  THE TOOLING IS IN tools/extraction/ AND THE GUARDS ARE THE POINT:
+
+    extract.py   takes type NAMES, derives the block itself, and REFUSES unless
+                 the named types are contiguous.
+    sync.sh      regenerates bindings, rewrites main.X -> types.X, and REFUSES
+                 a type that is not actually declared in internal/types.
+    dropmain.py  removes `main` from an import once its last use is gone.
+
+  Every one of those guards was added because it caught me, in this order:
+    - line numbers shift after each extraction -> same off-by-one 3x -> names
+    - unexported types interleaved in a range (brunoEnvironmentExport*) would
+      have been moved into a package that cannot alias them back
+    - passing a type to sync.sh that I had NOT moved rewrote a valid main.X
+      into a types.X that did not exist, and broke App.svelte
+
+  That last one is the reason for the sync guard: the rewrite step is the only
+  part of this procedure that is NOT compiler-checked before it runs, so it had
+  to check itself.
+
+  DEPENDENCY CLOSURE was the real work, not the moving. A moved type drags
+  everything it embeds: Response pulled VisualizerPayload, CookieEntry and
+  ResponseTimings out of three other files; AppState pulled OpenTab and
+  Feature; RunResult pulled GrpcMessage and WSMessage. Miss one and the
+  packages point both ways, which Go simply refuses to build - so the compiler
+  found every one of these for me.
+
+  Gates after the final move: go build, go vet, go test all ok; svelte-check
+  209/0/0; eslint 0; npm test 223/223; vite build ok.
+
+  NOT DONE, deliberately: the 89 aliases still sit in package main. Deleting
+  them means touching every one of the thousands of use sites, which buys
+  nothing right now - the types are already in one package and app.go is
+  already free of them. US-061 onward (extracting BEHAVIOUR into packages) is
+  what makes removing them worthwhile, because that is when a caller in
+  another package has to name the type properly anyway.

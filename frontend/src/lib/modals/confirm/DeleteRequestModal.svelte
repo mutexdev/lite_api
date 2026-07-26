@@ -1,10 +1,10 @@
 <script lang="ts">
   // US-036 — the Delete Request confirmation, lifted out of App.svelte so its markup is not in the
   // initial chunk. Imported dynamically from inside the {#if} that gates it.
-  import type { main } from '../../../../wailsjs/go/models'
+  import type { types } from '../../../../wailsjs/go/models'
   import Modal from '../Modal.svelte'
 
-  export let deleteRequestTarget: { request: main.RequestItem }
+  export let deleteRequestTarget: { request: types.RequestItem }
   export let busy: string
   export let confirmDeleteRequest: () => void
   export let cancelDeleteRequestModal: () => void

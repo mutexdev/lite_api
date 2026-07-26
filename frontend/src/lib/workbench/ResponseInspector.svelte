@@ -4,13 +4,13 @@
 </script>
 
 <script lang="ts">
-  import type { main, types } from '../../../wailsjs/go/models'
+  import type { types } from '../../../wailsjs/go/models'
   import { automaticPreviewLimit, base64ByteLength, compareHeaders, compareJsonStructure, contentDispositionFilename, contentType, embeddedPreviewLimit, findMatches, formatResponseBody, fullRenderLimit, lineDiff, normalizeResponseView, previewKind, responseTextForView, sliceBase64Bytes, sliceUtf8, utf8ByteLength } from './response'
   import { resolveLiveSessionEvents, type LiveSessionLog } from '../liveSessionEvents'
 
   // US-028 — runes. None of these are bound by the parent.
   type Props = {
-    request: main.RequestItem
+    request: types.RequestItem
     selectedTab?: string
     selectedView?: string
     timeline?: types.TimelineItem[]

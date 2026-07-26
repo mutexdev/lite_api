@@ -2,7 +2,7 @@
   // US-036 — the Notifications dialog, lifted out of App.svelte so its markup
   // is not in the initial chunk. Imported dynamically from inside the {#if}
   // that gates it; a static import would leave it in the initial graph.
-  import type { main } from '../../../wailsjs/go/models'
+  import type { types } from '../../../wailsjs/go/models'
   import Modal from './Modal.svelte'
 
   export let unreadNotificationCount: number
@@ -12,19 +12,19 @@
   // the type system doing its job, not an obstacle to route around.
   type NotificationTab = 'all' | 'unread'
   export let notificationTab: NotificationTab
-  export let visibleNotifications: main.Notification[]
-  export let listedNotifications: main.Notification[]
-  export let selectedNotification: main.Notification | undefined
+  export let visibleNotifications: types.Notification[]
+  export let listedNotifications: types.Notification[]
+  export let selectedNotification: types.Notification | undefined
   export let busy: string
   export let setNotificationTab: (tab: NotificationTab) => void
   export let markAllNotificationsRead: () => void
   export let clearNotifications: () => void
-  export let selectNotification: (notification: main.Notification) => void
-  export let notificationTitle: (notification: main.Notification) => string
-  export let notificationDate: (notification: main.Notification) => string
-  export let notificationType: (notification: main.Notification) => string
-  export let notificationDescription: (notification: main.Notification) => string
-  export let notificationLevelClass: (notification: main.Notification) => string
+  export let selectNotification: (notification: types.Notification) => void
+  export let notificationTitle: (notification: types.Notification) => string
+  export let notificationDate: (notification: types.Notification) => string
+  export let notificationType: (notification: types.Notification) => string
+  export let notificationDescription: (notification: types.Notification) => string
+  export let notificationLevelClass: (notification: types.Notification) => string
   export let closeNotifications: () => void
 </script>
 

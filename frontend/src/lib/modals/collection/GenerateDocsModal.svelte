@@ -3,10 +3,10 @@
   // markup is not in the initial chunk. App.svelte imports this dynamically
   // from inside the {#if} that gates it; a static import would leave it in the
   // initial graph and save nothing.
-  import type { main } from '../../../../wailsjs/go/models'
+  import type { types } from '../../../../wailsjs/go/models'
   import Modal from '../Modal.svelte'
 
-  export let activeCollection: main.Collection
+  export let activeCollection: types.Collection
   export let generateDocsFolderCount: number
   export let generateDocsRequestCount: number
   export let generateDocsEnvironments: Array<{ id: string; name: string; color?: string }>

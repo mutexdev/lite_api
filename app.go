@@ -236,17 +236,8 @@ type App struct {
 	oauth2Fingerprint  string
 }
 
-type TerminalSession struct {
-	ID        string `json:"id"`
-	CWD       string `json:"cwd"`
-	PID       int    `json:"pid"`
-	Output    string `json:"output"`
-	Exited    bool   `json:"exited"`
-	ExitCode  int    `json:"exitCode"`
-	Signal    string `json:"signal"`
-	CreatedAt string `json:"createdAt"`
-	UpdatedAt string `json:"updatedAt"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type TerminalSession = types.TerminalSession
 
 type terminalSessionProcess struct {
 	id        string
@@ -262,103 +253,14 @@ type terminalSessionProcess struct {
 	updatedAt time.Time
 }
 
-type AppState struct {
-	Workspaces         []Workspace    `json:"workspaces"`
-	ActiveWorkspaceID  string         `json:"activeWorkspaceId"`
-	OpenTabs           []OpenTab      `json:"openTabs"`
-	ClosedTabs         []OpenTab      `json:"closedTabs,omitempty"`
-	ActiveTabID        string         `json:"activeTabId"`
-	FeatureLedger      []Feature      `json:"featureLedger"`
-	GlobalEnvironments []Environment  `json:"globalEnvironments"`
-	Preferences        Preferences    `json:"preferences"`
-	Notifications      []Notification `json:"notifications"`
-	NetworkLog         []NetworkLog   `json:"networkLog"`
-	Runner             RunnerSnapshot `json:"runner"`
-	Cookies            []CookieEntry  `json:"cookies"`
-	// Revision is a monotonic counter, bumped exactly once per mutation by
-	// markDirty and never by a read. The frontend compares the revision on a
-	// narrow mutator result against the one it last applied; a gap means it
-	// missed an update and must refetch the whole AppState (US-014).
-	//
-	// It is deliberately NOT persisted — stateForStorage zeroes it. The
-	// guarantee the frontend needs is monotonicity within one App instance,
-	// and restoring a counter from disk cannot provide that: under the
-	// multi-window shared-state model a window that reloads state written by
-	// another window would see the revision jump backwards. Starting every
-	// instance at zero is both monotonic and honest, because the frontend
-	// fetches the full state on boot anyway.
-	Revision int64 `json:"revision"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type AppState = types.AppState
+type Workspace = types.Workspace
 
-type Workspace struct {
-	ID                        string        `json:"id"`
-	Name                      string        `json:"name"`
-	Path                      string        `json:"path"`
-	ScratchCollectionID       string        `json:"scratchCollectionId,omitempty"`
-	ScratchTempDirectory      string        `json:"scratchTempDirectory,omitempty"`
-	Collections               []Collection  `json:"collections"`
-	GlobalEnvironments        []Environment `json:"globalEnvironments"`
-	ActiveGlobalEnvironmentID string        `json:"activeGlobalEnvironmentId"`
-	Docs                      string        `json:"docs"`
-	CreatedAt                 time.Time     `json:"createdAt"`
-	UpdatedAt                 time.Time     `json:"updatedAt"`
-}
-
-type Collection struct {
-	ID                 string                    `json:"id"`
-	Name               string                    `json:"name"`
-	Version            string                    `json:"version,omitempty"`
-	Path               string                    `json:"path"`
-	Format             string                    `json:"format"`
-	Remote             string                    `json:"remote,omitempty"`
-	NotFoundLocally    bool                      `json:"notFoundLocally,omitempty"`
-	Scratch            bool                      `json:"scratch,omitempty"`
-	Items              []RequestItem             `json:"items"`
-	Folders            []FolderConfig            `json:"folders"`
-	Environments       []Environment             `json:"environments"`
-	Variables          []Variable                `json:"variables"`
-	RuntimeVariables   []Variable                `json:"runtimeVariables,omitempty"`
-	ResVariables       []Variable                `json:"resVariables"`
-	Headers            []KeyValue                `json:"headers"`
-	Auth               AuthConfig                `json:"auth"`
-	Proxy              ProxyConfig               `json:"proxy"`
-	ClientCertificates []ClientCertificateConfig `json:"clientCertificates"`
-	Presets            CollectionPresets         `json:"presets"`
-	Protobuf           CollectionProtobufConfig  `json:"protobuf"`
-	SecurityConfig     CollectionSecurityConfig  `json:"securityConfig"`
-	OpenAPI            []OpenAPISyncConfig       `json:"openapi,omitempty"`
-	PreScript          string                    `json:"preScript"`
-	PostScript         string                    `json:"postScript"`
-	Tests              string                    `json:"tests"`
-	Docs               string                    `json:"docs"`
-	Tags               []string                  `json:"tags"`
-	CreatedAt          time.Time                 `json:"createdAt"`
-	UpdatedAt          time.Time                 `json:"updatedAt"`
-}
-
-type CollectionWatchRefreshResult struct {
-	State        AppState `json:"state"`
-	Changed      bool     `json:"changed"`
-	Refreshed    []string `json:"refreshed,omitempty"`
-	SkippedDirty []string `json:"skippedDirty,omitempty"`
-	Missing      []string `json:"missing,omitempty"`
-	Errors       []string `json:"errors,omitempty"`
-}
-
-type FolderConfig struct {
-	Path         string     `json:"path"`
-	DisplayPath  string     `json:"displayPath"`
-	Name         string     `json:"name"`
-	Seq          int        `json:"seq"`
-	Headers      []KeyValue `json:"headers"`
-	Variables    []Variable `json:"variables"`
-	ResVariables []Variable `json:"resVariables"`
-	Auth         AuthConfig `json:"auth"`
-	PreScript    string     `json:"preScript"`
-	PostScript   string     `json:"postScript"`
-	Tests        string     `json:"tests"`
-	Docs         string     `json:"docs"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type Collection = types.Collection
+type CollectionWatchRefreshResult = types.CollectionWatchRefreshResult
+type FolderConfig = types.FolderConfig
 
 // Moved to internal/types. These stay as aliases rather than being deleted:
 // package main still names them in 200+ places, and an alias keeps that code
@@ -377,52 +279,12 @@ type CollectionProtoFile = types.CollectionProtoFile
 type CollectionProtoImportPath = types.CollectionProtoImportPath
 type OpenAPISyncConfig = types.OpenAPISyncConfig
 
-type RequestItem struct {
-	ID             string            `json:"id"`
-	Name           string            `json:"name"`
-	Type           string            `json:"type"`
-	Method         string            `json:"method"`
-	URL            string            `json:"url"`
-	Params         []KeyValue        `json:"params"`
-	PathParams     []KeyValue        `json:"pathParams"`
-	Headers        []KeyValue        `json:"headers"`
-	Body           RequestBody       `json:"body"`
-	ProtoPath      string            `json:"protoPath"`
-	GrpcMethodType string            `json:"grpcMethodType"`
-	GrpcMessages   []GrpcMessage     `json:"grpcMessages"`
-	WSMessages     []WSMessage       `json:"wsMessages"`
-	Auth           AuthConfig        `json:"auth"`
-	Vars           RequestVars       `json:"vars"`
-	Assertions     []Assertion       `json:"assertions"`
-	Tests          string            `json:"tests"`
-	PreScript      string            `json:"preScript"`
-	PostScript     string            `json:"postScript"`
-	Docs           string            `json:"docs"`
-	Settings       RequestSettings   `json:"settings"`
-	Tags           []string          `json:"tags"`
-	FolderPath     string            `json:"folderPath"`
-	FilePath       string            `json:"filePath"`
-	Examples       []ResponseExample `json:"examples"`
-	Response       *Response         `json:"response,omitempty"`
-	Timeline       []TimelineItem    `json:"timeline"`
-	Draft          bool              `json:"draft"`
-	Transient      bool              `json:"transient,omitempty"`
-	Seq            int               `json:"seq"`
-	CreatedAt      time.Time         `json:"createdAt"`
-	UpdatedAt      time.Time         `json:"updatedAt"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type RequestItem = types.RequestItem
 
-type GrpcMessage struct {
-	Name    string `json:"name"`
-	Content string `json:"content"`
-}
-
-type WSMessage struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Content  string `json:"content"`
-	Selected bool   `json:"selected"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type GrpcMessage = types.GrpcMessage
+type WSMessage = types.WSMessage
 
 type websocketSession struct {
 	mu             sync.Mutex
@@ -523,22 +385,9 @@ type TestResult = types.TestResult
 type ScriptLog = types.ScriptLog
 type TimelineItem = types.TimelineItem
 
-type Environment struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	Color     string     `json:"color"`
-	Variables []Variable `json:"variables"`
-}
-
-type DotEnvFile struct {
-	Scope     string    `json:"scope"`
-	Name      string    `json:"name"`
-	Path      string    `json:"path"`
-	Content   string    `json:"content"`
-	Runtime   bool      `json:"runtime"`
-	Size      int64     `json:"size"`
-	UpdatedAt time.Time `json:"updatedAt"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type Environment = types.Environment
+type DotEnvFile = types.DotEnvFile
 
 type brunoEnvironmentExportInfo struct {
 	Type          string `json:"type"`
@@ -567,142 +416,26 @@ type brunoEnvironmentVariable struct {
 	DataType string      `json:"dataType,omitempty"`
 }
 
-type GlobalEnvironmentExportResult struct {
-	Format   string                        `json:"format"`
-	Filename string                        `json:"filename"`
-	Content  string                        `json:"content"`
-	Files    []GlobalEnvironmentExportFile `json:"files"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type GlobalEnvironmentExportResult = types.GlobalEnvironmentExportResult
+type GlobalEnvironmentExportFile = types.GlobalEnvironmentExportFile
+type GlobalEnvironmentSaveResult = types.GlobalEnvironmentSaveResult
 
-type GlobalEnvironmentExportFile struct {
-	Name    string `json:"name"`
-	Content string `json:"content"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type CollectionExportOptions = types.CollectionExportOptions
+type CollectionExportResult = types.CollectionExportResult
+type CollectionSaveResult = types.CollectionSaveResult
 
-type GlobalEnvironmentSaveResult struct {
-	Format    string   `json:"format"`
-	Path      string   `json:"path"`
-	Files     []string `json:"files"`
-	Cancelled bool     `json:"cancelled"`
-}
-
-type CollectionExportOptions struct {
-	Format string `json:"format"`
-}
-
-type CollectionExportResult struct {
-	Format           string   `json:"format"`
-	Filename         string   `json:"filename"`
-	Content          string   `json:"content,omitempty"`
-	ContentBase64    string   `json:"contentBase64,omitempty"`
-	MimeType         string   `json:"mimeType"`
-	Warning          string   `json:"warning,omitempty"`
-	SkippedTypes     []string `json:"skippedTypes,omitempty"`
-	FolderCount      int      `json:"folderCount"`
-	RequestCount     int      `json:"requestCount"`
-	EnvironmentCount int      `json:"environmentCount"`
-}
-
-type CollectionSaveResult struct {
-	Format    string `json:"format"`
-	Path      string `json:"path"`
-	Cancelled bool   `json:"cancelled,omitempty"`
-}
-
-type OpenAPISyncOptions struct {
-	SourceURL         string            `json:"sourceUrl"`
-	Content           string            `json:"content"`
-	GroupBy           string            `json:"groupBy"`
-	PreserveValues    bool              `json:"preserveValues"`
-	RemoveDeleted     bool              `json:"removeDeleted"`
-	EndpointDecisions map[string]string `json:"endpointDecisions,omitempty"`
-}
-
-type OpenAPISyncEndpointChange struct {
-	ID              string `json:"id"`
-	Method          string `json:"method"`
-	Path            string `json:"path"`
-	Name            string `json:"name"`
-	Change          string `json:"change"`
-	ItemID          string `json:"itemId,omitempty"`
-	DefaultDecision string `json:"defaultDecision"`
-}
-
-type OpenAPISyncResult struct {
-	SourceURL     string                      `json:"sourceUrl"`
-	GroupBy       string                      `json:"groupBy"`
-	SpecHash      string                      `json:"specHash"`
-	Title         string                      `json:"title"`
-	Version       string                      `json:"version"`
-	EndpointCount int                         `json:"endpointCount"`
-	Added         int                         `json:"added"`
-	Updated       int                         `json:"updated"`
-	Removed       int                         `json:"removed"`
-	Unchanged     int                         `json:"unchanged"`
-	HasChanges    bool                        `json:"hasChanges"`
-	LastSyncDate  string                      `json:"lastSyncDate,omitempty"`
-	Changes       []OpenAPISyncEndpointChange `json:"changes"`
-}
-
-type OpenAPISyncUpdateCheckResult struct {
-	SourceURL      string `json:"sourceUrl"`
-	StoredSpecHash string `json:"storedSpecHash"`
-	RemoteSpecHash string `json:"remoteSpecHash"`
-	HasUpdates     bool   `json:"hasUpdates"`
-	CheckedAt      string `json:"checkedAt"`
-}
-
-type OpenAPISyncSpecViewResult struct {
-	SourceURL    string `json:"sourceUrl"`
-	Content      string `json:"content"`
-	FromCache    bool   `json:"fromCache"`
-	Fetched      bool   `json:"fetched"`
-	NoStoredSpec bool   `json:"noStoredSpec"`
-}
-
-type OpenAPISyncSpecDiffLine struct {
-	Kind      string `json:"kind"`
-	OldNumber int    `json:"oldNumber,omitempty"`
-	NewNumber int    `json:"newNumber,omitempty"`
-	OldText   string `json:"oldText,omitempty"`
-	NewText   string `json:"newText,omitempty"`
-}
-
-type OpenAPISyncSpecDiffResult struct {
-	SourceURL      string                      `json:"sourceUrl"`
-	StoredContent  string                      `json:"storedContent"`
-	NewContent     string                      `json:"newContent"`
-	NoStoredSpec   bool                        `json:"noStoredSpec"`
-	StoredSpecHash string                      `json:"storedSpecHash"`
-	NewSpecHash    string                      `json:"newSpecHash"`
-	Added          int                         `json:"added"`
-	Updated        int                         `json:"updated"`
-	Removed        int                         `json:"removed"`
-	Unchanged      int                         `json:"unchanged"`
-	Changes        []OpenAPISyncEndpointChange `json:"changes"`
-	Lines          []OpenAPISyncSpecDiffLine   `json:"lines"`
-}
-
-type OpenAPILocalDriftOptions struct {
-	ResetIDs   []string `json:"resetIds"`
-	RestoreIDs []string `json:"restoreIds"`
-	DeleteIDs  []string `json:"deleteIds"`
-}
-
-type OpenAPILocalDriftResult struct {
-	SourceURL               string                      `json:"sourceUrl"`
-	GroupBy                 string                      `json:"groupBy"`
-	SpecEndpointCount       int                         `json:"specEndpointCount"`
-	CollectionEndpointCount int                         `json:"collectionEndpointCount"`
-	Modified                int                         `json:"modified"`
-	Missing                 int                         `json:"missing"`
-	LocalOnly               int                         `json:"localOnly"`
-	InSync                  int                         `json:"inSync"`
-	HasChanges              bool                        `json:"hasChanges"`
-	NoStoredSpec            bool                        `json:"noStoredSpec,omitempty"`
-	LastSyncDate            string                      `json:"lastSyncDate,omitempty"`
-	Changes                 []OpenAPISyncEndpointChange `json:"changes"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type OpenAPISyncOptions = types.OpenAPISyncOptions
+type OpenAPISyncEndpointChange = types.OpenAPISyncEndpointChange
+type OpenAPISyncResult = types.OpenAPISyncResult
+type OpenAPISyncUpdateCheckResult = types.OpenAPISyncUpdateCheckResult
+type OpenAPISyncSpecViewResult = types.OpenAPISyncSpecViewResult
+type OpenAPISyncSpecDiffLine = types.OpenAPISyncSpecDiffLine
+type OpenAPISyncSpecDiffResult = types.OpenAPISyncSpecDiffResult
+type OpenAPILocalDriftOptions = types.OpenAPILocalDriftOptions
+type OpenAPILocalDriftResult = types.OpenAPILocalDriftResult
 
 type collectionExportFile struct {
 	Name    string
@@ -734,317 +467,53 @@ type environmentSecretVariable struct {
 	Value string `json:"value"`
 }
 
-type OpenTab struct {
-	ID             string `json:"id"`
-	CollectionID   string `json:"collectionId"`
-	ItemID         string `json:"itemId"`
-	Kind           string `json:"kind"`
-	ExampleID      string `json:"exampleId,omitempty"`
-	ExampleName    string `json:"exampleName,omitempty"`
-	RequestPaneTab string `json:"requestPaneTab"`
-	ResponseTab    string `json:"responseTab"`
-	Transient      bool   `json:"transient,omitempty"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type OpenTab = types.OpenTab
+type Feature = types.Feature
 
-type Feature struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Category    string   `json:"category"`
-	Status      string   `json:"status"`
-	Description string   `json:"description"`
-	Tests       []string `json:"tests"`
-	SourceRefs  []string `json:"sourceRefs"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type DevToolsSnapshot = types.DevToolsSnapshot
+type DevToolsProcessMetric = types.DevToolsProcessMetric
 
-type DevToolsSnapshot struct {
-	PID             int                     `json:"pid"`
-	CPUPercent      float64                 `json:"cpuPercent"`
-	UptimeSeconds   int64                   `json:"uptimeSeconds"`
-	MemoryBytes     uint64                  `json:"memoryBytes"`
-	HeapAllocBytes  uint64                  `json:"heapAllocBytes"`
-	Goroutines      int                     `json:"goroutines"`
-	NetworkRequests int                     `json:"networkRequests"`
-	ConsoleLogs     int                     `json:"consoleLogs"`
-	Processes       []DevToolsProcessMetric `json:"processes"`
-	Timestamp       time.Time               `json:"timestamp"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type Preferences = types.Preferences
+type LayoutPreferences = types.LayoutPreferences
+type DisplayPreferences = types.DisplayPreferences
+type FontPreferences = types.FontPreferences
+type RequestPreferences = types.RequestPreferences
+type CustomCaCertificatePreferences = types.CustomCaCertificatePreferences
+type KeepDefaultCaCertificatesPreferences = types.KeepDefaultCaCertificatesPreferences
+type GeneralPreferences = types.GeneralPreferences
+type AutoSavePreferences = types.AutoSavePreferences
+type CachePreferences = types.CachePreferences
+type SSLSessionCachePreferences = types.SSLSessionCachePreferences
+type FileCachePreferences = types.FileCachePreferences
+type DevToolsPreferences = types.DevToolsPreferences
+type DevToolsNetworkPreferences = types.DevToolsNetworkPreferences
+type KeyBinding = types.KeyBinding
 
-type DevToolsProcessMetric struct {
-	PID           int     `json:"pid"`
-	Title         string  `json:"title"`
-	Type          string  `json:"type"`
-	CPUPercent    float64 `json:"cpuPercent"`
-	MemoryBytes   uint64  `json:"memoryBytes"`
-	UptimeSeconds int64   `json:"uptimeSeconds"`
-}
-
-type Preferences struct {
-	Theme              string                `json:"theme"`
-	ThemeVariantLight  string                `json:"themeVariantLight,omitempty"`
-	ThemeVariantDark   string                `json:"themeVariantDark,omitempty"`
-	KeybindingsEnabled *bool                 `json:"keybindingsEnabled,omitempty"`
-	KeyBindings        map[string]KeyBinding `json:"keyBindings,omitempty"`
-	// US-057. Which default set the keybindings layer on top of. User overrides
-	// in KeyBindings still win, so switching preset never silently replaces a
-	// shortcut somebody deliberately set.
-	KeyBindingPreset       string              `json:"keyBindingPreset,omitempty"`
-	Layout                 LayoutPreferences   `json:"layout"`
-	Display                DisplayPreferences  `json:"display"`
-	Font                   FontPreferences     `json:"font"`
-	Request                RequestPreferences  `json:"request"`
-	General                GeneralPreferences  `json:"general"`
-	AutoSave               AutoSavePreferences `json:"autoSave"`
-	Cache                  CachePreferences    `json:"cache"`
-	DevTools               DevToolsPreferences `json:"devTools"`
-	Autosave               bool                `json:"autosave"`
-	DefaultCollectionPath  string              `json:"defaultCollectionPath"`
-	CodeFontSize           int                 `json:"codeFontSize"`
-	StoreCookies           bool                `json:"storeCookies"`
-	OAuth2UseSystemBrowser bool                `json:"oauth2UseSystemBrowser"`
-	ProxyMode              string              `json:"proxyMode"`
-	Proxy                  ProxyPreferences    `json:"proxy"`
-}
-
-type LayoutPreferences struct {
-	ResponsePaneOrientation string `json:"responsePaneOrientation,omitempty"`
-}
-
-type DisplayPreferences struct {
-	ZoomPercentage int `json:"zoomPercentage,omitempty"`
-}
-
-type FontPreferences struct {
-	CodeFont     string `json:"codeFont,omitempty"`
-	CodeFontSize int    `json:"codeFontSize,omitempty"`
-}
-
-type RequestPreferences struct {
-	SSLVerification           *bool                                `json:"sslVerification,omitempty"`
-	CustomCaCertificate       CustomCaCertificatePreferences       `json:"customCaCertificate"`
-	KeepDefaultCaCertificates KeepDefaultCaCertificatesPreferences `json:"keepDefaultCaCertificates"`
-	StoreCookies              *bool                                `json:"storeCookies,omitempty"`
-	SendCookies               *bool                                `json:"sendCookies,omitempty"`
-	Timeout                   int                                  `json:"timeout,omitempty"`
-	// US-011. Cap on how many bytes of a response body are read into memory.
-	// Zero means the default; see responseBodyReadLimit.
-	MaxResponseBytes int `json:"maxResponseBytes,omitempty"`
-}
-
-type CustomCaCertificatePreferences struct {
-	Enabled  bool   `json:"enabled"`
-	FilePath string `json:"filePath,omitempty"`
-}
-
-type KeepDefaultCaCertificatesPreferences struct {
-	Enabled *bool `json:"enabled,omitempty"`
-}
-
-type GeneralPreferences struct {
-	DefaultLocation      string `json:"defaultLocation,omitempty"`
-	DefaultWorkspacePath string `json:"defaultWorkspacePath,omitempty"`
-	LastImportDirectory  string `json:"lastImportDirectory,omitempty"`
-}
-
-type AutoSavePreferences struct {
-	Enabled  bool `json:"enabled"`
-	Interval int  `json:"interval,omitempty"`
-}
-
-type CachePreferences struct {
-	SSLSession SSLSessionCachePreferences `json:"sslSession"`
-	File       FileCachePreferences       `json:"file"`
-}
-
-type SSLSessionCachePreferences struct {
-	Enabled bool `json:"enabled"`
-}
-
-type FileCachePreferences struct {
-	Enabled bool `json:"enabled"`
-}
-
-type DevToolsPreferences struct {
-	Open              bool                       `json:"open"`
-	ActiveTab         string                     `json:"activeTab,omitempty"`
-	DrawerHeight      int                        `json:"drawerHeight,omitempty"`
-	DetailsPanelWidth int                        `json:"detailsPanelWidth,omitempty"`
-	Network           DevToolsNetworkPreferences `json:"network"`
-}
-
-type DevToolsNetworkPreferences struct {
-	SortKey       string `json:"sortKey,omitempty"`
-	SortDirection string `json:"sortDirection,omitempty"`
-	ColumnWidths  []int  `json:"columnWidths,omitempty"`
-}
-
-type KeyBinding struct {
-	Name    string `json:"name,omitempty"`
-	Mac     string `json:"mac,omitempty"`
-	Windows string `json:"windows,omitempty"`
-}
-
-type Notification struct {
-	ID          string    `json:"id"`
-	Level       string    `json:"level"`
-	Type        string    `json:"type,omitempty"`
-	Title       string    `json:"title,omitempty"`
-	Message     string    `json:"message"`
-	Description string    `json:"description,omitempty"`
-	Color       string    `json:"color,omitempty"`
-	Read        bool      `json:"read"`
-	At          time.Time `json:"at"`
-}
-
-type NetworkLog struct {
-	ID string `json:"id"`
-	// US-073. Where the entry came from. Empty for an ordinary outgoing
-	// request, "mock" for a call the built-in mock server answered. Without it
-	// the app's request to its own mock and the mock's handling of it are two
-	// rows with the same URL and no way to tell apart — which is exactly the
-	// confusion someone debugging a mock is in.
-	Source          string            `json:"source,omitempty"`
-	Method          string            `json:"method"`
-	URL             string            `json:"url"`
-	Status          int               `json:"status"`
-	StatusText      string            `json:"statusText"`
-	DurationMs      int64             `json:"durationMs"`
-	Size            int               `json:"size"`
-	At              time.Time         `json:"at"`
-	Error           string            `json:"error"`
-	RequestHeaders  map[string]string `json:"requestHeaders,omitempty"`
-	RequestBody     string            `json:"requestBody,omitempty"`
-	ResponseHeaders map[string]string `json:"responseHeaders,omitempty"`
-	ResponseBody    string            `json:"responseBody,omitempty"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type Notification = types.Notification
+type NetworkLog = types.NetworkLog
 
 type CookieEntry = types.CookieEntry
 
-type CookieInput struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Value    string `json:"value"`
-	Domain   string `json:"domain"`
-	Path     string `json:"path"`
-	Expires  string `json:"expires"`
-	Session  bool   `json:"session"`
-	Secure   bool   `json:"secure"`
-	HTTPOnly bool   `json:"httpOnly"`
-	SameSite string `json:"sameSite"`
-	HostOnly bool   `json:"hostOnly"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type CookieInput = types.CookieInput
 
-type RunnerSnapshot struct {
-	Total     int         `json:"total"`
-	Passed    int         `json:"passed"`
-	Failed    int         `json:"failed"`
-	Skipped   int         `json:"skipped"`
-	Cancelled int         `json:"cancelled,omitempty"`
-	Results   []RunResult `json:"results"`
-	Finished  time.Time   `json:"finished"`
-	// US-045. Iterations is what was asked for; CompletedIterations is what
-	// actually ran. They differ when a run is cancelled or bails, and the gap
-	// is the only way a reader can tell "10 iterations, all green" from
-	// "stopped during iteration 2 of 10".
-	Iterations          int `json:"iterations,omitempty"`
-	CompletedIterations int `json:"completedIterations,omitempty"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type RunnerSnapshot = types.RunnerSnapshot
+type RunnerOptions = types.RunnerOptions
+type GenerateCollectionDocsOptions = types.GenerateCollectionDocsOptions
+type GenerateCollectionDocsResult = types.GenerateCollectionDocsResult
+type RunResult = types.RunResult
+type RequestPatch = types.RequestPatch
+type ImportPayload = types.ImportPayload
 
-type RunnerOptions struct {
-	SelectedItemIDs []string `json:"selectedItemIds"`
-	DelayMs         int      `json:"delayMs,omitempty"`
-	// US-047. Stop the run at the first failure instead of continuing.
-	BailOnFailure bool `json:"bailOnFailure,omitempty"`
-	// US-045. How many times to run the selection. Zero and negative mean one.
-	Iterations int `json:"iterations,omitempty"`
-	// US-046. Path to a .csv or .json file; one iteration per row.
-	DataFile string `json:"dataFile,omitempty"`
-}
-
-type GenerateCollectionDocsOptions struct {
-	EnvironmentIDs []string `json:"environmentIds"`
-}
-
-type GenerateCollectionDocsResult struct {
-	FileName     string `json:"fileName"`
-	HTML         string `json:"html"`
-	YAML         string `json:"yaml"`
-	Version      string `json:"version"`
-	FolderCount  int    `json:"folderCount"`
-	RequestCount int    `json:"requestCount"`
-}
-
-type RunResult struct {
-	// Iteration is 1-based and omitted for single-iteration runs, so an
-	// existing consumer that never asked for iterations sees the shape it
-	// always saw.
-	Iteration  int       `json:"iteration,omitempty"`
-	ItemID     string    `json:"itemId"`
-	Name       string    `json:"name"`
-	Status     string    `json:"status"`
-	Code       int       `json:"code"`
-	DurationMs int64     `json:"durationMs"`
-	Error      string    `json:"error"`
-	At         time.Time `json:"at"`
-}
-
-type RequestPatch struct {
-	Name           *string          `json:"name"`
-	Type           *string          `json:"type"`
-	Method         *string          `json:"method"`
-	URL            *string          `json:"url"`
-	Params         *[]KeyValue      `json:"params"`
-	PathParams     *[]KeyValue      `json:"pathParams"`
-	Headers        *[]KeyValue      `json:"headers"`
-	Body           *RequestBody     `json:"body"`
-	ProtoPath      *string          `json:"protoPath"`
-	GrpcMethodType *string          `json:"grpcMethodType"`
-	GrpcMessages   *[]GrpcMessage   `json:"grpcMessages"`
-	WSMessages     *[]WSMessage     `json:"wsMessages"`
-	Auth           *AuthConfig      `json:"auth"`
-	Vars           *RequestVars     `json:"vars"`
-	Assertions     *[]Assertion     `json:"assertions"`
-	Tests          *string          `json:"tests"`
-	PreScript      *string          `json:"preScript"`
-	PostScript     *string          `json:"postScript"`
-	Docs           *string          `json:"docs"`
-	Settings       *RequestSettings `json:"settings"`
-	Tags           *[]string        `json:"tags"`
-}
-
-type ImportPayload struct {
-	Kind        string `json:"kind"`
-	Name        string `json:"name"`
-	Content     string `json:"content"`
-	GroupBy     string `json:"groupBy"`
-	SourceURL   string `json:"sourceUrl"`
-	OpenAPISync bool   `json:"openapiSync"`
-	// US-044. Opt-in rewriting of pm.* to bru.* on Postman import. The default
-	// is false: pm.* is native since US-039-043 and more faithful than any
-	// textual rewrite, so translation is only for collections whose scripts
-	// were already migrated by hand against the bru API.
-	TranslatePostmanScripts bool `json:"translatePostmanScripts,omitempty"`
-}
-
-type GitCollectionCandidate struct {
-	Name         string `json:"name"`
-	Path         string `json:"path"`
-	Format       string `json:"format"`
-	RequestCount int    `json:"requestCount"`
-}
-
-type GitCloneResult struct {
-	Version    string                   `json:"version"`
-	TargetPath string                   `json:"targetPath"`
-	Output     string                   `json:"output"`
-	Candidates []GitCollectionCandidate `json:"candidates"`
-}
-
-type GitCloneProgress struct {
-	Stage      string `json:"stage"`
-	Message    string `json:"message"`
-	TargetPath string `json:"targetPath"`
-	At         string `json:"at"`
-}
+// Moved to internal/types. Aliased so package main compiles unchanged.
+type GitCollectionCandidate = types.GitCollectionCandidate
+type GitCloneResult = types.GitCloneResult
+type GitCloneProgress = types.GitCloneProgress
 
 func NewApp() *App {
 	dir := defaultDataDir()

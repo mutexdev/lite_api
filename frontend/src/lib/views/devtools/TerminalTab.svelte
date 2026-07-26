@@ -3,21 +3,21 @@
   //
   // Last of the small DevTools tabs. Network remains and is the largest, with
   // its own nested request-details panel.
-  import type { main } from '../../../../wailsjs/go/models'
+  import type { types } from '../../../../wailsjs/go/models'
 
   // Bindable: the input line writes back to App.svelte.
   export let terminalInput: string
 
-  export let terminalSessions: main.TerminalSession[]
+  export let terminalSessions: types.TerminalSession[]
   export let terminalActiveSessionId: string
-  export let activeTerminalSession: main.TerminalSession | undefined
+  export let activeTerminalSession: types.TerminalSession | undefined
   export let terminalBusy: boolean
   export let terminalError: string
   // Another function-shaped name read as a value — the sixth this session.
   export let terminalDisplayOutput: (output: string) => string
   export let terminalOutput: string
-  export let terminalSessionLabel: (session: main.TerminalSession) => string
-  export let terminalSessionStatus: (session: main.TerminalSession) => string
+  export let terminalSessionLabel: (session: types.TerminalSession) => string
+  export let terminalSessionStatus: (session: types.TerminalSession) => string
   export let createTerminalSession: () => void
   export let selectTerminalSession: (id: string) => void
   export let closeTerminalSession: (id: string) => void

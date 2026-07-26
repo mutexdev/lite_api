@@ -3,9 +3,9 @@
   // markup is not in the initial chunk. Preferences is decomposed section by
   // section: as a whole it carries ~60 props, but each <section> needs only a
   // handful.
-  import type { main } from '../../../../wailsjs/go/models'
+  import type { types } from '../../../../wailsjs/go/models'
 
-  export let state: main.AppState
+  export let state: types.AppState
   export let fileCacheSize: number | undefined
   export let formatRuntimeBytes: (bytes: number) => string
   export let updateFileCache: (enabled: boolean) => Promise<void> | void

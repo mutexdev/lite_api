@@ -1,14 +1,14 @@
 <script lang="ts">
   // US-036 — the New Request dialog, lifted out of App.svelte so its markup is not in the
   // initial chunk. Imported dynamically from inside the {#if} that gates it.
-  import type { main } from '../../../../wailsjs/go/models'
+  import type { types } from '../../../../wailsjs/go/models'
   import Modal from '../Modal.svelte'
 
   // Bindable: both form fields write back to App.svelte.
   export let requestName: string
   export let requestType: string
 
-  export let activeCollection: main.Collection | undefined
+  export let activeCollection: types.Collection | undefined
   export let submitCreationFlow: () => void
   export let closeCreationFlow: () => Promise<void> | void
 </script>

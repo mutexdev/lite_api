@@ -7,14 +7,14 @@
   // never for anyone who does not. A static import would have kept it in the
   // initial bundle no matter where the component file lived — moving markup to
   // a new file is not, by itself, code splitting.
-  import type { main } from '../../../../wailsjs/go/models'
+  import type { types } from '../../../../wailsjs/go/models'
   import Modal from '../Modal.svelte'
 
-  export let openAPISpecDiffResult: main.OpenAPISyncSpecDiffResult
+  export let openAPISpecDiffResult: types.OpenAPISyncSpecDiffResult
   export let openAPISpecDiffChangeCount: number
   export let openAPISpecDiffActiveChangeIndex: number
-  export let openAPISyncSpecDiffSummary: (result: main.OpenAPISyncSpecDiffResult) => string
-  export let openAPISpecDiffLineIsActive: (lineIndex: number, line: main.OpenAPISyncSpecDiffLine) => boolean
+  export let openAPISyncSpecDiffSummary: (result: types.OpenAPISyncSpecDiffResult) => string
+  export let openAPISpecDiffLineIsActive: (lineIndex: number, line: types.OpenAPISyncSpecDiffLine) => boolean
   export let goOpenAPISpecDiffChange: (direction: number) => void
   export let closeOpenAPISyncSpecDiff: () => void
 </script>

@@ -5,7 +5,7 @@
   //
   // Structurally identical to the folder dialogs and to its sibling: name draft,
   // filesystem-name toggle, filename draft, editing toggle, two validators.
-  import type { main } from '../../../../wailsjs/go/models'
+  import type { types } from '../../../../wailsjs/go/models'
   import Modal from '../Modal.svelte'
 
   // Bindable: the filename field and both toggles write back to App.svelte.
@@ -14,7 +14,7 @@
   export let cloneRequestShowFilesystemName: boolean
 
   export let cloneRequestNameDraft: string
-  export let cloneRequestTarget: { collection: main.Collection }
+  export let cloneRequestTarget: { collection: types.Collection }
   export let busy: string
   export let cloneRequestFilenameIsValid: () => boolean
   export let cloneRequestFilenameIsReserved: () => boolean
