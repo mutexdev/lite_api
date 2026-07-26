@@ -384,12 +384,11 @@
 	    grantType: string
 	  }
 
-	  let appState: main.AppState | null = null
-  let activeView: View = 'request'
-  let requestPaneTab: RequestPaneTab = 'params'
-  let responseTab: ResponseTab = 'response'
-  let responsePaneOrientation: ResponsePaneOrientation = 'horizontal'
-  let compactWorkbench = false
+	  let appState = $state<main.AppState | null>(null)
+  let activeView = $state<View>('request')
+  let requestPaneTab = $state<RequestPaneTab>('params')
+  let responseTab = $state<ResponseTab>('response')
+  let compactWorkbench = $state(false)
   let compactWorkbenchMedia: MediaQueryList | undefined
   let removeCompactWorkbenchListener: (() => void) | undefined
   let removeFlushOnBlurListeners: (() => void) | undefined
@@ -397,290 +396,278 @@
   // rather than re-sent as a whole re-marshalled log on every call, so the
   // accumulated log lives here. Keyed by collection+request because several
   // requests can hold live sessions at once.
-  let liveSessionLogs: Record<string, LiveSessionLog> = {}
+  let liveSessionLogs = $state<Record<string, LiveSessionLog>>({})
   let stopWebSocketEvents: (() => void) | undefined
   let stopGrpcEvents: (() => void) | undefined
-  let collectionTab: CollectionTab = 'overview'
-  let responseView: 'pretty' | 'raw' | 'base64' | 'hex' = 'pretty'
-  let tabLifecycleDialog: TabLifecycleDialog | null = null
-  let tabLifecycleDecisionBusy = false
-  let tabLifecycleCancelButton: HTMLButtonElement | null = null
-  let recoveryEntries: main.RecoveryEntry[] = []
-  let recoveryBusyEntryID = ''
-  let workspaceWindowTargets: main.WorkspaceWindowTarget[] = []
-  let workspaceWindowPickerOpen = false
-  let workspaceWindowPickerBusy = false
-  let workspaceWindowPickerBusyAction: 'loading' | 'opening' | 'creating' | '' = ''
-  let workspaceWindowPickerError = ''
-  let nativeWindowBusy = false
-  let nativeWindowError = ''
-  let hydratedActiveTabID = ''
-  let selectedEnvironmentId = ''
-  let loading = true
-  let loadingStatus = 'Opening workspace'
-  let busy = ''
-  let activeActions = new Map<number, string>()
-  let nextActionID = 0
-  let error = ''
+  let collectionTab = $state<CollectionTab>('overview')
+  let responseView = $state<'pretty' | 'raw' | 'base64' | 'hex'>('pretty')
+  let tabLifecycleDialog = $state<TabLifecycleDialog | null>(null)
+  let tabLifecycleDecisionBusy = $state(false)
+  let tabLifecycleCancelButton = $state<HTMLButtonElement | null>(null)
+  let recoveryEntries = $state<main.RecoveryEntry[]>([])
+  let recoveryBusyEntryID = $state('')
+  let workspaceWindowTargets = $state<main.WorkspaceWindowTarget[]>([])
+  let workspaceWindowPickerOpen = $state(false)
+  let workspaceWindowPickerBusy = $state(false)
+  let workspaceWindowPickerBusyAction = $state<'loading' | 'opening' | 'creating' | ''>('')
+  let workspaceWindowPickerError = $state('')
+  let nativeWindowBusy = $state(false)
+  let nativeWindowError = $state('')
+  let hydratedActiveTabID = $state('')
+  let selectedEnvironmentId = $state('')
+  let loading = $state(true)
+  let loadingStatus = $state('Opening workspace')
+  let busy = $state('')
+  let activeActions = $state(new Map<number, string>())
+  let nextActionID = $state(0)
+  let error = $state('')
   let activeHTTPTransport: { collectionId: string; requestId: string } | undefined
-  let httpCancellationRequested = false
-  let activeCollectionRun: { collectionId: string; collectionName: string } | undefined
-  let collectionRunCancellationRequested = false
-  let lastCollectionRunCancelled = false
-  let collectionName = 'New Collection'
-  let requestName = 'New Request'
-  let requestType = 'http'
-  let lastPresetKey = ''
-  let environmentName = 'Staging'
-  let globalEnvironmentName = 'Global'
-  let globalEnvironmentPayload = ''
-  let globalEnvironmentCopyName = ''
-  let globalEnvironmentExportFormat = 'single-object'
-  let globalEnvironmentExportAll = false
-  let globalEnvironmentExportFilename = ''
-  let globalEnvironmentExportPath = ''
-  let globalEnvironmentVariableTab: EnvironmentVariableTab = 'variables'
-  let environmentVariableTab: EnvironmentVariableTab = 'variables'
-  let globalEnvironmentVariableSearch = ''
-  let environmentVariableSearch = ''
-  let dotEnvFiles: main.DotEnvFile[] = []
-  let selectedDotEnvKey = ''
-  let dotEnvScope = 'workspace'
-  let dotEnvName = '.env'
-  let dotEnvContent = ''
-  let dotEnvDirty = false
-  let dotEnvContextKey = ''
+  let httpCancellationRequested = $state(false)
+  let activeCollectionRun = $state<{ collectionId: string; collectionName: string } | undefined>()
+  let collectionRunCancellationRequested = $state(false)
+  let lastCollectionRunCancelled = $state(false)
+  let collectionName = $state('New Collection')
+  let requestName = $state('New Request')
+  let requestType = $state('http')
+  let lastPresetKey = $state('')
+  let environmentName = $state('Staging')
+  let globalEnvironmentName = $state('Global')
+  let globalEnvironmentPayload = $state('')
+  let globalEnvironmentCopyName = $state('')
+  let globalEnvironmentExportFormat = $state('single-object')
+  let globalEnvironmentExportAll = $state(false)
+  let globalEnvironmentExportFilename = $state('')
+  let globalEnvironmentExportPath = $state('')
+  let globalEnvironmentVariableTab = $state<EnvironmentVariableTab>('variables')
+  let environmentVariableTab = $state<EnvironmentVariableTab>('variables')
+  let globalEnvironmentVariableSearch = $state('')
+  let environmentVariableSearch = $state('')
+  let dotEnvFiles = $state<main.DotEnvFile[]>([])
+  let selectedDotEnvKey = $state('')
+  let dotEnvScope = $state('workspace')
+  let dotEnvName = $state('.env')
+  let dotEnvContent = $state('')
+  let dotEnvDirty = $state(false)
+  let dotEnvContextKey = $state('')
   let dotEnvRefreshTimer: ReturnType<typeof window.setInterval> | undefined
   let collectionWatchPollTimer: ReturnType<typeof window.setInterval> | undefined
-  let collectionWatchRefreshInFlight = false
-  let dotEnvEditorMode: DotEnvEditorMode = 'table'
-  let systemThemeMode: 'light' | 'dark' = 'light'
+  let collectionWatchRefreshInFlight = $state(false)
+  let dotEnvEditorMode = $state<DotEnvEditorMode>('table')
+  let systemThemeMode = $state<'light' | 'dark'>('light')
   let systemThemeQuery: MediaQueryList | undefined
   let removeSystemThemeListener: (() => void) | undefined
-  let exportText = ''
-	  let importSourceMode: ImportSourceMode = 'files'
-	  let importSources: main.CollectionImportSource[] = []
-	  let importPreview: main.CollectionImportPreview | undefined
-	  let importDecisions: Record<string, ImportDecision> = {}
-	  let importExpanded: Record<string, boolean> = {}
-	  let importApplyResult: main.CollectionImportApplyResult | undefined
+  let exportText = $state('')
+	  let importSourceMode = $state<ImportSourceMode>('files')
+	  let importSources = $state<main.CollectionImportSource[]>([])
+	  let importPreview = $state<main.CollectionImportPreview | undefined>()
+	  let importDecisions = $state<Record<string, ImportDecision>>({})
+	  let importExpanded = $state<Record<string, boolean>>({})
+	  let importApplyResult = $state<main.CollectionImportApplyResult | undefined>()
 	  // US-044. Off by default: pm.* runs natively now, so an imported Postman
   // script works as written. Translation is for collections whose scripts were
   // already migrated by hand against the bru API.
-  let importTranslatePostmanScripts = false
-  let importDestinationRoot = ''
-	  let importDestinationWorkspaceID = ''
-	  let importURL = ''
-	  let importPasteName = 'Pasted import'
-	  let importStatus = ''
-	  let importPickerButton: HTMLButtonElement | null = null
-	  let importReadyRows: main.CollectionImportPreviewRow[] = []
-	  let importApplyButton: HTMLButtonElement | null = null
-	  let importReplaceConfirmationOpen = false
-	  let importReplaceConfirmationCancelButton: HTMLButtonElement | null = null
-	  let importReplaceConfirmationReturnFocus: HTMLElement | null = null
-	  let importApplyInFlight = false
-  let openAPISyncCollectionId = ''
-  let openAPISyncSourceURL = ''
-  let openAPISyncGroupBy = 'tag'
-  let openAPISyncContent = ''
-  let openAPISyncPreserveValues = true
-	  let openAPISyncEndpointDecisions: Record<string, string> = {}
-	  let openAPISyncResult: main.OpenAPISyncResult | undefined
-	  let openAPILocalDriftResult: main.OpenAPILocalDriftResult | undefined
-	  let openAPISyncSettingsOpen = false
-	  let openAPISyncSettingsSourceURL = ''
-	  let openAPISyncSettingsAutoCheck = true
-	  let openAPISyncSettingsInterval = 5
-	  let openAPISyncAutoCheckLastRun: Record<string, number> = {}
-		  let openAPISyncUpdateStatus: Record<string, main.OpenAPISyncUpdateCheckResult> = {}
-		  let openAPISyncUpdateErrors: Record<string, string> = {}
+  let importTranslatePostmanScripts = $state(false)
+  let importDestinationRoot = $state('')
+	  let importDestinationWorkspaceID = $state('')
+	  let importURL = $state('')
+	  let importPasteName = $state('Pasted import')
+	  let importStatus = $state('')
+	  let importPickerButton = $state<HTMLButtonElement | null>(null)
+	  let importApplyButton = $state<HTMLButtonElement | null>(null)
+	  let importReplaceConfirmationOpen = $state(false)
+	  let importReplaceConfirmationCancelButton = $state<HTMLButtonElement | null>(null)
+	  let importReplaceConfirmationReturnFocus = $state<HTMLElement | null>(null)
+	  let importApplyInFlight = $state(false)
+  let openAPISyncCollectionId = $state('')
+  let openAPISyncSourceURL = $state('')
+  let openAPISyncGroupBy = $state('tag')
+  let openAPISyncContent = $state('')
+  let openAPISyncPreserveValues = $state(true)
+	  let openAPISyncEndpointDecisions = $state<Record<string, string>>({})
+	  let openAPISyncResult = $state<main.OpenAPISyncResult | undefined>()
+	  let openAPILocalDriftResult = $state<main.OpenAPILocalDriftResult | undefined>()
+	  let openAPISyncSettingsOpen = $state(false)
+	  let openAPISyncSettingsSourceURL = $state('')
+	  let openAPISyncSettingsAutoCheck = $state(true)
+	  let openAPISyncSettingsInterval = $state(5)
+	  let openAPISyncAutoCheckLastRun = $state<Record<string, number>>({})
+		  let openAPISyncUpdateStatus = $state<Record<string, main.OpenAPISyncUpdateCheckResult>>({})
+		  let openAPISyncUpdateErrors = $state<Record<string, string>>({})
 		  let openAPISyncPollTimer: ReturnType<typeof window.setInterval> | undefined
 			  let openAPISyncInitialPollTimer: ReturnType<typeof window.setTimeout> | undefined
-			  let openAPISpecViewerOpen = false
-			  let openAPISpecViewerResult: main.OpenAPISyncSpecViewResult | undefined
-			  let openAPISpecDiffOpen = false
-			  let openAPISpecDiffResult: main.OpenAPISyncSpecDiffResult | undefined
-			  let openAPISpecDiffActiveChangeIndex = 0
-			  let requestSearch = ''
-  let requestSearchInput: HTMLInputElement | undefined
-  let requestURLInput: HTMLInputElement | undefined
-  let sidebarCollapsed = false
-  let sidebarWidth = 312
-  let responseSplit = 0.52
-	let workbenchStorageScope = ''
-  let creationOpen = false
-  let creationReturnFocus: HTMLElement | null = null
-  let commandPaletteOpen = false
-  let commandPaletteQuery = ''
-  let commandPaletteInput: HTMLInputElement | null = null
-  let commandPaletteReturnFocus: HTMLElement | null = null
-  let commandPaletteActiveIndex = 0
-  let runnerConfigCollectionId = ''
-  let runnerSelectedItemIds: string[] = []
-  let runnerConfigItems: main.RequestItem[] = []
-  let runnerSelectedCount = 0
-  let runnerDelayMs = 0
-  let runnerBailOnFailure = false
-  let runnerIterations = 1
-  let runnerDataFile = ''
-  let appZoomPercentage = 100
-  let codeFont = 'default'
-  let codeFontSize = 13
-  let fileCacheSize: number | undefined
+			  let openAPISpecViewerOpen = $state(false)
+			  let openAPISpecViewerResult = $state<main.OpenAPISyncSpecViewResult | undefined>()
+			  let openAPISpecDiffOpen = $state(false)
+			  let openAPISpecDiffResult = $state<main.OpenAPISyncSpecDiffResult | undefined>()
+			  let openAPISpecDiffActiveChangeIndex = $state(0)
+			  let requestSearch = $state('')
+  let requestSearchInput = $state<HTMLInputElement | undefined>()
+  let requestURLInput = $state<HTMLInputElement | undefined>()
+  let sidebarCollapsed = $state(false)
+  let sidebarWidth = $state(312)
+  let responseSplit = $state(0.52)
+	let workbenchStorageScope = $state('')
+  let creationOpen = $state(false)
+  let creationReturnFocus = $state<HTMLElement | null>(null)
+  let commandPaletteOpen = $state(false)
+  let commandPaletteQuery = $state('')
+  let commandPaletteInput = $state<HTMLInputElement | null>(null)
+  let commandPaletteReturnFocus = $state<HTMLElement | null>(null)
+  let commandPaletteActiveIndex = $state(0)
+  let runnerConfigCollectionId = $state('')
+  let runnerSelectedItemIds = $state<string[]>([])
+  let runnerDelayMs = $state(0)
+  let runnerBailOnFailure = $state(false)
+  let runnerIterations = $state(1)
+  let runnerDataFile = $state('')
+  let fileCacheSize = $state<number | undefined>()
   let autoSaveTimer: ReturnType<typeof window.setTimeout> | undefined
   let autoSaveTarget: { collectionId: string; requestId: string } | undefined
-  let requestPreferencesSaveQueue = Promise.resolve()
-  let recordingKeybindingAction = ''
-  let keybindingDraft = ''
-  let keybindingError = ''
-  let cookieSearch = ''
-  let cookieForm: CookieForm = emptyCookieForm()
-  let rawCookieHeader = 'session=abc123; Path=/; HttpOnly'
-  let rawCookieURL = 'http://127.0.0.1/'
-  let selectedCollectionId = ''
-  let selectedFolderPath = ''
-  let folderSettingsTab: FolderSettingsTab = 'headers'
-  let folderSettingDrafts: Record<string, main.FolderConfig> = {}
-  let folderSettingsSaveQueue = Promise.resolve()
-  let gitRemoteURL = ''
-  let gitRemoteCollectionId = ''
-  let gitCloneURL = ''
-  let gitCloneRoot = ''
-  let gitCloneName = ''
-  let gitVersionText = ''
-  let gitCloneOutput = ''
-  let gitCloneInProgress = false
-  let showShareCollectionModal = false
-  let shareCollectionFormat = 'zip'
+  let requestPreferencesSaveQueue = $state(Promise.resolve())
+  let recordingKeybindingAction = $state('')
+  let keybindingDraft = $state('')
+  let keybindingError = $state('')
+  let cookieSearch = $state('')
+  let cookieForm = $state<CookieForm>(emptyCookieForm())
+  let rawCookieHeader = $state('session=abc123; Path=/; HttpOnly')
+  let rawCookieURL = $state('http://127.0.0.1/')
+  let selectedCollectionId = $state('')
+  let selectedFolderPath = $state('')
+  let folderSettingsTab = $state<FolderSettingsTab>('headers')
+  let folderSettingDrafts = $state<Record<string, main.FolderConfig>>({})
+  let folderSettingsSaveQueue = $state(Promise.resolve())
+  let gitRemoteURL = $state('')
+  let gitRemoteCollectionId = $state('')
+  let gitCloneURL = $state('')
+  let gitCloneRoot = $state('')
+  let gitCloneName = $state('')
+  let gitVersionText = $state('')
+  let gitCloneOutput = $state('')
+  let gitCloneInProgress = $state(false)
+  let showShareCollectionModal = $state(false)
+  let shareCollectionFormat = $state('zip')
   let shareCollectionResult: main.CollectionExportResult | undefined
-  let shareCollectionUnsupportedTypes: string[] = []
-  let showGenerateDocsModal = false
-  let renameCollectionTarget: main.Collection | undefined
-  let renameCollectionDraft = ''
-  let cloneCollectionTarget: main.Collection | undefined
-  let cloneCollectionNameDraft = ''
-  let cloneCollectionFolderDraft = ''
-  let cloneCollectionLocationDraft = ''
-  let cloneCollectionFolderEditing = false
-  let newFolderTarget: main.Collection | undefined
-  let newFolderParentPath = ''
-  let newFolderNameDraft = ''
-  let newFolderDirectoryDraft = ''
-  let newFolderDirectoryEditing = false
-  let newFolderShowFilesystemName = false
-  let renameFolderTarget: { collection: main.Collection; folder: main.FolderConfig } | undefined
-  let renameFolderNameDraft = ''
-  let renameFolderDirectoryDraft = ''
-  let renameFolderDirectoryEditing = false
-  let renameFolderShowFilesystemName = false
-  let cloneFolderTarget: { collection: main.Collection; folder: main.FolderConfig } | undefined
-  let cloneFolderNameDraft = ''
-  let cloneFolderDirectoryDraft = ''
-  let cloneFolderDirectoryEditing = false
-  let cloneFolderShowFilesystemName = false
-  let itemInfoTarget: CollectionItemInfoTarget | undefined
-  let cloneRequestTarget: { collection: main.Collection; request: main.RequestItem } | undefined
-  let cloneRequestNameDraft = ''
-  let cloneRequestFilenameDraft = ''
-  let cloneRequestFilenameEditing = false
-  let cloneRequestShowFilesystemName = false
-  let renameRequestTarget: { collection: main.Collection; request: main.RequestItem } | undefined
-  let renameRequestNameDraft = ''
-  let renameRequestFilenameDraft = ''
-  let renameRequestFilenameEditing = false
-  let renameRequestShowFilesystemName = false
-  let deleteRequestTarget: { collection: main.Collection; request: main.RequestItem } | undefined
-  let deleteFolderTarget: { collection: main.Collection; folder: main.FolderConfig } | undefined
-  let removeCollectionTarget: main.Collection | undefined
-  let generateDocsDeselectedEnvIds: string[] = []
+  let showGenerateDocsModal = $state(false)
+  let renameCollectionTarget = $state<main.Collection | undefined>()
+  let renameCollectionDraft = $state('')
+  let cloneCollectionTarget = $state<main.Collection | undefined>()
+  let cloneCollectionNameDraft = $state('')
+  let cloneCollectionFolderDraft = $state('')
+  let cloneCollectionLocationDraft = $state('')
+  let cloneCollectionFolderEditing = $state(false)
+  let newFolderTarget = $state<main.Collection | undefined>()
+  let newFolderParentPath = $state('')
+  let newFolderNameDraft = $state('')
+  let newFolderDirectoryDraft = $state('')
+  let newFolderDirectoryEditing = $state(false)
+  let newFolderShowFilesystemName = $state(false)
+  let renameFolderTarget = $state<{ collection: main.Collection; folder: main.FolderConfig } | undefined>()
+  let renameFolderNameDraft = $state('')
+  let renameFolderDirectoryDraft = $state('')
+  let renameFolderDirectoryEditing = $state(false)
+  let renameFolderShowFilesystemName = $state(false)
+  let cloneFolderTarget = $state<{ collection: main.Collection; folder: main.FolderConfig } | undefined>()
+  let cloneFolderNameDraft = $state('')
+  let cloneFolderDirectoryDraft = $state('')
+  let cloneFolderDirectoryEditing = $state(false)
+  let cloneFolderShowFilesystemName = $state(false)
+  let itemInfoTarget = $state<CollectionItemInfoTarget | undefined>()
+  let cloneRequestTarget = $state<{ collection: main.Collection; request: main.RequestItem } | undefined>()
+  let cloneRequestNameDraft = $state('')
+  let cloneRequestFilenameDraft = $state('')
+  let cloneRequestFilenameEditing = $state(false)
+  let cloneRequestShowFilesystemName = $state(false)
+  let renameRequestTarget = $state<{ collection: main.Collection; request: main.RequestItem } | undefined>()
+  let renameRequestNameDraft = $state('')
+  let renameRequestFilenameDraft = $state('')
+  let renameRequestFilenameEditing = $state(false)
+  let renameRequestShowFilesystemName = $state(false)
+  let deleteRequestTarget = $state<{ collection: main.Collection; request: main.RequestItem } | undefined>()
+  let deleteFolderTarget = $state<{ collection: main.Collection; folder: main.FolderConfig } | undefined>()
+  let removeCollectionTarget = $state<main.Collection | undefined>()
+  let generateDocsDeselectedEnvIds = $state<string[]>([])
   let generateDocsResult: main.GenerateCollectionDocsResult | undefined
-  let generateDocsSelectAllInput: HTMLInputElement | undefined
-  let generateDocsEnvironments: main.Environment[] = []
-  let generateDocsSelectedEnvIds: string[] = []
-  let generateDocsSelectedCount = 0
-  let generateDocsFolderCount = 0
-  let generateDocsRequestCount = 0
-  let gitCloneProgress: GitCloneProgress[] = []
-  let gitNotFoundMessage = ''
-	let gitWorkbenchSnapshot: main.CollectionGitSnapshot | undefined
-	let gitWorkbenchCollectionID = ''
-	let gitWorkbenchLoading = false
-	let gitWorkbenchBusy = ''
-	let gitWorkbenchStatus = ''
-	let gitWorkbenchError = ''
-	let gitWorkbenchSelectedPaths: string[] = []
-	let gitWorkbenchDiff: main.CollectionGitDiff | undefined
-	let gitWorkbenchBranch = ''
-	let gitWorkbenchNewBranch = ''
-	let gitWorkbenchCheckoutNewBranch = true
-	let gitWorkbenchCommitMessage = ''
-	let gitWorkbenchRemoteName = 'origin'
-	let gitWorkbenchRemoteURL = ''
-	let gitWorkbenchRemoteBranch = ''
-	let gitWorkbenchSetUpstream = false
-	let gitWorkbenchHeading: HTMLHeadingElement | null = null
-  let gitCandidates: main.GitCollectionCandidate[] = []
-  let selectedGitCollectionPaths: string[] = []
-  let openCollectionPath = '/Users/mou/Documents/LiteAPI/Sample API Collection'
-  let grpcMethods: main.GRPCMethodInfo[] = []
-  let grpcMethodsRequestId = ''
-  let grpcMethodMessage = ''
-  let revealedVariableTooltips: Record<string, boolean> = {}
-  let copiedVariableTooltips: Record<string, boolean> = {}
-  let copiedVariableTooltipTimers: Record<string, ReturnType<typeof window.setTimeout>> = {}
-  let activeVariableTooltip = ''
-  let editingVariableTooltip = ''
-  let variableTooltipDraft = ''
-  let urlInputScrollLeft = 0
-  let bodyTextScrollLeft = 0
-  let bodyTextScrollTop = 0
-  let processEnvTooltipKey = ''
-	  let processEnvTooltipValues: Record<string, string> = {}
+  let generateDocsSelectAllInput = $state<HTMLInputElement | undefined>()
+  let gitCloneProgress = $state<GitCloneProgress[]>([])
+  let gitNotFoundMessage = $state('')
+	let gitWorkbenchSnapshot = $state<main.CollectionGitSnapshot | undefined>()
+	let gitWorkbenchCollectionID = $state('')
+	let gitWorkbenchLoading = $state(false)
+	let gitWorkbenchBusy = $state('')
+	let gitWorkbenchStatus = $state('')
+	let gitWorkbenchError = $state('')
+	let gitWorkbenchSelectedPaths = $state<string[]>([])
+	let gitWorkbenchDiff = $state<main.CollectionGitDiff | undefined>()
+	let gitWorkbenchBranch = $state('')
+	let gitWorkbenchNewBranch = $state('')
+	let gitWorkbenchCheckoutNewBranch = $state(true)
+	let gitWorkbenchCommitMessage = $state('')
+	let gitWorkbenchRemoteName = $state('origin')
+	let gitWorkbenchRemoteURL = $state('')
+	let gitWorkbenchRemoteBranch = $state('')
+	let gitWorkbenchSetUpstream = $state(false)
+	let gitWorkbenchHeading = $state<HTMLHeadingElement | null>(null)
+  let gitCandidates = $state<main.GitCollectionCandidate[]>([])
+  let selectedGitCollectionPaths = $state<string[]>([])
+  let openCollectionPath = $state('/Users/mou/Documents/LiteAPI/Sample API Collection')
+  let grpcMethods = $state<main.GRPCMethodInfo[]>([])
+  let grpcMethodsRequestId = $state('')
+  let grpcMethodMessage = $state('')
+  let revealedVariableTooltips = $state<Record<string, boolean>>({})
+  let copiedVariableTooltips = $state<Record<string, boolean>>({})
+  let copiedVariableTooltipTimers = $state<Record<string, ReturnType<typeof window.setTimeout>>>({})
+  let activeVariableTooltip = $state('')
+  let editingVariableTooltip = $state('')
+  let variableTooltipDraft = $state('')
+  let urlInputScrollLeft = $state(0)
+  let bodyTextScrollLeft = $state(0)
+  let bodyTextScrollTop = $state(0)
+  let processEnvTooltipKey = $state('')
+	  let processEnvTooltipValues = $state<Record<string, string>>({})
   // US-034. processEnvTooltipValues is rebuilt as an object, so its identity
   // changes even when the contents do not. A signature over the contents is
   // what keeps the tooltip memo from missing on every render while still
   // invalidating when a value genuinely changes.
-  $: processEnvTooltipSignature = Object.keys(processEnvTooltipValues)
+  const processEnvTooltipSignature = $derived(Object.keys(processEnvTooltipValues)
     .sort()
     .map((name) => `${name}=${processEnvTooltipValues[name]}`)
-    .join('|')
-	  let promptDialog: PromptDialogState | null = null
-	  let oauth2AuthorizationRequest: OAuth2AuthorizationBrowserRequest | null = null
-	  let oauth2CallbackURLInput = ''
-	  let oauth2CallbackMessage = ''
-	  let oauth2FrameKey = 0
-	  let creatingResponseExample = false
-  let createResponseExampleName = ''
-  let createResponseExampleDescription = ''
-  let createResponseExampleInput: HTMLInputElement | null = null
-  let editingResponseExampleID = ''
-  let responseExampleNameDraft = ''
-  let deletingResponseExampleID = ''
-  let editingResponseExampleDetailsID = ''
-  let generatingResponseExampleID = ''
-  let responseExampleCodeLanguage = 'curl'
-  let responseExampleGeneratedCode = ''
-  let requestCodeTarget: RequestCodeTarget | undefined
-  let requestCodeLanguage = 'curl'
-  let requestGeneratedCode = ''
-  let generatedGrpcurlCommand = ''
-  let responseExampleDrafts: Record<string, main.ResponseExample> = {}
-  let globalSearchOpen = false
-  let globalSearchQuery = ''
-  let globalSearchIndex = 0
-  let globalSearchInput: HTMLInputElement | null = null
-  let notificationsOpen = false
-  let notificationTab: NotificationTab = 'all'
-  let selectedNotificationID = ''
-  let pinnedUnreadNotificationIDs: Set<string> | null = null
-  let devToolsOpen = false
-  let devToolsTab: DevToolsTab = 'console'
-  let devToolsSnapshot: main.DevToolsSnapshot | null = null
-  let devToolsPerformanceView = 'cumulative'
-  let devToolsDrawerHeight = 320
-  let devToolsDetailsPanelWidth = 400
-  let devToolsNetworkFilters: Record<string, boolean> = {
+    .join('|'))
+	  let promptDialog = $state<PromptDialogState | null>(null)
+	  let oauth2AuthorizationRequest = $state<OAuth2AuthorizationBrowserRequest | null>(null)
+	  let oauth2CallbackURLInput = $state('')
+	  let oauth2CallbackMessage = $state('')
+	  let oauth2FrameKey = $state(0)
+	  let creatingResponseExample = $state(false)
+  let createResponseExampleName = $state('')
+  let createResponseExampleDescription = $state('')
+  let createResponseExampleInput = $state<HTMLInputElement | null>(null)
+  let editingResponseExampleID = $state('')
+  let responseExampleNameDraft = $state('')
+  let deletingResponseExampleID = $state('')
+  let editingResponseExampleDetailsID = $state('')
+  let generatingResponseExampleID = $state('')
+  let responseExampleCodeLanguage = $state('curl')
+  let responseExampleGeneratedCode = $state('')
+  let requestCodeTarget = $state<RequestCodeTarget | undefined>()
+  let requestCodeLanguage = $state('curl')
+  let requestGeneratedCode = $state('')
+  let generatedGrpcurlCommand = $state('')
+  let responseExampleDrafts = $state<Record<string, main.ResponseExample>>({})
+  let globalSearchOpen = $state(false)
+  let globalSearchQuery = $state('')
+  let globalSearchIndex = $state(0)
+  let globalSearchInput = $state<HTMLInputElement | null>(null)
+  let notificationsOpen = $state(false)
+  let notificationTab = $state<NotificationTab>('all')
+  let selectedNotificationID = $state('')
+  let pinnedUnreadNotificationIDs = $state<Set<string> | null>(null)
+  let devToolsOpen = $state(false)
+  let devToolsTab = $state<DevToolsTab>('console')
+  let devToolsSnapshot = $state<main.DevToolsSnapshot | null>(null)
+  let devToolsPerformanceView = $state('cumulative')
+  let devToolsDrawerHeight = $state(320)
+  let devToolsDetailsPanelWidth = $state(400)
+  let devToolsNetworkFilters = $state<Record<string, boolean>>({
     GET: true,
     POST: true,
     PUT: true,
@@ -688,23 +675,23 @@
     PATCH: true,
     HEAD: true,
     OPTIONS: true
-  }
-  let devToolsNetworkSortKey: DevToolsNetworkSortKey | '' = ''
-  let devToolsNetworkSortDirection: DevToolsNetworkSortDirection = ''
-  let selectedDevToolsNetworkLogID = ''
-  let devToolsNetworkDetailTab: DevToolsNetworkDetailTab = 'request'
-  let devToolsNetworkColumnWidths = [80, 70, 180, 300, 110, 100, 80]
-  let devToolsNetworkResizingColumn = -1
-  let devToolsNetworkPreferencesKey = ''
-  let terminalSessions: main.TerminalSession[] = []
-  let terminalActiveSessionId = ''
-  let terminalOutput = ''
-  let terminalInput = ''
-  let terminalError = ''
-  let terminalBusy = false
+  })
+  let devToolsNetworkSortKey = $state<DevToolsNetworkSortKey | ''>('')
+  let devToolsNetworkSortDirection = $state<DevToolsNetworkSortDirection>('')
+  let selectedDevToolsNetworkLogID = $state('')
+  let devToolsNetworkDetailTab = $state<DevToolsNetworkDetailTab>('request')
+  let devToolsNetworkColumnWidths = $state([80, 70, 180, 300, 110, 100, 80])
+  let devToolsNetworkResizingColumn = $state(-1)
+  let devToolsNetworkPreferencesKey = $state('')
+  let terminalSessions = $state<main.TerminalSession[]>([])
+  let terminalActiveSessionId = $state('')
+  let terminalOutput = $state('')
+  let terminalInput = $state('')
+  let terminalError = $state('')
+  let terminalBusy = $state(false)
   let terminalPollTimer: number | undefined
-  let revealCollectionMessage = ''
-	  let importContent = ''
+  let revealCollectionMessage = $state('')
+	  let importContent = $state('')
 
   const requestTabs: { id: RequestPaneTab; label: string }[] = [
     { id: 'params', label: 'Params' },
@@ -937,98 +924,132 @@
     return `"${escaped}", ${defaultCodeFontFamily}`
   }
 
-  $: activeWorkspace = appState?.workspaces?.find((workspace) => workspace.id === appState?.activeWorkspaceId) ?? appState?.workspaces?.[0]
-  $: activeTab = appState?.openTabs?.find((tab) => tab.id === appState?.activeTabId)
-  $: if (activeTab?.id && activeTab.id !== hydratedActiveTabID) {
-    hydratedActiveTabID = activeTab.id
-    if (requestTabs.some((tab) => tab.id === activeTab.requestPaneTab)) requestPaneTab = activeTab.requestPaneTab as RequestPaneTab
-    if (activeTab.kind === 'response-example') {
-      responseTab = 'examples'
-    } else if (responseTabs.some((tab) => tab.id === activeTab.responseTab)) {
-      responseTab = activeTab.responseTab as ResponseTab
+  const activeWorkspace = $derived(appState?.workspaces?.find((workspace) => workspace.id === appState?.activeWorkspaceId) ?? appState?.workspaces?.[0])
+  const activeTab = $derived(appState?.openTabs?.find((tab) => tab.id === appState?.activeTabId))
+  $effect(() => {
+  if (activeTab?.id && activeTab.id !== hydratedActiveTabID) {
+      hydratedActiveTabID = activeTab.id
+      if (requestTabs.some((tab) => tab.id === activeTab.requestPaneTab)) requestPaneTab = activeTab.requestPaneTab as RequestPaneTab
+      if (activeTab.kind === 'response-example') {
+        responseTab = 'examples'
+      } else if (responseTabs.some((tab) => tab.id === activeTab.responseTab)) {
+        responseTab = activeTab.responseTab as ResponseTab
+      }
     }
-  }
-  $: selectedCollection = activeWorkspace?.collections?.find((collection) => collection.id === selectedCollectionId)
-  $: activeCollection = selectedCollection ?? activeWorkspace?.collections?.find((collection) => collection.id === activeTab?.collectionId) ?? activeWorkspace?.collections?.[0]
-	$: if (activeView === 'git' && activeCollection?.id && gitWorkbenchCollectionID !== activeCollection.id && !gitWorkbenchLoading) {
-		gitWorkbenchSnapshot = undefined
-		gitWorkbenchSelectedPaths = []
-		gitWorkbenchDiff = undefined
-		gitWorkbenchRemoteURL = ''
-		void refreshGitWorkbench()
-	}
-  $: activeRequest = activeCollection?.items?.find((item) => item.id === activeTab?.itemId) ?? activeCollection?.items?.[0]
-  $: shareCollectionUnsupportedTypes = collectionShareUnsupportedTypes(activeCollection)
-  $: if ((activeCollection?.id ?? '') !== openAPISyncCollectionId) {
-    openAPISyncCollectionId = activeCollection?.id ?? ''
-    const config = activeCollection?.openapi?.[0]
-    openAPISyncSourceURL = config?.sourceUrl ?? ''
-    openAPISyncGroupBy = config?.groupBy || 'tag'
-    openAPISyncContent = ''
-    openAPISyncPreserveValues = true
-	    openAPISyncEndpointDecisions = {}
-		    openAPISyncResult = undefined
-		    openAPILocalDriftResult = undefined
-		    openAPISyncSettingsOpen = false
-		    openAPISpecViewerOpen = false
-		    openAPISpecViewerResult = undefined
-		    openAPISpecDiffOpen = false
-		    openAPISpecDiffResult = undefined
-		    openAPISpecDiffActiveChangeIndex = 0
-		  }
-  $: openAPISpecDiffChangeLineIndexes = (openAPISpecDiffResult?.lines ?? []).reduce<number[]>((indexes, line, index) => {
+  })
+  const selectedCollection = $derived(activeWorkspace?.collections?.find((collection) => collection.id === selectedCollectionId))
+  const activeCollection = $derived(selectedCollection ?? activeWorkspace?.collections?.find((collection) => collection.id === activeTab?.collectionId) ?? activeWorkspace?.collections?.[0])
+	$effect(() => {
+  if (activeView === 'git' && activeCollection?.id && gitWorkbenchCollectionID !== activeCollection.id && !gitWorkbenchLoading) {
+  		gitWorkbenchSnapshot = undefined
+  		gitWorkbenchSelectedPaths = []
+  		gitWorkbenchDiff = undefined
+  		gitWorkbenchRemoteURL = ''
+  		void refreshGitWorkbench()
+  	}
+	})
+  const activeRequest = $derived(activeCollection?.items?.find((item) => item.id === activeTab?.itemId) ?? activeCollection?.items?.[0])
+  const shareCollectionUnsupportedTypes = $derived(collectionShareUnsupportedTypes(activeCollection))
+  $effect(() => {
+  if ((activeCollection?.id ?? '') !== openAPISyncCollectionId) {
+      openAPISyncCollectionId = activeCollection?.id ?? ''
+      const config = activeCollection?.openapi?.[0]
+      openAPISyncSourceURL = config?.sourceUrl ?? ''
+      openAPISyncGroupBy = config?.groupBy || 'tag'
+      openAPISyncContent = ''
+      openAPISyncPreserveValues = true
+  	    openAPISyncEndpointDecisions = {}
+  		    openAPISyncResult = undefined
+  		    openAPILocalDriftResult = undefined
+  		    openAPISyncSettingsOpen = false
+  		    openAPISpecViewerOpen = false
+  		    openAPISpecViewerResult = undefined
+  		    openAPISpecDiffOpen = false
+  		    openAPISpecDiffResult = undefined
+  		    openAPISpecDiffActiveChangeIndex = 0
+  		  }
+  })
+  const openAPISpecDiffChangeLineIndexes = $derived((openAPISpecDiffResult?.lines ?? []).reduce<number[]>((indexes, line, index) => {
     if ((line.kind ?? 'same') !== 'same') indexes.push(index)
     return indexes
-  }, [])
-  $: openAPISpecDiffChangeCount = openAPISpecDiffChangeLineIndexes.length
-  $: if (openAPISpecDiffChangeCount === 0 && openAPISpecDiffActiveChangeIndex !== 0) {
-    openAPISpecDiffActiveChangeIndex = 0
-  } else if (openAPISpecDiffChangeCount > 0 && openAPISpecDiffActiveChangeIndex >= openAPISpecDiffChangeCount) {
-    openAPISpecDiffActiveChangeIndex = openAPISpecDiffChangeCount - 1
-  }
-  $: generateDocsEnvironments = activeCollection?.environments ?? []
-  $: generateDocsDeselectedEnvIds = generateDocsDeselectedEnvIds.filter((id) => generateDocsEnvironments.some((env) => env.id === id))
-  $: generateDocsSelectedEnvIds = generateDocsEnvironments.filter((env) => !generateDocsDeselectedEnvIds.includes(env.id)).map((env) => env.id)
-  $: generateDocsSelectedCount = generateDocsSelectedEnvIds.length
-  $: generateDocsFolderCount = activeCollection?.folders?.length ?? 0
-  $: generateDocsRequestCount = (activeCollection?.items ?? []).filter(collectionDocsRequestIsExportable).length
-  $: if (generateDocsSelectAllInput) generateDocsSelectAllInput.indeterminate = generateDocsSelectedCount > 0 && generateDocsSelectedCount < generateDocsEnvironments.length
-  $: runnerConfigItems = runnerSelectableItems(activeCollection)
-  $: runnerSelectedCount = runnerSelectedItemIds.filter((id) => runnerConfigItems.some((item) => item.id === id)).length
-  $: if ((activeCollection?.id ?? '') !== runnerConfigCollectionId) {
-    runnerConfigCollectionId = activeCollection?.id ?? ''
-    runnerSelectedItemIds = runnerConfigItems.map((item) => item.id)
-    runnerDelayMs = 0
-    runnerBailOnFailure = false
-    runnerIterations = 1
-    runnerDataFile = ''
-  }
-  $: responsePaneOrientation = normalizedResponsePaneOrientation(appState?.preferences?.layout?.responsePaneOrientation)
-  $: appZoomPercentage = normalizedZoomPercentage(appState?.preferences?.display?.zoomPercentage)
-  $: codeFont = normalizedCodeFont(appState?.preferences?.font?.codeFont)
-  $: codeFontSize = normalizedCodeFontSize(appState?.preferences?.font?.codeFontSize ?? appState?.preferences?.codeFontSize)
-  $: activeResponseTabs = (activeRequest?.type === 'grpc' ? responseTabs : responseTabs.filter((tab) => tab.id !== 'metadata' && tab.id !== 'trailers'))
-    // US-058. Shown only when a script set a visualizer. A tab that is always
-    // there and always empty teaches people to ignore it.
-    .filter((tab) => tab.id !== 'visualizer' || Boolean(activeRequest?.response?.visualizer))
+  }, []))
+  const openAPISpecDiffChangeCount = $derived(openAPISpecDiffChangeLineIndexes.length)
+  $effect(() => {
+  if (openAPISpecDiffChangeCount === 0 && openAPISpecDiffActiveChangeIndex !== 0) {
+      openAPISpecDiffActiveChangeIndex = 0
+    } else if (openAPISpecDiffChangeCount > 0 && openAPISpecDiffActiveChangeIndex >= openAPISpecDiffChangeCount) {
+      openAPISpecDiffActiveChangeIndex = openAPISpecDiffChangeCount - 1
+    }
+  })
+  const generateDocsEnvironments = $derived(activeCollection?.environments ?? [])
+  // THE self-referential statement the story flags as non-mechanical. It reads
+  // and writes the same variable, so it cannot be a $derived — a derivation
+  // cannot depend on itself — and the variable is genuinely mutated elsewhere
+  // (the Generate Docs dialog toggles it), so it stays $state with a pruning
+  // effect.
+  //
+  // The length guard is essential. filter returns a NEW array every pass, so an
+  // unguarded assignment would invalidate this effect on its own write and loop
+  // forever. Legacy `$:` got away with it because Svelte compared the reference
+  // and stopped; an effect writing $state has no such stop.
+  $effect(() => {
+    const pruned = generateDocsDeselectedEnvIds.filter((id) =>
+      generateDocsEnvironments.some((env) => env.id === id)
+    )
+    if (pruned.length !== generateDocsDeselectedEnvIds.length) {
+      generateDocsDeselectedEnvIds = pruned
+    }
+  })
+  const generateDocsSelectedEnvIds = $derived(generateDocsEnvironments.filter((env) => !generateDocsDeselectedEnvIds.includes(env.id)).map((env) => env.id))
+  const generateDocsSelectedCount = $derived(generateDocsSelectedEnvIds.length)
+  const generateDocsFolderCount = $derived(activeCollection?.folders?.length ?? 0)
+  const generateDocsRequestCount = $derived((activeCollection?.items ?? []).filter(collectionDocsRequestIsExportable).length)
+  $effect(() => {
+  if (generateDocsSelectAllInput) generateDocsSelectAllInput.indeterminate = generateDocsSelectedCount > 0 && generateDocsSelectedCount < generateDocsEnvironments.length
+  })
+  const runnerConfigItems = $derived(runnerSelectableItems(activeCollection))
+  const runnerSelectedCount = $derived(runnerSelectedItemIds.filter((id) => runnerConfigItems.some((item) => item.id === id)).length)
+  $effect(() => {
+  if ((activeCollection?.id ?? '') !== runnerConfigCollectionId) {
+      runnerConfigCollectionId = activeCollection?.id ?? ''
+      runnerSelectedItemIds = runnerConfigItems.map((item) => item.id)
+      runnerDelayMs = 0
+      runnerBailOnFailure = false
+      runnerIterations = 1
+      runnerDataFile = ''
+    }
+  })
+  const responsePaneOrientation = $derived(normalizedResponsePaneOrientation(appState?.preferences?.layout?.responsePaneOrientation))
+  const appZoomPercentage = $derived(normalizedZoomPercentage(appState?.preferences?.display?.zoomPercentage))
+  const codeFont = $derived(normalizedCodeFont(appState?.preferences?.font?.codeFont))
+  const codeFontSize = $derived(normalizedCodeFontSize(appState?.preferences?.font?.codeFontSize ?? appState?.preferences?.codeFontSize))
+  const activeResponseTabs = $derived(
+    (activeRequest?.type === 'grpc'
+      ? responseTabs
+      : responseTabs.filter((tab) => tab.id !== 'metadata' && tab.id !== 'trailers')
+    )
+      // US-058. Shown only when a script set a visualizer. A tab that is always
+      // there and always empty teaches people to ignore it.
+      .filter((tab) => tab.id !== 'visualizer' || Boolean(activeRequest?.response?.visualizer))
+  )
 
   // Fetched from the backend rather than assembled here so the CSP and the
   // escaping stay under Go's tests; the frontend supplies only the sandbox.
   // Mirrors VisualizerSandbox in visualizer.go, which a Go test pins. Declared
   // once here so a change has a single place to happen.
   const visualizerSandboxAttribute = 'allow-scripts'
-  let visualizerDocument = ''
+  let visualizerDocument = $state('')
 
   // US-073 — mock server controls. Port 0 means "let the OS choose", which is
   // the default because a fixed port collides with whatever else is running and
   // fails at bind time with an error the user then has to diagnose.
-  let mockServerStatus: main.MockServerStatus | undefined
-  let mockServerPort = 0
+  let mockServerStatus = $state<main.MockServerStatus | undefined>()
+  let mockServerPort = $state(0)
 
   // US-074 — docs preview. Same shape and the same reasoning as the mock
   // controls: loopback only, port 0 lets the OS choose.
-  let docsServerStatus: main.DocsServerStatus | undefined
-  let docsServerPort = 0
+  let docsServerStatus = $state<main.DocsServerStatus | undefined>()
+  let docsServerPort = $state(0)
 
   async function refreshDocsServerStatus(collectionID: string | undefined) {
     if (!collectionID) {
@@ -1058,7 +1079,9 @@
     })
   }
 
-  $: void refreshDocsServerStatus(collectionTab === 'docs' ? activeCollection?.id : undefined)
+  $effect(() => {
+  void refreshDocsServerStatus(collectionTab === 'docs' ? activeCollection?.id : undefined)
+  })
 
   async function refreshMockServerStatus(collectionID: string | undefined) {
     if (!collectionID) {
@@ -1092,7 +1115,9 @@
     })
   }
 
-  $: void refreshMockServerStatus(collectionTab === 'mock' ? activeCollection?.id : undefined)
+  $effect(() => {
+  void refreshMockServerStatus(collectionTab === 'mock' ? activeCollection?.id : undefined)
+  })
 
   // US-032. The network log is virtualised: only the rows near the viewport are
   // put in the DOM. Spacer rows above and below carry the height of everything
@@ -1107,17 +1132,7 @@
   let devToolsNetworkViewportHeight = 0
   let devToolsNetworkMeasuredRowHeight = 0
 
-  $: devToolsNetworkRowHeight = devToolsNetworkMeasuredRowHeight || devToolsNetworkRowFallbackHeight
-  $: devToolsNetworkWindow = computeWindow({
-    total: devToolsNetworkRows.length,
-    rowHeight: devToolsNetworkRowHeight,
-    viewportHeight: devToolsNetworkViewportHeight,
-    scrollTop: devToolsNetworkScrollTop
-  })
-  $: devToolsNetworkVisibleRows = devToolsNetworkRows.slice(
-    devToolsNetworkWindow.startIndex,
-    devToolsNetworkWindow.endIndex
-  )
+  const devToolsNetworkRowHeight = $derived(devToolsNetworkMeasuredRowHeight || devToolsNetworkRowFallbackHeight)
 
   function measureDevToolsNetworkViewport(node: HTMLElement) {
     const update = () => {
@@ -1141,11 +1156,11 @@
   // HistoryQuery rather than by pulling the whole log and filtering here: each
   // entry carries its headers, so a client-side filter would move hundreds of
   // kilobytes across the binding on every keystroke to render a screenful.
-  let historyEntries: main.HistoryEntry[] = []
-  let historyQuery = ''
-  let historyOnlyFailures = false
-  let historyMethodFilter = ''
-  let historySaveTargetID = ''
+  let historyEntries = $state<main.HistoryEntry[]>([])
+  let historyQuery = $state('')
+  let historyOnlyFailures = $state(false)
+  let historyMethodFilter = $state('')
+  let historySaveTargetID = $state('')
   let historySearchTimer: number | undefined
 
   async function refreshHistory() {
@@ -1207,11 +1222,15 @@
     })
   }
 
-  $: historyCollections = (appState?.workspaces ?? []).flatMap((workspace) =>
+  const historyCollections = $derived((appState?.workspaces ?? []).flatMap((workspace) =>
     (workspace.collections ?? []).map((collection) => ({ id: collection.id, name: collection.name }))
-  )
-  $: if (!historySaveTargetID && historyCollections.length > 0) historySaveTargetID = historyCollections[0].id
-  $: void loadVisualizerDocument(activeCollection?.id, activeRequest?.id, activeRequest?.response?.visualizer)
+  ))
+  $effect(() => {
+  if (!historySaveTargetID && historyCollections.length > 0) historySaveTargetID = historyCollections[0].id
+  })
+  $effect(() => {
+  void loadVisualizerDocument(activeCollection?.id, activeRequest?.id, activeRequest?.response?.visualizer)
+  })
 
   async function loadVisualizerDocument(collectionID: string | undefined, itemID: string | undefined, payload: main.VisualizerPayload | undefined) {
     if (!collectionID || !itemID || !payload) {
@@ -1224,46 +1243,50 @@
       visualizerDocument = ''
     }
   }
-  $: if (activeRequest?.type !== 'grpc' && (responseTab === 'metadata' || responseTab === 'trailers')) responseTab = 'headers'
-  $: if (activeCollection && selectedFolderPath && !(activeCollection.folders ?? []).some((folder) => folder.path === selectedFolderPath)) {
-    selectedFolderPath = ''
-  }
-  $: activeFolder = activeCollection?.folders?.find((folder) => folder.path === selectedFolderPath) ?? activeCollection?.folders?.[0]
-  $: editableFolder = activeFolder ? folderSettingDrafts[activeFolder.path] ?? activeFolder : undefined
-  $: selectedEnvironment = activeCollection?.environments?.find((env) => env.id === selectedEnvironmentId) ?? activeCollection?.environments?.[0]
-  $: activeGlobalEnvironment = activeWorkspace?.globalEnvironments?.find((env) => env.id === activeWorkspace?.activeGlobalEnvironmentId)
-  $: selectedGlobalEnvironment = activeGlobalEnvironment ?? activeWorkspace?.globalEnvironments?.[0]
-  $: selectedDotEnvFile = dotEnvFiles.find((file) => dotEnvFileKey(file) === selectedDotEnvKey)
-  $: globalEnvironmentVariableQuery = normalizedSearch(globalEnvironmentVariableSearch)
-  $: environmentVariableQuery = normalizedSearch(environmentVariableSearch)
-  $: visibleGlobalEnvironmentRows = visibleEnvironmentVariables(selectedGlobalEnvironment?.variables, globalEnvironmentVariableTab, globalEnvironmentVariableQuery)
-  $: visibleEnvironmentRows = visibleEnvironmentVariables(selectedEnvironment?.variables, environmentVariableTab, environmentVariableQuery)
-  $: dotEnvRows = parseDotEnvRows(dotEnvContent)
-  $: doneFeatures = appState?.featureLedger?.filter((feature) => feature.status === 'done').length ?? 0
-  $: partialFeatures = appState?.featureLedger?.filter((feature) => feature.status === 'partial').length ?? 0
-  $: totalFeatures = appState?.featureLedger?.length ?? 0
-  $: websocketConnected = activeRequest?.type === 'websocket' && responseHeaderValue(activeRequest.response, 'x-websocket-connected') === 'true'
-  $: websocketEventCount = responseHeaderValue(activeRequest?.response, 'x-websocket-events')
-  $: grpcStreamConnected = activeRequest?.type === 'grpc' && responseHeaderValue(activeRequest.response, 'x-grpc-stream-connected') === 'true'
-  $: grpcStreamEnded = activeRequest?.type === 'grpc' && responseHeaderValue(activeRequest.response, 'x-grpc-stream-ended') === 'true'
-  $: grpcStreamEventCount = responseHeaderValue(activeRequest?.response, 'x-grpc-stream-events')
-  $: grpcStreamingRequest = activeRequest?.type === 'grpc' && ['client-streaming', 'server-streaming', 'bidi-streaming'].includes(activeRequest.grpcMethodType ?? '')
-  $: grpcClientStreamingRequest = activeRequest?.type === 'grpc' && ['client-streaming', 'bidi-streaming'].includes(activeRequest.grpcMethodType ?? '')
-  $: httpTransportInFlight = Boolean(
+  $effect(() => {
+  if (activeRequest?.type !== 'grpc' && (responseTab === 'metadata' || responseTab === 'trailers')) responseTab = 'headers'
+  })
+  $effect(() => {
+  if (activeCollection && selectedFolderPath && !(activeCollection.folders ?? []).some((folder) => folder.path === selectedFolderPath)) {
+      selectedFolderPath = ''
+    }
+  })
+  const activeFolder = $derived(activeCollection?.folders?.find((folder) => folder.path === selectedFolderPath) ?? activeCollection?.folders?.[0])
+  const editableFolder = $derived(activeFolder ? folderSettingDrafts[activeFolder.path] ?? activeFolder : undefined)
+  const selectedEnvironment = $derived(activeCollection?.environments?.find((env) => env.id === selectedEnvironmentId) ?? activeCollection?.environments?.[0])
+  const activeGlobalEnvironment = $derived(activeWorkspace?.globalEnvironments?.find((env) => env.id === activeWorkspace?.activeGlobalEnvironmentId))
+  const selectedGlobalEnvironment = $derived(activeGlobalEnvironment ?? activeWorkspace?.globalEnvironments?.[0])
+  const selectedDotEnvFile = $derived(dotEnvFiles.find((file) => dotEnvFileKey(file) === selectedDotEnvKey))
+  const globalEnvironmentVariableQuery = $derived(normalizedSearch(globalEnvironmentVariableSearch))
+  const environmentVariableQuery = $derived(normalizedSearch(environmentVariableSearch))
+  const visibleGlobalEnvironmentRows = $derived(visibleEnvironmentVariables(selectedGlobalEnvironment?.variables, globalEnvironmentVariableTab, globalEnvironmentVariableQuery))
+  const visibleEnvironmentRows = $derived(visibleEnvironmentVariables(selectedEnvironment?.variables, environmentVariableTab, environmentVariableQuery))
+  const dotEnvRows = $derived(parseDotEnvRows(dotEnvContent))
+  const doneFeatures = $derived(appState?.featureLedger?.filter((feature) => feature.status === 'done').length ?? 0)
+  const partialFeatures = $derived(appState?.featureLedger?.filter((feature) => feature.status === 'partial').length ?? 0)
+  const totalFeatures = $derived(appState?.featureLedger?.length ?? 0)
+  const websocketConnected = $derived(activeRequest?.type === 'websocket' && responseHeaderValue(activeRequest.response, 'x-websocket-connected') === 'true')
+  const websocketEventCount = $derived(responseHeaderValue(activeRequest?.response, 'x-websocket-events'))
+  const grpcStreamConnected = $derived(activeRequest?.type === 'grpc' && responseHeaderValue(activeRequest.response, 'x-grpc-stream-connected') === 'true')
+  const grpcStreamEnded = $derived(activeRequest?.type === 'grpc' && responseHeaderValue(activeRequest.response, 'x-grpc-stream-ended') === 'true')
+  const grpcStreamEventCount = $derived(responseHeaderValue(activeRequest?.response, 'x-grpc-stream-events'))
+  const grpcStreamingRequest = $derived(activeRequest?.type === 'grpc' && ['client-streaming', 'server-streaming', 'bidi-streaming'].includes(activeRequest.grpcMethodType ?? ''))
+  const grpcClientStreamingRequest = $derived(activeRequest?.type === 'grpc' && ['client-streaming', 'bidi-streaming'].includes(activeRequest.grpcMethodType ?? ''))
+  const httpTransportInFlight = $derived(Boolean(
     activeHTTPTransport
       && activeHTTPTransport.collectionId === activeCollection?.id
       && activeHTTPTransport.requestId === activeRequest?.id
-  )
-  $: hasActiveHTTPTransport = Boolean(activeHTTPTransport)
-  $: backgroundHTTPTransport = activeHTTPTransport && !httpTransportInFlight
+  ))
+  const hasActiveHTTPTransport = $derived(Boolean(activeHTTPTransport))
+  const backgroundHTTPTransport = $derived(activeHTTPTransport && !httpTransportInFlight
     ? {
       requestName: requestNameForTransport(activeHTTPTransport),
       pending: httpCancellationRequested
     }
-    : undefined
-  $: runnerCancelledCount = runnerCancellationCount(appState?.runner)
-  $: runnerCompletedCancelled = runnerCancelledCount > 0 || lastCollectionRunCancelled
-  $: requestCommand = requestCommandState(
+    : undefined)
+  const runnerCancelledCount = $derived(runnerCancellationCount(appState?.runner))
+  const runnerCompletedCancelled = $derived(runnerCancelledCount > 0 || lastCollectionRunCancelled)
+  const requestCommand = $derived(requestCommandState(
     activeRequest,
     activeCollection,
     selectedEnvironment?.name,
@@ -1274,43 +1297,67 @@
     httpTransportInFlight,
     httpTransportInFlight && httpCancellationRequested,
     backgroundHTTPTransport
-  )
-  $: activeScriptLogs = responseScriptLogs(activeRequest?.response)
-  $: activeTimelineEntries = sortedTimelineEntries(activeRequest?.timeline ?? [])
+  ))
+  const activeScriptLogs = $derived(responseScriptLogs(activeRequest?.response))
+  const activeTimelineEntries = $derived(sortedTimelineEntries(activeRequest?.timeline ?? []))
   // US-021/US-022. Both operands are named inside the statement so this really
   // does re-run — a `$:` that referenced only a helper function would track
   // nothing and go stale, which is the ResponseInspector bug US-004 found.
-  $: activeLiveSessionLog =
+  const activeLiveSessionLog = $derived(
     activeCollection && activeRequest
       ? liveSessionLogs[liveSessionKey(activeCollection.id, activeRequest.id)]
       : undefined
-  $: devToolsConsoleRows = devToolsConsoleLogs(activeWorkspace)
-  $: rawDevToolsNetworkRows = appState?.networkLog ?? []
-  $: if (appState && devToolsNetworkPreferencesKeyFor(appState.preferences?.devTools?.network) !== devToolsNetworkPreferencesKey) {
-    applyDevToolsNetworkPreferences(appState.preferences?.devTools?.network)
-  }
-  $: devToolsNetworkMethodCounts = Object.fromEntries(devToolsNetworkMethods.map((method) => [method, rawDevToolsNetworkRows.filter((row) => normalizedNetworkMethod(row) === method).length])) as Record<string, number>
-  $: devToolsNetworkActiveFilterCount = devToolsNetworkMethods.filter((method) => devToolsNetworkFilters[method]).length
-  $: devToolsNetworkRows = sortedDevToolsNetworkRows(filteredDevToolsNetworkRows(rawDevToolsNetworkRows, devToolsNetworkFilters), devToolsNetworkSortKey, devToolsNetworkSortDirection)
-  $: devToolsNetworkSortLabels = Object.fromEntries(devToolsNetworkSortKeys.map((key) => [key, devToolsNetworkSortLabel(key, devToolsNetworkSortKey, devToolsNetworkSortDirection)])) as Record<DevToolsNetworkSortKey, string>
-  $: devToolsNetworkAriaSort = Object.fromEntries(devToolsNetworkSortKeys.map((key) => [key, devToolsNetworkSortAriaValue(key, devToolsNetworkSortKey, devToolsNetworkSortDirection)])) as Record<DevToolsNetworkSortKey, 'ascending' | 'descending' | 'none'>
-  $: devToolsNetworkTableWidth = devToolsNetworkColumnWidths.reduce((total, width) => total + width, 0)
-  $: selectedDevToolsNetworkRow = devToolsNetworkRows.find((row) => row.id === selectedDevToolsNetworkLogID) ?? devToolsNetworkRows[0]
-  $: activeTerminalSession = terminalSessions.find((session) => session.id === terminalActiveSessionId)
-  $: devToolsPerformanceProcesses = devToolsSnapshot?.processes ?? []
-  $: if (devToolsPerformanceView !== 'cumulative' && !devToolsPerformanceProcesses.some((process) => String(process.pid) === devToolsPerformanceView)) devToolsPerformanceView = 'cumulative'
-  $: selectedDevToolsPerformanceProcess = devToolsPerformanceProcesses.find((process) => String(process.pid) === devToolsPerformanceView)
-  $: displayedDevToolsCPUPercent = selectedDevToolsPerformanceProcess?.cpuPercent ?? devToolsSnapshot?.cpuPercent
-  $: displayedDevToolsMemoryBytes = selectedDevToolsPerformanceProcess?.memoryBytes ?? devToolsSnapshot?.memoryBytes
-  $: displayedDevToolsUptimeSeconds = selectedDevToolsPerformanceProcess?.uptimeSeconds ?? devToolsSnapshot?.uptimeSeconds
-  $: displayedDevToolsPID = selectedDevToolsPerformanceProcess?.pid ?? devToolsSnapshot?.pid
-  $: if (devToolsNetworkRows.length > 0 && (!selectedDevToolsNetworkLogID || !devToolsNetworkRows.some((row) => row.id === selectedDevToolsNetworkLogID))) {
-    selectedDevToolsNetworkLogID = devToolsNetworkRows[0].id
-    devToolsNetworkDetailTab = 'request'
-  }
-  $: if (devToolsNetworkRows.length === 0 && selectedDevToolsNetworkLogID) selectedDevToolsNetworkLogID = ''
-  $: requestVariableNames = activeRequest ? variableNamesForRequest(activeRequest) : []
-  $: requestProcessEnvNames = requestVariableNames.filter((name) => name.startsWith('process.env.'))
+  )
+  const devToolsConsoleRows = $derived(devToolsConsoleLogs(activeWorkspace))
+  const rawDevToolsNetworkRows = $derived(appState?.networkLog ?? [])
+  $effect(() => {
+  if (appState && devToolsNetworkPreferencesKeyFor(appState.preferences?.devTools?.network) !== devToolsNetworkPreferencesKey) {
+      applyDevToolsNetworkPreferences(appState.preferences?.devTools?.network)
+    }
+  })
+  const devToolsNetworkMethodCounts = $derived(Object.fromEntries(devToolsNetworkMethods.map((method) => [method, rawDevToolsNetworkRows.filter((row) => normalizedNetworkMethod(row) === method).length])) as Record<string, number>)
+  const devToolsNetworkActiveFilterCount = $derived(devToolsNetworkMethods.filter((method) => devToolsNetworkFilters[method]).length)
+  const devToolsNetworkRows = $derived(sortedDevToolsNetworkRows(filteredDevToolsNetworkRows(rawDevToolsNetworkRows, devToolsNetworkFilters), devToolsNetworkSortKey, devToolsNetworkSortDirection))
+  // US-032. Moved below devToolsNetworkRows during the US-029 runes migration.
+  // Legacy `$:` statements were topologically sorted by the compiler, so their
+  // order in the file did not matter. $derived is a const and obeys the
+  // temporal dead zone, so a derivation must now appear after everything it
+  // reads — this pair used to sit a couple of hundred lines above its input.
+  const devToolsNetworkWindow = $derived(computeWindow({
+    total: devToolsNetworkRows.length,
+    rowHeight: devToolsNetworkRowHeight,
+    viewportHeight: devToolsNetworkViewportHeight,
+    scrollTop: devToolsNetworkScrollTop
+  }))
+  const devToolsNetworkVisibleRows = $derived(devToolsNetworkRows.slice(
+    devToolsNetworkWindow.startIndex,
+    devToolsNetworkWindow.endIndex
+  ))
+  const devToolsNetworkSortLabels = $derived(Object.fromEntries(devToolsNetworkSortKeys.map((key) => [key, devToolsNetworkSortLabel(key, devToolsNetworkSortKey, devToolsNetworkSortDirection)])) as Record<DevToolsNetworkSortKey, string>)
+  const devToolsNetworkAriaSort = $derived(Object.fromEntries(devToolsNetworkSortKeys.map((key) => [key, devToolsNetworkSortAriaValue(key, devToolsNetworkSortKey, devToolsNetworkSortDirection)])) as Record<DevToolsNetworkSortKey, 'ascending' | 'descending' | 'none'>)
+  const devToolsNetworkTableWidth = $derived(devToolsNetworkColumnWidths.reduce((total, width) => total + width, 0))
+  const selectedDevToolsNetworkRow = $derived(devToolsNetworkRows.find((row) => row.id === selectedDevToolsNetworkLogID) ?? devToolsNetworkRows[0])
+  const activeTerminalSession = $derived(terminalSessions.find((session) => session.id === terminalActiveSessionId))
+  const devToolsPerformanceProcesses = $derived(devToolsSnapshot?.processes ?? [])
+  $effect(() => {
+  if (devToolsPerformanceView !== 'cumulative' && !devToolsPerformanceProcesses.some((process) => String(process.pid) === devToolsPerformanceView)) devToolsPerformanceView = 'cumulative'
+  })
+  const selectedDevToolsPerformanceProcess = $derived(devToolsPerformanceProcesses.find((process) => String(process.pid) === devToolsPerformanceView))
+  const displayedDevToolsCPUPercent = $derived(selectedDevToolsPerformanceProcess?.cpuPercent ?? devToolsSnapshot?.cpuPercent)
+  const displayedDevToolsMemoryBytes = $derived(selectedDevToolsPerformanceProcess?.memoryBytes ?? devToolsSnapshot?.memoryBytes)
+  const displayedDevToolsUptimeSeconds = $derived(selectedDevToolsPerformanceProcess?.uptimeSeconds ?? devToolsSnapshot?.uptimeSeconds)
+  const displayedDevToolsPID = $derived(selectedDevToolsPerformanceProcess?.pid ?? devToolsSnapshot?.pid)
+  $effect(() => {
+  if (devToolsNetworkRows.length > 0 && (!selectedDevToolsNetworkLogID || !devToolsNetworkRows.some((row) => row.id === selectedDevToolsNetworkLogID))) {
+      selectedDevToolsNetworkLogID = devToolsNetworkRows[0].id
+      devToolsNetworkDetailTab = 'request'
+    }
+  })
+  $effect(() => {
+  if (devToolsNetworkRows.length === 0 && selectedDevToolsNetworkLogID) selectedDevToolsNetworkLogID = ''
+  })
+  const requestVariableNames = $derived(activeRequest ? variableNamesForRequest(activeRequest) : [])
+  const requestProcessEnvNames = $derived(requestVariableNames.filter((name) => name.startsWith('process.env.')))
   // US-034. This statement re-ran whenever ANY of its dependencies was
   // invalidated, and it walks every variable scope to resolve each name. Keyed
   // on the request id, the revision, the environment and the process-env
@@ -1318,7 +1365,7 @@
   // would return tooltips resolved against the previous environment, which
   // renders perfectly and is simply wrong.
   let tooltipMemo: Memo<string, VariableTooltipInfo[]> = null
-  $: requestVariableTooltips = (() => {
+  const requestVariableTooltips = $derived((() => {
     if (!activeWorkspace || !activeCollection || !activeRequest) return []
     const workspace = activeWorkspace
     const collection = activeCollection
@@ -1329,84 +1376,106 @@
     )
     tooltipMemo = result.memo
     return result.value
-  })()
-  $: searchQuery = normalizedSearch(requestSearch)
-  $: globalSearchResults = buildGlobalSearchResults(activeWorkspace, globalSearchQuery)
-  $: visibleNotifications = notificationsForDisplay(appState?.notifications ?? [])
-  $: unreadNotificationCount = visibleNotifications.filter((notification) => !notification.read).length
-  $: listedNotifications = notificationTab === 'unread'
+  })())
+  const searchQuery = $derived(normalizedSearch(requestSearch))
+  const globalSearchResults = $derived(buildGlobalSearchResults(activeWorkspace, globalSearchQuery))
+  const visibleNotifications = $derived(notificationsForDisplay(appState?.notifications ?? []))
+  const unreadNotificationCount = $derived(visibleNotifications.filter((notification) => !notification.read).length)
+  const listedNotifications = $derived(notificationTab === 'unread'
     ? pinnedUnreadNotificationIDs
       ? visibleNotifications.filter((notification) => pinnedUnreadNotificationIDs?.has(notification.id))
       : visibleNotifications.filter((notification) => !notification.read)
-    : visibleNotifications
-  $: selectedNotification = listedNotifications.find((notification) => notification.id === selectedNotificationID) ?? listedNotifications[0]
-  $: visibleSidebarCollections = sidebarCollections(activeWorkspace, searchQuery)
-  $: sidebarSearchCount = sidebarRequestCount(activeWorkspace, searchQuery)
-  $: cookieSearchQuery = normalizedSearch(cookieSearch)
-  $: visibleCookieGroups = cookieGroups(appState?.cookies ?? [], cookieSearchQuery)
-  $: selectedThemeMode = normalizedThemeMode(appState?.preferences?.theme)
-  $: displayedThemeMode = selectedThemeMode === 'system' ? systemThemeMode : selectedThemeMode
-  $: selectedThemeVariant = displayedThemeMode === 'dark'
+    : visibleNotifications)
+  const selectedNotification = $derived(listedNotifications.find((notification) => notification.id === selectedNotificationID) ?? listedNotifications[0])
+  const visibleSidebarCollections = $derived(sidebarCollections(activeWorkspace, searchQuery))
+  const sidebarSearchCount = $derived(sidebarRequestCount(activeWorkspace, searchQuery))
+  const cookieSearchQuery = $derived(normalizedSearch(cookieSearch))
+  const visibleCookieGroups = $derived(cookieGroups(appState?.cookies ?? [], cookieSearchQuery))
+  const selectedThemeMode = $derived(normalizedThemeMode(appState?.preferences?.theme))
+  const displayedThemeMode = $derived(selectedThemeMode === 'system' ? systemThemeMode : selectedThemeMode)
+  const selectedThemeVariant = $derived(displayedThemeMode === 'dark'
     ? normalizedThemeVariant(appState?.preferences?.themeVariantDark, darkThemeVariants)
-    : normalizedThemeVariant(appState?.preferences?.themeVariantLight, lightThemeVariants)
-  $: applyThemeToDocument(displayedThemeMode, selectedThemeVariant)
-  $: applyZoomToDocument(appZoomPercentage)
-  $: applyCodeFontToDocument(codeFont, codeFontSize)
-  $: if (globalSearchIndex >= globalSearchResults.length) {
-    globalSearchIndex = Math.max(0, globalSearchResults.length - 1)
-  }
-  $: {
-    const presetKey = activeCollection ? `${activeCollection.id}:${activeCollection.presets?.requestType ?? ''}` : ''
-    if (presetKey !== lastPresetKey) {
-      lastPresetKey = presetKey
-      requestType = normalizePresetRequestType(activeCollection?.presets?.requestType) || 'http'
+    : normalizedThemeVariant(appState?.preferences?.themeVariantLight, lightThemeVariants))
+  $effect(() => {
+  applyThemeToDocument(displayedThemeMode, selectedThemeVariant)
+  })
+  $effect(() => {
+  applyZoomToDocument(appZoomPercentage)
+  })
+  $effect(() => {
+  applyCodeFontToDocument(codeFont, codeFontSize)
+  })
+  $effect(() => {
+  if (globalSearchIndex >= globalSearchResults.length) {
+      globalSearchIndex = Math.max(0, globalSearchResults.length - 1)
     }
-  }
-  $: visibleCookieCount = visibleCookieGroups.reduce((total, group) => total + group.cookies.length, 0)
-  $: if ((activeCollection?.id ?? '') !== gitRemoteCollectionId) {
-    gitRemoteCollectionId = activeCollection?.id ?? ''
-    gitRemoteURL = activeCollection?.remote ?? ''
-  }
-  $: if (activeWorkspace?.path && !gitCloneRoot) gitCloneRoot = activeWorkspace.path
-  $: if ((activeRequest?.id ?? '') !== grpcMethodsRequestId) {
-    grpcMethodsRequestId = activeRequest?.id ?? ''
-    grpcMethods = []
-    grpcMethodMessage = ''
-  }
-  $: {
-    const nextDotEnvContextKey = activeView === 'environments' && activeWorkspace ? `${activeWorkspace.id}:${activeCollection?.id ?? ''}` : ''
-    if (nextDotEnvContextKey && nextDotEnvContextKey !== dotEnvContextKey) {
-      stopDotEnvRefresh()
-      dotEnvContextKey = nextDotEnvContextKey
-      void loadDotEnvFiles()
-      dotEnvRefreshTimer = window.setInterval(() => {
-        void loadDotEnvFiles()
-      }, 2000)
-    } else if (!nextDotEnvContextKey && dotEnvContextKey) {
-      dotEnvContextKey = ''
-      stopDotEnvRefresh()
-    }
-  }
-  $: {
-    const nextProcessEnvTooltipKey = activeCollection && requestProcessEnvNames.length > 0
-      ? `${activeCollection.id}:${[...requestProcessEnvNames].sort().join('|')}`
-      : ''
-    if (nextProcessEnvTooltipKey !== processEnvTooltipKey) {
-      processEnvTooltipKey = nextProcessEnvTooltipKey
-      if (activeCollection && requestProcessEnvNames.length > 0) {
-        void loadProcessEnvTooltipValues(activeCollection.id, requestProcessEnvNames, nextProcessEnvTooltipKey)
-      } else {
-        processEnvTooltipValues = {}
+  })
+  $effect(() => {
+  {
+      const presetKey = activeCollection ? `${activeCollection.id}:${activeCollection.presets?.requestType ?? ''}` : ''
+      if (presetKey !== lastPresetKey) {
+        lastPresetKey = presetKey
+        requestType = normalizePresetRequestType(activeCollection?.presets?.requestType) || 'http'
       }
     }
-  }
-  $: {
-    if (devToolsOpen && devToolsTab === 'terminal') {
-      startTerminalPolling()
-    } else {
-      stopTerminalPolling()
+  })
+  const visibleCookieCount = $derived(visibleCookieGroups.reduce((total, group) => total + group.cookies.length, 0))
+  $effect(() => {
+  if ((activeCollection?.id ?? '') !== gitRemoteCollectionId) {
+      gitRemoteCollectionId = activeCollection?.id ?? ''
+      gitRemoteURL = activeCollection?.remote ?? ''
     }
-  }
+  })
+  $effect(() => {
+  if (activeWorkspace?.path && !gitCloneRoot) gitCloneRoot = activeWorkspace.path
+  })
+  $effect(() => {
+  if ((activeRequest?.id ?? '') !== grpcMethodsRequestId) {
+      grpcMethodsRequestId = activeRequest?.id ?? ''
+      grpcMethods = []
+      grpcMethodMessage = ''
+    }
+  })
+  $effect(() => {
+  {
+      const nextDotEnvContextKey = activeView === 'environments' && activeWorkspace ? `${activeWorkspace.id}:${activeCollection?.id ?? ''}` : ''
+      if (nextDotEnvContextKey && nextDotEnvContextKey !== dotEnvContextKey) {
+        stopDotEnvRefresh()
+        dotEnvContextKey = nextDotEnvContextKey
+        void loadDotEnvFiles()
+        dotEnvRefreshTimer = window.setInterval(() => {
+          void loadDotEnvFiles()
+        }, 2000)
+      } else if (!nextDotEnvContextKey && dotEnvContextKey) {
+        dotEnvContextKey = ''
+        stopDotEnvRefresh()
+      }
+    }
+  })
+  $effect(() => {
+  {
+      const nextProcessEnvTooltipKey = activeCollection && requestProcessEnvNames.length > 0
+        ? `${activeCollection.id}:${[...requestProcessEnvNames].sort().join('|')}`
+        : ''
+      if (nextProcessEnvTooltipKey !== processEnvTooltipKey) {
+        processEnvTooltipKey = nextProcessEnvTooltipKey
+        if (activeCollection && requestProcessEnvNames.length > 0) {
+          void loadProcessEnvTooltipValues(activeCollection.id, requestProcessEnvNames, nextProcessEnvTooltipKey)
+        } else {
+          processEnvTooltipValues = {}
+        }
+      }
+    }
+  })
+  $effect(() => {
+  {
+      if (devToolsOpen && devToolsTab === 'terminal') {
+        startTerminalPolling()
+      } else {
+        stopTerminalPolling()
+      }
+    }
+  })
 
 	  let stopGitCloneProgress: (() => void) | undefined
 	  let stopOAuth2Authorize: (() => void) | undefined
@@ -1557,8 +1626,8 @@
   // US-057. The preset sits between the defaults and the user's overrides, and
   // the order is the point: a shortcut somebody deliberately set must not be
   // silently replaced by switching preset.
-  $: activeKeyBindingPreset = normalizeKeyBindingPreset(appState?.preferences?.keyBindingPreset) as KeyBindingPresetID
-  $: presetKeyBindings = effectiveKeyBindings(keyBindingSections, keyBindingPresets[activeKeyBindingPreset])
+  const activeKeyBindingPreset = $derived(normalizeKeyBindingPreset(appState?.preferences?.keyBindingPreset) as KeyBindingPresetID)
+  const presetKeyBindings = $derived(effectiveKeyBindings(keyBindingSections, keyBindingPresets[activeKeyBindingPreset]))
 
   function mergedKeyBinding(action: string): KeyBindingDefinition | undefined {
     const base = presetKeyBindings[action]
@@ -2539,8 +2608,8 @@
     return item?.method ?? ''
   }
 
-  let collapsedSidebarCollections: Record<string, boolean> = {}
-  let collapsedSidebarFolders: Record<string, boolean> = {}
+  let collapsedSidebarCollections = $state<Record<string, boolean>>({})
+  let collapsedSidebarFolders = $state<Record<string, boolean>>({})
 
   function sidebarFolderKey(collectionId: string, folder: string) {
     return `${collectionId}\u0000${folder}`
@@ -3149,10 +3218,10 @@
     })
   }
 
-  let codeGenerationTargets: { id: string; label: string }[] = [
+  let codeGenerationTargets = $state<{ id: string; label: string }[]>([
     { id: 'curl', label: 'cURL' },
     { id: 'fetch', label: 'JavaScript (fetch)' }
-  ]
+  ])
 
   async function beginGenerateRequestCode(collection: main.Collection, item: main.RequestItem) {
     if (!requestSupportsGenerateCode(item)) return
@@ -3818,7 +3887,9 @@
     importDecisions = { ...importDecisions, [candidateID]: { ...importDecisionFor(row), ...update } }
   }
 
-	  $: if (activeView === 'import' && !importDestinationWorkspaceID && activeWorkspace) importDestinationWorkspaceID = activeWorkspace.id
+	  $effect(() => {
+  if (activeView === 'import' && !importDestinationWorkspaceID && activeWorkspace) importDestinationWorkspaceID = activeWorkspace.id
+	  })
 
 	  function selectImportSourceMode(mode: ImportSourceMode) {
 	    importSourceMode = mode
@@ -3964,7 +4035,7 @@
 
   // Keep both dependencies visible to Svelte: changes to a row checkbox must
   // immediately update the footer count and the selections passed to Apply.
-  $: importReadyRows = selectedImportRows(importPreview?.rows ?? [], importDecisions)
+  const importReadyRows = $derived(selectedImportRows(importPreview?.rows ?? [], importDecisions))
 
   function requestPlannedImport() {
     if (importApplyInFlight || !importDestinationWorkspaceID || importReadyRows.length === 0) return
@@ -6828,11 +6899,13 @@
   // an exact title from an incidental containment, so typing "send request"
   // left the ordering to however the command list happened to be declared —
   // and the first row is what Enter runs.
-  $: visibleCommandPaletteActions = filterCommands(
+  const visibleCommandPaletteActions = $derived(filterCommands(
     commandPaletteActions.map((action) => ({ id: action.id, title: action.label, section: 'Commands', shortcut: action.shortcut })),
     commandPaletteQuery
-  ).map((match) => commandPaletteActionsByID[match.command.id])
-  $: if (commandPaletteActiveIndex >= visibleCommandPaletteActions.length) commandPaletteActiveIndex = Math.max(0, visibleCommandPaletteActions.length - 1)
+  ).map((match) => commandPaletteActionsByID[match.command.id]))
+  $effect(() => {
+  if (commandPaletteActiveIndex >= visibleCommandPaletteActions.length) commandPaletteActiveIndex = Math.max(0, visibleCommandPaletteActions.length - 1)
+  })
 
   function openCommandPalette(invoker: HTMLElement | null = document.activeElement instanceof HTMLElement ? document.activeElement : null) {
     commandPaletteReturnFocus = invoker
@@ -8508,7 +8581,7 @@
   load()
 </script>
 
-<svelte:window on:keydown={shortcut} on:click={closeVariableTooltipOnOutside} />
+<svelte:window onkeydown={shortcut} onclick={closeVariableTooltipOnOutside} />
 
 {#if loading}
   <main class="boot">
@@ -8527,7 +8600,7 @@
       </div>
 
       <section class="rail-section rail-create">
-        <button class="primary new-request-button" type="button" on:click={(event) => openCreationFlow(event.currentTarget as HTMLElement)} aria-haspopup="dialog">
+        <button class="primary new-request-button" type="button" onclick={(event) => openCreationFlow(event.currentTarget as HTMLElement)} aria-haspopup="dialog">
           <span aria-hidden="true">+</span> New
           <kbd>⌘N</kbd>
         </button>
@@ -8539,7 +8612,7 @@
         <div class="search-box">
           <input aria-label="Search requests" placeholder="Find requests" bind:this={requestSearchInput} bind:value={requestSearch} />
           {#if requestSearch}
-            <button class="icon-button ghost" title="Clear search" on:click={() => (requestSearch = '')}>x</button>
+            <button class="icon-button ghost" title="Clear search" onclick={() => (requestSearch = '')}>x</button>
           {/if}
         </div>
         {#if requestSearch.trim()}
@@ -8562,9 +8635,9 @@
                 type="button"
                 aria-expanded={!collectionCollapsed}
                 aria-label={`${collectionCollapsed ? 'Expand' : 'Collapse'} ${collection.name}`}
-                on:click={() => toggleSidebarCollection(collection.id)}
+                onclick={() => toggleSidebarCollection(collection.id)}
               >▾</button>
-              <button class="collection-title" on:click={() => selectCollection(collection.id)}>{collection.name}</button>
+              <button class="collection-title" onclick={() => selectCollection(collection.id)}>{collection.name}</button>
               <span class="collection-badges">
                 {#if collectionIsScratch(collection)}<small>Scratch</small>{/if}
                 {#if collection.remote}<small>Git</small>{/if}
@@ -8576,9 +8649,9 @@
               <div class="ghost-row">
                 <code>{collection.remote}</code>
                 <div class="button-row compact">
-                  <button on:click={() => selectCollection(collection.id)}>Details</button>
-                  <button on:click={() => copyText(collection.remote ?? '')}>Copy URL</button>
-                  <button on:click={() => disconnectGitRemote(collection.id)}>Remove</button>
+                  <button onclick={() => selectCollection(collection.id)}>Details</button>
+                  <button onclick={() => copyText(collection.remote ?? '')}>Copy URL</button>
+                  <button onclick={() => disconnectGitRemote(collection.id)}>Remove</button>
                 </div>
               </div>
             {:else if groups.length === 0 && !collectionCollapsed}
@@ -8595,16 +8668,16 @@
                       type="button"
                       aria-expanded={!folderCollapsed}
                       aria-label={`${folderCollapsed ? 'Expand' : 'Collapse'} folder ${group.folder}`}
-                      on:click={() => toggleSidebarFolder(collection.id, group.folder)}
+                      onclick={() => toggleSidebarFolder(collection.id, group.folder)}
                     >▾</button>
-                    <button class="folder-row" title={`${group.folder} settings`} on:click={() => selectFolderSettings(collection, group.folder)}>{group.folder}</button>
+                    <button class="folder-row" title={`${group.folder} settings`} onclick={() => selectFolderSettings(collection, group.folder)}>{group.folder}</button>
                     <button
                       class="folder-action"
                       type="button"
                       title={revealInFolderLabel()}
                       aria-label={`${revealInFolderLabel()} ${group.folder}`}
                       data-testid="collection-item-menu-show-in-folder"
-                      on:click={() => revealFolderInFolder(collection, group.folder)}
+                      onclick={() => revealFolderInFolder(collection, group.folder)}
                     >F</button>
                     <button
                       class="folder-action"
@@ -8612,7 +8685,7 @@
                       title="Info"
                       aria-label="Info"
                       data-testid="collection-item-menu-info"
-                      on:click={() => openFolderInfoModal(collection, group.folder)}
+                      onclick={() => openFolderInfoModal(collection, group.folder)}
                     >i</button>
                     <button
                       class="folder-action"
@@ -8620,14 +8693,14 @@
                       title="Open in Terminal"
                       aria-label={`Open ${group.folder} in Terminal`}
                       data-testid="collection-item-menu-open-terminal"
-                      on:click={() => openFolderInTerminal(collection, group.folder)}
+                      onclick={() => openFolderInTerminal(collection, group.folder)}
                     >T</button>
                     <button
                       class="folder-action"
                       type="button"
                       title="New Folder"
                       data-testid="collection-item-menu-new-folder"
-                      on:click={() => openNewFolderModal(group.folder, collection)}
+                      onclick={() => openNewFolderModal(group.folder, collection)}
                     >+</button>
                     <button
                       class="folder-action"
@@ -8635,7 +8708,7 @@
                       title="Rename"
                       aria-label="Rename"
                       data-testid="collection-item-menu-rename"
-                      on:click={() => openRenameFolderModal(collection, group.folder)}
+                      onclick={() => openRenameFolderModal(collection, group.folder)}
                     >✎</button>
                     <button
                       class="folder-action"
@@ -8643,7 +8716,7 @@
                       title="Clone"
                       aria-label="Clone"
                       data-testid="collection-item-menu-clone"
-                      on:click={() => openCloneFolderModal(collection, group.folder)}
+                      onclick={() => openCloneFolderModal(collection, group.folder)}
                     >C</button>
                     <button
                       class="folder-action"
@@ -8651,7 +8724,7 @@
                       title="Delete"
                       aria-label="Delete"
                       data-testid="collection-item-menu-delete"
-                      on:click={() => openDeleteFolderModal(collection, group.folder)}
+                      onclick={() => openDeleteFolderModal(collection, group.folder)}
                     >x</button>
                   </div>
                 {/if}
@@ -8662,7 +8735,7 @@
                       class="request-row"
                       class:item-active={item.id === activeRequest?.id}
                       title={group.folder ? `${group.folder} · ${item.url}` : item.url}
-                      on:click={() => openRequestTab(collection.id, item.id)}
+                      onclick={() => openRequestTab(collection.id, item.id)}
                     >
                       <span class="method" data-method={item.method}>{methodLabel(item.method)}</span>
                       <span>{item.name}</span>
@@ -8677,7 +8750,7 @@
                       title={revealInFolderLabel()}
                       aria-label={`${revealInFolderLabel()} ${item.name}`}
                       data-testid="collection-item-menu-show-in-folder"
-                      on:click={() => { closeRequestActionMenus(); void revealRequestInFolder(collection, item) }}
+                      onclick={() => { closeRequestActionMenus(); void revealRequestInFolder(collection, item) }}
                     >Reveal</button>
                     {#if requestSupportsGenerateCode(item)}
                       <button
@@ -8686,7 +8759,7 @@
                         title="Generate Code"
                         aria-label={`Generate Code ${item.name}`}
                         data-testid="collection-item-menu-generate-code"
-                        on:click={() => { closeRequestActionMenus(); void beginGenerateRequestCode(collection, item) }}
+                        onclick={() => { closeRequestActionMenus(); void beginGenerateRequestCode(collection, item) }}
                       >Code</button>
                     {/if}
                     <button
@@ -8695,7 +8768,7 @@
                       title="Info"
                       aria-label={`Info ${item.name}`}
                       data-testid="collection-item-menu-info"
-                      on:click={() => { closeRequestActionMenus(); openRequestInfoModal(collection, item) }}
+                      onclick={() => { closeRequestActionMenus(); openRequestInfoModal(collection, item) }}
                     >Info</button>
                     <button
                       class="request-action"
@@ -8703,7 +8776,7 @@
                       title="Rename"
                       aria-label={`Rename ${item.name}`}
                       data-testid="collection-item-menu-rename"
-                      on:click={() => { closeRequestActionMenus(); openRenameRequestModal(collection, item) }}
+                      onclick={() => { closeRequestActionMenus(); openRenameRequestModal(collection, item) }}
                     >Rename</button>
                     <button
                       class="request-action"
@@ -8711,7 +8784,7 @@
                       title="Clone"
                       aria-label={`Clone ${item.name}`}
                       data-testid="collection-item-menu-clone"
-                      on:click={() => { closeRequestActionMenus(); openCloneRequestModal(collection, item) }}
+                      onclick={() => { closeRequestActionMenus(); openCloneRequestModal(collection, item) }}
                     >Clone</button>
                     <button
                       class="request-action danger-inline"
@@ -8719,7 +8792,7 @@
                       title="Delete"
                       aria-label={`Delete ${item.name}`}
                       data-testid="collection-item-menu-delete"
-                      on:click={() => { closeRequestActionMenus(); openDeleteRequestModal(collection, item) }}
+                      onclick={() => { closeRequestActionMenus(); openDeleteRequestModal(collection, item) }}
                     >Delete</button>
                     </details>
                   </div>
@@ -8730,7 +8803,7 @@
                           class="sidebar-example-row"
                           class:item-active={responseExampleIsActive(collection.id, item.id, example)}
                           title={example.description || example.request?.url || example.name}
-                          on:click={() => openResponseExampleTabFor(collection.id, item.id, example)}
+                          onclick={() => openResponseExampleTabFor(collection.id, item.id, example)}
                         >
                           <span class="example-glyph">Ex</span>
                           <span>{example.name}</span>
@@ -8756,10 +8829,10 @@
       max="420"
       value={sidebarWidth}
       title="Drag to resize sidebar; double-click to reset"
-      on:mousedown={startSidebarResize}
-      on:dblclick={() => { sidebarWidth = 312; persistWorkbenchLayout() }}
-      on:input={(event) => (sidebarWidth = clampSidebarWidth(Number(event.currentTarget.value)))}
-      on:change={persistWorkbenchLayout}
+      onmousedown={startSidebarResize}
+      ondblclick={() => { sidebarWidth = 312; persistWorkbenchLayout() }}
+      oninput={(event) => (sidebarWidth = clampSidebarWidth(Number(event.currentTarget.value)))}
+      onchange={persistWorkbenchLayout}
     />
 
     <section class="main-pane">
@@ -8801,8 +8874,8 @@
                         <span>{entry.kind} · {recoveryExpiryLabel(entry)}</span>
                       </div>
                       <div class="button-row compact">
-                        <button type="button" aria-label={`Restore ${entry.kind} ${entry.displayName}`} on:click={() => void restoreRecoveryEntry(entry)} disabled={recoveryBusyEntryID !== ''}>Restore</button>
-                        <button type="button" class="danger-button" aria-label={`Remove recovery copy for ${entry.displayName}`} on:click={() => void discardRecoveryEntry(entry)} disabled={recoveryBusyEntryID !== ''}>Remove recovery copy</button>
+                        <button type="button" aria-label={`Restore ${entry.kind} ${entry.displayName}`} onclick={() => void restoreRecoveryEntry(entry)} disabled={recoveryBusyEntryID !== ''}>Restore</button>
+                        <button type="button" class="danger-button" aria-label={`Remove recovery copy for ${entry.displayName}`} onclick={() => void discardRecoveryEntry(entry)} disabled={recoveryBusyEntryID !== ''}>Remove recovery copy</button>
                       </div>
                     </article>
                   {/each}
@@ -8815,7 +8888,7 @@
           <nav class="tabs" aria-label="Open tabs">
             {#each appState.openTabs as tab (tab.id)}
               <div class="tab" class:active={tab.id === appState.activeTabId}>
-                <button class="tab-select" title={tabLabel(tab)} on:click={() => setActiveTab(tab.id)}>
+                <button class="tab-select" title={tabLabel(tab)} onclick={() => setActiveTab(tab.id)}>
                   {#if tabMethod(tab)}
                     <span class="tab-method" data-method={tabMethod(tab)}>{methodLabel(tabMethod(tab))}</span>
                   {/if}
@@ -8826,7 +8899,7 @@
                   type="button"
                   aria-label={`Close tab ${tabLabel(tab)}`}
                   title="Close tab"
-                  on:click={() => beginTabLifecycleAction('close-active', tab.id)}
+                  onclick={() => beginTabLifecycleAction('close-active', tab.id)}
                 >×</button>
               </div>
             {/each}
@@ -8852,19 +8925,20 @@
             <div class="runner-summary">
               <span>{devToolsConsoleRows.length} logs</span>
               <span>{devToolsNetworkRows.length} requests</span>
-              <button type="button" on:click={refreshDevToolsSnapshot}>Refresh</button>
-              <button type="button" aria-label="Close console" on:click={closeDevTools}>Close</button>
+              <button type="button" onclick={refreshDevToolsSnapshot}>Refresh</button>
+              <button type="button" aria-label="Close console" onclick={closeDevTools}>Close</button>
             </div>
           </header>
           <nav class="devtools-tabs" aria-label="Dev Tools tabs">
             {#each devToolsTabs as tab (tab.id)}
-              <button type="button" class:active={devToolsTab === tab.id} on:click={() => selectDevToolsTab(tab.id)}>{tab.label}</button>
+              <button type="button" class:active={devToolsTab === tab.id} onclick={() => selectDevToolsTab(tab.id)}>{tab.label}</button>
             {/each}
           </nav>
           <div class="devtools-content">
             {#if devToolsTab === 'console'}
               {#await import('./lib/views/devtools/ConsoleTab.svelte') then ConsoleTab}
-                <svelte:component this={ConsoleTab.default} {devToolsConsoleRows} />
+                {@const ConsoleTabComponent = ConsoleTab.default}
+                <ConsoleTabComponent {devToolsConsoleRows} />
               {/await}
             {:else if devToolsTab === 'network'}
               <div class="network-filter-bar" aria-label="Filter requests by method">
@@ -8873,13 +8947,13 @@
                   <span>{devToolsNetworkActiveFilterCount === devToolsNetworkMethods.length ? 'All' : `${devToolsNetworkActiveFilterCount}/${devToolsNetworkMethods.length}`}</span>
                 </div>
                 <div class="button-row compact">
-                  <button type="button" on:click={() => setAllDevToolsNetworkFilters(false)}>Hide All</button>
-                  <button type="button" on:click={() => setAllDevToolsNetworkFilters(true)}>Show All</button>
+                  <button type="button" onclick={() => setAllDevToolsNetworkFilters(false)}>Hide All</button>
+                  <button type="button" onclick={() => setAllDevToolsNetworkFilters(true)}>Show All</button>
                 </div>
                 <div class="method-filter-list">
                   {#each devToolsNetworkMethods as method (method)}
                     <label>
-                      <input type="checkbox" checked={devToolsNetworkFilters[method]} on:change={(event) => setDevToolsNetworkFilter(method, event.currentTarget.checked)} />
+                      <input type="checkbox" checked={devToolsNetworkFilters[method]} onchange={(event) => setDevToolsNetworkFilter(method, event.currentTarget.checked)} />
                       <span>{method} {devToolsNetworkMethodCounts[method] ?? 0}</span>
                     </label>
                   {/each}
@@ -8896,7 +8970,7 @@
                     class="table-scroll network-table-scroll"
                     class:resizing={devToolsNetworkResizingColumn >= 0}
                     use:measureDevToolsNetworkViewport
-                    on:scroll={(event) => (devToolsNetworkScrollTop = event.currentTarget.scrollTop)}
+                    onscroll={(event) => (devToolsNetworkScrollTop = event.currentTarget.scrollTop)}
                   >
                     <table class="devtools-network-table" style={`min-width: ${devToolsNetworkTableWidth}px;`}>
                       <colgroup>
@@ -8908,14 +8982,14 @@
                         <tr>
                           {#each devToolsNetworkColumns as column, index (column.key)}
                             <th aria-sort={devToolsNetworkAriaSort[column.key]}>
-                              <button type="button" class="network-sort-button" on:click={() => cycleDevToolsNetworkSort(column.key)}>{column.label} {devToolsNetworkSortLabels[column.key]}</button>
+                              <button type="button" class="network-sort-button" onclick={() => cycleDevToolsNetworkSort(column.key)}>{column.label} {devToolsNetworkSortLabels[column.key]}</button>
                               {#if index < devToolsNetworkColumns.length - 1}
                                 <button
                                   type="button"
                                   class="column-resizer"
                                   class:active={devToolsNetworkResizingColumn === index}
                                   aria-label={`Resize ${column.label} column`}
-                                  on:mousedown={(event) => startDevToolsNetworkColumnResize(index, event)}
+                                  onmousedown={(event) => startDevToolsNetworkColumnResize(index, event)}
                                 ></button>
                               {/if}
                             </th>
@@ -8934,7 +9008,7 @@
                         {/if}
                         {#each devToolsNetworkVisibleRows as row (row.id)}
                           <tr data-network-row class:selected={selectedDevToolsNetworkRow?.id === row.id}>
-                            <td><button class="table-link" type="button" on:click={() => selectDevToolsNetworkRow(row)}>{normalizedNetworkMethod(row)}</button></td>
+                            <td><button class="table-link" type="button" onclick={() => selectDevToolsNetworkRow(row)}>{normalizedNetworkMethod(row)}</button></td>
                             <td>{statusDisplay(row.status)}</td>
                             <td>{devToolsNetworkDomain(row)}</td>
                             <td><code>{devToolsNetworkPath(row)}</code></td>
@@ -8951,8 +9025,8 @@
                   </div>
                   {#if selectedDevToolsNetworkRow}
               {#await import('./lib/views/devtools/RequestDetailsPanel.svelte') then RequestDetailsPanel}
-                <svelte:component
-                  this={RequestDetailsPanel.default}
+                {@const RequestDetailsPanelComponent = RequestDetailsPanel.default}
+                <RequestDetailsPanelComponent
                   {selectedDevToolsNetworkRow}
                   {devToolsNetworkDetailTab}
                   {devToolsNetworkDetailTabs}
@@ -8968,8 +9042,8 @@
               {/if}
             {:else if devToolsTab === 'performance'}
           {#await import('./lib/views/devtools/PerformanceTab.svelte') then PerformanceTab}
-            <svelte:component
-              this={PerformanceTab.default}
+            {@const PerformanceTabComponent = PerformanceTab.default}
+            <PerformanceTabComponent
               {devToolsSnapshot}
               {devToolsPerformanceProcesses}
               {displayedDevToolsCPUPercent}
@@ -8986,8 +9060,8 @@
           {/await}
             {:else}
               {#await import('./lib/views/devtools/TerminalTab.svelte') then TerminalTab}
-                <svelte:component
-                  this={TerminalTab.default}
+                {@const TerminalTabComponent = TerminalTab.default}
+                <TerminalTabComponent
                   bind:terminalInput
                   {terminalSessions}
                   {terminalActiveSessionId}
@@ -9037,10 +9111,10 @@
                     aria-label={activeRequest.type === 'grpc' ? 'gRPC server URL' : activeRequest.type === 'websocket' ? 'WebSocket URL' : 'URL'}
                     bind:this={requestURLInput}
                     value={activeRequest.url}
-                    on:input={patchURLField}
-                    on:scroll={syncURLInputScroll}
-                    on:keyup={syncURLInputScroll}
-                    on:mouseup={syncURLInputScroll}
+                    oninput={patchURLField}
+                    onscroll={syncURLInputScroll}
+                    onkeyup={syncURLInputScroll}
+                    onmouseup={syncURLInputScroll}
                   />
                   <div class="url-variable-overlay">
                     <span class="url-variable-overlay-content" style={`transform: translateX(-${urlInputScrollLeft}px);`}>
@@ -9055,8 +9129,8 @@
                               tabindex="0"
                               class:cm-variable-valid={isValidURLVariableSegment(segment)}
                               class:cm-variable-invalid={!isValidURLVariableSegment(segment)}
-                              on:click={() => toggleActiveVariableTooltip(segment.name)}
-                              on:keydown={(event) => handleInlineVariableTokenKey(event, segment.name)}
+                              onclick={() => toggleActiveVariableTooltip(segment.name)}
+                              onkeydown={(event) => handleInlineVariableTokenKey(event, segment.name)}
                             >{segment.text}</span>
                             {#if segment.info}
                               <div class="CodeMirror-brunoVarInfo inline-var-tooltip" role="tooltip">
@@ -9071,15 +9145,15 @@
                                     class="var-value-editor"
                                     aria-label={'Edit variable ' + segment.info.name}
                                     bind:value={variableTooltipDraft}
-                                    on:keydown={(event) => handleVariableTooltipEditorKey(event, segment.info)}
-                                    on:blur={(event) => handleVariableTooltipEditorBlur(event, segment.info)}
+                                    onkeydown={(event) => handleVariableTooltipEditorKey(event, segment.info)}
+                                    onblur={(event) => handleVariableTooltipEditorBlur(event, segment.info)}
                                   ></textarea>
                                   <div class="button-row compact">
-                                    <button class="var-save-button" on:click|stopPropagation={() => saveVariableTooltipEdit(segment.info)} disabled={busy !== ''}>Save</button>
-                                    <button on:click|stopPropagation={cancelVariableTooltipEdit}>Cancel</button>
+                                    <button class="var-save-button" onclick={(event) => { event.stopPropagation(); saveVariableTooltipEdit(segment.info) }} disabled={busy !== ''}>Save</button>
+                                    <button onclick={(event) => { event.stopPropagation(); cancelVariableTooltipEdit() }}>Cancel</button>
                                   </div>
                                 {:else if segment.info.editable}
-                                  <button type="button" class="var-value-editable-display" on:click|stopPropagation={() => beginVariableTooltipEdit(segment.info)}>
+                                  <button type="button" class="var-value-editable-display" onclick={(event) => { event.stopPropagation(); beginVariableTooltipEdit(segment.info) }}>
                                     {displayTooltipValue(segment.info, Boolean(revealedVariableTooltips[segment.info.name]))}
                                   </button>
                                 {:else}
@@ -9092,13 +9166,13 @@
                                   <button
                                     class="copy-button"
                                     class:copy-success={copiedVariableTooltips[segment.info.name]}
-                                    on:click|stopPropagation={() => copyVariableTooltipValue(segment.info)}
+                                    onclick={(event) => { event.stopPropagation(); copyVariableTooltipValue(segment.info) }}
                                     disabled={!segment.info.found || !segment.info.validName || copiedVariableTooltips[segment.info.name]}
                                   >
                                     {copiedVariableTooltips[segment.info.name] ? 'Copied' : 'Copy'}
                                   </button>
                                   {#if segment.info.secret}
-                                    <button class="secret-toggle-button" on:click|stopPropagation={() => toggleTooltipSecret(segment.info.name)}>
+                                    <button class="secret-toggle-button" onclick={(event) => { event.stopPropagation(); toggleTooltipSecret(segment.info.name) }}>
                                       {revealedVariableTooltips[segment.info.name] ? 'Hide' : 'Show'}
                                     </button>
                                   {/if}
@@ -9133,7 +9207,7 @@
               <div class="variable-inspector" aria-label="Variable inspector">
                 {#each requestVariableTooltips as variableInfo (variableInfo.name)}
                   <div class="variable-chip-wrapper" class:invalid={!variableInfo.found} class:open={activeVariableTooltip === variableInfo.name}>
-                    <button type="button" class="variable-chip" on:click={() => toggleActiveVariableTooltip(variableInfo.name)}>
+                    <button type="button" class="variable-chip" onclick={() => toggleActiveVariableTooltip(variableInfo.name)}>
                       <span class="var-token">{'{{' + variableInfo.name + '}}'}</span>
                     </button>
                     <div class="variable-tooltip" role="tooltip">
@@ -9148,15 +9222,15 @@
                           class="var-value-editor"
                           aria-label={'Edit variable ' + variableInfo.name}
                           bind:value={variableTooltipDraft}
-                          on:keydown={(event) => handleVariableTooltipEditorKey(event, variableInfo)}
-                          on:blur={(event) => handleVariableTooltipEditorBlur(event, variableInfo)}
+                          onkeydown={(event) => handleVariableTooltipEditorKey(event, variableInfo)}
+                          onblur={(event) => handleVariableTooltipEditorBlur(event, variableInfo)}
                         ></textarea>
                         <div class="button-row compact">
-                          <button class="var-save-button" on:click|stopPropagation={() => saveVariableTooltipEdit(variableInfo)} disabled={busy !== ''}>Save</button>
-                          <button on:click|stopPropagation={cancelVariableTooltipEdit}>Cancel</button>
+                          <button class="var-save-button" onclick={(event) => { event.stopPropagation(); saveVariableTooltipEdit(variableInfo) }} disabled={busy !== ''}>Save</button>
+                          <button onclick={(event) => { event.stopPropagation(); cancelVariableTooltipEdit() }}>Cancel</button>
                         </div>
                       {:else if variableInfo.editable}
-                        <button type="button" class="var-value-editable-display" on:click|stopPropagation={() => beginVariableTooltipEdit(variableInfo)}>
+                        <button type="button" class="var-value-editable-display" onclick={(event) => { event.stopPropagation(); beginVariableTooltipEdit(variableInfo) }}>
                           {displayTooltipValue(variableInfo, Boolean(revealedVariableTooltips[variableInfo.name]))}
                         </button>
                       {:else}
@@ -9169,13 +9243,13 @@
                         <button
                           class="copy-button"
                           class:copy-success={copiedVariableTooltips[variableInfo.name]}
-                          on:click|stopPropagation={() => copyVariableTooltipValue(variableInfo)}
+                          onclick={(event) => { event.stopPropagation(); copyVariableTooltipValue(variableInfo) }}
                           disabled={!variableInfo.found || !variableInfo.validName || copiedVariableTooltips[variableInfo.name]}
                         >
                           {copiedVariableTooltips[variableInfo.name] ? 'Copied' : 'Copy'}
                         </button>
                         {#if variableInfo.secret}
-                          <button class="secret-toggle-button" on:click|stopPropagation={() => toggleTooltipSecret(variableInfo.name)}>
+                          <button class="secret-toggle-button" onclick={(event) => { event.stopPropagation(); toggleTooltipSecret(variableInfo.name) }}>
                             {revealedVariableTooltips[variableInfo.name] ? 'Hide' : 'Show'}
                           </button>
                         {/if}
@@ -9187,7 +9261,7 @@
             {/if}
             </div>
 
-            <div class="subtabs" role="tablist" aria-label="Request sections" tabindex="-1" on:keydown={requestTabKeydown}>
+            <div class="subtabs" role="tablist" aria-label="Request sections" tabindex="-1" onkeydown={requestTabKeydown}>
               {#each requestTabs as tab (tab.id)}
                 <button
                   class:active={requestPaneTab === tab.id}
@@ -9197,7 +9271,7 @@
                   aria-selected={requestPaneTab === tab.id}
                   aria-controls={`request-panel-${tab.id}`}
                   tabindex={requestPaneTab === tab.id ? 0 : -1}
-                  on:click={() => selectRequestPaneTab(tab.id)}
+                  onclick={() => selectRequestPaneTab(tab.id)}
                 >
                   {tab.label}
                 </button>
@@ -9295,27 +9369,27 @@
                 {#if activeRequest.type === 'grpc'}
                   <div class="grpc-editor">
                     <div class="grpc-method-controls">
-                      <button on:click={loadGrpcMethods} disabled={busy !== ''}>Load methods</button>
-                      <select aria-label="Discovered gRPC methods" value={activeRequest.method === 'CALL' ? '' : activeRequest.method} on:change={(e) => selectGrpcMethod(e.currentTarget.value)} disabled={grpcMethods.length === 0}>
+                      <button onclick={loadGrpcMethods} disabled={busy !== ''}>Load methods</button>
+                      <select aria-label="Discovered gRPC methods" value={activeRequest.method === 'CALL' ? '' : activeRequest.method} onchange={(e) => selectGrpcMethod(e.currentTarget.value)} disabled={grpcMethods.length === 0}>
                         <option value="">Select method</option>
                         {#each grpcMethods as method (method.path)}
                           <option value={method.path}>{method.path} · {method.type || 'unary'}</option>
                         {/each}
                       </select>
-                      <button on:click={() => regenerateGrpcMessage(0)} disabled={busy !== '' || !activeRequest.method || activeRequest.method === 'CALL'}>Generate</button>
+                      <button onclick={() => regenerateGrpcMessage(0)} disabled={busy !== '' || !activeRequest.method || activeRequest.method === 'CALL'}>Generate</button>
                     </div>
                     {#if grpcMethodMessage}
                       <small>{grpcMethodMessage}</small>
                     {/if}
                     <div class="field-grid">
                       <span class="field-label">Method type</span>
-                      <select value={activeRequest.grpcMethodType} on:change={(e) => patchField('grpcMethodType', e.currentTarget.value)}>
+                      <select value={activeRequest.grpcMethodType} onchange={(e) => patchField('grpcMethodType', e.currentTarget.value)}>
                         {#each grpcMethodTypes as methodType (methodType)}
                           <option value={methodType}>{methodType || 'unspecified'}</option>
                         {/each}
                       </select>
                       <span class="field-label">Proto path</span>
-                      <input value={activeRequest.protoPath} placeholder="protos/service.proto" on:change={(e) => patchField('protoPath', e.currentTarget.value)} />
+                      <input value={activeRequest.protoPath} placeholder="protos/service.proto" onchange={(e) => patchField('protoPath', e.currentTarget.value)} />
                     </div>
 
                     {#if grpcStreamingRequest}
@@ -9327,9 +9401,9 @@
                           {/if}
                         </div>
                         <div class="button-row compact">
-                          <button on:click={connectActiveGrpcStream} disabled={busy !== '' || grpcStreamConnected}>Start stream</button>
-                          <button on:click={endActiveGrpcStream} disabled={busy !== '' || !grpcStreamConnected}>End</button>
-                          <button on:click={cancelActiveGrpcStream} disabled={busy !== '' || !grpcStreamConnected}>Cancel</button>
+                          <button onclick={connectActiveGrpcStream} disabled={busy !== '' || grpcStreamConnected}>Start stream</button>
+                          <button onclick={endActiveGrpcStream} disabled={busy !== '' || !grpcStreamConnected}>End</button>
+                          <button onclick={cancelActiveGrpcStream} disabled={busy !== '' || !grpcStreamConnected}>Cancel</button>
                         </div>
                       </div>
                     {/if}
@@ -9341,22 +9415,22 @@
                       <tbody>
                         {#each activeRequest.grpcMessages ?? [] as message, index (index)}
                           <tr>
-                            <td><input value={message.name} on:input={(e) => updateGrpcMessage(index, 'name', e.currentTarget.value)} /></td>
-                            <td><textarea class="short" spellcheck="false" value={message.content} on:input={(e) => updateGrpcMessage(index, 'content', e.currentTarget.value)}></textarea></td>
+                            <td><input value={message.name} oninput={(e) => updateGrpcMessage(index, 'name', e.currentTarget.value)} /></td>
+                            <td><textarea class="short" spellcheck="false" value={message.content} oninput={(e) => updateGrpcMessage(index, 'content', e.currentTarget.value)}></textarea></td>
                             <td>
                               <div class="button-row compact">
                                 {#if grpcClientStreamingRequest}
-                                  <button class="icon-button" title="Send message" on:click={() => sendGrpcStreamMessage(index)} disabled={busy !== '' || !grpcStreamConnected}>Send</button>
+                                  <button class="icon-button" title="Send message" onclick={() => sendGrpcStreamMessage(index)} disabled={busy !== '' || !grpcStreamConnected}>Send</button>
                                 {/if}
-                                <button class="icon-button" title="Generate sample" on:click={() => regenerateGrpcMessage(index)}>Gen</button>
-                                <button class="icon-button" title="Remove message" on:click={() => removeGrpcMessage(index)}>x</button>
+                                <button class="icon-button" title="Generate sample" onclick={() => regenerateGrpcMessage(index)}>Gen</button>
+                                <button class="icon-button" title="Remove message" onclick={() => removeGrpcMessage(index)}>x</button>
                               </div>
                             </td>
                           </tr>
                         {/each}
                       </tbody>
 	                    </table>
-	                    <button on:click={addGrpcMessage}>Add message</button>
+	                    <button onclick={addGrpcMessage}>Add message</button>
 	                  </div>
 	                {:else if activeRequest.type === 'websocket'}
 	                  <div class="ws-editor">
@@ -9368,9 +9442,9 @@
 	                        {/if}
 	                      </div>
 	                      <div class="button-row compact">
-	                        <button on:click={connectActiveWebSocket} disabled={busy !== ''}>Connect</button>
-	                        <button on:click={() => sendWSMessage(selectedWSMessageIndex(activeRequest))} disabled={busy !== ''}>Send selected</button>
-	                        <button on:click={disconnectActiveWebSocket} disabled={busy !== '' || !websocketConnected}>Disconnect</button>
+	                        <button onclick={connectActiveWebSocket} disabled={busy !== ''}>Connect</button>
+	                        <button onclick={() => sendWSMessage(selectedWSMessageIndex(activeRequest))} disabled={busy !== ''}>Send selected</button>
+	                        <button onclick={disconnectActiveWebSocket} disabled={busy !== '' || !websocketConnected}>Disconnect</button>
 	                      </div>
 	                    </div>
 	                    {#if (activeRequest.wsMessages ?? []).length === 0}
@@ -9383,20 +9457,20 @@
 	                        <tbody>
 	                          {#each activeRequest.wsMessages ?? [] as message, index (index)}
 	                            <tr>
-	                              <td><input type="checkbox" checked={message.selected} on:change={(e) => updateWSMessage(index, 'selected', e.currentTarget.checked)} /></td>
-	                              <td><input value={message.name} on:change={(e) => updateWSMessage(index, 'name', e.currentTarget.value)} /></td>
+	                              <td><input type="checkbox" checked={message.selected} onchange={(e) => updateWSMessage(index, 'selected', e.currentTarget.checked)} /></td>
+	                              <td><input value={message.name} onchange={(e) => updateWSMessage(index, 'name', e.currentTarget.value)} /></td>
 	                              <td>
-	                                <select value={message.type || 'text'} on:change={(e) => updateWSMessage(index, 'type', e.currentTarget.value)}>
+	                                <select value={message.type || 'text'} onchange={(e) => updateWSMessage(index, 'type', e.currentTarget.value)}>
 	                                  {#each wsMessageTypes as messageType (messageType)}
 	                                    <option value={messageType}>{messageType}</option>
 	                                  {/each}
 	                                </select>
 	                              </td>
-	                              <td><textarea class="short" spellcheck="false" value={message.content} on:change={(e) => updateWSMessage(index, 'content', e.currentTarget.value)}></textarea></td>
+	                              <td><textarea class="short" spellcheck="false" value={message.content} onchange={(e) => updateWSMessage(index, 'content', e.currentTarget.value)}></textarea></td>
 	                              <td>
 	                                <div class="button-row compact">
-	                                  <button class="icon-button" title="Send message" on:click={() => sendWSMessage(index)} disabled={busy !== ''}>Send</button>
-	                                  <button class="icon-button" title="Remove message" on:click={() => removeWSMessage(index)}>x</button>
+	                                  <button class="icon-button" title="Send message" onclick={() => sendWSMessage(index)} disabled={busy !== ''}>Send</button>
+	                                  <button class="icon-button" title="Remove message" onclick={() => removeWSMessage(index)}>x</button>
 	                                </div>
 	                              </td>
 	                            </tr>
@@ -9404,12 +9478,12 @@
 	                        </tbody>
 	                      </table>
 	                    {/if}
-	                    <button on:click={addWSMessage}>Add message</button>
+	                    <button onclick={addWSMessage}>Add message</button>
 	                  </div>
 	                {:else}
 	                  <div class="field-row">
                     <span class="field-label">Body mode</span>
-                    <select value={activeRequest.body.mode} on:change={(e) => updateBody({ mode: e.currentTarget.value })}>
+                    <select value={activeRequest.body.mode} onchange={(e) => updateBody({ mode: e.currentTarget.value })}>
                       {#each bodyModes as mode (mode)}
                         <option value={mode}>{mode}</option>
                       {/each}
@@ -9486,85 +9560,85 @@
               {:else if requestPaneTab === 'auth'}
                 <div class="field-grid">
                   <span class="field-label">Mode</span>
-                  <select value={activeRequest.auth.mode} on:change={(e) => updateAuth({ mode: e.currentTarget.value })}>
+                  <select value={activeRequest.auth.mode} onchange={(e) => updateAuth({ mode: e.currentTarget.value })}>
                     {#each authModes as mode (mode)}
                       <option value={mode}>{mode}</option>
                     {/each}
                   </select>
 	                  {#if activeRequest.auth.mode === 'basic' || activeRequest.auth.mode === 'digest' || activeRequest.auth.mode === 'wsse' || activeRequest.auth.mode === 'ntlm'}
                     <span class="field-label">Username</span>
-                    <input value={activeRequest.auth.username} on:input={(e) => updateAuth({ username: e.currentTarget.value })} />
+                    <input value={activeRequest.auth.username} oninput={(e) => updateAuth({ username: e.currentTarget.value })} />
                     <span class="field-label">Password</span>
-                    <input type="password" value={activeRequest.auth.password} on:input={(e) => updateAuth({ password: e.currentTarget.value })} />
+                    <input type="password" value={activeRequest.auth.password} oninput={(e) => updateAuth({ password: e.currentTarget.value })} />
                     {#if activeRequest.auth.mode === 'ntlm'}
                       <span class="field-label">Domain</span>
-                      <input value={activeRequest.auth.domain} on:change={(e) => updateAuth({ domain: e.currentTarget.value })} />
+                      <input value={activeRequest.auth.domain} onchange={(e) => updateAuth({ domain: e.currentTarget.value })} />
                     {/if}
                   {:else if activeRequest.auth.mode === 'bearer'}
                     <span class="field-label">Token</span>
-                    <input type="password" value={activeRequest.auth.token} on:input={(e) => updateAuth({ token: e.currentTarget.value })} />
+                    <input type="password" value={activeRequest.auth.token} oninput={(e) => updateAuth({ token: e.currentTarget.value })} />
                   {:else if activeRequest.auth.mode === 'oauth2'}
                     <span class="field-label">Grant</span>
-                    <select value={activeRequest.auth.oauth2?.grantType || 'client_credentials'} on:change={(e) => updateOAuth2Auth({ grantType: e.currentTarget.value })}>
+                    <select value={activeRequest.auth.oauth2?.grantType || 'client_credentials'} onchange={(e) => updateOAuth2Auth({ grantType: e.currentTarget.value })}>
                       {#each oauth2GrantTypes as grant (grant)}
                         <option value={grant}>{grant}</option>
                       {/each}
                     </select>
                     {#if activeRequest.auth.oauth2?.grantType === 'authorization_code' || activeRequest.auth.oauth2?.grantType === 'implicit'}
                       <span class="field-label">Callback URL</span>
-                      <input value={activeRequest.auth.oauth2?.callbackUrl ?? ''} on:change={(e) => updateOAuth2Auth({ callbackUrl: e.currentTarget.value })} />
+                      <input value={activeRequest.auth.oauth2?.callbackUrl ?? ''} onchange={(e) => updateOAuth2Auth({ callbackUrl: e.currentTarget.value })} />
                       <span class="field-label">Authorization URL</span>
-                      <input value={activeRequest.auth.oauth2?.authorizationUrl ?? ''} on:change={(e) => updateOAuth2Auth({ authorizationUrl: e.currentTarget.value })} />
+                      <input value={activeRequest.auth.oauth2?.authorizationUrl ?? ''} onchange={(e) => updateOAuth2Auth({ authorizationUrl: e.currentTarget.value })} />
                     {/if}
                     <span class="field-label">Access token URL</span>
-                    <input value={activeRequest.auth.oauth2?.accessTokenUrl ?? ''} on:change={(e) => updateOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
+                    <input value={activeRequest.auth.oauth2?.accessTokenUrl ?? ''} onchange={(e) => updateOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
                     <span class="field-label">Client ID</span>
-                    <input value={activeRequest.auth.oauth2?.clientId ?? ''} on:change={(e) => updateOAuth2Auth({ clientId: e.currentTarget.value })} />
+                    <input value={activeRequest.auth.oauth2?.clientId ?? ''} onchange={(e) => updateOAuth2Auth({ clientId: e.currentTarget.value })} />
                     <span class="field-label">Client secret</span>
-                    <input type="password" value={activeRequest.auth.oauth2?.clientSecret ?? ''} on:change={(e) => updateOAuth2Auth({ clientSecret: e.currentTarget.value })} />
+                    <input type="password" value={activeRequest.auth.oauth2?.clientSecret ?? ''} onchange={(e) => updateOAuth2Auth({ clientSecret: e.currentTarget.value })} />
                     {#if activeRequest.auth.oauth2?.grantType === 'password'}
                       <span class="field-label">Username</span>
-                      <input value={activeRequest.auth.oauth2?.username ?? ''} on:change={(e) => updateOAuth2Auth({ username: e.currentTarget.value })} />
+                      <input value={activeRequest.auth.oauth2?.username ?? ''} onchange={(e) => updateOAuth2Auth({ username: e.currentTarget.value })} />
                       <span class="field-label">Password</span>
-                      <input type="password" value={activeRequest.auth.oauth2?.password ?? ''} on:change={(e) => updateOAuth2Auth({ password: e.currentTarget.value })} />
+                      <input type="password" value={activeRequest.auth.oauth2?.password ?? ''} onchange={(e) => updateOAuth2Auth({ password: e.currentTarget.value })} />
                     {/if}
                     <span class="field-label">Scope</span>
-                    <input value={activeRequest.auth.oauth2?.scope ?? ''} on:change={(e) => updateOAuth2Auth({ scope: e.currentTarget.value })} />
+                    <input value={activeRequest.auth.oauth2?.scope ?? ''} onchange={(e) => updateOAuth2Auth({ scope: e.currentTarget.value })} />
                     {#if activeRequest.auth.oauth2?.grantType === 'authorization_code' || activeRequest.auth.oauth2?.grantType === 'implicit'}
                       <span class="field-label">State</span>
-                      <input value={activeRequest.auth.oauth2?.state ?? ''} on:change={(e) => updateOAuth2Auth({ state: e.currentTarget.value })} />
+                      <input value={activeRequest.auth.oauth2?.state ?? ''} onchange={(e) => updateOAuth2Auth({ state: e.currentTarget.value })} />
                     {/if}
                     <span class="field-label">Credentials</span>
-                    <select value={activeRequest.auth.oauth2?.credentialsPlacement || 'basic_auth_header'} on:change={(e) => updateOAuth2Auth({ credentialsPlacement: e.currentTarget.value })}>
+                    <select value={activeRequest.auth.oauth2?.credentialsPlacement || 'basic_auth_header'} onchange={(e) => updateOAuth2Auth({ credentialsPlacement: e.currentTarget.value })}>
                       {#each oauth2CredentialPlacements as placement (placement)}
                         <option value={placement}>{placement}</option>
                       {/each}
                     </select>
                     {#if activeRequest.auth.oauth2?.grantType === 'authorization_code'}
                       <span class="field-label">PKCE</span>
-                      <input type="checkbox" checked={activeRequest.auth.oauth2?.pkce ?? false} on:change={(e) => updateOAuth2Auth({ pkce: e.currentTarget.checked })} />
+                      <input type="checkbox" checked={activeRequest.auth.oauth2?.pkce ?? false} onchange={(e) => updateOAuth2Auth({ pkce: e.currentTarget.checked })} />
                     {/if}
                     <span class="field-label">Token source</span>
-                    <select value={activeRequest.auth.oauth2?.tokenSource || 'access_token'} on:change={(e) => updateOAuth2Auth({ tokenSource: e.currentTarget.value })}>
+                    <select value={activeRequest.auth.oauth2?.tokenSource || 'access_token'} onchange={(e) => updateOAuth2Auth({ tokenSource: e.currentTarget.value })}>
                       {#each oauth2TokenSources as source (source)}
                         <option value={source}>{source}</option>
                       {/each}
                     </select>
                     <span class="field-label">Token placement</span>
-                    <select value={activeRequest.auth.oauth2?.tokenPlacement || 'header'} on:change={(e) => updateOAuth2Auth({ tokenPlacement: e.currentTarget.value })}>
+                    <select value={activeRequest.auth.oauth2?.tokenPlacement || 'header'} onchange={(e) => updateOAuth2Auth({ tokenPlacement: e.currentTarget.value })}>
                       {#each oauth2TokenPlacements as placement (placement)}
                         <option value={placement}>{placement}</option>
                       {/each}
                     </select>
                     {#if (activeRequest.auth.oauth2?.tokenPlacement || 'header') === 'header'}
                       <span class="field-label">Header prefix</span>
-                      <input value={activeRequest.auth.oauth2?.tokenHeaderPrefix || 'Bearer'} on:change={(e) => updateOAuth2Auth({ tokenHeaderPrefix: e.currentTarget.value })} />
+                      <input value={activeRequest.auth.oauth2?.tokenHeaderPrefix || 'Bearer'} onchange={(e) => updateOAuth2Auth({ tokenHeaderPrefix: e.currentTarget.value })} />
                     {:else}
                       <span class="field-label">Query key</span>
-                      <input value={activeRequest.auth.oauth2?.tokenQueryKey || 'access_token'} on:change={(e) => updateOAuth2Auth({ tokenQueryKey: e.currentTarget.value })} />
+                      <input value={activeRequest.auth.oauth2?.tokenQueryKey || 'access_token'} onchange={(e) => updateOAuth2Auth({ tokenQueryKey: e.currentTarget.value })} />
                     {/if}
                     <span class="field-label">Static token</span>
-                    <input type="password" value={activeRequest.auth.token} on:input={(e) => updateAuth({ token: e.currentTarget.value })} />
+                    <input type="password" value={activeRequest.auth.token} oninput={(e) => updateAuth({ token: e.currentTarget.value })} />
                     <div class="oauth2-extra-stack">
                       <OAuth2AdditionalParams
                         title="Authorization request params"
@@ -9590,69 +9664,69 @@
                     </div>
                   {:else if activeRequest.auth.mode === 'apikey'}
                     <span class="field-label">Key</span>
-                    <input value={activeRequest.auth.apiKey} on:change={(e) => updateAuth({ apiKey: e.currentTarget.value })} />
+                    <input value={activeRequest.auth.apiKey} onchange={(e) => updateAuth({ apiKey: e.currentTarget.value })} />
                     <span class="field-label">Value</span>
-                    <input type="password" value={activeRequest.auth.apiValue} on:change={(e) => updateAuth({ apiValue: e.currentTarget.value })} />
+                    <input type="password" value={activeRequest.auth.apiValue} onchange={(e) => updateAuth({ apiValue: e.currentTarget.value })} />
                     <span class="field-label">Send in</span>
-	                    <select value={activeRequest.auth.apiLocation} on:change={(e) => updateAuth({ apiLocation: e.currentTarget.value })}>
+	                    <select value={activeRequest.auth.apiLocation} onchange={(e) => updateAuth({ apiLocation: e.currentTarget.value })}>
 	                      <option value="header">Header</option>
 	                      <option value="query">Query</option>
 	                    </select>
 	                  {:else if activeRequest.auth.mode === 'awsv4'}
 	                    <span class="field-label">Access key ID</span>
-	                    <input value={activeRequest.auth.awsv4?.accessKeyId ?? ''} on:change={(e) => updateAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
+	                    <input value={activeRequest.auth.awsv4?.accessKeyId ?? ''} onchange={(e) => updateAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
 	                    <span class="field-label">Secret access key</span>
-	                    <input type="password" value={activeRequest.auth.awsv4?.secretAccessKey ?? ''} on:change={(e) => updateAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
+	                    <input type="password" value={activeRequest.auth.awsv4?.secretAccessKey ?? ''} onchange={(e) => updateAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
 	                    <span class="field-label">Session token</span>
-	                    <input type="password" value={activeRequest.auth.awsv4?.sessionToken ?? ''} on:change={(e) => updateAWSV4Auth({ sessionToken: e.currentTarget.value })} />
+	                    <input type="password" value={activeRequest.auth.awsv4?.sessionToken ?? ''} onchange={(e) => updateAWSV4Auth({ sessionToken: e.currentTarget.value })} />
 	                    <span class="field-label">Service</span>
-	                    <input value={activeRequest.auth.awsv4?.service ?? ''} placeholder="execute-api" on:change={(e) => updateAWSV4Auth({ service: e.currentTarget.value })} />
+	                    <input value={activeRequest.auth.awsv4?.service ?? ''} placeholder="execute-api" onchange={(e) => updateAWSV4Auth({ service: e.currentTarget.value })} />
 	                    <span class="field-label">Region</span>
-	                    <input value={activeRequest.auth.awsv4?.region ?? ''} placeholder="us-east-1" on:change={(e) => updateAWSV4Auth({ region: e.currentTarget.value })} />
+	                    <input value={activeRequest.auth.awsv4?.region ?? ''} placeholder="us-east-1" onchange={(e) => updateAWSV4Auth({ region: e.currentTarget.value })} />
 		                    <span class="field-label">Profile</span>
-		                    <input value={activeRequest.auth.awsv4?.profileName ?? ''} on:change={(e) => updateAWSV4Auth({ profileName: e.currentTarget.value })} />
+		                    <input value={activeRequest.auth.awsv4?.profileName ?? ''} onchange={(e) => updateAWSV4Auth({ profileName: e.currentTarget.value })} />
 		                  {:else if activeRequest.auth.mode === 'oauth1'}
 		                    <span class="field-label">Consumer key</span>
-		                    <input value={activeRequest.auth.oauth1?.consumerKey ?? ''} on:change={(e) => updateOAuth1Auth({ consumerKey: e.currentTarget.value })} />
+		                    <input value={activeRequest.auth.oauth1?.consumerKey ?? ''} onchange={(e) => updateOAuth1Auth({ consumerKey: e.currentTarget.value })} />
 		                    <span class="field-label">Consumer secret</span>
-		                    <input type="password" value={activeRequest.auth.oauth1?.consumerSecret ?? ''} on:change={(e) => updateOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
+		                    <input type="password" value={activeRequest.auth.oauth1?.consumerSecret ?? ''} onchange={(e) => updateOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
 		                    <span class="field-label">Token</span>
-		                    <input value={activeRequest.auth.oauth1?.accessToken ?? ''} on:change={(e) => updateOAuth1Auth({ accessToken: e.currentTarget.value })} />
+		                    <input value={activeRequest.auth.oauth1?.accessToken ?? ''} onchange={(e) => updateOAuth1Auth({ accessToken: e.currentTarget.value })} />
 		                    <span class="field-label">Token secret</span>
-		                    <input type="password" value={activeRequest.auth.oauth1?.accessTokenSecret ?? ''} on:change={(e) => updateOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
+		                    <input type="password" value={activeRequest.auth.oauth1?.accessTokenSecret ?? ''} onchange={(e) => updateOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
 		                    <span class="field-label">Signature</span>
-		                    <select value={activeRequest.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} on:change={(e) => updateOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
+		                    <select value={activeRequest.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} onchange={(e) => updateOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
 		                      {#each oauth1SignatureMethods as method (method)}
 		                        <option value={method}>{method}</option>
 		                      {/each}
 		                    </select>
 		                    <span class="field-label">Add params to</span>
-		                    <select value={activeRequest.auth.oauth1?.placement || 'header'} on:change={(e) => updateOAuth1Auth({ placement: e.currentTarget.value })}>
+		                    <select value={activeRequest.auth.oauth1?.placement || 'header'} onchange={(e) => updateOAuth1Auth({ placement: e.currentTarget.value })}>
 		                      {#each oauth1Placements as placement (placement)}
 		                        <option value={placement}>{placement}</option>
 		                      {/each}
 		                    </select>
 		                    <span class="field-label">Callback URL</span>
-		                    <input value={activeRequest.auth.oauth1?.callbackUrl ?? ''} on:change={(e) => updateOAuth1Auth({ callbackUrl: e.currentTarget.value })} />
+		                    <input value={activeRequest.auth.oauth1?.callbackUrl ?? ''} onchange={(e) => updateOAuth1Auth({ callbackUrl: e.currentTarget.value })} />
 		                    <span class="field-label">Verifier</span>
-		                    <input value={activeRequest.auth.oauth1?.verifier ?? ''} on:change={(e) => updateOAuth1Auth({ verifier: e.currentTarget.value })} />
+		                    <input value={activeRequest.auth.oauth1?.verifier ?? ''} onchange={(e) => updateOAuth1Auth({ verifier: e.currentTarget.value })} />
 		                    <span class="field-label">Timestamp</span>
-		                    <input value={activeRequest.auth.oauth1?.timestamp ?? ''} on:change={(e) => updateOAuth1Auth({ timestamp: e.currentTarget.value })} />
+		                    <input value={activeRequest.auth.oauth1?.timestamp ?? ''} onchange={(e) => updateOAuth1Auth({ timestamp: e.currentTarget.value })} />
 		                    <span class="field-label">Nonce</span>
-		                    <input value={activeRequest.auth.oauth1?.nonce ?? ''} on:change={(e) => updateOAuth1Auth({ nonce: e.currentTarget.value })} />
+		                    <input value={activeRequest.auth.oauth1?.nonce ?? ''} onchange={(e) => updateOAuth1Auth({ nonce: e.currentTarget.value })} />
 		                    <span class="field-label">Version</span>
-		                    <input value={activeRequest.auth.oauth1?.version ?? ''} placeholder="1.0" on:change={(e) => updateOAuth1Auth({ version: e.currentTarget.value })} />
+		                    <input value={activeRequest.auth.oauth1?.version ?? ''} placeholder="1.0" onchange={(e) => updateOAuth1Auth({ version: e.currentTarget.value })} />
 		                    <span class="field-label">Realm</span>
-		                    <input value={activeRequest.auth.oauth1?.realm ?? ''} on:change={(e) => updateOAuth1Auth({ realm: e.currentTarget.value })} />
+		                    <input value={activeRequest.auth.oauth1?.realm ?? ''} onchange={(e) => updateOAuth1Auth({ realm: e.currentTarget.value })} />
 		                    <span class="field-label">Private key</span>
-		                    <textarea class="short" spellcheck="false" value={activeRequest.auth.oauth1?.privateKey ?? ''} on:change={(e) => updateOAuth1Auth({ privateKey: e.currentTarget.value })}></textarea>
+		                    <textarea class="short" spellcheck="false" value={activeRequest.auth.oauth1?.privateKey ?? ''} onchange={(e) => updateOAuth1Auth({ privateKey: e.currentTarget.value })}></textarea>
 		                    <span class="field-label">Private key type</span>
-		                    <select value={activeRequest.auth.oauth1?.privateKeyType || 'text'} on:change={(e) => updateOAuth1Auth({ privateKeyType: e.currentTarget.value })}>
+		                    <select value={activeRequest.auth.oauth1?.privateKeyType || 'text'} onchange={(e) => updateOAuth1Auth({ privateKeyType: e.currentTarget.value })}>
 		                      <option value="text">text</option>
 		                      <option value="file">file</option>
 		                    </select>
 		                    <span class="field-label">Body hash</span>
-		                    <input type="checkbox" checked={activeRequest.auth.oauth1?.includeBodyHash ?? false} on:change={(e) => updateOAuth1Auth({ includeBodyHash: e.currentTarget.checked })} />
+		                    <input type="checkbox" checked={activeRequest.auth.oauth1?.includeBodyHash ?? false} onchange={(e) => updateOAuth1Auth({ includeBodyHash: e.currentTarget.checked })} />
 		                  {:else if activeRequest.auth.mode !== 'none'}
                     <div class="empty-appState wide">This auth mode is marked partial until its full backend signer is implemented.</div>
 	                  {/if}
@@ -9677,16 +9751,16 @@
                   <tbody>
                     {#each activeRequest.assertions ?? [] as row, index (index)}
                       <tr>
-                        <td><input type="checkbox" checked={row.enabled} on:change={(e) => updateAssertion(index, 'enabled', e.currentTarget.checked)} /></td>
-                        <td><input value={row.expression} on:change={(e) => updateAssertion(index, 'expression', e.currentTarget.value)} /></td>
-                        <td><input value={row.operator} on:change={(e) => updateAssertion(index, 'operator', e.currentTarget.value)} /></td>
-                        <td><input value={row.value} on:change={(e) => updateAssertion(index, 'value', e.currentTarget.value)} /></td>
-                        <td><button class="icon-button" on:click={() => removeAssertion(index)}>x</button></td>
+                        <td><input type="checkbox" checked={row.enabled} onchange={(e) => updateAssertion(index, 'enabled', e.currentTarget.checked)} /></td>
+                        <td><input value={row.expression} onchange={(e) => updateAssertion(index, 'expression', e.currentTarget.value)} /></td>
+                        <td><input value={row.operator} onchange={(e) => updateAssertion(index, 'operator', e.currentTarget.value)} /></td>
+                        <td><input value={row.value} onchange={(e) => updateAssertion(index, 'value', e.currentTarget.value)} /></td>
+                        <td><button class="icon-button" onclick={() => removeAssertion(index)}>x</button></td>
                       </tr>
                     {/each}
                   </tbody>
                 </table>
-                <button on:click={addAssertion}>Add assertion</button>
+                <button onclick={addAssertion}>Add assertion</button>
               {:else if requestPaneTab === 'tests'}
                 <CodeEditor editorKey={`${activeRequest.id}:tests`} value={activeRequest.tests} language="javascript" ariaLabel="Request tests" testId="request-tests-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => patchField('tests', value)} />
               {:else if requestPaneTab === 'docs'}
@@ -9707,10 +9781,10 @@
             max="70"
             value={Math.round(responseSplit * 100)}
             title="Drag to resize panes; double-click to reset"
-            on:mousedown={startResponseSplitResize}
-            on:dblclick={() => { responseSplit = 0.52; persistWorkbenchLayout() }}
-            on:input={(event) => (responseSplit = clampResponseSplit(Number(event.currentTarget.value) / 100))}
-            on:change={persistWorkbenchLayout}
+            onmousedown={startResponseSplitResize}
+            ondblclick={() => { responseSplit = 0.52; persistWorkbenchLayout() }}
+            oninput={(event) => (responseSplit = clampResponseSplit(Number(event.currentTarget.value) / 100))}
+            onchange={persistWorkbenchLayout}
           />
           <div class="response-side">
             <div class="response-summary">
@@ -9720,9 +9794,9 @@
                 <span>{requestCommand.response.duration}</span>
                 <span>{requestCommand.response.size}</span>
               </div>
-              <button title="Save response as example" on:click={saveResponseExample} disabled={!activeRequest.response || busy !== ''}>Example</button>
+              <button title="Save response as example" onclick={saveResponseExample} disabled={!activeRequest.response || busy !== ''}>Example</button>
             </div>
-            <div class="subtabs" role="tablist" aria-label="Response sections" tabindex="-1" on:keydown={responseTabKeydown}>
+            <div class="subtabs" role="tablist" aria-label="Response sections" tabindex="-1" onkeydown={responseTabKeydown}>
               {#each activeResponseTabs as tab (tab.id)}
                 <button
                   class:active={responseTab === tab.id}
@@ -9732,7 +9806,7 @@
                   aria-selected={responseTab === tab.id}
                   aria-controls={`response-panel-${tab.id}`}
                   tabindex={responseTab === tab.id ? 0 : -1}
-                  on:click={() => selectResponsePaneTab(tab.id)}
+                  onclick={() => selectResponsePaneTab(tab.id)}
                 >
                   {tab.label}
                   {#if tab.id === 'metadata' && (activeRequest.response?.metadata?.length ?? 0) > 0}
@@ -9761,7 +9835,7 @@
                 />
               {:else}
                 <div class="examples-toolbar">
-                  <button class="primary" type="button" on:click={beginCreateResponseExample} disabled={busy !== ''}>New example</button>
+                  <button class="primary" type="button" onclick={beginCreateResponseExample} disabled={busy !== ''}>New example</button>
                 </div>
                 {#if (activeRequest.examples ?? []).length === 0}
                   <div class="empty-appState">No response examples</div>
@@ -9772,12 +9846,12 @@
                         <header>
                           {#if editingResponseExampleID === responseExampleIdentifier(example)}
                             <div class="example-name-editor">
-                              <input aria-label="Response example name" bind:value={responseExampleNameDraft} on:keydown={(event) => {
+                              <input aria-label="Response example name" bind:value={responseExampleNameDraft} onkeydown={(event) => {
                                 if (event.key === 'Escape') cancelRenameResponseExample()
                                 if (event.key === 'Enter') void renameResponseExample(example)
                               }} />
-                              <button on:click={() => renameResponseExample(example)} disabled={busy !== '' || !responseExampleNameDraft.trim()}>Rename</button>
-                              <button on:click={cancelRenameResponseExample}>Cancel</button>
+                              <button onclick={() => renameResponseExample(example)} disabled={busy !== '' || !responseExampleNameDraft.trim()}>Rename</button>
+                              <button onclick={cancelRenameResponseExample}>Cancel</button>
                             </div>
                           {:else}
                             <strong>{example.name}</strong>
@@ -9786,18 +9860,18 @@
                         </header>
                         <small>{example.request.method} {example.request.url}</small>
                         <div class="example-actions">
-                          <button on:click={() => openResponseExampleTab(example)} disabled={busy !== ''}>Open tab</button>
-                          <button on:click={() => beginRenameResponseExample(example)} disabled={busy !== ''}>Rename</button>
-                          <button on:click={() => beginEditResponseExampleDetails(example)} disabled={busy !== ''}>Edit details</button>
-                          <button on:click={() => beginGenerateResponseExampleCode(example)} disabled={busy !== ''}>Generate Code</button>
-                          <button on:click={() => cloneResponseExample(example)} disabled={busy !== ''}>Clone</button>
-                          <button class="danger-button" on:click={() => requestDeleteResponseExample(example)} disabled={busy !== ''}>Delete</button>
+                          <button onclick={() => openResponseExampleTab(example)} disabled={busy !== ''}>Open tab</button>
+                          <button onclick={() => beginRenameResponseExample(example)} disabled={busy !== ''}>Rename</button>
+                          <button onclick={() => beginEditResponseExampleDetails(example)} disabled={busy !== ''}>Edit details</button>
+                          <button onclick={() => beginGenerateResponseExampleCode(example)} disabled={busy !== ''}>Generate Code</button>
+                          <button onclick={() => cloneResponseExample(example)} disabled={busy !== ''}>Clone</button>
+                          <button class="danger-button" onclick={() => requestDeleteResponseExample(example)} disabled={busy !== ''}>Delete</button>
                         </div>
                         {#if deletingResponseExampleID === responseExampleIdentifier(example)}
                           <div class="example-delete-confirm">
                             <span>Delete example <strong>{example.name}</strong>?</span>
-                            <button class="danger-button" on:click={() => deleteResponseExample(example)} disabled={busy !== ''}>Delete</button>
-                            <button on:click={() => (deletingResponseExampleID = '')}>Cancel</button>
+                            <button class="danger-button" onclick={() => deleteResponseExample(example)} disabled={busy !== ''}>Delete</button>
+                            <button onclick={() => (deletingResponseExampleID = '')}>Cancel</button>
                           </div>
                         {/if}
                         {#if editingResponseExampleDetailsID === responseExampleIdentifier(example)}
@@ -9806,27 +9880,27 @@
                             <div class="param-section-title">Example details</div>
                             <div class="field-grid example-editor-grid">
                               <span class="field-label">Description</span>
-                              <textarea aria-label="Example description" class="short" spellcheck="false" value={draft.description ?? ''} on:input={(event) => updateResponseExampleDescription(example, event.currentTarget.value)}></textarea>
+                              <textarea aria-label="Example description" class="short" spellcheck="false" value={draft.description ?? ''} oninput={(event) => updateResponseExampleDescription(example, event.currentTarget.value)}></textarea>
                             </div>
                             <div class="param-section-title">Request snapshot</div>
                             <div class="field-grid example-editor-grid">
                               <span class="field-label">Method</span>
-                              <select aria-label="Example request method" value={draft.request?.method || 'GET'} on:change={(event) => updateResponseExampleRequestField(example, 'method', event.currentTarget.value)}>
+                              <select aria-label="Example request method" value={draft.request?.method || 'GET'} onchange={(event) => updateResponseExampleRequestField(example, 'method', event.currentTarget.value)}>
                                 {#each methods as method (method)}
                                   <option value={method}>{method}</option>
                                 {/each}
                               </select>
                               <span class="field-label">URL</span>
-                              <input aria-label="Example request URL" value={draft.request?.url ?? ''} on:input={(event) => updateResponseExampleRequestField(example, 'url', event.currentTarget.value)} />
+                              <input aria-label="Example request URL" value={draft.request?.url ?? ''} oninput={(event) => updateResponseExampleRequestField(example, 'url', event.currentTarget.value)} />
                               <span class="field-label">Body mode</span>
-                              <select aria-label="Example request body mode" value={draft.request?.bodyMode || 'none'} on:change={(event) => updateResponseExampleRequestField(example, 'bodyMode', event.currentTarget.value)}>
+                              <select aria-label="Example request body mode" value={draft.request?.bodyMode || 'none'} onchange={(event) => updateResponseExampleRequestField(example, 'bodyMode', event.currentTarget.value)}>
                                 {#each bodyModes as mode (mode)}
                                   <option value={mode}>{mode}</option>
                                 {/each}
                               </select>
                               {#if draft.request?.bodyMode !== 'formUrlEncoded'}
                                 <span class="field-label">Body</span>
-                                <textarea aria-label="Example request body" spellcheck="false" value={draft.request?.body ?? ''} on:input={(event) => updateResponseExampleRequestField(example, 'body', event.currentTarget.value)}></textarea>
+                                <textarea aria-label="Example request body" spellcheck="false" value={draft.request?.body ?? ''} oninput={(event) => updateResponseExampleRequestField(example, 'body', event.currentTarget.value)}></textarea>
                               {/if}
                             </div>
                             {#if draft.request?.bodyMode === 'formUrlEncoded'}
@@ -9865,7 +9939,7 @@
 	                              />
                             {:else if draft.request?.bodyMode === 'json'}
                               <div class="button-row compact">
-                                <button on:click={() => prettifyResponseExampleRequestBody(example)} disabled={busy !== ''}>Prettify request JSON</button>
+                                <button onclick={() => prettifyResponseExampleRequestBody(example)} disabled={busy !== ''}>Prettify request JSON</button>
                               </div>
                             {/if}
                             <div data-example-section="request-params">
@@ -9899,21 +9973,21 @@
                             <div class="param-section-title">Response snapshot</div>
                             <div class="field-grid example-editor-grid">
                               <span class="field-label">Status</span>
-                              <input aria-label="Example response status" type="number" value={draft.response.status} on:input={(event) => updateResponseExampleResponseField(example, 'status', event.currentTarget.value)} />
+                              <input aria-label="Example response status" type="number" value={draft.response.status} oninput={(event) => updateResponseExampleResponseField(example, 'status', event.currentTarget.value)} />
                               <span class="field-label">Status text</span>
-                              <input aria-label="Example response status text" value={draft.response.statusText} on:input={(event) => updateResponseExampleResponseField(example, 'statusText', event.currentTarget.value)} />
+                              <input aria-label="Example response status text" value={draft.response.statusText} oninput={(event) => updateResponseExampleResponseField(example, 'statusText', event.currentTarget.value)} />
                               <span class="field-label">Body type</span>
-                              <select aria-label="Example response body type" value={draft.response.bodyType} on:change={(event) => updateResponseExampleResponseField(example, 'bodyType', event.currentTarget.value)}>
+                              <select aria-label="Example response body type" value={draft.response.bodyType} onchange={(event) => updateResponseExampleResponseField(example, 'bodyType', event.currentTarget.value)}>
                                 {#each responseExampleBodyTypes as bodyType (bodyType)}
                                   <option value={bodyType}>{bodyType}</option>
                                 {/each}
                               </select>
                               <span class="field-label">Body</span>
-                              <textarea aria-label="Example response body" spellcheck="false" value={draft.response.body} on:input={(event) => updateResponseExampleResponseField(example, 'body', event.currentTarget.value)}></textarea>
+                              <textarea aria-label="Example response body" spellcheck="false" value={draft.response.body} oninput={(event) => updateResponseExampleResponseField(example, 'body', event.currentTarget.value)}></textarea>
                             </div>
                             {#if draft.response.bodyType === 'json'}
                               <div class="button-row compact">
-                                <button on:click={() => prettifyResponseExampleResponseBody(example)} disabled={busy !== ''}>Prettify response JSON</button>
+                                <button onclick={() => prettifyResponseExampleResponseBody(example)} disabled={busy !== ''}>Prettify response JSON</button>
                               </div>
                             {/if}
                             <div class="param-section-title">Response headers</div>
@@ -9931,8 +10005,8 @@
                               onRemove={(index) => removeResponseExampleHeader(example, index)}
                             />
                             <div class="example-actions">
-                              <button on:click={() => saveResponseExampleDetails(example)} disabled={busy !== ''}>Save details</button>
-                              <button on:click={() => cancelEditResponseExampleDetails(example)} disabled={busy !== ''}>Cancel</button>
+                              <button onclick={() => saveResponseExampleDetails(example)} disabled={busy !== ''}>Save details</button>
+                              <button onclick={() => cancelEditResponseExampleDetails(example)} disabled={busy !== ''}>Cancel</button>
                             </div>
                           </div>
                         {:else}
@@ -9953,11 +10027,11 @@
               <h2>{activeCollection.name}</h2>
               <p class="panel-subtitle">{activeCollection.format.toUpperCase()} · {activeCollection.items?.length ?? 0} requests{activeCollection.remote ? ' · Git' : ''}{activeCollection.notFoundLocally ? ' · Not cloned' : ''}</p>
             </div>
-            <button on:click={refreshCollection}>Refresh active</button>
+            <button onclick={refreshCollection}>Refresh active</button>
           </header>
           <nav class="subtabs">
             {#each collectionTabs as tab (tab.id)}
-              <button class:active={collectionTab === tab.id} on:click={() => (collectionTab = tab.id)}>
+              <button class:active={collectionTab === tab.id} onclick={() => (collectionTab = tab.id)}>
                 {tab.label}
               </button>
             {/each}
@@ -9986,7 +10060,7 @@
                       class:active={collectionSandboxMode(activeCollection) === 'safe'}
                       aria-pressed={collectionSandboxMode(activeCollection) === 'safe'}
                       data-testid="sandbox-mode-safe"
-                      on:click={() => updateCollectionSandboxMode('safe')}
+                      onclick={() => updateCollectionSandboxMode('safe')}
                       disabled={busy !== '' || activeCollection.notFoundLocally}
                     >
                       Safe Mode
@@ -9996,7 +10070,7 @@
                       class:active={collectionSandboxMode(activeCollection) === 'developer'}
                       aria-pressed={collectionSandboxMode(activeCollection) === 'developer'}
                       data-testid="sandbox-mode-developer"
-                      on:click={() => updateCollectionSandboxMode('developer')}
+                      onclick={() => updateCollectionSandboxMode('developer')}
                       disabled={busy !== '' || activeCollection.notFoundLocally}
                     >
                       Developer Mode
@@ -10011,8 +10085,8 @@
                     </div>
                     <p class="version-summary">{activeCollection.name}</p>
                   </div>
-                  <button type="button" data-testid="collection-actions-clone" on:click={openCloneCollectionModal} disabled={busy !== '' || activeCollection.notFoundLocally}>Clone</button>
-                  <button type="button" data-testid="collection-actions-rename" on:click={openRenameCollectionModal} disabled={busy !== '' || activeCollection.notFoundLocally}>Rename</button>
+                  <button type="button" data-testid="collection-actions-clone" onclick={openCloneCollectionModal} disabled={busy !== '' || activeCollection.notFoundLocally}>Clone</button>
+                  <button type="button" data-testid="collection-actions-rename" onclick={openRenameCollectionModal} disabled={busy !== '' || activeCollection.notFoundLocally}>Rename</button>
                 </div>
                 <span class="field-label">Folders</span>
                 <div class="collection-doc-actions">
@@ -10022,7 +10096,7 @@
                     </div>
                     <p class="version-summary">{activeCollection.folders?.length ?? 0} configured</p>
                   </div>
-                  <button type="button" data-testid="collection-actions-new-folder" on:click={() => openNewFolderModal()} disabled={busy !== '' || activeCollection.notFoundLocally}>New Folder</button>
+                  <button type="button" data-testid="collection-actions-new-folder" onclick={() => openNewFolderModal()} disabled={busy !== '' || activeCollection.notFoundLocally}>New Folder</button>
                 </div>
                 <span class="field-label">Documentation</span>
                 <div class="collection-doc-actions">
@@ -10033,7 +10107,7 @@
                     </div>
                     <p class="version-summary" data-testid="version-summary">{generateDocsFolderCount} {generateDocsFolderCount === 1 ? 'Folder' : 'Folders'} • {generateDocsRequestCount} {generateDocsRequestCount === 1 ? 'request' : 'requests'}</p>
                   </div>
-                  <button type="button" data-testid="generate-docs-overview-button" on:click={openGenerateDocsModal}>Generate Docs</button>
+                  <button type="button" data-testid="generate-docs-overview-button" onclick={openGenerateDocsModal}>Generate Docs</button>
                 </div>
                 <span class="field-label">Share</span>
                 <div class="collection-doc-actions">
@@ -10043,7 +10117,7 @@
                     </div>
                     <p class="version-summary">ZIP, YAML, or Postman</p>
                   </div>
-                  <button type="button" data-testid="collection-actions-share" on:click={openShareCollectionModal}>Share Collection</button>
+                  <button type="button" data-testid="collection-actions-share" onclick={openShareCollectionModal}>Share Collection</button>
                 </div>
                 <span class="field-label">OpenAPI Sync</span>
                 <div class="openapi-sync-panel" data-testid="openapi-sync-panel">
@@ -10055,7 +10129,7 @@
                         data-testid="openapi-sync-source"
                         placeholder="https://example.com/openapi.yml"
                         value={openAPISyncSourceURL}
-                        on:input={(event) => (openAPISyncSourceURL = event.currentTarget.value)}
+                        oninput={(event) => (openAPISyncSourceURL = event.currentTarget.value)}
                       />
                     </label>
                     <label>
@@ -10078,18 +10152,18 @@
                       spellcheck="false"
                       placeholder="Paste a spec to check/apply without fetching the source"
                       value={openAPISyncContent}
-                      on:input={(event) => (openAPISyncContent = event.currentTarget.value)}
+                      oninput={(event) => (openAPISyncContent = event.currentTarget.value)}
                     ></textarea>
                   </label>
                   <div class="openapi-sync-actions">
-                    <button type="button" data-testid="openapi-sync-connect" on:click={connectOpenAPISync} disabled={busy !== '' || activeCollection.notFoundLocally}>Connect</button>
-	                    <button type="button" data-testid="openapi-sync-check" on:click={checkOpenAPISync} disabled={busy !== '' || activeCollection.notFoundLocally}>Check Updates</button>
-			                    <button type="button" class="primary" data-testid="openapi-sync-apply" on:click={applyOpenAPISync} disabled={busy !== '' || activeCollection.notFoundLocally}>Apply Sync</button>
+                    <button type="button" data-testid="openapi-sync-connect" onclick={connectOpenAPISync} disabled={busy !== '' || activeCollection.notFoundLocally}>Connect</button>
+	                    <button type="button" data-testid="openapi-sync-check" onclick={checkOpenAPISync} disabled={busy !== '' || activeCollection.notFoundLocally}>Check Updates</button>
+			                    <button type="button" class="primary" data-testid="openapi-sync-apply" onclick={applyOpenAPISync} disabled={busy !== '' || activeCollection.notFoundLocally}>Apply Sync</button>
 			                    {#if activeCollection.openapi?.length}
-			                      <button type="button" data-testid="openapi-sync-view-spec" on:click={viewOpenAPISyncSpec} disabled={busy !== ''}>View spec</button>
-			                      <button type="button" data-testid="openapi-sync-view-spec-diff-main" on:click={viewOpenAPISyncSpecDiff} disabled={busy !== '' || activeCollection.notFoundLocally}>View Spec Diff</button>
-			                      <button type="button" data-testid="openapi-sync-settings-open" on:click={openOpenAPISyncSettings} disabled={busy !== ''}>Settings</button>
-			                      <button type="button" data-testid="openapi-sync-disconnect" on:click={disconnectOpenAPISync} disabled={busy !== ''}>Disconnect</button>
+			                      <button type="button" data-testid="openapi-sync-view-spec" onclick={viewOpenAPISyncSpec} disabled={busy !== ''}>View spec</button>
+			                      <button type="button" data-testid="openapi-sync-view-spec-diff-main" onclick={viewOpenAPISyncSpecDiff} disabled={busy !== '' || activeCollection.notFoundLocally}>View Spec Diff</button>
+			                      <button type="button" data-testid="openapi-sync-settings-open" onclick={openOpenAPISyncSettings} disabled={busy !== ''}>Settings</button>
+			                      <button type="button" data-testid="openapi-sync-disconnect" onclick={disconnectOpenAPISync} disabled={busy !== ''}>Disconnect</button>
 			                    {/if}
 	                  </div>
 	                  <div class="openapi-sync-status" data-testid="openapi-sync-status">
@@ -10115,9 +10189,9 @@
 	                      <div class="openapi-sync-review-toolbar">
 	                        <h3>Review Changes</h3>
 	                        <div>
-	                          <button type="button" data-testid="openapi-sync-view-spec-diff" on:click={viewOpenAPISyncSpecDiff}>View Spec Diff</button>
-	                          <button type="button" data-testid="openapi-sync-skip-all" on:click={() => setOpenAPISyncAllEndpointDecisions('keep-mine')}>Skip All</button>
-	                          <button type="button" data-testid="openapi-sync-accept-all" on:click={() => setOpenAPISyncAllEndpointDecisions('accept-incoming')}>Accept All</button>
+	                          <button type="button" data-testid="openapi-sync-view-spec-diff" onclick={viewOpenAPISyncSpecDiff}>View Spec Diff</button>
+	                          <button type="button" data-testid="openapi-sync-skip-all" onclick={() => setOpenAPISyncAllEndpointDecisions('keep-mine')}>Skip All</button>
+	                          <button type="button" data-testid="openapi-sync-accept-all" onclick={() => setOpenAPISyncAllEndpointDecisions('accept-incoming')}>Accept All</button>
 	                        </div>
 	                      </div>
                       <div class="openapi-sync-review-header">
@@ -10138,7 +10212,7 @@
                             aria-label={`OpenAPI sync decision ${change.method} ${change.path}`}
                             data-testid="openapi-sync-decision"
                             value={openAPISyncEndpointDecisions[change.id] ?? defaultOpenAPISyncDecision(change)}
-                            on:change={(event) => setOpenAPISyncEndpointDecision(change.id, event.currentTarget.value)}
+                            onchange={(event) => setOpenAPISyncEndpointDecision(change.id, event.currentTarget.value)}
                           >
                             {#if change.change === 'removed'}
                               <option value="keep-mine">Keep</option>
@@ -10160,9 +10234,9 @@
                       <div class="openapi-sync-review-toolbar">
                         <h3>Collection Changes</h3>
                         <div>
-                          <button type="button" data-testid="openapi-local-drift-check" on:click={checkOpenAPILocalDrift} disabled={busy !== '' || activeCollection.notFoundLocally}>Check Collection</button>
+                          <button type="button" data-testid="openapi-local-drift-check" onclick={checkOpenAPILocalDrift} disabled={busy !== '' || activeCollection.notFoundLocally}>Check Collection</button>
                           {#if openAPILocalDriftResult?.hasChanges}
-                            <button type="button" class="primary" data-testid="openapi-local-drift-revert-all" on:click={revertAllOpenAPILocalDrift} disabled={busy !== '' || activeCollection.notFoundLocally}>Revert All to Spec</button>
+                            <button type="button" class="primary" data-testid="openapi-local-drift-revert-all" onclick={revertAllOpenAPILocalDrift} disabled={busy !== '' || activeCollection.notFoundLocally}>Revert All to Spec</button>
                           {/if}
                         </div>
                       </div>
@@ -10180,13 +10254,13 @@
                         {#if openAPILocalDriftResult.changes?.length}
                           <div class="openapi-local-drift-actions">
                             {#if openAPILocalDriftResult.modified}
-                              <button type="button" data-testid="openapi-local-drift-reset-all" on:click={() => resetOpenAPILocalDrift()} disabled={busy !== ''}>Reset All</button>
+                              <button type="button" data-testid="openapi-local-drift-reset-all" onclick={() => resetOpenAPILocalDrift()} disabled={busy !== ''}>Reset All</button>
                             {/if}
                             {#if openAPILocalDriftResult.missing}
-                              <button type="button" data-testid="openapi-local-drift-restore-all" on:click={() => restoreOpenAPILocalDrift()} disabled={busy !== ''}>Restore All</button>
+                              <button type="button" data-testid="openapi-local-drift-restore-all" onclick={() => restoreOpenAPILocalDrift()} disabled={busy !== ''}>Restore All</button>
                             {/if}
                             {#if openAPILocalDriftResult.localOnly}
-                              <button type="button" data-testid="openapi-local-drift-delete-all" on:click={() => deleteOpenAPILocalDrift()} disabled={busy !== ''}>Delete All</button>
+                              <button type="button" data-testid="openapi-local-drift-delete-all" onclick={() => deleteOpenAPILocalDrift()} disabled={busy !== ''}>Delete All</button>
                             {/if}
                           </div>
                           <div class="openapi-sync-review-header openapi-local-drift-header">
@@ -10203,15 +10277,15 @@
                                 <strong>{change.name || change.path}</strong>
                                 <small>{change.path}</small>
                                 {#if (change.change === 'modified' || change.change === 'local-only') && change.itemId}
-                                  <button type="button" class="link-button openapi-sync-open-request" data-testid="openapi-local-drift-open" on:click={() => openOpenAPILocalDriftRequest(change)} disabled={busy !== ''}>Open</button>
+                                  <button type="button" class="link-button openapi-sync-open-request" data-testid="openapi-local-drift-open" onclick={() => openOpenAPILocalDriftRequest(change)} disabled={busy !== ''}>Open</button>
                                 {/if}
                               </span>
                               {#if change.change === 'modified'}
-                                <button type="button" data-testid="openapi-local-drift-reset" on:click={() => resetOpenAPILocalDrift(change.id)} disabled={busy !== ''}>Reset</button>
+                                <button type="button" data-testid="openapi-local-drift-reset" onclick={() => resetOpenAPILocalDrift(change.id)} disabled={busy !== ''}>Reset</button>
                               {:else if change.change === 'missing'}
-                                <button type="button" data-testid="openapi-local-drift-restore" on:click={() => restoreOpenAPILocalDrift(change.id)} disabled={busy !== ''}>Restore</button>
+                                <button type="button" data-testid="openapi-local-drift-restore" onclick={() => restoreOpenAPILocalDrift(change.id)} disabled={busy !== ''}>Restore</button>
                               {:else}
-                                <button type="button" data-testid="openapi-local-drift-delete" on:click={() => deleteOpenAPILocalDrift(change.id)} disabled={busy !== ''}>Delete</button>
+                                <button type="button" data-testid="openapi-local-drift-delete" onclick={() => deleteOpenAPILocalDrift(change.id)} disabled={busy !== ''}>Delete</button>
                               {/if}
                             </div>
                           {/each}
@@ -10228,7 +10302,7 @@
                     </div>
                     <p class="version-summary">Start a Dev Tools session in this collection</p>
                   </div>
-                  <button type="button" data-testid="collection-actions-open-terminal" on:click={openCollectionInTerminal} disabled={busy !== '' || terminalBusy || activeCollection.notFoundLocally}>Open in Terminal</button>
+                  <button type="button" data-testid="collection-actions-open-terminal" onclick={openCollectionInTerminal} disabled={busy !== '' || terminalBusy || activeCollection.notFoundLocally}>Open in Terminal</button>
                 </div>
                 <span class="field-label">Folder</span>
                 <div class="collection-doc-actions">
@@ -10238,7 +10312,7 @@
                     </div>
                     <p class="version-summary" data-testid="collection-reveal-status">{revealCollectionMessage || activeCollection.path}</p>
                   </div>
-                  <button type="button" data-testid="collection-actions-show-in-folder" on:click={revealCollectionInFolder} disabled={busy !== '' || activeCollection.notFoundLocally}>{revealInFolderLabel()}</button>
+                  <button type="button" data-testid="collection-actions-show-in-folder" onclick={revealCollectionInFolder} disabled={busy !== '' || activeCollection.notFoundLocally}>{revealInFolderLabel()}</button>
                 </div>
                 <span class="field-label">Remove</span>
                 <div class="collection-doc-actions">
@@ -10248,7 +10322,7 @@
                     </div>
                     <p class="version-summary">Remove this collection from the workspace without deleting files</p>
                   </div>
-                  <button type="button" data-testid="collection-actions-remove" on:click={openRemoveCollectionModal} disabled={busy !== '' || activeCollection.scratch}>Remove Collection</button>
+                  <button type="button" data-testid="collection-actions-remove" onclick={openRemoveCollectionModal} disabled={busy !== '' || activeCollection.scratch}>Remove Collection</button>
                 </div>
                 <span class="field-label">Git</span>
                 <div class="collection-doc-actions">
@@ -10256,10 +10330,10 @@
                     <div class="version-line"><span class="version-label">Local Git workbench</span></div>
                     <p class="version-summary">Review scoped changes, commits, branches, and remotes without opening a terminal.</p>
                   </div>
-                  <button type="button" data-testid="collection-actions-open-git" on:click={openGitWorkbench} disabled={busy !== '' || activeCollection.notFoundLocally}>Open Git Workbench</button>
+                  <button type="button" data-testid="collection-actions-open-git" onclick={openGitWorkbench} disabled={busy !== '' || activeCollection.notFoundLocally}>Open Git Workbench</button>
                 </div>
                 <span class="field-label">Docs</span>
-                <textarea spellcheck="false" value={activeCollection.docs} on:change={(e) => updateCollectionDocs(e.currentTarget.value)}></textarea>
+                <textarea spellcheck="false" value={activeCollection.docs} onchange={(e) => updateCollectionDocs(e.currentTarget.value)}></textarea>
               </div>
             {:else if collectionTab === 'folders'}
               {#if (activeCollection.folders ?? []).length === 0}
@@ -10268,7 +10342,7 @@
                 <div class="settings-stack folder-settings-panel">
                   <div class="field-grid folder-picker">
                     <span class="field-label">Folder</span>
-                    <select aria-label="Folder settings folder" value={editableFolder.path} on:change={(e) => (selectedFolderPath = e.currentTarget.value)}>
+                    <select aria-label="Folder settings folder" value={editableFolder.path} onchange={(e) => (selectedFolderPath = e.currentTarget.value)}>
                       {#each activeCollection.folders ?? [] as folder (folder.path)}
                         <option value={folder.path}>{folder.displayPath || folder.path}</option>
                       {/each}
@@ -10279,7 +10353,7 @@
 
                   <nav class="subtabs compact" aria-label="Folder settings tabs">
                     {#each folderSettingsTabs as tab (tab.id)}
-                      <button type="button" class:active={folderSettingsTab === tab.id} on:click={() => (folderSettingsTab = tab.id)}>{tab.label}</button>
+                      <button type="button" class:active={folderSettingsTab === tab.id} onclick={() => (folderSettingsTab = tab.id)}>{tab.label}</button>
                     {/each}
                   </nav>
 
@@ -10293,7 +10367,7 @@
                   {:else if folderSettingsTab === 'vars'}
                     <div class="settings-section-header">
                       <h3>Pre Request</h3>
-                      <button on:click={() => addFolderVariable('variables')}>Add variable</button>
+                      <button onclick={() => addFolderVariable('variables')}>Add variable</button>
                     </div>
                     <div class="table-scroll">
                       <table>
@@ -10301,19 +10375,19 @@
                         <tbody>
                           {#each editableFolder.variables ?? [] as variable, index (variable.id)}
                             <tr>
-                              <td><input type="checkbox" checked={variable.enabled} on:change={(e) => updateFolderVariable('variables', index, 'enabled', e.currentTarget.checked)} /></td>
-                              <td><input aria-label="Folder pre-request variable name" value={variable.name} on:change={(e) => updateFolderVariable('variables', index, 'name', e.currentTarget.value)} /></td>
-                              <td><input aria-label="Folder pre-request variable value" value={String(variable.value ?? '')} on:change={(e) => updateFolderVariable('variables', index, 'value', e.currentTarget.value)} /></td>
+                              <td><input type="checkbox" checked={variable.enabled} onchange={(e) => updateFolderVariable('variables', index, 'enabled', e.currentTarget.checked)} /></td>
+                              <td><input aria-label="Folder pre-request variable name" value={variable.name} onchange={(e) => updateFolderVariable('variables', index, 'name', e.currentTarget.value)} /></td>
+                              <td><input aria-label="Folder pre-request variable value" value={String(variable.value ?? '')} onchange={(e) => updateFolderVariable('variables', index, 'value', e.currentTarget.value)} /></td>
                               <td>
-                                <select aria-label="Folder pre-request variable type" value={variable.dataType || variable.type || 'string'} on:change={(e) => updateFolderVariable('variables', index, 'dataType', e.currentTarget.value)}>
+                                <select aria-label="Folder pre-request variable type" value={variable.dataType || variable.type || 'string'} onchange={(e) => updateFolderVariable('variables', index, 'dataType', e.currentTarget.value)}>
                                   <option value="string">string</option>
                                   <option value="number">number</option>
                                   <option value="boolean">boolean</option>
                                   <option value="object">object</option>
                                 </select>
                               </td>
-                              <td><input aria-label="Folder pre-request variable secret" type="checkbox" checked={variable.secret} on:change={(e) => updateFolderVariable('variables', index, 'secret', e.currentTarget.checked)} /></td>
-                              <td><button on:click={() => removeFolderVariable('variables', index)}>Remove</button></td>
+                              <td><input aria-label="Folder pre-request variable secret" type="checkbox" checked={variable.secret} onchange={(e) => updateFolderVariable('variables', index, 'secret', e.currentTarget.checked)} /></td>
+                              <td><button onclick={() => removeFolderVariable('variables', index)}>Remove</button></td>
                             </tr>
                           {/each}
                         </tbody>
@@ -10325,7 +10399,7 @@
 
                     <div class="settings-section-header">
                       <h3>Post Response</h3>
-                      <button on:click={() => addFolderVariable('resVariables')}>Add variable</button>
+                      <button onclick={() => addFolderVariable('resVariables')}>Add variable</button>
                     </div>
                     <div class="table-scroll">
                       <table>
@@ -10333,19 +10407,19 @@
                         <tbody>
                           {#each editableFolder.resVariables ?? [] as variable, index (variable.id)}
                             <tr>
-                              <td><input type="checkbox" checked={variable.enabled} on:change={(e) => updateFolderVariable('resVariables', index, 'enabled', e.currentTarget.checked)} /></td>
-                              <td><input aria-label="Folder post-response variable name" value={variable.name} on:change={(e) => updateFolderVariable('resVariables', index, 'name', e.currentTarget.value)} /></td>
-                              <td><input aria-label="Folder post-response variable expression" value={String(variable.value ?? '')} on:change={(e) => updateFolderVariable('resVariables', index, 'value', e.currentTarget.value)} /></td>
+                              <td><input type="checkbox" checked={variable.enabled} onchange={(e) => updateFolderVariable('resVariables', index, 'enabled', e.currentTarget.checked)} /></td>
+                              <td><input aria-label="Folder post-response variable name" value={variable.name} onchange={(e) => updateFolderVariable('resVariables', index, 'name', e.currentTarget.value)} /></td>
+                              <td><input aria-label="Folder post-response variable expression" value={String(variable.value ?? '')} onchange={(e) => updateFolderVariable('resVariables', index, 'value', e.currentTarget.value)} /></td>
                               <td>
-                                <select aria-label="Folder post-response variable type" value={variable.dataType || variable.type || 'string'} on:change={(e) => updateFolderVariable('resVariables', index, 'dataType', e.currentTarget.value)}>
+                                <select aria-label="Folder post-response variable type" value={variable.dataType || variable.type || 'string'} onchange={(e) => updateFolderVariable('resVariables', index, 'dataType', e.currentTarget.value)}>
                                   <option value="string">string</option>
                                   <option value="number">number</option>
                                   <option value="boolean">boolean</option>
                                   <option value="object">object</option>
                                 </select>
                               </td>
-                              <td><input aria-label="Folder post-response variable secret" type="checkbox" checked={variable.secret} on:change={(e) => updateFolderVariable('resVariables', index, 'secret', e.currentTarget.checked)} /></td>
-                              <td><button on:click={() => removeFolderVariable('resVariables', index)}>Remove</button></td>
+                              <td><input aria-label="Folder post-response variable secret" type="checkbox" checked={variable.secret} onchange={(e) => updateFolderVariable('resVariables', index, 'secret', e.currentTarget.checked)} /></td>
+                              <td><button onclick={() => removeFolderVariable('resVariables', index)}>Remove</button></td>
                             </tr>
                           {/each}
                         </tbody>
@@ -10357,7 +10431,7 @@
                   {:else if folderSettingsTab === 'auth'}
                     <div class="field-grid auth-grid">
                       <span class="field-label">Mode</span>
-                      <select aria-label="Folder auth mode" value={editableFolder.auth?.mode || ''} on:change={(e) => updateFolderAuth({ mode: e.currentTarget.value })}>
+                      <select aria-label="Folder auth mode" value={editableFolder.auth?.mode || ''} onchange={(e) => updateFolderAuth({ mode: e.currentTarget.value })}>
                         <option value="">Unset</option>
                         {#each authModes as mode (mode)}
                           <option value={mode}>{mode}</option>
@@ -10365,78 +10439,78 @@
                       </select>
                       {#if editableFolder.auth?.mode === 'basic' || editableFolder.auth?.mode === 'digest' || editableFolder.auth?.mode === 'wsse' || editableFolder.auth?.mode === 'ntlm'}
                         <span class="field-label">Username</span>
-                        <input value={editableFolder.auth.username ?? ''} on:change={(e) => updateFolderAuth({ username: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.username ?? ''} onchange={(e) => updateFolderAuth({ username: e.currentTarget.value })} />
                         <span class="field-label">Password</span>
-                        <input type="password" value={editableFolder.auth.password ?? ''} on:change={(e) => updateFolderAuth({ password: e.currentTarget.value })} />
+                        <input type="password" value={editableFolder.auth.password ?? ''} onchange={(e) => updateFolderAuth({ password: e.currentTarget.value })} />
                         {#if editableFolder.auth?.mode === 'ntlm'}
                           <span class="field-label">Domain</span>
-                          <input value={editableFolder.auth.domain ?? ''} on:change={(e) => updateFolderAuth({ domain: e.currentTarget.value })} />
+                          <input value={editableFolder.auth.domain ?? ''} onchange={(e) => updateFolderAuth({ domain: e.currentTarget.value })} />
                         {/if}
                       {:else if editableFolder.auth?.mode === 'bearer'}
                         <span class="field-label">Token</span>
-                        <input type="password" value={editableFolder.auth.token ?? ''} on:change={(e) => updateFolderAuth({ token: e.currentTarget.value })} />
+                        <input type="password" value={editableFolder.auth.token ?? ''} onchange={(e) => updateFolderAuth({ token: e.currentTarget.value })} />
                       {:else if editableFolder.auth?.mode === 'apikey'}
                         <span class="field-label">Key</span>
-                        <input value={editableFolder.auth.apiKey ?? ''} on:change={(e) => updateFolderAuth({ apiKey: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.apiKey ?? ''} onchange={(e) => updateFolderAuth({ apiKey: e.currentTarget.value })} />
                         <span class="field-label">Value</span>
-                        <input type="password" value={editableFolder.auth.apiValue ?? ''} on:change={(e) => updateFolderAuth({ apiValue: e.currentTarget.value })} />
+                        <input type="password" value={editableFolder.auth.apiValue ?? ''} onchange={(e) => updateFolderAuth({ apiValue: e.currentTarget.value })} />
                         <span class="field-label">Placement</span>
-                        <select value={editableFolder.auth.apiLocation || 'header'} on:change={(e) => updateFolderAuth({ apiLocation: e.currentTarget.value })}>
+                        <select value={editableFolder.auth.apiLocation || 'header'} onchange={(e) => updateFolderAuth({ apiLocation: e.currentTarget.value })}>
                           <option value="header">Header</option>
                           <option value="queryparams">Query params</option>
                         </select>
                       {:else if editableFolder.auth?.mode === 'awsv4'}
                         <span class="field-label">Access key</span>
-                        <input value={editableFolder.auth.awsv4?.accessKeyId ?? ''} on:change={(e) => updateFolderAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.awsv4?.accessKeyId ?? ''} onchange={(e) => updateFolderAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
                         <span class="field-label">Secret key</span>
-                        <input type="password" value={editableFolder.auth.awsv4?.secretAccessKey ?? ''} on:change={(e) => updateFolderAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
+                        <input type="password" value={editableFolder.auth.awsv4?.secretAccessKey ?? ''} onchange={(e) => updateFolderAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
                         <span class="field-label">Service</span>
-                        <input value={editableFolder.auth.awsv4?.service ?? ''} placeholder="execute-api" on:change={(e) => updateFolderAWSV4Auth({ service: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.awsv4?.service ?? ''} placeholder="execute-api" onchange={(e) => updateFolderAWSV4Auth({ service: e.currentTarget.value })} />
                         <span class="field-label">Region</span>
-                        <input value={editableFolder.auth.awsv4?.region ?? ''} placeholder="us-east-1" on:change={(e) => updateFolderAWSV4Auth({ region: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.awsv4?.region ?? ''} placeholder="us-east-1" onchange={(e) => updateFolderAWSV4Auth({ region: e.currentTarget.value })} />
                       {:else if editableFolder.auth?.mode === 'oauth1'}
                         <span class="field-label">Consumer key</span>
-                        <input value={editableFolder.auth.oauth1?.consumerKey ?? ''} on:change={(e) => updateFolderOAuth1Auth({ consumerKey: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.oauth1?.consumerKey ?? ''} onchange={(e) => updateFolderOAuth1Auth({ consumerKey: e.currentTarget.value })} />
                         <span class="field-label">Consumer secret</span>
-                        <input type="password" value={editableFolder.auth.oauth1?.consumerSecret ?? ''} on:change={(e) => updateFolderOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
+                        <input type="password" value={editableFolder.auth.oauth1?.consumerSecret ?? ''} onchange={(e) => updateFolderOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
                         <span class="field-label">Access token</span>
-                        <input value={editableFolder.auth.oauth1?.accessToken ?? ''} on:change={(e) => updateFolderOAuth1Auth({ accessToken: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.oauth1?.accessToken ?? ''} onchange={(e) => updateFolderOAuth1Auth({ accessToken: e.currentTarget.value })} />
                         <span class="field-label">Token secret</span>
-                        <input type="password" value={editableFolder.auth.oauth1?.accessTokenSecret ?? ''} on:change={(e) => updateFolderOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
+                        <input type="password" value={editableFolder.auth.oauth1?.accessTokenSecret ?? ''} onchange={(e) => updateFolderOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
                         <span class="field-label">Signature</span>
-                        <select value={editableFolder.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} on:change={(e) => updateFolderOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
+                        <select value={editableFolder.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} onchange={(e) => updateFolderOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
                           {#each oauth1SignatureMethods as method (method)}
                             <option value={method}>{method}</option>
                           {/each}
                         </select>
                       {:else if editableFolder.auth?.mode === 'oauth2'}
                         <span class="field-label">Grant type</span>
-                        <select value={editableFolder.auth.oauth2?.grantType || 'client_credentials'} on:change={(e) => updateFolderOAuth2Auth({ grantType: e.currentTarget.value })}>
+                        <select value={editableFolder.auth.oauth2?.grantType || 'client_credentials'} onchange={(e) => updateFolderOAuth2Auth({ grantType: e.currentTarget.value })}>
                           {#each oauth2GrantTypes as grantType (grantType)}
                             <option value={grantType}>{grantType}</option>
                           {/each}
                         </select>
                         <span class="field-label">Access token URL</span>
-                        <input value={editableFolder.auth.oauth2?.accessTokenUrl ?? ''} on:change={(e) => updateFolderOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.oauth2?.accessTokenUrl ?? ''} onchange={(e) => updateFolderOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
                         <span class="field-label">Client ID</span>
-                        <input value={editableFolder.auth.oauth2?.clientId ?? ''} on:change={(e) => updateFolderOAuth2Auth({ clientId: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.oauth2?.clientId ?? ''} onchange={(e) => updateFolderOAuth2Auth({ clientId: e.currentTarget.value })} />
                         <span class="field-label">Client secret</span>
-                        <input type="password" value={editableFolder.auth.oauth2?.clientSecret ?? ''} on:change={(e) => updateFolderOAuth2Auth({ clientSecret: e.currentTarget.value })} />
+                        <input type="password" value={editableFolder.auth.oauth2?.clientSecret ?? ''} onchange={(e) => updateFolderOAuth2Auth({ clientSecret: e.currentTarget.value })} />
                         <span class="field-label">Scope</span>
-                        <input value={editableFolder.auth.oauth2?.scope ?? ''} on:change={(e) => updateFolderOAuth2Auth({ scope: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.oauth2?.scope ?? ''} onchange={(e) => updateFolderOAuth2Auth({ scope: e.currentTarget.value })} />
                         <span class="field-label">Token</span>
-                        <input type="password" value={editableFolder.auth.token ?? ''} on:change={(e) => updateFolderAuth({ token: e.currentTarget.value })} />
+                        <input type="password" value={editableFolder.auth.token ?? ''} onchange={(e) => updateFolderAuth({ token: e.currentTarget.value })} />
                       {/if}
                     </div>
                   {:else if folderSettingsTab === 'script'}
                     <span class="field-label">Pre-request</span>
-                    <textarea class="short" spellcheck="false" value={editableFolder.preScript ?? ''} on:change={(e) => updateFolderScript('preScript', e.currentTarget.value)}></textarea>
+                    <textarea class="short" spellcheck="false" value={editableFolder.preScript ?? ''} onchange={(e) => updateFolderScript('preScript', e.currentTarget.value)}></textarea>
                     <span class="field-label">Post-response</span>
-                    <textarea class="short" spellcheck="false" value={editableFolder.postScript ?? ''} on:change={(e) => updateFolderScript('postScript', e.currentTarget.value)}></textarea>
+                    <textarea class="short" spellcheck="false" value={editableFolder.postScript ?? ''} onchange={(e) => updateFolderScript('postScript', e.currentTarget.value)}></textarea>
                   {:else if folderSettingsTab === 'tests'}
-                    <textarea spellcheck="false" value={editableFolder.tests ?? ''} on:change={(e) => updateFolderScript('tests', e.currentTarget.value)}></textarea>
+                    <textarea spellcheck="false" value={editableFolder.tests ?? ''} onchange={(e) => updateFolderScript('tests', e.currentTarget.value)}></textarea>
                   {:else if folderSettingsTab === 'docs'}
-                    <textarea spellcheck="false" value={editableFolder.docs ?? ''} on:change={(e) => updateFolderDocs(e.currentTarget.value)}></textarea>
+                    <textarea spellcheck="false" value={editableFolder.docs ?? ''} onchange={(e) => updateFolderDocs(e.currentTarget.value)}></textarea>
                   {/if}
                 </div>
               {/if}
@@ -10455,105 +10529,105 @@
                 <tbody>
                   {#each activeCollection.variables ?? [] as variable, index (variable.id)}
                     <tr>
-                      <td><input type="checkbox" checked={variable.enabled} on:change={(e) => updateCollectionVariable(index, 'enabled', e.currentTarget.checked)} /></td>
-                      <td><input value={variable.name} on:change={(e) => updateCollectionVariable(index, 'name', e.currentTarget.value)} /></td>
-                      <td><input value={String(variable.value ?? '')} on:change={(e) => updateCollectionVariable(index, 'value', e.currentTarget.value)} /></td>
+                      <td><input type="checkbox" checked={variable.enabled} onchange={(e) => updateCollectionVariable(index, 'enabled', e.currentTarget.checked)} /></td>
+                      <td><input value={variable.name} onchange={(e) => updateCollectionVariable(index, 'name', e.currentTarget.value)} /></td>
+                      <td><input value={String(variable.value ?? '')} onchange={(e) => updateCollectionVariable(index, 'value', e.currentTarget.value)} /></td>
                       <td>
-                        <select value={variable.dataType || 'string'} on:change={(e) => updateCollectionVariable(index, 'dataType', e.currentTarget.value)}>
+                        <select value={variable.dataType || 'string'} onchange={(e) => updateCollectionVariable(index, 'dataType', e.currentTarget.value)}>
                           <option value="string">string</option>
                           <option value="number">number</option>
                           <option value="boolean">boolean</option>
                           <option value="object">object</option>
                         </select>
                       </td>
-                      <td><input type="checkbox" checked={variable.secret} on:change={(e) => updateCollectionVariable(index, 'secret', e.currentTarget.checked)} /></td>
+                      <td><input type="checkbox" checked={variable.secret} onchange={(e) => updateCollectionVariable(index, 'secret', e.currentTarget.checked)} /></td>
                     </tr>
                   {/each}
                 </tbody>
               </table>
-              <button on:click={addCollectionVariable}>Add variable</button>
+              <button onclick={addCollectionVariable}>Add variable</button>
             {:else if collectionTab === 'auth'}
               <div class="field-grid auth-grid">
                 <span class="field-label">Mode</span>
-                <select value={activeCollection.auth?.mode ?? 'none'} on:change={(e) => updateCollectionAuth({ mode: e.currentTarget.value })}>
+                <select value={activeCollection.auth?.mode ?? 'none'} onchange={(e) => updateCollectionAuth({ mode: e.currentTarget.value })}>
                   {#each authModes as mode (mode)}
                     <option value={mode}>{mode}</option>
                   {/each}
                 </select>
 	                {#if activeCollection.auth?.mode === 'basic' || activeCollection.auth?.mode === 'digest' || activeCollection.auth?.mode === 'wsse' || activeCollection.auth?.mode === 'ntlm'}
                   <span class="field-label">Username</span>
-                  <input value={activeCollection.auth.username} on:change={(e) => updateCollectionAuth({ username: e.currentTarget.value })} />
+                  <input value={activeCollection.auth.username} onchange={(e) => updateCollectionAuth({ username: e.currentTarget.value })} />
                   <span class="field-label">Password</span>
-                  <input type="password" value={activeCollection.auth.password} on:change={(e) => updateCollectionAuth({ password: e.currentTarget.value })} />
+                  <input type="password" value={activeCollection.auth.password} onchange={(e) => updateCollectionAuth({ password: e.currentTarget.value })} />
                   {#if activeCollection.auth?.mode === 'ntlm'}
                     <span class="field-label">Domain</span>
-                    <input value={activeCollection.auth.domain} on:change={(e) => updateCollectionAuth({ domain: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.domain} onchange={(e) => updateCollectionAuth({ domain: e.currentTarget.value })} />
                   {/if}
                 {:else if activeCollection.auth?.mode === 'bearer'}
                   <span class="field-label">Token</span>
-                  <input type="password" value={activeCollection.auth.token} on:change={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
+                  <input type="password" value={activeCollection.auth.token} onchange={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
                 {:else if activeCollection.auth?.mode === 'oauth2'}
                   <span class="field-label">Grant</span>
-                  <select value={activeCollection.auth.oauth2?.grantType || 'client_credentials'} on:change={(e) => updateCollectionOAuth2Auth({ grantType: e.currentTarget.value })}>
+                  <select value={activeCollection.auth.oauth2?.grantType || 'client_credentials'} onchange={(e) => updateCollectionOAuth2Auth({ grantType: e.currentTarget.value })}>
                     {#each oauth2GrantTypes as grant (grant)}
                       <option value={grant}>{grant}</option>
                     {/each}
                   </select>
                   {#if activeCollection.auth.oauth2?.grantType === 'authorization_code' || activeCollection.auth.oauth2?.grantType === 'implicit'}
                     <span class="field-label">Callback URL</span>
-                    <input value={activeCollection.auth.oauth2?.callbackUrl ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ callbackUrl: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.callbackUrl ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ callbackUrl: e.currentTarget.value })} />
                     <span class="field-label">Authorization URL</span>
-                    <input value={activeCollection.auth.oauth2?.authorizationUrl ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ authorizationUrl: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.authorizationUrl ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ authorizationUrl: e.currentTarget.value })} />
                   {/if}
                   <span class="field-label">Access token URL</span>
-                  <input value={activeCollection.auth.oauth2?.accessTokenUrl ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
+                  <input value={activeCollection.auth.oauth2?.accessTokenUrl ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
                   <span class="field-label">Client ID</span>
-                  <input value={activeCollection.auth.oauth2?.clientId ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ clientId: e.currentTarget.value })} />
+                  <input value={activeCollection.auth.oauth2?.clientId ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ clientId: e.currentTarget.value })} />
                   <span class="field-label">Client secret</span>
-                  <input type="password" value={activeCollection.auth.oauth2?.clientSecret ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ clientSecret: e.currentTarget.value })} />
+                  <input type="password" value={activeCollection.auth.oauth2?.clientSecret ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ clientSecret: e.currentTarget.value })} />
                   {#if activeCollection.auth.oauth2?.grantType === 'password'}
                     <span class="field-label">Username</span>
-                    <input value={activeCollection.auth.oauth2?.username ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ username: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.username ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ username: e.currentTarget.value })} />
                     <span class="field-label">Password</span>
-                    <input type="password" value={activeCollection.auth.oauth2?.password ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ password: e.currentTarget.value })} />
+                    <input type="password" value={activeCollection.auth.oauth2?.password ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ password: e.currentTarget.value })} />
                   {/if}
                   <span class="field-label">Scope</span>
-                  <input value={activeCollection.auth.oauth2?.scope ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ scope: e.currentTarget.value })} />
+                  <input value={activeCollection.auth.oauth2?.scope ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ scope: e.currentTarget.value })} />
                   {#if activeCollection.auth.oauth2?.grantType === 'authorization_code' || activeCollection.auth.oauth2?.grantType === 'implicit'}
                     <span class="field-label">State</span>
-                    <input value={activeCollection.auth.oauth2?.state ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ state: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.state ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ state: e.currentTarget.value })} />
                   {/if}
                   <span class="field-label">Credentials</span>
-                  <select value={activeCollection.auth.oauth2?.credentialsPlacement || 'basic_auth_header'} on:change={(e) => updateCollectionOAuth2Auth({ credentialsPlacement: e.currentTarget.value })}>
+                  <select value={activeCollection.auth.oauth2?.credentialsPlacement || 'basic_auth_header'} onchange={(e) => updateCollectionOAuth2Auth({ credentialsPlacement: e.currentTarget.value })}>
                     {#each oauth2CredentialPlacements as placement (placement)}
                       <option value={placement}>{placement}</option>
                     {/each}
                   </select>
                   {#if activeCollection.auth.oauth2?.grantType === 'authorization_code'}
                     <span class="field-label">PKCE</span>
-                    <input type="checkbox" checked={activeCollection.auth.oauth2?.pkce ?? false} on:change={(e) => updateCollectionOAuth2Auth({ pkce: e.currentTarget.checked })} />
+                    <input type="checkbox" checked={activeCollection.auth.oauth2?.pkce ?? false} onchange={(e) => updateCollectionOAuth2Auth({ pkce: e.currentTarget.checked })} />
                   {/if}
                   <span class="field-label">Token source</span>
-                  <select value={activeCollection.auth.oauth2?.tokenSource || 'access_token'} on:change={(e) => updateCollectionOAuth2Auth({ tokenSource: e.currentTarget.value })}>
+                  <select value={activeCollection.auth.oauth2?.tokenSource || 'access_token'} onchange={(e) => updateCollectionOAuth2Auth({ tokenSource: e.currentTarget.value })}>
                     {#each oauth2TokenSources as source (source)}
                       <option value={source}>{source}</option>
                     {/each}
                   </select>
                   <span class="field-label">Token placement</span>
-                  <select value={activeCollection.auth.oauth2?.tokenPlacement || 'header'} on:change={(e) => updateCollectionOAuth2Auth({ tokenPlacement: e.currentTarget.value })}>
+                  <select value={activeCollection.auth.oauth2?.tokenPlacement || 'header'} onchange={(e) => updateCollectionOAuth2Auth({ tokenPlacement: e.currentTarget.value })}>
                     {#each oauth2TokenPlacements as placement (placement)}
                       <option value={placement}>{placement}</option>
                     {/each}
                   </select>
                   {#if (activeCollection.auth.oauth2?.tokenPlacement || 'header') === 'header'}
                     <span class="field-label">Header prefix</span>
-                    <input value={activeCollection.auth.oauth2?.tokenHeaderPrefix || 'Bearer'} on:change={(e) => updateCollectionOAuth2Auth({ tokenHeaderPrefix: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.tokenHeaderPrefix || 'Bearer'} onchange={(e) => updateCollectionOAuth2Auth({ tokenHeaderPrefix: e.currentTarget.value })} />
                   {:else}
                     <span class="field-label">Query key</span>
-                    <input value={activeCollection.auth.oauth2?.tokenQueryKey || 'access_token'} on:change={(e) => updateCollectionOAuth2Auth({ tokenQueryKey: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.tokenQueryKey || 'access_token'} onchange={(e) => updateCollectionOAuth2Auth({ tokenQueryKey: e.currentTarget.value })} />
                   {/if}
                   <span class="field-label">Static token</span>
-                  <input type="password" value={activeCollection.auth.token} on:change={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
+                  <input type="password" value={activeCollection.auth.token} onchange={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
                   <div class="oauth2-extra-stack">
                     <OAuth2AdditionalParams
                       title="Authorization request params"
@@ -10579,69 +10653,69 @@
                   </div>
                 {:else if activeCollection.auth?.mode === 'apikey'}
                   <span class="field-label">Key</span>
-                  <input value={activeCollection.auth.apiKey} on:change={(e) => updateCollectionAuth({ apiKey: e.currentTarget.value })} />
+                  <input value={activeCollection.auth.apiKey} onchange={(e) => updateCollectionAuth({ apiKey: e.currentTarget.value })} />
                   <span class="field-label">Value</span>
-                  <input type="password" value={activeCollection.auth.apiValue} on:change={(e) => updateCollectionAuth({ apiValue: e.currentTarget.value })} />
+                  <input type="password" value={activeCollection.auth.apiValue} onchange={(e) => updateCollectionAuth({ apiValue: e.currentTarget.value })} />
                   <span class="field-label">Send in</span>
-	                  <select value={activeCollection.auth.apiLocation || 'header'} on:change={(e) => updateCollectionAuth({ apiLocation: e.currentTarget.value })}>
+	                  <select value={activeCollection.auth.apiLocation || 'header'} onchange={(e) => updateCollectionAuth({ apiLocation: e.currentTarget.value })}>
 	                    <option value="header">Header</option>
 	                    <option value="query">Query</option>
 	                  </select>
 	                {:else if activeCollection.auth?.mode === 'awsv4'}
 	                  <span class="field-label">Access key ID</span>
-	                  <input value={activeCollection.auth.awsv4?.accessKeyId ?? ''} on:change={(e) => updateCollectionAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
+	                  <input value={activeCollection.auth.awsv4?.accessKeyId ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
 	                  <span class="field-label">Secret access key</span>
-	                  <input type="password" value={activeCollection.auth.awsv4?.secretAccessKey ?? ''} on:change={(e) => updateCollectionAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
+	                  <input type="password" value={activeCollection.auth.awsv4?.secretAccessKey ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
 	                  <span class="field-label">Session token</span>
-	                  <input type="password" value={activeCollection.auth.awsv4?.sessionToken ?? ''} on:change={(e) => updateCollectionAWSV4Auth({ sessionToken: e.currentTarget.value })} />
+	                  <input type="password" value={activeCollection.auth.awsv4?.sessionToken ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ sessionToken: e.currentTarget.value })} />
 	                  <span class="field-label">Service</span>
-	                  <input value={activeCollection.auth.awsv4?.service ?? ''} placeholder="execute-api" on:change={(e) => updateCollectionAWSV4Auth({ service: e.currentTarget.value })} />
+	                  <input value={activeCollection.auth.awsv4?.service ?? ''} placeholder="execute-api" onchange={(e) => updateCollectionAWSV4Auth({ service: e.currentTarget.value })} />
 	                  <span class="field-label">Region</span>
-	                  <input value={activeCollection.auth.awsv4?.region ?? ''} placeholder="us-east-1" on:change={(e) => updateCollectionAWSV4Auth({ region: e.currentTarget.value })} />
+	                  <input value={activeCollection.auth.awsv4?.region ?? ''} placeholder="us-east-1" onchange={(e) => updateCollectionAWSV4Auth({ region: e.currentTarget.value })} />
 		                  <span class="field-label">Profile</span>
-		                  <input value={activeCollection.auth.awsv4?.profileName ?? ''} on:change={(e) => updateCollectionAWSV4Auth({ profileName: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.awsv4?.profileName ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ profileName: e.currentTarget.value })} />
 		                {:else if activeCollection.auth?.mode === 'oauth1'}
 		                  <span class="field-label">Consumer key</span>
-		                  <input value={activeCollection.auth.oauth1?.consumerKey ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ consumerKey: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.consumerKey ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ consumerKey: e.currentTarget.value })} />
 		                  <span class="field-label">Consumer secret</span>
-		                  <input type="password" value={activeCollection.auth.oauth1?.consumerSecret ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
+		                  <input type="password" value={activeCollection.auth.oauth1?.consumerSecret ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
 		                  <span class="field-label">Token</span>
-		                  <input value={activeCollection.auth.oauth1?.accessToken ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ accessToken: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.accessToken ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ accessToken: e.currentTarget.value })} />
 		                  <span class="field-label">Token secret</span>
-		                  <input type="password" value={activeCollection.auth.oauth1?.accessTokenSecret ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
+		                  <input type="password" value={activeCollection.auth.oauth1?.accessTokenSecret ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
 		                  <span class="field-label">Signature</span>
-		                  <select value={activeCollection.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} on:change={(e) => updateCollectionOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
+		                  <select value={activeCollection.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} onchange={(e) => updateCollectionOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
 		                    {#each oauth1SignatureMethods as method (method)}
 		                      <option value={method}>{method}</option>
 		                    {/each}
 		                  </select>
 		                  <span class="field-label">Add params to</span>
-		                  <select value={activeCollection.auth.oauth1?.placement || 'header'} on:change={(e) => updateCollectionOAuth1Auth({ placement: e.currentTarget.value })}>
+		                  <select value={activeCollection.auth.oauth1?.placement || 'header'} onchange={(e) => updateCollectionOAuth1Auth({ placement: e.currentTarget.value })}>
 		                    {#each oauth1Placements as placement (placement)}
 		                      <option value={placement}>{placement}</option>
 		                    {/each}
 		                  </select>
 		                  <span class="field-label">Callback URL</span>
-		                  <input value={activeCollection.auth.oauth1?.callbackUrl ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ callbackUrl: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.callbackUrl ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ callbackUrl: e.currentTarget.value })} />
 		                  <span class="field-label">Verifier</span>
-		                  <input value={activeCollection.auth.oauth1?.verifier ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ verifier: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.verifier ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ verifier: e.currentTarget.value })} />
 		                  <span class="field-label">Timestamp</span>
-		                  <input value={activeCollection.auth.oauth1?.timestamp ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ timestamp: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.timestamp ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ timestamp: e.currentTarget.value })} />
 		                  <span class="field-label">Nonce</span>
-		                  <input value={activeCollection.auth.oauth1?.nonce ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ nonce: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.nonce ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ nonce: e.currentTarget.value })} />
 		                  <span class="field-label">Version</span>
-		                  <input value={activeCollection.auth.oauth1?.version ?? ''} placeholder="1.0" on:change={(e) => updateCollectionOAuth1Auth({ version: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.version ?? ''} placeholder="1.0" onchange={(e) => updateCollectionOAuth1Auth({ version: e.currentTarget.value })} />
 		                  <span class="field-label">Realm</span>
-		                  <input value={activeCollection.auth.oauth1?.realm ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ realm: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.realm ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ realm: e.currentTarget.value })} />
 		                  <span class="field-label">Private key</span>
-		                  <textarea class="short" spellcheck="false" value={activeCollection.auth.oauth1?.privateKey ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ privateKey: e.currentTarget.value })}></textarea>
+		                  <textarea class="short" spellcheck="false" value={activeCollection.auth.oauth1?.privateKey ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ privateKey: e.currentTarget.value })}></textarea>
 		                  <span class="field-label">Private key type</span>
-		                  <select value={activeCollection.auth.oauth1?.privateKeyType || 'text'} on:change={(e) => updateCollectionOAuth1Auth({ privateKeyType: e.currentTarget.value })}>
+		                  <select value={activeCollection.auth.oauth1?.privateKeyType || 'text'} onchange={(e) => updateCollectionOAuth1Auth({ privateKeyType: e.currentTarget.value })}>
 		                    <option value="text">text</option>
 		                    <option value="file">file</option>
 		                  </select>
 		                  <span class="field-label">Body hash</span>
-		                  <input type="checkbox" checked={activeCollection.auth.oauth1?.includeBodyHash ?? false} on:change={(e) => updateCollectionOAuth1Auth({ includeBodyHash: e.currentTarget.checked })} />
+		                  <input type="checkbox" checked={activeCollection.auth.oauth1?.includeBodyHash ?? false} onchange={(e) => updateCollectionOAuth1Auth({ includeBodyHash: e.currentTarget.checked })} />
 		                {:else if activeCollection.auth?.mode !== 'none'}
 		                  <div class="empty-appState wide">This collection auth mode is marked partial until its backend signer is implemented.</div>
 		                {/if}
@@ -10668,9 +10742,9 @@
                   </div>
                   <div class="button-row">
                     {#if docsServerStatus?.running}
-                      <button type="button" data-testid="docs-stop" on:click={() => stopDocsServer(activeCollection.id)} disabled={busy !== ''}>Stop</button>
+                      <button type="button" data-testid="docs-stop" onclick={() => stopDocsServer(activeCollection.id)} disabled={busy !== ''}>Stop</button>
                     {:else}
-                      <button class="primary" type="button" data-testid="docs-start" on:click={() => startDocsServer(activeCollection.id)} disabled={busy !== ''}>Start</button>
+                      <button class="primary" type="button" data-testid="docs-start" onclick={() => startDocsServer(activeCollection.id)} disabled={busy !== ''}>Start</button>
                     {/if}
                   </div>
                   {#if docsServerStatus?.running}
@@ -10707,10 +10781,10 @@
                   </div>
                   <div class="button-row">
                     {#if mockServerStatus?.running}
-                      <button type="button" data-testid="mock-stop" on:click={() => stopMockServer(activeCollection.id)} disabled={busy !== ''}>Stop</button>
-                      <button type="button" data-testid="mock-refresh" on:click={() => refreshMockServerRoutes(activeCollection.id)} disabled={busy !== ''}>Reload examples</button>
+                      <button type="button" data-testid="mock-stop" onclick={() => stopMockServer(activeCollection.id)} disabled={busy !== ''}>Stop</button>
+                      <button type="button" data-testid="mock-refresh" onclick={() => refreshMockServerRoutes(activeCollection.id)} disabled={busy !== ''}>Reload examples</button>
                     {:else}
-                      <button class="primary" type="button" data-testid="mock-start" on:click={() => startMockServer(activeCollection.id)} disabled={busy !== ''}>Start</button>
+                      <button class="primary" type="button" data-testid="mock-start" onclick={() => startMockServer(activeCollection.id)} disabled={busy !== ''}>Start</button>
                     {/if}
                   </div>
                   {#if mockServerStatus?.running}
@@ -10728,19 +10802,19 @@
             {:else if collectionTab === 'presets'}
               <div class="field-grid">
                 <span class="field-label">Request Type</span>
-                <select aria-label="Preset request type" value={normalizePresetRequestType(activeCollection.presets?.requestType) || 'http'} on:change={(e) => updateCollectionPresets({ requestType: e.currentTarget.value })}>
+                <select aria-label="Preset request type" value={normalizePresetRequestType(activeCollection.presets?.requestType) || 'http'} onchange={(e) => updateCollectionPresets({ requestType: e.currentTarget.value })}>
                   <option value="http">HTTP</option>
                   <option value="graphql">GraphQL</option>
                   <option value="grpc">gRPC</option>
                   <option value="websocket">WebSocket</option>
                 </select>
                 <span class="field-label">Base URL</span>
-                <input aria-label="Preset base URL" placeholder="https://api.example.com" value={activeCollection.presets?.requestUrl ?? ''} on:change={(e) => updateCollectionPresets({ requestUrl: e.currentTarget.value })} />
+                <input aria-label="Preset base URL" placeholder="https://api.example.com" value={activeCollection.presets?.requestUrl ?? ''} onchange={(e) => updateCollectionPresets({ requestUrl: e.currentTarget.value })} />
               </div>
 	            {:else if collectionTab === 'proxy'}
 	              <div class="field-grid">
 	                <span class="field-label">Mode</span>
-	                <select aria-label="Collection proxy mode" value={collectionProxyMode(activeCollection.proxy)} on:change={(e) => updateCollectionProxyMode(e.currentTarget.value)}>
+	                <select aria-label="Collection proxy mode" value={collectionProxyMode(activeCollection.proxy)} onchange={(e) => updateCollectionProxyMode(e.currentTarget.value)}>
 	                  <option value="inherit">Inherit</option>
 	                  <option value="manual">Enabled</option>
 	                  <option value="off">Disabled</option>
@@ -10749,23 +10823,23 @@
 	              {#if collectionProxyMode(activeCollection.proxy) === 'manual'}
 	                <div class="field-grid">
 	                  <span class="field-label">Protocol</span>
-	                  <select aria-label="Collection proxy protocol" value={activeCollection.proxy?.protocol || 'http'} on:change={(e) => updateCollectionProxy({ protocol: e.currentTarget.value })}>
+	                  <select aria-label="Collection proxy protocol" value={activeCollection.proxy?.protocol || 'http'} onchange={(e) => updateCollectionProxy({ protocol: e.currentTarget.value })}>
 	                    <option value="http">HTTP</option>
 	                    <option value="https">HTTPS</option>
 	                    <option value="socks5">SOCKS5</option>
 	                  </select>
 	                  <span class="field-label">Host</span>
-	                  <input aria-label="Collection proxy host" value={activeCollection.proxy?.hostname ?? ''} on:input={(e) => updateCollectionProxy({ hostname: e.currentTarget.value })} />
+	                  <input aria-label="Collection proxy host" value={activeCollection.proxy?.hostname ?? ''} oninput={(e) => updateCollectionProxy({ hostname: e.currentTarget.value })} />
 	                  <span class="field-label">Port</span>
-	                  <input aria-label="Collection proxy port" value={activeCollection.proxy?.port ?? ''} on:input={(e) => updateCollectionProxy({ port: e.currentTarget.value })} />
+	                  <input aria-label="Collection proxy port" value={activeCollection.proxy?.port ?? ''} oninput={(e) => updateCollectionProxy({ port: e.currentTarget.value })} />
 	                  <span class="field-label">Bypass</span>
-	                  <input aria-label="Collection proxy bypass" value={activeCollection.proxy?.bypassProxy ?? ''} on:input={(e) => updateCollectionProxy({ bypassProxy: e.currentTarget.value })} />
+	                  <input aria-label="Collection proxy bypass" value={activeCollection.proxy?.bypassProxy ?? ''} oninput={(e) => updateCollectionProxy({ bypassProxy: e.currentTarget.value })} />
 	                  <span class="field-label">Auth enabled</span>
-	                  <input aria-label="Collection proxy auth enabled" type="checkbox" checked={!(activeCollection.proxy?.auth?.disabled ?? false)} on:change={(e) => updateCollectionProxyAuth({ disabled: !e.currentTarget.checked })} />
+	                  <input aria-label="Collection proxy auth enabled" type="checkbox" checked={!(activeCollection.proxy?.auth?.disabled ?? false)} onchange={(e) => updateCollectionProxyAuth({ disabled: !e.currentTarget.checked })} />
 	                  <span class="field-label">Username</span>
-	                  <input aria-label="Collection proxy username" value={activeCollection.proxy?.auth?.username ?? ''} on:input={(e) => updateCollectionProxyAuth({ username: e.currentTarget.value })} />
+	                  <input aria-label="Collection proxy username" value={activeCollection.proxy?.auth?.username ?? ''} oninput={(e) => updateCollectionProxyAuth({ username: e.currentTarget.value })} />
 	                  <span class="field-label">Password</span>
-	                  <input aria-label="Collection proxy password" type="password" value={activeCollection.proxy?.auth?.password ?? ''} on:input={(e) => updateCollectionProxyAuth({ password: e.currentTarget.value })} />
+	                  <input aria-label="Collection proxy password" type="password" value={activeCollection.proxy?.auth?.password ?? ''} oninput={(e) => updateCollectionProxyAuth({ password: e.currentTarget.value })} />
 	                </div>
 	              {/if}
             {:else if collectionTab === 'clientCert'}
@@ -10785,29 +10859,29 @@
                   <tbody>
                     {#each activeCollection.clientCertificates ?? [] as certificate, index (index)}
                       <tr>
-                        <td><input aria-label="Client certificate domain" placeholder="example.org" value={certificate.domain ?? ''} on:input={(e) => updateCollectionClientCertificate(index, 'domain', e.currentTarget.value)} /></td>
+                        <td><input aria-label="Client certificate domain" placeholder="example.org" value={certificate.domain ?? ''} oninput={(e) => updateCollectionClientCertificate(index, 'domain', e.currentTarget.value)} /></td>
                         <td>
-                          <select value={certificate.type || 'cert'} on:change={(e) => updateCollectionClientCertificate(index, 'type', e.currentTarget.value)}>
+                          <select value={certificate.type || 'cert'} onchange={(e) => updateCollectionClientCertificate(index, 'type', e.currentTarget.value)}>
                             <option value="cert">Cert</option>
                             <option value="pfx">PFX</option>
                           </select>
                         </td>
-                        <td><input aria-label="Client certificate cert file" disabled={(certificate.type || 'cert') === 'pfx'} value={certificate.certFilePath ?? ''} on:input={(e) => updateCollectionClientCertificate(index, 'certFilePath', e.currentTarget.value)} /></td>
-                        <td><input aria-label="Client certificate key file" disabled={(certificate.type || 'cert') === 'pfx'} value={certificate.keyFilePath ?? ''} on:input={(e) => updateCollectionClientCertificate(index, 'keyFilePath', e.currentTarget.value)} /></td>
-                        <td><input aria-label="Client certificate pfx file" disabled={(certificate.type || 'cert') !== 'pfx'} value={certificate.pfxFilePath ?? ''} on:input={(e) => updateCollectionClientCertificate(index, 'pfxFilePath', e.currentTarget.value)} /></td>
-                        <td><input aria-label="Client certificate passphrase" type="password" value={certificate.passphrase ?? ''} on:input={(e) => updateCollectionClientCertificate(index, 'passphrase', e.currentTarget.value)} /></td>
-                        <td><button on:click={() => removeCollectionClientCertificate(index)}>Remove</button></td>
+                        <td><input aria-label="Client certificate cert file" disabled={(certificate.type || 'cert') === 'pfx'} value={certificate.certFilePath ?? ''} oninput={(e) => updateCollectionClientCertificate(index, 'certFilePath', e.currentTarget.value)} /></td>
+                        <td><input aria-label="Client certificate key file" disabled={(certificate.type || 'cert') === 'pfx'} value={certificate.keyFilePath ?? ''} oninput={(e) => updateCollectionClientCertificate(index, 'keyFilePath', e.currentTarget.value)} /></td>
+                        <td><input aria-label="Client certificate pfx file" disabled={(certificate.type || 'cert') !== 'pfx'} value={certificate.pfxFilePath ?? ''} oninput={(e) => updateCollectionClientCertificate(index, 'pfxFilePath', e.currentTarget.value)} /></td>
+                        <td><input aria-label="Client certificate passphrase" type="password" value={certificate.passphrase ?? ''} oninput={(e) => updateCollectionClientCertificate(index, 'passphrase', e.currentTarget.value)} /></td>
+                        <td><button onclick={() => removeCollectionClientCertificate(index)}>Remove</button></td>
                       </tr>
                     {/each}
                   </tbody>
                 </table>
               </div>
-              <button on:click={addCollectionClientCertificate}>Add client certificate</button>
+              <button onclick={addCollectionClientCertificate}>Add client certificate</button>
             {:else if collectionTab === 'protobuf'}
               <div class="settings-stack">
                 <div class="settings-section-header">
                   <h3>Proto Files</h3>
-                  <button on:click={addCollectionProtoFile}>Add proto file</button>
+                  <button onclick={addCollectionProtoFile}>Add proto file</button>
                 </div>
                 <div class="table-scroll">
                   <table>
@@ -10822,14 +10896,14 @@
                     <tbody>
                       {#each activeCollection.protobuf?.protoFiles ?? [] as protoFile, index (protoFile.path)}
                         <tr>
-                          <td><input aria-label="Proto file path" placeholder="protos/service.proto" value={protoFile.path ?? ''} on:change={(e) => updateCollectionProtoFile(index, 'path', e.currentTarget.value)} /></td>
+                          <td><input aria-label="Proto file path" placeholder="protos/service.proto" value={protoFile.path ?? ''} onchange={(e) => updateCollectionProtoFile(index, 'path', e.currentTarget.value)} /></td>
                           <td>
-                            <select aria-label="Proto file type" value={protoFile.type || 'file'} on:change={(e) => updateCollectionProtoFile(index, 'type', e.currentTarget.value)}>
+                            <select aria-label="Proto file type" value={protoFile.type || 'file'} onchange={(e) => updateCollectionProtoFile(index, 'type', e.currentTarget.value)}>
                               <option value="file">file</option>
                             </select>
                           </td>
                           <td><span class:ok={protoFile.exists} class:bad={!protoFile.exists}>{protoFile.exists ? 'Found' : 'Missing'}</span></td>
-                          <td><button on:click={() => removeCollectionProtoFile(index)}>Remove</button></td>
+                          <td><button onclick={() => removeCollectionProtoFile(index)}>Remove</button></td>
                         </tr>
                       {/each}
                     </tbody>
@@ -10841,7 +10915,7 @@
 
                 <div class="settings-section-header">
                   <h3>Import Paths</h3>
-                  <button on:click={addCollectionProtoImportPath}>Add import path</button>
+                  <button onclick={addCollectionProtoImportPath}>Add import path</button>
                 </div>
                 <div class="table-scroll">
                   <table>
@@ -10856,10 +10930,10 @@
                     <tbody>
                       {#each activeCollection.protobuf?.importPaths ?? [] as importPath, index (importPath.path)}
                         <tr>
-                          <td><input aria-label="Enable proto import path" type="checkbox" checked={importPath.enabled} on:change={(e) => updateCollectionProtoImportPath(index, 'enabled', e.currentTarget.checked)} /></td>
-                          <td><input aria-label="Proto import path" placeholder="protos" value={importPath.path ?? ''} on:change={(e) => updateCollectionProtoImportPath(index, 'path', e.currentTarget.value)} /></td>
+                          <td><input aria-label="Enable proto import path" type="checkbox" checked={importPath.enabled} onchange={(e) => updateCollectionProtoImportPath(index, 'enabled', e.currentTarget.checked)} /></td>
+                          <td><input aria-label="Proto import path" placeholder="protos" value={importPath.path ?? ''} onchange={(e) => updateCollectionProtoImportPath(index, 'path', e.currentTarget.value)} /></td>
                           <td><span class:ok={importPath.exists} class:bad={!importPath.exists}>{importPath.exists ? 'Found' : 'Missing'}</span></td>
-                          <td><button on:click={() => removeCollectionProtoImportPath(index)}>Remove</button></td>
+                          <td><button onclick={() => removeCollectionProtoImportPath(index)}>Remove</button></td>
                         </tr>
                       {/each}
                     </tbody>
@@ -10871,11 +10945,11 @@
               </div>
             {:else if collectionTab === 'script'}
               <span class="field-label">Pre-request</span>
-              <textarea class="short" spellcheck="false" value={activeCollection.preScript} on:change={(e) => updateCollectionScript('preScript', e.currentTarget.value)}></textarea>
+              <textarea class="short" spellcheck="false" value={activeCollection.preScript} onchange={(e) => updateCollectionScript('preScript', e.currentTarget.value)}></textarea>
               <span class="field-label">Post-response</span>
-              <textarea class="short" spellcheck="false" value={activeCollection.postScript} on:change={(e) => updateCollectionScript('postScript', e.currentTarget.value)}></textarea>
+              <textarea class="short" spellcheck="false" value={activeCollection.postScript} onchange={(e) => updateCollectionScript('postScript', e.currentTarget.value)}></textarea>
             {:else if collectionTab === 'tests'}
-              <textarea spellcheck="false" value={activeCollection.tests} on:change={(e) => updateCollectionScript('tests', e.currentTarget.value)}></textarea>
+              <textarea spellcheck="false" value={activeCollection.tests} onchange={(e) => updateCollectionScript('tests', e.currentTarget.value)}></textarea>
             {/if}
           </div>
         </section>
@@ -10886,7 +10960,7 @@
               <h2 id="git-workbench-title" tabindex="-1" bind:this={gitWorkbenchHeading}>Git Workbench</h2>
               <p class="panel-subtitle">Safe, collection-scoped Git actions for {activeCollection?.name ?? 'the active collection'}.</p>
             </div>
-            <button type="button" on:click={() => refreshGitWorkbench()} disabled={gitWorkbenchLoading || gitWorkbenchBusy !== ''}>Refresh</button>
+            <button type="button" onclick={() => refreshGitWorkbench()} disabled={gitWorkbenchLoading || gitWorkbenchBusy !== ''}>Refresh</button>
           </header>
 
           <div class="git-workbench-feedback" aria-live="polite" aria-atomic="true">
@@ -10904,7 +10978,7 @@
             <div class="git-workbench-empty">
               <h3>Initialize this collection</h3>
               <p>This creates only local Git metadata. It does not stage, commit, or share any files.</p>
-              <button class="primary" type="button" on:click={initializeGitWorkbench} disabled={gitWorkbenchBusy !== ''}>Initialize Git</button>
+              <button class="primary" type="button" onclick={initializeGitWorkbench} disabled={gitWorkbenchBusy !== ''}>Initialize Git</button>
             </div>
           {:else if gitWorkbenchSnapshot}
             <div class="git-summary" aria-label="Repository summary">
@@ -10919,10 +10993,10 @@
               <div class="git-section-heading">
                 <div><h3 id="git-files-title">Changes</h3><p>{gitWorkbenchSelectedPaths.length} selected · only active collection files are shown.</p></div>
                 <div class="button-row compact">
-                  <button type="button" on:click={() => viewGitWorkbenchDiff(false)} disabled={gitWorkbenchBusy !== '' || gitWorkbenchSelectedPaths.length !== 1}>View unstaged diff</button>
-                  <button type="button" on:click={() => viewGitWorkbenchDiff(true)} disabled={gitWorkbenchBusy !== '' || gitWorkbenchSelectedPaths.length !== 1}>View staged diff</button>
-                  <button type="button" on:click={stageGitWorkbenchSelection} disabled={gitWorkbenchBusy !== '' || !canStageGitSelection(gitWorkbenchSelectedPaths, gitWorkbenchSnapshot.files ?? [])}>Stage selected</button>
-                  <button type="button" on:click={unstageGitWorkbenchSelection} disabled={gitWorkbenchBusy !== '' || !canUnstageGitSelection(gitWorkbenchSelectedPaths, gitWorkbenchSnapshot.files ?? [])}>Unstage selected</button>
+                  <button type="button" onclick={() => viewGitWorkbenchDiff(false)} disabled={gitWorkbenchBusy !== '' || gitWorkbenchSelectedPaths.length !== 1}>View unstaged diff</button>
+                  <button type="button" onclick={() => viewGitWorkbenchDiff(true)} disabled={gitWorkbenchBusy !== '' || gitWorkbenchSelectedPaths.length !== 1}>View staged diff</button>
+                  <button type="button" onclick={stageGitWorkbenchSelection} disabled={gitWorkbenchBusy !== '' || !canStageGitSelection(gitWorkbenchSelectedPaths, gitWorkbenchSnapshot.files ?? [])}>Stage selected</button>
+                  <button type="button" onclick={unstageGitWorkbenchSelection} disabled={gitWorkbenchBusy !== '' || !canUnstageGitSelection(gitWorkbenchSelectedPaths, gitWorkbenchSnapshot.files ?? [])}>Unstage selected</button>
                 </div>
               </div>
               {#if (gitWorkbenchSnapshot.files ?? []).length}
@@ -10930,7 +11004,7 @@
                   <div class="git-file-row git-file-header" role="row"><span role="columnheader">Select</span><span role="columnheader">File</span><span role="columnheader">Status</span></div>
                   {#each gitWorkbenchSnapshot.files ?? [] as file (file.path)}
                     <div class="git-file-row" class:selected={gitWorkbenchSelectedPaths.includes(file.path)} role="row">
-                      <span role="cell"><input type="checkbox" aria-label={`Select ${file.path}`} checked={gitWorkbenchSelectedPaths.includes(file.path)} on:change={(event) => toggleGitWorkbenchPath(file.path, event.currentTarget.checked)} /></span>
+                      <span role="cell"><input type="checkbox" aria-label={`Select ${file.path}`} checked={gitWorkbenchSelectedPaths.includes(file.path)} onchange={(event) => toggleGitWorkbenchPath(file.path, event.currentTarget.checked)} /></span>
                       <span role="cell"><code>{file.path}</code></span>
                       <span class="git-file-badges" role="cell">
                         {#if file.conflicted}<span class="git-badge conflict">Conflict</span>{/if}
@@ -10947,7 +11021,7 @@
               {/if}
               {#if gitWorkbenchDiff}
                 <article class="git-diff-viewer" aria-label={`Git diff ${gitWorkbenchDiff.path}`}>
-                  <header><strong>{gitWorkbenchDiff.staged ? 'Staged' : 'Unstaged'} diff · {gitWorkbenchDiff.path}</strong><button type="button" on:click={() => (gitWorkbenchDiff = undefined)}>Close diff</button></header>
+                  <header><strong>{gitWorkbenchDiff.staged ? 'Staged' : 'Unstaged'} diff · {gitWorkbenchDiff.path}</strong><button type="button" onclick={() => (gitWorkbenchDiff = undefined)}>Close diff</button></header>
                   {#if gitWorkbenchDiff.binary}<p>This file is binary; Git does not provide a text diff.</p>{:else}<pre>{gitWorkbenchDiff.text || 'No text diff is available.'}</pre>{/if}
                   {#if gitWorkbenchDiff.truncated}<p class="muted">This diff is bounded for safe display and was truncated.</p>{/if}
                 </article>
@@ -10958,17 +11032,17 @@
               <section class="git-workbench-section" aria-labelledby="git-commit-title">
                 <h3 id="git-commit-title">Commit staged changes</h3>
                 <label>Message<textarea aria-label="Git commit message" bind:value={gitWorkbenchCommitMessage} placeholder="Describe this intentional change" disabled={gitWorkbenchBusy !== ''}></textarea></label>
-                <button class="primary" type="button" on:click={commitGitWorkbench} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchCommitMessage.trim()}>Commit staged</button>
+                <button class="primary" type="button" onclick={commitGitWorkbench} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchCommitMessage.trim()}>Commit staged</button>
               </section>
 
               <section class="git-workbench-section" aria-labelledby="git-branch-title">
                 <h3 id="git-branch-title">Branches</h3>
                 <label>Current or target branch<select aria-label="Git branch" bind:value={gitWorkbenchBranch} disabled={gitWorkbenchBusy !== ''}>{#each gitWorkbenchSnapshot.branches ?? [] as branch (branch)}<option value={branch}>{branch}</option>{/each}</select></label>
                 {#if !canSwitchGitBranch(gitWorkbenchSnapshot)}<p class="muted">Switching is disabled until this collection’s scoped changes and conflicts are resolved.</p>{/if}
-                <button type="button" on:click={checkoutGitWorkbenchBranch} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchBranch || !canSwitchGitBranch(gitWorkbenchSnapshot)}>Switch branch</button>
+                <button type="button" onclick={checkoutGitWorkbenchBranch} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchBranch || !canSwitchGitBranch(gitWorkbenchSnapshot)}>Switch branch</button>
                 <label>New branch<input aria-label="New Git branch" bind:value={gitWorkbenchNewBranch} placeholder="feature/name" disabled={gitWorkbenchBusy !== ''} /></label>
                 <label class="checkbox-line"><input type="checkbox" bind:checked={gitWorkbenchCheckoutNewBranch} disabled={gitWorkbenchBusy !== ''} />Switch to the new branch after creation</label>
-                <button type="button" on:click={createGitWorkbenchBranch} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchNewBranch.trim() || (gitWorkbenchCheckoutNewBranch && !canSwitchGitBranch(gitWorkbenchSnapshot))}>Create branch</button>
+                <button type="button" onclick={createGitWorkbenchBranch} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchNewBranch.trim() || (gitWorkbenchCheckoutNewBranch && !canSwitchGitBranch(gitWorkbenchSnapshot))}>Create branch</button>
               </section>
             </div>
 
@@ -10976,16 +11050,16 @@
               <div class="git-section-heading"><div><h3 id="git-remote-title">Remote sync</h3><p>Use credential-free URLs. Pull is fast-forward only; push never forces.</p></div></div>
               {#if (gitWorkbenchSnapshot.remotes ?? []).length}<div class="git-remote-list" aria-label="Configured Git remotes">{#each gitWorkbenchSnapshot.remotes ?? [] as remote (remote.name)}<span><strong>{remote.name}</strong><code>{remote.url}</code></span>{/each}</div>{/if}
               <div class="git-remote-fields">
-                <label>Name<input aria-label="Git remote name" value={gitWorkbenchRemoteName} on:input={(event) => selectGitWorkbenchRemote(event.currentTarget.value)} placeholder="origin" disabled={gitWorkbenchBusy !== ''} /></label>
+                <label>Name<input aria-label="Git remote name" value={gitWorkbenchRemoteName} oninput={(event) => selectGitWorkbenchRemote(event.currentTarget.value)} placeholder="origin" disabled={gitWorkbenchBusy !== ''} /></label>
                 <label>Credential-free URL<input aria-label="Git remote URL" bind:value={gitWorkbenchRemoteURL} placeholder="https://host/org/repository.git or file:///…" disabled={gitWorkbenchBusy !== ''} /></label>
                 <label>Branch<input aria-label="Git remote branch" bind:value={gitWorkbenchRemoteBranch} placeholder={gitWorkbenchSnapshot.branch || 'main'} disabled={gitWorkbenchBusy !== ''} /></label>
               </div>
               <div class="button-row compact">
-                <button type="button" on:click={setGitWorkbenchRemote} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchRemoteName.trim() || !gitWorkbenchRemoteURL.trim()}>Set / update remote</button>
-                <button type="button" on:click={fetchGitWorkbench} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchRemoteName.trim()}>Fetch</button>
-                <button type="button" on:click={pullGitWorkbench} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchRemoteName.trim() || !gitWorkbenchRemoteBranch.trim()}>Pull ff-only</button>
+                <button type="button" onclick={setGitWorkbenchRemote} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchRemoteName.trim() || !gitWorkbenchRemoteURL.trim()}>Set / update remote</button>
+                <button type="button" onclick={fetchGitWorkbench} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchRemoteName.trim()}>Fetch</button>
+                <button type="button" onclick={pullGitWorkbench} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchRemoteName.trim() || !gitWorkbenchRemoteBranch.trim()}>Pull ff-only</button>
                 <label class="checkbox-line"><input type="checkbox" bind:checked={gitWorkbenchSetUpstream} disabled={gitWorkbenchBusy !== ''} />Set upstream</label>
-                <button class="primary" type="button" on:click={pushGitWorkbench} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchRemoteName.trim() || !gitWorkbenchRemoteBranch.trim() || !canPushGitBranch(gitWorkbenchSnapshot.upstream, gitWorkbenchRemoteName.trim(), gitWorkbenchRemoteBranch.trim(), gitWorkbenchSetUpstream)}>Push</button>
+                <button class="primary" type="button" onclick={pushGitWorkbench} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchRemoteName.trim() || !gitWorkbenchRemoteBranch.trim() || !canPushGitBranch(gitWorkbenchSnapshot.upstream, gitWorkbenchRemoteName.trim(), gitWorkbenchRemoteBranch.trim(), gitWorkbenchSetUpstream)}>Push</button>
               </div>
               {#if !canPushGitBranch(gitWorkbenchSnapshot.upstream, gitWorkbenchRemoteName.trim(), gitWorkbenchRemoteBranch.trim(), gitWorkbenchSetUpstream)}<p class="muted">Push is disabled until this exact remote/branch is upstream, or you explicitly choose Set upstream.</p>{/if}
             </section>
@@ -10993,8 +11067,8 @@
         </section>
       {:else if activeView === 'runner'}
         {#await import('./lib/views/RunnerPanel.svelte') then RunnerPanel}
-          <svelte:component
-            this={RunnerPanel.default}
+          {@const RunnerPanelComponent = RunnerPanel.default}
+          <RunnerPanelComponent
             bind:runnerDelayMs
             bind:runnerBailOnFailure
             bind:runnerIterations
@@ -11024,11 +11098,11 @@
             <h2>Environments</h2>
             <div class="split">
               <input aria-label="Global environment name" bind:value={globalEnvironmentName} />
-              <button on:click={createGlobalEnvironment}>Create global</button>
+              <button onclick={createGlobalEnvironment}>Create global</button>
             </div>
             <div class="split">
               <input aria-label="Collection environment name" bind:value={environmentName} />
-              <button on:click={createEnvironment}>Create</button>
+              <button onclick={createEnvironment}>Create</button>
             </div>
           </header>
           <div class="env-grid">
@@ -11037,16 +11111,16 @@
               {#if selectedGlobalEnvironment && activeWorkspace}
                 <div class="field-grid">
                   <span class="field-label">Active</span>
-                  <select aria-label="Active global environment" value={activeWorkspace.activeGlobalEnvironmentId ?? ''} on:change={(e) => setActiveGlobalEnvironment(e.currentTarget.value)}>
+                  <select aria-label="Active global environment" value={activeWorkspace.activeGlobalEnvironmentId ?? ''} onchange={(e) => setActiveGlobalEnvironment(e.currentTarget.value)}>
                     <option value="">No global environment</option>
                     {#each activeWorkspace.globalEnvironments ?? [] as env (env.id)}
                       <option value={env.id}>{env.name}</option>
                     {/each}
                   </select>
                   <span class="field-label">Name</span>
-                  <input aria-label="Global environment editor name" value={selectedGlobalEnvironment.name} on:input={(e) => updateGlobalEnvironmentMetadata('name', e.currentTarget.value)} />
+                  <input aria-label="Global environment editor name" value={selectedGlobalEnvironment.name} oninput={(e) => updateGlobalEnvironmentMetadata('name', e.currentTarget.value)} />
                   <span class="field-label">Color</span>
-                  <input aria-label="Global environment color" type="color" value={selectedGlobalEnvironment.color || '#2f8cff'} on:input={(e) => updateGlobalEnvironmentMetadata('color', e.currentTarget.value)} />
+                  <input aria-label="Global environment color" type="color" value={selectedGlobalEnvironment.color || '#2f8cff'} oninput={(e) => updateGlobalEnvironmentMetadata('color', e.currentTarget.value)} />
                   <span class="field-label">Copy name</span>
                   <input aria-label="Global environment copy name" placeholder={`${selectedGlobalEnvironment.name} - Copy`} bind:value={globalEnvironmentCopyName} />
                   <span class="field-label">Export format</span>
@@ -11066,13 +11140,13 @@
                 </div>
                 <nav class="subtabs compact" aria-label="Global environment variable tabs">
                   {#each environmentVariableTabs as tab (tab.id)}
-                    <button type="button" class:active={globalEnvironmentVariableTab === tab.id} on:click={() => (globalEnvironmentVariableTab = tab.id)}>{tab.label}</button>
+                    <button type="button" class:active={globalEnvironmentVariableTab === tab.id} onclick={() => (globalEnvironmentVariableTab = tab.id)}>{tab.label}</button>
                   {/each}
                 </nav>
                 <div class="search-box env-search">
                   <input aria-label="Search global environment variables" placeholder="Search variables" bind:value={globalEnvironmentVariableSearch} />
                   {#if globalEnvironmentVariableSearch}
-                    <button class="icon-button ghost" title="Clear global environment variable search" on:click={() => (globalEnvironmentVariableSearch = '')}>x</button>
+                    <button class="icon-button ghost" title="Clear global environment variable search" onclick={() => (globalEnvironmentVariableSearch = '')}>x</button>
                   {/if}
                 </div>
                 {#if visibleGlobalEnvironmentRows.length > 0}
@@ -11081,19 +11155,19 @@
                     <tbody>
                       {#each visibleGlobalEnvironmentRows as row (row.variable.id)}
                         <tr>
-                          <td><input type="checkbox" checked={row.variable.enabled} on:change={(e) => updateGlobalEnvironmentVariable(row.index, 'enabled', e.currentTarget.checked)} /></td>
-                          <td><input aria-label="Global environment variable name" value={row.variable.name} on:input={(e) => updateGlobalEnvironmentVariable(row.index, 'name', e.currentTarget.value)} /></td>
-                          <td><input aria-label="Global environment variable value" value={String(row.variable.value ?? '')} on:input={(e) => updateGlobalEnvironmentVariable(row.index, 'value', e.currentTarget.value)} /></td>
+                          <td><input type="checkbox" checked={row.variable.enabled} onchange={(e) => updateGlobalEnvironmentVariable(row.index, 'enabled', e.currentTarget.checked)} /></td>
+                          <td><input aria-label="Global environment variable name" value={row.variable.name} oninput={(e) => updateGlobalEnvironmentVariable(row.index, 'name', e.currentTarget.value)} /></td>
+                          <td><input aria-label="Global environment variable value" value={String(row.variable.value ?? '')} oninput={(e) => updateGlobalEnvironmentVariable(row.index, 'value', e.currentTarget.value)} /></td>
                           <td>
-                            <select aria-label="Global environment variable type" value={row.variable.dataType || row.variable.type || 'string'} on:change={(e) => updateGlobalEnvironmentVariable(row.index, 'dataType', e.currentTarget.value)}>
+                            <select aria-label="Global environment variable type" value={row.variable.dataType || row.variable.type || 'string'} onchange={(e) => updateGlobalEnvironmentVariable(row.index, 'dataType', e.currentTarget.value)}>
                               <option value="string">string</option>
                               <option value="number">number</option>
                               <option value="boolean">boolean</option>
                               <option value="object">object</option>
                             </select>
                           </td>
-                          <td><input aria-label="Global environment variable secret" type="checkbox" checked={row.variable.secret} on:change={(e) => updateGlobalEnvironmentVariable(row.index, 'secret', e.currentTarget.checked)} /></td>
-                          <td><button on:click={() => removeGlobalEnvironmentVariable(row.index)}>Remove</button></td>
+                          <td><input aria-label="Global environment variable secret" type="checkbox" checked={row.variable.secret} onchange={(e) => updateGlobalEnvironmentVariable(row.index, 'secret', e.currentTarget.checked)} /></td>
+                          <td><button onclick={() => removeGlobalEnvironmentVariable(row.index)}>Remove</button></td>
                         </tr>
                       {/each}
                     </tbody>
@@ -11102,12 +11176,12 @@
                   <div class="empty-appState">{globalEnvironmentVariableQuery ? 'No results found' : `No ${globalEnvironmentVariableTab}`}</div>
                 {/if}
                 <div class="toolbar">
-                  <button on:click={addGlobalEnvironmentVariable}>{environmentVariableAddLabel(globalEnvironmentVariableTab)}</button>
-                  <button on:click={copyGlobalEnvironment}>Copy</button>
-                  <button on:click={exportGlobalEnvironment} disabled={globalEnvironmentExportAll && globalEnvironmentExportFormat === 'single-object'}>Export</button>
-                  <button on:click={saveGlobalEnvironmentExport} disabled={globalEnvironmentExportAll && globalEnvironmentExportFormat === 'single-object'}>Save export</button>
-                  <button on:click={importGlobalEnvironment} disabled={!globalEnvironmentPayload.trim()}>Import</button>
-                  <button on:click={deleteGlobalEnvironment}>Delete global</button>
+                  <button onclick={addGlobalEnvironmentVariable}>{environmentVariableAddLabel(globalEnvironmentVariableTab)}</button>
+                  <button onclick={copyGlobalEnvironment}>Copy</button>
+                  <button onclick={exportGlobalEnvironment} disabled={globalEnvironmentExportAll && globalEnvironmentExportFormat === 'single-object'}>Export</button>
+                  <button onclick={saveGlobalEnvironmentExport} disabled={globalEnvironmentExportAll && globalEnvironmentExportFormat === 'single-object'}>Save export</button>
+                  <button onclick={importGlobalEnvironment} disabled={!globalEnvironmentPayload.trim()}>Import</button>
+                  <button onclick={deleteGlobalEnvironment}>Delete global</button>
                 </div>
                 {#if globalEnvironmentExportFilename}
                   <div class="muted">Export: {globalEnvironmentExportFilename}</div>
@@ -11127,13 +11201,13 @@
               {#if selectedEnvironment}
                 <nav class="subtabs compact" aria-label="Environment variable tabs">
                   {#each environmentVariableTabs as tab (tab.id)}
-                    <button type="button" class:active={environmentVariableTab === tab.id} on:click={() => (environmentVariableTab = tab.id)}>{tab.label}</button>
+                    <button type="button" class:active={environmentVariableTab === tab.id} onclick={() => (environmentVariableTab = tab.id)}>{tab.label}</button>
                   {/each}
                 </nav>
                 <div class="search-box env-search">
                   <input aria-label="Search environment variables" placeholder="Search variables" bind:value={environmentVariableSearch} />
                   {#if environmentVariableSearch}
-                    <button class="icon-button ghost" title="Clear environment variable search" on:click={() => (environmentVariableSearch = '')}>x</button>
+                    <button class="icon-button ghost" title="Clear environment variable search" onclick={() => (environmentVariableSearch = '')}>x</button>
                   {/if}
                 </div>
                 {#if visibleEnvironmentRows.length > 0}
@@ -11142,19 +11216,19 @@
                     <tbody>
                       {#each visibleEnvironmentRows as row (row.variable.id)}
                         <tr>
-                          <td><input type="checkbox" checked={row.variable.enabled} on:change={(e) => updateEnvironmentVariable(row.index, 'enabled', e.currentTarget.checked)} /></td>
-                          <td><input aria-label="Environment variable name" value={row.variable.name} on:input={(e) => updateEnvironmentVariable(row.index, 'name', e.currentTarget.value)} /></td>
-                          <td><input aria-label="Environment variable value" value={String(row.variable.value ?? '')} on:input={(e) => updateEnvironmentVariable(row.index, 'value', e.currentTarget.value)} /></td>
+                          <td><input type="checkbox" checked={row.variable.enabled} onchange={(e) => updateEnvironmentVariable(row.index, 'enabled', e.currentTarget.checked)} /></td>
+                          <td><input aria-label="Environment variable name" value={row.variable.name} oninput={(e) => updateEnvironmentVariable(row.index, 'name', e.currentTarget.value)} /></td>
+                          <td><input aria-label="Environment variable value" value={String(row.variable.value ?? '')} oninput={(e) => updateEnvironmentVariable(row.index, 'value', e.currentTarget.value)} /></td>
                           <td>
-                            <select aria-label="Environment variable type" value={row.variable.dataType || row.variable.type || 'string'} on:change={(e) => updateEnvironmentVariable(row.index, 'dataType', e.currentTarget.value)}>
+                            <select aria-label="Environment variable type" value={row.variable.dataType || row.variable.type || 'string'} onchange={(e) => updateEnvironmentVariable(row.index, 'dataType', e.currentTarget.value)}>
                               <option value="string">string</option>
                               <option value="number">number</option>
                               <option value="boolean">boolean</option>
                               <option value="object">object</option>
                             </select>
                           </td>
-                          <td><input aria-label="Environment variable secret" type="checkbox" checked={row.variable.secret} on:change={(e) => updateEnvironmentVariable(row.index, 'secret', e.currentTarget.checked)} /></td>
-                          <td><button on:click={() => removeEnvironmentVariable(row.index)}>Remove</button></td>
+                          <td><input aria-label="Environment variable secret" type="checkbox" checked={row.variable.secret} onchange={(e) => updateEnvironmentVariable(row.index, 'secret', e.currentTarget.checked)} /></td>
+                          <td><button onclick={() => removeEnvironmentVariable(row.index)}>Remove</button></td>
                         </tr>
                       {/each}
                     </tbody>
@@ -11162,7 +11236,7 @@
                 {:else}
                   <div class="empty-appState">{environmentVariableQuery ? 'No results found' : `No ${environmentVariableTab}`}</div>
                 {/if}
-                <button on:click={addEnvironmentVariable}>{environmentVariableAddLabel(environmentVariableTab)}</button>
+                <button onclick={addEnvironmentVariable}>{environmentVariableAddLabel(environmentVariableTab)}</button>
               {:else}
                 <div class="empty-appState">Create or select an environment</div>
               {/if}
@@ -11179,14 +11253,14 @@
                 <input aria-label=".env file name" placeholder=".env" bind:value={dotEnvName} />
               </div>
               <div class="toolbar">
-                <button on:click={newDotEnvFile}>New</button>
-                <button on:click={saveDotEnvFile}>Save</button>
-                <button on:click={() => loadDotEnvFiles(true)}>Reload</button>
-                <button on:click={deleteDotEnvFile} disabled={!selectedDotEnvFile}>Delete</button>
+                <button onclick={newDotEnvFile}>New</button>
+                <button onclick={saveDotEnvFile}>Save</button>
+                <button onclick={() => loadDotEnvFiles(true)}>Reload</button>
+                <button onclick={deleteDotEnvFile} disabled={!selectedDotEnvFile}>Delete</button>
               </div>
               <div class="tabs compact">
-                <button class:active={dotEnvEditorMode === 'table'} on:click={() => (dotEnvEditorMode = 'table')}>Table</button>
-                <button class:active={dotEnvEditorMode === 'raw'} on:click={() => (dotEnvEditorMode = 'raw')}>Raw</button>
+                <button class:active={dotEnvEditorMode === 'table'} onclick={() => (dotEnvEditorMode = 'table')}>Table</button>
+                <button class:active={dotEnvEditorMode === 'raw'} onclick={() => (dotEnvEditorMode = 'raw')}>Raw</button>
               </div>
               {#if dotEnvFiles.length > 0}
                 <table>
@@ -11195,7 +11269,7 @@
                     {#each dotEnvFiles as file (file.path)}
                       <tr class:active={dotEnvFileKey(file) === selectedDotEnvKey}>
                         <td>{file.scope}</td>
-                        <td><button on:click={() => selectDotEnvFile(file)}>{file.name}</button></td>
+                        <td><button onclick={() => selectDotEnvFile(file)}>{file.name}</button></td>
                         <td>{file.runtime ? 'yes' : ''}</td>
                       </tr>
                     {/each}
@@ -11211,9 +11285,9 @@
                     <tbody>
                       {#each dotEnvRows as row, index (index)}
                         <tr>
-                          <td><input aria-label=".env variable name" value={row.name} on:input={(e) => updateDotEnvRow(row, 'name', e.currentTarget.value)} /></td>
-                          <td><input aria-label=".env variable value" value={row.value} on:input={(e) => updateDotEnvRow(row, 'value', e.currentTarget.value)} /></td>
-                          <td><button on:click={() => removeDotEnvRow(row)}>Remove</button></td>
+                          <td><input aria-label=".env variable name" value={row.name} oninput={(e) => updateDotEnvRow(row, 'name', e.currentTarget.value)} /></td>
+                          <td><input aria-label=".env variable value" value={row.value} oninput={(e) => updateDotEnvRow(row, 'value', e.currentTarget.value)} /></td>
+                          <td><button onclick={() => removeDotEnvRow(row)}>Remove</button></td>
                         </tr>
                       {/each}
                     </tbody>
@@ -11221,9 +11295,9 @@
                 {:else}
                   <div class="empty-appState">No .env variables</div>
                 {/if}
-                <button on:click={addDotEnvRow}>Add variable</button>
+                <button onclick={addDotEnvRow}>Add variable</button>
               {:else}
-                <textarea class="short" aria-label=".env file content" spellcheck="false" bind:value={dotEnvContent} on:input={() => (dotEnvDirty = true)}></textarea>
+                <textarea class="short" aria-label=".env file content" spellcheck="false" bind:value={dotEnvContent} oninput={() => (dotEnvDirty = true)}></textarea>
               {/if}
             </article>
             <article>
@@ -11232,15 +11306,15 @@
                 <tbody>
                   {#each activeCollection?.variables ?? [] as variable, index (variable.id)}
                     <tr>
-                      <td><input type="checkbox" checked={variable.enabled} on:change={(e) => updateCollectionVariable(index, 'enabled', e.currentTarget.checked)} /></td>
-                      <td><input value={variable.name} on:change={(e) => updateCollectionVariable(index, 'name', e.currentTarget.value)} /></td>
-                      <td><input value={String(variable.value ?? '')} on:change={(e) => updateCollectionVariable(index, 'value', e.currentTarget.value)} /></td>
-                      <td><input type="checkbox" checked={variable.secret} on:change={(e) => updateCollectionVariable(index, 'secret', e.currentTarget.checked)} /></td>
+                      <td><input type="checkbox" checked={variable.enabled} onchange={(e) => updateCollectionVariable(index, 'enabled', e.currentTarget.checked)} /></td>
+                      <td><input value={variable.name} onchange={(e) => updateCollectionVariable(index, 'name', e.currentTarget.value)} /></td>
+                      <td><input value={String(variable.value ?? '')} onchange={(e) => updateCollectionVariable(index, 'value', e.currentTarget.value)} /></td>
+                      <td><input type="checkbox" checked={variable.secret} onchange={(e) => updateCollectionVariable(index, 'secret', e.currentTarget.checked)} /></td>
                     </tr>
                   {/each}
                 </tbody>
               </table>
-              <button on:click={addCollectionVariable}>Add variable</button>
+              <button onclick={addCollectionVariable}>Add variable</button>
             </article>
             <article>
               <h3>Collection Headers</h3>
@@ -11255,85 +11329,85 @@
               <h3>Collection Auth</h3>
               <div class="field-grid">
                 <span class="field-label">Mode</span>
-                <select value={activeCollection?.auth?.mode ?? 'none'} on:change={(e) => updateCollectionAuth({ mode: e.currentTarget.value })}>
+                <select value={activeCollection?.auth?.mode ?? 'none'} onchange={(e) => updateCollectionAuth({ mode: e.currentTarget.value })}>
                   {#each authModes as mode (mode)}
                     <option value={mode}>{mode}</option>
                   {/each}
                 </select>
 	                {#if activeCollection?.auth?.mode === 'basic' || activeCollection?.auth?.mode === 'digest' || activeCollection?.auth?.mode === 'wsse' || activeCollection?.auth?.mode === 'ntlm'}
                   <span class="field-label">Username</span>
-                  <input value={activeCollection.auth.username} on:change={(e) => updateCollectionAuth({ username: e.currentTarget.value })} />
+                  <input value={activeCollection.auth.username} onchange={(e) => updateCollectionAuth({ username: e.currentTarget.value })} />
                   <span class="field-label">Password</span>
-                  <input type="password" value={activeCollection.auth.password} on:change={(e) => updateCollectionAuth({ password: e.currentTarget.value })} />
+                  <input type="password" value={activeCollection.auth.password} onchange={(e) => updateCollectionAuth({ password: e.currentTarget.value })} />
                   {#if activeCollection?.auth?.mode === 'ntlm'}
                     <span class="field-label">Domain</span>
-                    <input value={activeCollection.auth.domain} on:change={(e) => updateCollectionAuth({ domain: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.domain} onchange={(e) => updateCollectionAuth({ domain: e.currentTarget.value })} />
                   {/if}
                 {:else if activeCollection?.auth?.mode === 'bearer'}
                   <span class="field-label">Token</span>
-                  <input type="password" value={activeCollection.auth.token} on:change={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
+                  <input type="password" value={activeCollection.auth.token} onchange={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
                 {:else if activeCollection?.auth?.mode === 'oauth2'}
                   <span class="field-label">Grant</span>
-                  <select value={activeCollection.auth.oauth2?.grantType || 'client_credentials'} on:change={(e) => updateCollectionOAuth2Auth({ grantType: e.currentTarget.value })}>
+                  <select value={activeCollection.auth.oauth2?.grantType || 'client_credentials'} onchange={(e) => updateCollectionOAuth2Auth({ grantType: e.currentTarget.value })}>
                     {#each oauth2GrantTypes as grant (grant)}
                       <option value={grant}>{grant}</option>
                     {/each}
                   </select>
                   {#if activeCollection.auth.oauth2?.grantType === 'authorization_code' || activeCollection.auth.oauth2?.grantType === 'implicit'}
                     <span class="field-label">Callback URL</span>
-                    <input value={activeCollection.auth.oauth2?.callbackUrl ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ callbackUrl: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.callbackUrl ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ callbackUrl: e.currentTarget.value })} />
                     <span class="field-label">Authorization URL</span>
-                    <input value={activeCollection.auth.oauth2?.authorizationUrl ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ authorizationUrl: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.authorizationUrl ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ authorizationUrl: e.currentTarget.value })} />
                   {/if}
                   <span class="field-label">Access token URL</span>
-                  <input value={activeCollection.auth.oauth2?.accessTokenUrl ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
+                  <input value={activeCollection.auth.oauth2?.accessTokenUrl ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
                   <span class="field-label">Client ID</span>
-                  <input value={activeCollection.auth.oauth2?.clientId ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ clientId: e.currentTarget.value })} />
+                  <input value={activeCollection.auth.oauth2?.clientId ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ clientId: e.currentTarget.value })} />
                   <span class="field-label">Client secret</span>
-                  <input type="password" value={activeCollection.auth.oauth2?.clientSecret ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ clientSecret: e.currentTarget.value })} />
+                  <input type="password" value={activeCollection.auth.oauth2?.clientSecret ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ clientSecret: e.currentTarget.value })} />
                   {#if activeCollection.auth.oauth2?.grantType === 'password'}
                     <span class="field-label">Username</span>
-                    <input value={activeCollection.auth.oauth2?.username ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ username: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.username ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ username: e.currentTarget.value })} />
                     <span class="field-label">Password</span>
-                    <input type="password" value={activeCollection.auth.oauth2?.password ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ password: e.currentTarget.value })} />
+                    <input type="password" value={activeCollection.auth.oauth2?.password ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ password: e.currentTarget.value })} />
                   {/if}
                   <span class="field-label">Scope</span>
-                  <input value={activeCollection.auth.oauth2?.scope ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ scope: e.currentTarget.value })} />
+                  <input value={activeCollection.auth.oauth2?.scope ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ scope: e.currentTarget.value })} />
                   {#if activeCollection.auth.oauth2?.grantType === 'authorization_code' || activeCollection.auth.oauth2?.grantType === 'implicit'}
                     <span class="field-label">State</span>
-                    <input value={activeCollection.auth.oauth2?.state ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ state: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.state ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ state: e.currentTarget.value })} />
                   {/if}
                   <span class="field-label">Credentials</span>
-                  <select value={activeCollection.auth.oauth2?.credentialsPlacement || 'basic_auth_header'} on:change={(e) => updateCollectionOAuth2Auth({ credentialsPlacement: e.currentTarget.value })}>
+                  <select value={activeCollection.auth.oauth2?.credentialsPlacement || 'basic_auth_header'} onchange={(e) => updateCollectionOAuth2Auth({ credentialsPlacement: e.currentTarget.value })}>
                     {#each oauth2CredentialPlacements as placement (placement)}
                       <option value={placement}>{placement}</option>
                     {/each}
                   </select>
                   {#if activeCollection.auth.oauth2?.grantType === 'authorization_code'}
                     <span class="field-label">PKCE</span>
-                    <input type="checkbox" checked={activeCollection.auth.oauth2?.pkce ?? false} on:change={(e) => updateCollectionOAuth2Auth({ pkce: e.currentTarget.checked })} />
+                    <input type="checkbox" checked={activeCollection.auth.oauth2?.pkce ?? false} onchange={(e) => updateCollectionOAuth2Auth({ pkce: e.currentTarget.checked })} />
                   {/if}
                   <span class="field-label">Token source</span>
-                  <select value={activeCollection.auth.oauth2?.tokenSource || 'access_token'} on:change={(e) => updateCollectionOAuth2Auth({ tokenSource: e.currentTarget.value })}>
+                  <select value={activeCollection.auth.oauth2?.tokenSource || 'access_token'} onchange={(e) => updateCollectionOAuth2Auth({ tokenSource: e.currentTarget.value })}>
                     {#each oauth2TokenSources as source (source)}
                       <option value={source}>{source}</option>
                     {/each}
                   </select>
                   <span class="field-label">Token placement</span>
-                  <select value={activeCollection.auth.oauth2?.tokenPlacement || 'header'} on:change={(e) => updateCollectionOAuth2Auth({ tokenPlacement: e.currentTarget.value })}>
+                  <select value={activeCollection.auth.oauth2?.tokenPlacement || 'header'} onchange={(e) => updateCollectionOAuth2Auth({ tokenPlacement: e.currentTarget.value })}>
                     {#each oauth2TokenPlacements as placement (placement)}
                       <option value={placement}>{placement}</option>
                     {/each}
                   </select>
                   {#if (activeCollection.auth.oauth2?.tokenPlacement || 'header') === 'header'}
                     <span class="field-label">Header prefix</span>
-                    <input value={activeCollection.auth.oauth2?.tokenHeaderPrefix || 'Bearer'} on:change={(e) => updateCollectionOAuth2Auth({ tokenHeaderPrefix: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.tokenHeaderPrefix || 'Bearer'} onchange={(e) => updateCollectionOAuth2Auth({ tokenHeaderPrefix: e.currentTarget.value })} />
                   {:else}
                     <span class="field-label">Query key</span>
-                    <input value={activeCollection.auth.oauth2?.tokenQueryKey || 'access_token'} on:change={(e) => updateCollectionOAuth2Auth({ tokenQueryKey: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.tokenQueryKey || 'access_token'} onchange={(e) => updateCollectionOAuth2Auth({ tokenQueryKey: e.currentTarget.value })} />
                   {/if}
                   <span class="field-label">Static token</span>
-                  <input type="password" value={activeCollection.auth.token} on:change={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
+                  <input type="password" value={activeCollection.auth.token} onchange={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
                   <div class="oauth2-extra-stack">
                     <OAuth2AdditionalParams
                       title="Authorization request params"
@@ -11359,64 +11433,64 @@
                   </div>
 	                {:else if activeCollection?.auth?.mode === 'apikey'}
 	                  <span class="field-label">Key</span>
-	                  <input value={activeCollection.auth.apiKey} on:change={(e) => updateCollectionAuth({ apiKey: e.currentTarget.value })} />
+	                  <input value={activeCollection.auth.apiKey} onchange={(e) => updateCollectionAuth({ apiKey: e.currentTarget.value })} />
 	                  <span class="field-label">Value</span>
-	                  <input type="password" value={activeCollection.auth.apiValue} on:change={(e) => updateCollectionAuth({ apiValue: e.currentTarget.value })} />
+	                  <input type="password" value={activeCollection.auth.apiValue} onchange={(e) => updateCollectionAuth({ apiValue: e.currentTarget.value })} />
 	                {:else if activeCollection?.auth?.mode === 'awsv4'}
 	                  <span class="field-label">Access key ID</span>
-	                  <input value={activeCollection.auth.awsv4?.accessKeyId ?? ''} on:change={(e) => updateCollectionAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
+	                  <input value={activeCollection.auth.awsv4?.accessKeyId ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
 	                  <span class="field-label">Secret access key</span>
-	                  <input type="password" value={activeCollection.auth.awsv4?.secretAccessKey ?? ''} on:change={(e) => updateCollectionAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
+	                  <input type="password" value={activeCollection.auth.awsv4?.secretAccessKey ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
 	                  <span class="field-label">Session token</span>
-	                  <input type="password" value={activeCollection.auth.awsv4?.sessionToken ?? ''} on:change={(e) => updateCollectionAWSV4Auth({ sessionToken: e.currentTarget.value })} />
+	                  <input type="password" value={activeCollection.auth.awsv4?.sessionToken ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ sessionToken: e.currentTarget.value })} />
 	                  <span class="field-label">Service</span>
-	                  <input value={activeCollection.auth.awsv4?.service ?? ''} placeholder="execute-api" on:change={(e) => updateCollectionAWSV4Auth({ service: e.currentTarget.value })} />
+	                  <input value={activeCollection.auth.awsv4?.service ?? ''} placeholder="execute-api" onchange={(e) => updateCollectionAWSV4Auth({ service: e.currentTarget.value })} />
 	                  <span class="field-label">Region</span>
-	                  <input value={activeCollection.auth.awsv4?.region ?? ''} placeholder="us-east-1" on:change={(e) => updateCollectionAWSV4Auth({ region: e.currentTarget.value })} />
+	                  <input value={activeCollection.auth.awsv4?.region ?? ''} placeholder="us-east-1" onchange={(e) => updateCollectionAWSV4Auth({ region: e.currentTarget.value })} />
 		                  <span class="field-label">Profile</span>
-		                  <input value={activeCollection.auth.awsv4?.profileName ?? ''} on:change={(e) => updateCollectionAWSV4Auth({ profileName: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.awsv4?.profileName ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ profileName: e.currentTarget.value })} />
 		                {:else if activeCollection?.auth?.mode === 'oauth1'}
 		                  <span class="field-label">Consumer key</span>
-		                  <input value={activeCollection.auth.oauth1?.consumerKey ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ consumerKey: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.consumerKey ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ consumerKey: e.currentTarget.value })} />
 		                  <span class="field-label">Consumer secret</span>
-		                  <input type="password" value={activeCollection.auth.oauth1?.consumerSecret ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
+		                  <input type="password" value={activeCollection.auth.oauth1?.consumerSecret ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
 		                  <span class="field-label">Token</span>
-		                  <input value={activeCollection.auth.oauth1?.accessToken ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ accessToken: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.accessToken ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ accessToken: e.currentTarget.value })} />
 		                  <span class="field-label">Token secret</span>
-		                  <input type="password" value={activeCollection.auth.oauth1?.accessTokenSecret ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
+		                  <input type="password" value={activeCollection.auth.oauth1?.accessTokenSecret ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
 		                  <span class="field-label">Signature</span>
-		                  <select value={activeCollection.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} on:change={(e) => updateCollectionOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
+		                  <select value={activeCollection.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} onchange={(e) => updateCollectionOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
 		                    {#each oauth1SignatureMethods as method (method)}
 		                      <option value={method}>{method}</option>
 		                    {/each}
 		                  </select>
 		                  <span class="field-label">Add params to</span>
-		                  <select value={activeCollection.auth.oauth1?.placement || 'header'} on:change={(e) => updateCollectionOAuth1Auth({ placement: e.currentTarget.value })}>
+		                  <select value={activeCollection.auth.oauth1?.placement || 'header'} onchange={(e) => updateCollectionOAuth1Auth({ placement: e.currentTarget.value })}>
 		                    {#each oauth1Placements as placement (placement)}
 		                      <option value={placement}>{placement}</option>
 		                    {/each}
 		                  </select>
 		                  <span class="field-label">Callback URL</span>
-		                  <input value={activeCollection.auth.oauth1?.callbackUrl ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ callbackUrl: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.callbackUrl ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ callbackUrl: e.currentTarget.value })} />
 		                  <span class="field-label">Verifier</span>
-		                  <input value={activeCollection.auth.oauth1?.verifier ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ verifier: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.verifier ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ verifier: e.currentTarget.value })} />
 		                  <span class="field-label">Timestamp</span>
-		                  <input value={activeCollection.auth.oauth1?.timestamp ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ timestamp: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.timestamp ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ timestamp: e.currentTarget.value })} />
 		                  <span class="field-label">Nonce</span>
-		                  <input value={activeCollection.auth.oauth1?.nonce ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ nonce: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.nonce ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ nonce: e.currentTarget.value })} />
 		                  <span class="field-label">Version</span>
-		                  <input value={activeCollection.auth.oauth1?.version ?? ''} placeholder="1.0" on:change={(e) => updateCollectionOAuth1Auth({ version: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.version ?? ''} placeholder="1.0" onchange={(e) => updateCollectionOAuth1Auth({ version: e.currentTarget.value })} />
 		                  <span class="field-label">Realm</span>
-		                  <input value={activeCollection.auth.oauth1?.realm ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ realm: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.realm ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ realm: e.currentTarget.value })} />
 		                  <span class="field-label">Private key</span>
-		                  <textarea class="short" spellcheck="false" value={activeCollection.auth.oauth1?.privateKey ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ privateKey: e.currentTarget.value })}></textarea>
+		                  <textarea class="short" spellcheck="false" value={activeCollection.auth.oauth1?.privateKey ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ privateKey: e.currentTarget.value })}></textarea>
 		                  <span class="field-label">Private key type</span>
-		                  <select value={activeCollection.auth.oauth1?.privateKeyType || 'text'} on:change={(e) => updateCollectionOAuth1Auth({ privateKeyType: e.currentTarget.value })}>
+		                  <select value={activeCollection.auth.oauth1?.privateKeyType || 'text'} onchange={(e) => updateCollectionOAuth1Auth({ privateKeyType: e.currentTarget.value })}>
 		                    <option value="text">text</option>
 		                    <option value="file">file</option>
 		                  </select>
 		                  <span class="field-label">Body hash</span>
-		                  <input type="checkbox" checked={activeCollection.auth.oauth1?.includeBodyHash ?? false} on:change={(e) => updateCollectionOAuth1Auth({ includeBodyHash: e.currentTarget.checked })} />
+		                  <input type="checkbox" checked={activeCollection.auth.oauth1?.includeBodyHash ?? false} onchange={(e) => updateCollectionOAuth1Auth({ includeBodyHash: e.currentTarget.checked })} />
 		                {/if}
               </div>
             </article>
@@ -11424,7 +11498,8 @@
         </section>
       {:else if activeView === 'import'}
         {#await import('./lib/views/ImportPanel.svelte') then ImportPanel}
-          <svelte:component this={ImportPanel.default}
+          {@const ImportPanelComponent = ImportPanel.default}
+          <ImportPanelComponent
             bind:importSourceMode
             bind:importTranslatePostmanScripts
             bind:importURL
@@ -11479,8 +11554,8 @@
         </section>
       {:else if activeView === 'history'}
         {#await import('./lib/views/HistoryPanel.svelte') then HistoryPanel}
-          <svelte:component
-            this={HistoryPanel.default}
+          {@const HistoryPanelComponent = HistoryPanel.default}
+          <HistoryPanelComponent
             entries={historyEntries}
             bind:query={historyQuery}
             bind:onlyFailures={historyOnlyFailures}
@@ -11504,7 +11579,7 @@
             </div>
             <div class="runner-summary">
               <input aria-label="Search cookies" placeholder="Search cookies" bind:value={cookieSearch} />
-              <button on:click={clearCookies} disabled={(appState.cookies?.length ?? 0) === 0 || busy !== ''}>Clear all</button>
+              <button onclick={clearCookies} disabled={(appState.cookies?.length ?? 0) === 0 || busy !== ''}>Clear all</button>
             </div>
           </header>
           <div class="cookie-manager">
@@ -11537,8 +11612,8 @@
                   <label><input type="checkbox" bind:checked={cookieForm.hostOnly} /> Host only</label>
                 </div>
                 <div class="button-row">
-                  <button class="primary" on:click={saveCookieForm} disabled={busy !== ''}>Save cookie</button>
-                  <button on:click={resetCookieForm}>Reset</button>
+                  <button class="primary" onclick={saveCookieForm} disabled={busy !== ''}>Save cookie</button>
+                  <button onclick={resetCookieForm}>Reset</button>
                 </div>
               </section>
 
@@ -11550,7 +11625,7 @@
                   <span class="field-label">Header</span>
                   <textarea class="short" aria-label="Raw Set-Cookie header" spellcheck="false" bind:value={rawCookieHeader}></textarea>
                 </div>
-                <button on:click={importRawCookie} disabled={busy !== ''}>Import header</button>
+                <button onclick={importRawCookie} disabled={busy !== ''}>Import header</button>
               </section>
             </div>
 
@@ -11567,7 +11642,7 @@
                         <h3>{group.domain}</h3>
                         <p class="panel-subtitle">{group.cookies.length} cookie{group.cookies.length === 1 ? '' : 's'}</p>
                       </div>
-                      <button on:click={() => clearDomainCookies(group.domain)} disabled={busy !== ''}>Clear domain</button>
+                      <button onclick={() => clearDomainCookies(group.domain)} disabled={busy !== ''}>Clear domain</button>
                     </header>
                     <small>{group.header}</small>
                     <table>
@@ -11582,8 +11657,8 @@
                             <td>{cookieFlags(cookie)}</td>
                             <td>
                               <div class="button-row compact">
-                                <button on:click={() => editCookie(cookie)}>Edit</button>
-                                <button class="icon-button" title="Delete cookie" on:click={() => deleteCookie(cookie.id)}>x</button>
+                                <button onclick={() => editCookie(cookie)}>Edit</button>
+                                <button class="icon-button" title="Delete cookie" onclick={() => deleteCookie(cookie.id)}>x</button>
                               </div>
                             </td>
                           </tr>
@@ -11606,8 +11681,8 @@
 	          </header>
 	          <div class="settings-stack">
           {#await import('./lib/views/preferences/AppearanceSection.svelte') then AppearanceSection}
-            <svelte:component
-              this={AppearanceSection.default}
+            {@const AppearanceSectionComponent = AppearanceSection.default}
+            <AppearanceSectionComponent
               state={appState}
               {selectedThemeMode}
               {themeModes}
@@ -11619,7 +11694,8 @@
           {/await}
 
           {#await import('./lib/views/preferences/DisplaySection.svelte') then DisplaySection}
-            <svelte:component this={DisplaySection.default}
+            {@const DisplaySectionComponent = DisplaySection.default}
+            <DisplaySectionComponent
               {appZoomPercentage}
               {zoomPercentages}
               {zoomDefaultPercentage}
@@ -11633,7 +11709,8 @@
           {/await}
 
           {#await import('./lib/views/preferences/GeneralSection.svelte') then GeneralSection}
-            <svelte:component this={GeneralSection.default}
+            {@const GeneralSectionComponent = GeneralSection.default}
+            <GeneralSectionComponent
               state={appState}
               {customCaFileName}
               {browseDefaultLocation}
@@ -11646,14 +11723,16 @@
           {/await}
 	
           {#await import('./lib/views/preferences/OAuth2Section.svelte') then OAuth2Section}
-            <svelte:component this={OAuth2Section.default}
+            {@const OAuth2SectionComponent = OAuth2Section.default}
+            <OAuth2SectionComponent
               state={appState}
               {updateAppearancePreferences}
             />
           {/await}
 	
           {#await import('./lib/views/preferences/KeybindingsSection.svelte') then KeybindingsSection}
-            <svelte:component this={KeybindingsSection.default}
+            {@const KeybindingsSectionComponent = KeybindingsSection.default}
+            <KeybindingsSectionComponent
               state={appState}
               {keyBindingSections}
               keyBindingPreset={activeKeyBindingPreset}
@@ -11677,7 +11756,8 @@
           {/await}
 
           {#await import('./lib/views/preferences/ProxySection.svelte') then ProxySection}
-            <svelte:component this={ProxySection.default}
+            {@const ProxySectionComponent = ProxySection.default}
+            <ProxySectionComponent
               state={appState}
               {preferencesProxyMode}
               {updatePreferencesProxy}
@@ -11688,7 +11768,8 @@
           {/await}
 
           {#await import('./lib/views/preferences/CacheSection.svelte') then CacheSection}
-            <svelte:component this={CacheSection.default}
+            {@const CacheSectionComponent = CacheSection.default}
+            <CacheSectionComponent
               state={appState}
               {fileCacheSize}
               {formatRuntimeBytes}
@@ -11708,7 +11789,7 @@
             <div class="runner-summary">
               <span>{doneFeatures}/{totalFeatures} done</span>
               <span>{partialFeatures} partial</span>
-              <button on:click={resetDemoData}>Reset demo data</button>
+              <button onclick={resetDemoData}>Reset demo data</button>
             </div>
           </header>
           <div class="feature-grid">
@@ -11731,7 +11812,7 @@
             type="button"
             class="devtools-drawer-resizer"
             aria-label="Resize Dev Tools drawer"
-            on:mousedown={startDevToolsDrawerResize}
+            onmousedown={startDevToolsDrawerResize}
           ></button>
           {@render devToolsPanel()}
         </div>
@@ -11741,14 +11822,14 @@
 {:else}
   <main class="boot">
     <p>{error || 'LiteAPI could not load appState.'}</p>
-    <button on:click={load}>Retry</button>
+    <button onclick={load}>Retry</button>
   </main>
 {/if}
 
 {#if importReplaceConfirmationOpen}
   {#await import('./lib/modals/confirm/ImportReplaceModal.svelte') then ImportReplaceModal}
-    <svelte:component
-      this={ImportReplaceModal.default}
+    {@const ImportReplaceModalComponent = ImportReplaceModal.default}
+    <ImportReplaceModalComponent
       bind:importReplaceConfirmationCancelButton
       {cancelImportReplaceConfirmation}
       {confirmImportReplace}
@@ -11771,7 +11852,8 @@
 
 {#if creationOpen}
   {#await import('./lib/modals/confirm/NewRequestModal.svelte') then NewRequestModal}
-    <svelte:component this={NewRequestModal.default}
+    {@const NewRequestModalComponent = NewRequestModal.default}
+    <NewRequestModalComponent
       bind:requestName
       bind:requestType
       {activeCollection}
@@ -11783,8 +11865,8 @@
 
 {#if commandPaletteOpen}
   {#await import('./lib/modals/search/CommandPaletteModal.svelte') then CommandPaletteModal}
-    <svelte:component
-      this={CommandPaletteModal.default}
+    {@const CommandPaletteModalComponent = CommandPaletteModal.default}
+    <CommandPaletteModalComponent
       bind:commandPaletteQuery
       bind:commandPaletteActiveIndex
       bind:commandPaletteInput
@@ -11797,7 +11879,8 @@
 
 {#if globalSearchOpen}
   {#await import('./lib/modals/search/GlobalSearchModal.svelte') then GlobalSearchModal}
-    <svelte:component this={GlobalSearchModal.default}
+    {@const GlobalSearchModalComponent = GlobalSearchModal.default}
+    <GlobalSearchModalComponent
       bind:globalSearchQuery
       bind:globalSearchIndex
       bind:globalSearchInput
@@ -11811,8 +11894,8 @@
 
 {#if notificationsOpen}
   {#await import('./lib/modals/NotificationsModal.svelte') then NotificationsModal}
-    <svelte:component
-      this={NotificationsModal.default}
+    {@const NotificationsModalComponent = NotificationsModal.default}
+    <NotificationsModalComponent
       {unreadNotificationCount}
       {notificationTab}
       {visibleNotifications}
@@ -11835,8 +11918,8 @@
 
 {#if oauth2AuthorizationRequest}
   {#await import('./lib/modals/confirm/OAuth2AuthorizationModal.svelte') then OAuth2AuthorizationModal}
-    <svelte:component
-      this={OAuth2AuthorizationModal.default}
+    {@const OAuth2AuthorizationModalComponent = OAuth2AuthorizationModal.default}
+    <OAuth2AuthorizationModalComponent
       bind:oauth2CallbackURLInput
       {oauth2AuthorizationRequest}
       {oauth2FrameKey}
@@ -11850,7 +11933,8 @@
 
 {#if creatingResponseExample && activeRequest}
   {#await import('./lib/modals/confirm/CreateExampleModal.svelte') then CreateExampleModal}
-    <svelte:component this={CreateExampleModal.default}
+    {@const CreateExampleModalComponent = CreateExampleModal.default}
+    <CreateExampleModalComponent
       bind:createResponseExampleName
       bind:createResponseExampleDescription
       bind:createResponseExampleInput
@@ -11863,8 +11947,8 @@
 
 {#if showShareCollectionModal && activeCollection}
   {#await import('./lib/modals/collection/ShareCollectionModal.svelte') then ShareCollectionModal}
-    <svelte:component
-      this={ShareCollectionModal.default}
+    {@const ShareCollectionModalComponent = ShareCollectionModal.default}
+    <ShareCollectionModalComponent
       bind:shareCollectionFormat
       {shareCollectionUnsupportedTypes}
       {busy}
@@ -11876,8 +11960,8 @@
 
 {#if newFolderTarget}
   {#await import('./lib/modals/collection/NewFolderModal.svelte') then NewFolderModal}
-    <svelte:component
-      this={NewFolderModal.default}
+    {@const NewFolderModalComponent = NewFolderModal.default}
+    <NewFolderModalComponent
       bind:newFolderDirectoryDraft
       bind:newFolderDirectoryEditing
       bind:newFolderShowFilesystemName
@@ -11896,8 +11980,8 @@
 
 {#if renameFolderTarget}
   {#await import('./lib/modals/collection/RenameFolderModal.svelte') then RenameFolderModal}
-    <svelte:component
-      this={RenameFolderModal.default}
+    {@const RenameFolderModalComponent = RenameFolderModal.default}
+    <RenameFolderModalComponent
       bind:renameFolderDirectoryDraft
       bind:renameFolderDirectoryEditing
       bind:renameFolderShowFilesystemName
@@ -11916,8 +12000,8 @@
 
 {#if cloneFolderTarget}
   {#await import('./lib/modals/collection/CloneFolderModal.svelte') then CloneFolderModal}
-    <svelte:component
-      this={CloneFolderModal.default}
+    {@const CloneFolderModalComponent = CloneFolderModal.default}
+    <CloneFolderModalComponent
       bind:cloneFolderDirectoryDraft
       bind:cloneFolderDirectoryEditing
       bind:cloneFolderShowFilesystemName
@@ -11936,8 +12020,8 @@
 
 {#if renameRequestTarget}
   {#await import('./lib/modals/collection/RenameRequestModal.svelte') then RenameRequestModal}
-    <svelte:component
-      this={RenameRequestModal.default}
+    {@const RenameRequestModalComponent = RenameRequestModal.default}
+    <RenameRequestModalComponent
       bind:renameRequestFilenameDraft
       bind:renameRequestFilenameEditing
       bind:renameRequestShowFilesystemName
@@ -11957,8 +12041,8 @@
 
 {#if cloneRequestTarget}
   {#await import('./lib/modals/collection/CloneRequestModal.svelte') then CloneRequestModal}
-    <svelte:component
-      this={CloneRequestModal.default}
+    {@const CloneRequestModalComponent = CloneRequestModal.default}
+    <CloneRequestModalComponent
       bind:cloneRequestFilenameDraft
       bind:cloneRequestFilenameEditing
       bind:cloneRequestShowFilesystemName
@@ -11978,7 +12062,8 @@
 
 {#if itemInfoTarget}
   {#await import('./lib/modals/confirm/ItemInfoModal.svelte') then ItemInfoModal}
-    <svelte:component this={ItemInfoModal.default}
+    {@const ItemInfoModalComponent = ItemInfoModal.default}
+    <ItemInfoModalComponent
       {itemInfoTarget}
       {itemInfoDisplayName}
       {itemInfoFilesystemName}
@@ -11989,7 +12074,8 @@
 
 {#if deleteRequestTarget}
   {#await import('./lib/modals/confirm/DeleteRequestModal.svelte') then DeleteRequestModal}
-    <svelte:component this={DeleteRequestModal.default}
+    {@const DeleteRequestModalComponent = DeleteRequestModal.default}
+    <DeleteRequestModalComponent
       {deleteRequestTarget}
       {busy}
       {confirmDeleteRequest}
@@ -12000,7 +12086,8 @@
 
 {#if deleteFolderTarget}
   {#await import('./lib/modals/confirm/DeleteFolderModal.svelte') then DeleteFolderModal}
-    <svelte:component this={DeleteFolderModal.default}
+    {@const DeleteFolderModalComponent = DeleteFolderModal.default}
+    <DeleteFolderModalComponent
       {deleteFolderTarget}
       {busy}
       {slashPathBase}
@@ -12012,8 +12099,8 @@
 
 {#if cloneCollectionTarget}
   {#await import('./lib/modals/collection/CloneCollectionModal.svelte') then CloneCollectionModal}
-    <svelte:component
-      this={CloneCollectionModal.default}
+    {@const CloneCollectionModalComponent = CloneCollectionModal.default}
+    <CloneCollectionModalComponent
       bind:cloneCollectionFolderDraft
       bind:cloneCollectionFolderEditing
       {cloneCollectionNameDraft}
@@ -12030,8 +12117,8 @@
 
 {#if renameCollectionTarget}
   {#await import('./lib/modals/collection/RenameCollectionModal.svelte') then RenameCollectionModal}
-    <svelte:component
-      this={RenameCollectionModal.default}
+    {@const RenameCollectionModalComponent = RenameCollectionModal.default}
+    <RenameCollectionModalComponent
       bind:renameCollectionDraft
       {busy}
       {confirmRenameCollection}
@@ -12042,7 +12129,8 @@
 
 {#if removeCollectionTarget}
   {#await import('./lib/modals/confirm/RemoveCollectionModal.svelte') then RemoveCollectionModal}
-    <svelte:component this={RemoveCollectionModal.default}
+    {@const RemoveCollectionModalComponent = RemoveCollectionModal.default}
+    <RemoveCollectionModalComponent
       {removeCollectionTarget}
       {busy}
       {confirmRemoveCollection}
@@ -12053,8 +12141,8 @@
 
 	{#if showGenerateDocsModal && activeCollection}
 	  {#await import('./lib/modals/collection/GenerateDocsModal.svelte') then GenerateDocsModal}
-	    <svelte:component
-	      this={GenerateDocsModal.default}
+	    {@const GenerateDocsModalComponent = GenerateDocsModal.default}
+	    <GenerateDocsModalComponent
 	      {activeCollection}
 	      {generateDocsFolderCount}
 	      {generateDocsRequestCount}
@@ -12074,7 +12162,8 @@
 
 		{#if openAPISpecViewerOpen && openAPISpecViewerResult}
   {#await import('./lib/modals/openapi/SpecViewerModal.svelte') then SpecViewerModal}
-    <svelte:component this={SpecViewerModal.default}
+    {@const SpecViewerModalComponent = SpecViewerModal.default}
+    <SpecViewerModalComponent
       {openAPISpecViewerResult}
       {formattedOpenAPISpecContent}
       {copyOpenAPISyncSpec}
@@ -12085,8 +12174,8 @@
 
 		{#if openAPISpecDiffOpen && openAPISpecDiffResult}
 		  {#await import('./lib/modals/openapi/SpecDiffModal.svelte') then SpecDiffModal}
-		    <svelte:component
-		      this={SpecDiffModal.default}
+		    {@const SpecDiffModalComponent = SpecDiffModal.default}
+		    <SpecDiffModalComponent
 		      {openAPISpecDiffResult}
 		      {openAPISpecDiffChangeCount}
 		      {openAPISpecDiffActiveChangeIndex}
@@ -12100,7 +12189,8 @@
 
 		{#if openAPISyncSettingsOpen && activeCollection}
 		  {#await import('./lib/modals/openapi/SyncSettingsModal.svelte') then SyncSettingsModal}
-		    <svelte:component this={SyncSettingsModal.default}
+		    {@const SyncSettingsModalComponent = SyncSettingsModal.default}
+		    <SyncSettingsModalComponent
 		      bind:openAPISyncSettingsSourceURL
 		      bind:openAPISyncSettingsAutoCheck
 		      bind:openAPISyncSettingsInterval
@@ -12115,7 +12205,8 @@
 
 	{#if tabLifecycleDialog}
   {#await import('./lib/modals/confirm/UnsavedTabsModal.svelte') then UnsavedTabsModal}
-    <svelte:component this={UnsavedTabsModal.default}
+    {@const UnsavedTabsModalComponent = UnsavedTabsModal.default}
+    <UnsavedTabsModalComponent
       bind:tabLifecycleCancelButton
       {tabLifecycleDialog}
       {tabLifecycleDecisionBusy}
@@ -12128,7 +12219,8 @@
 
 	{#if promptDialog}
   {#await import('./lib/modals/confirm/PromptDialogModal.svelte') then PromptDialogModal}
-    <svelte:component this={PromptDialogModal.default}
+    {@const PromptDialogModalComponent = PromptDialogModal.default}
+    <PromptDialogModalComponent
       {promptDialog}
       {updatePromptValue}
       {submitPromptDialog}
@@ -12139,13 +12231,15 @@
 
 {#if gitNotFoundMessage}
   {#await import('./lib/modals/confirm/GitNotFoundModal.svelte') then GitNotFoundModal}
-    <svelte:component this={GitNotFoundModal.default} bind:gitNotFoundMessage />
+    {@const GitNotFoundModalComponent = GitNotFoundModal.default}
+    <GitNotFoundModalComponent bind:gitNotFoundMessage />
   {/await}
 {/if}
 
 {#if generatedGrpcurlCommand}
   {#await import('./lib/modals/codegen/GrpcurlCommandModal.svelte') then GrpcurlCommandModal}
-    <svelte:component this={GrpcurlCommandModal.default}
+    {@const GrpcurlCommandModalComponent = GrpcurlCommandModal.default}
+    <GrpcurlCommandModalComponent
       {generatedGrpcurlCommand}
       {copyGrpcurlCommand}
       {closeGrpcurlCommand}
@@ -12155,7 +12249,8 @@
 
 {#if requestCodeTarget}
   {#await import('./lib/modals/codegen/RequestCodeModal.svelte') then RequestCodeModal}
-    <svelte:component this={RequestCodeModal.default}
+    {@const RequestCodeModalComponent = RequestCodeModal.default}
+    <RequestCodeModalComponent
       {requestCodeLanguage}
       {codeGenerationTargets}
       {requestGeneratedCode}
@@ -12170,7 +12265,8 @@
   {@const generatedExample = (activeRequest.examples ?? []).find((example) => responseExampleIdentifier(example) === generatingResponseExampleID)}
   {#if generatedExample}
   {#await import('./lib/modals/codegen/ResponseExampleCodeModal.svelte') then ResponseExampleCodeModal}
-    <svelte:component this={ResponseExampleCodeModal.default}
+    {@const ResponseExampleCodeModalComponent = ResponseExampleCodeModal.default}
+    <ResponseExampleCodeModalComponent
       {generatedExample}
       {responseExampleCodeLanguage}
       {responseExampleGeneratedCode}

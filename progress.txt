@@ -2397,3 +2397,55 @@ US-029 prerequisite - rename `state` to `appState` in App.svelte. DONE.
 
   US-029 IS NOW UNBLOCKED. The pipeline in scratchpad/{derive2,effects,state}.py
   is correct as of this commit and should be re-run against this file.
+
+US-029 - Runes migration, App.svelte. DONE. Completes the runes work (027-029).
+  12,187 lines. 281 $state, 94 $derived, 30 $effect. Zero residue: no $:, no
+  on:, no svelte:component, no svelte:fragment, no export let.
+  svelte-check 205/0/0, eslint 0, npm test 197/197, vite build succeeds,
+  go test 42.4s 0.
+
+  It went through on the first pipeline run once the `state` rename landed:
+  2400 errors before the rename, 33 after. The four scanner defects recorded in
+  the earlier attempt were all genuine and all already fixed.
+
+  SEVEN THINGS THE MIGRATION SURFACED, beyond the mechanical conversion:
+
+  1. DECLARATION ORDER NOW MATTERS. Legacy `$:` statements were topologically
+     sorted by the compiler, so their position in the file was irrelevant.
+     $derived is a const and obeys the temporal dead zone. The US-032
+     virtualization derivations sat ~200 lines ABOVE devToolsNetworkRows, which
+     was fine for years and is now an error. Moved, with the reason in a
+     comment so nobody moves them back.
+
+  2. `let x = default` PLUS `$: x = expr` IS A REDECLARATION. That pairing is
+     the standard legacy idiom - declare, then let the reactive statement
+     overwrite. 13 variables had it. The default was never observable, so the
+     declaration goes.
+
+  3. A CONTINUATION CAN FOLLOW A COMMENT. activeResponseTabs was
+     `(...)` then two comment lines then `.filter(...)`. My scanner correctly
+     refuses to treat `//` as a continuation operator (that was defect 2 of the
+     earlier attempt) and so stopped early here. Fixed by hand; it is the only
+     one of 92.
+
+  4. THE SELF-REFERENTIAL FILTER NEEDS A CONTENTS GUARD. generateDocsDeselected
+     EnvIds reads and writes itself. filter returns a NEW array every pass, so
+     an unguarded effect invalidates itself on its own write and loops forever.
+     Legacy `$:` survived it because Svelte compared the reference and stopped.
+     NC2 confirms removing the guard leaves svelte-check at 0/0 - a runtime
+     loop no static check sees.
+
+  5. EFFECT-VS-DERIVATION IS INVISIBLE TO EVERY GATE. NC1: turning the
+     applyThemeToDocument effect into a $derived leaves 0 errors and 0
+     warnings. The theme would simply never apply. That is why the 30 effects
+     were classified by syntax and reviewed, not inferred.
+
+  6. UNINITIALISED DECLARATIONS need $state<T>() with no argument. 27 of them
+     were skipped by a pattern that required `= value`.
+
+  7. THE CHILD'S PROP NAME IS ITS OWN INTERFACE - already found during the
+     rename, worth repeating: {state} shorthand became {appState} and silently
+     stopped matching 8 children until svelte-check flagged them.
+
+  Bundle: initial chunk 416,846 bytes, down from 478,125 before the migration
+  (runes generate less runtime scaffolding than the legacy reactive system).
