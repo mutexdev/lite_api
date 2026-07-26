@@ -6154,3 +6154,33 @@ US-026 - Store layer. DONE. Both named collapses complete.
   because only one of them HAD tests. The way it surfaced was reading the target
   module before extracting into it, which is the same habit that caught the
   transport-wiring dependency direction two slices ago.
+
+=== RESTRUCTURE PHASE 6 — sixth slice, the request command strip ===
+
+  src/lib/workbench/commandState.ts — 124 lines, 15 tests.
+  App.svelte 11,767 -> 11,689. Frontend suite 330 -> 345.
+
+  I SAID THE PURE-LOGIC SEAM WAS "LARGELY MINED OUT" LAST SLICE. Re-scanning
+  instead of trusting that produced a 51-line function still sitting there.
+  Worth remembering: I asserted exhaustion from an impression rather than a
+  measurement, and the measurement disagreed.
+
+  TWO OF THE LABELS THIS COMPUTES ARE SECURITY POSTURE. The "TLS verify"/"TLS
+  off" cue and the proxy cue are the ONLY place the UI says how a request will
+  actually travel. A wrong label says verified when it is not, or direct when it
+  is proxied, and nothing else on screen contradicts it.
+
+  The TLS cue is AND-ed, not OR-ed: verification is on only when the request has
+  not disabled it AND the global preference has not. Either switch being off
+  means unverified traffic, so either must read "TLS off". Flipping that to OR
+  fails a test.
+
+  The proxy cue's precedence is collection-then-preference, with three distinct
+  collection states — off / manual / inherit — where "entirely unset" means
+  INHERIT rather than off. Reordering the disabled and inherit checks fails 2.
+
+  Threaded activeWorkspace?.scratchCollectionId through as a parameter rather
+  than closing over it, and left a two-line wrapper in App.svelte so the other
+  requestIsTransient call sites did not all have to change. A wrapper that
+  exists to keep a diff small is worth saying out loud rather than pretending
+  the signature was always this shape.

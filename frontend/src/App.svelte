@@ -258,6 +258,14 @@
     urlVariableSegments,
     type URLVariableSegment
   } from './lib/urlSegments'
+  import {
+    collectionProxyMode,
+    formatRuntimeBytes,
+    isProxyConfigUnset,
+    preferencesProxyMode,
+    requestCommandState as buildRequestCommandState,
+    requestIsTransient as isRequestTransient
+  } from './lib/workbench/commandState'
   import { BrowserOpenURL, EventsOn, OnFileDrop, OnFileDropOff, Quit } from '../wailsjs/runtime/runtime'
 
   type View = 'request' | 'collection' | 'git' | 'runner' | 'environments' | 'import' | 'features' | 'network' | 'cookies' | 'history' | 'preferences' | 'devtools'
@@ -1270,7 +1278,7 @@
     : undefined)
   const runnerCancelledCount = $derived(runnerCancellationCount(appState?.runner))
   const runnerCompletedCancelled = $derived(runnerCancelledCount > 0 || lastCollectionRunCancelled)
-  const requestCommand = $derived(requestCommandState(
+  const requestCommand = $derived(buildRequestCommandState(
     activeRequest,
     activeCollection,
     selectedEnvironment?.name,
@@ -1280,7 +1288,8 @@
     appState?.preferences,
     httpTransportInFlight,
     httpTransportInFlight && httpCancellationRequested,
-    backgroundHTTPTransport
+    backgroundHTTPTransport,
+    activeWorkspace?.scratchCollectionId
   ))
   const activeScriptLogs = $derived(responseScriptLogs(activeRequest?.response))
   const activeTimelineEntries = $derived(sortedTimelineEntries(activeRequest?.timeline ?? []))
@@ -2171,13 +2180,14 @@
     collapsedSidebarFolders = { ...collapsedSidebarFolders, [key]: !collapsedSidebarFolders[key] }
   }
 
+  function requestIsTransient(collection: types.Collection | undefined, item: types.RequestItem | undefined) {
+    return isRequestTransient(collection, item, activeWorkspace?.scratchCollectionId)
+  }
+
   function collectionIsScratch(collection: types.Collection | undefined) {
     return Boolean(collection?.scratch || (collection && activeWorkspace?.scratchCollectionId === collection.id))
   }
 
-  function requestIsTransient(collection: types.Collection | undefined, item: types.RequestItem | undefined) {
-    return Boolean(item?.transient || collectionIsScratch(collection))
-  }
 
   function beginRenameResponseExample(example: types.ResponseExample) {
     editingResponseExampleID = responseExampleIdentifier(example)
@@ -5825,18 +5835,6 @@
     workspaceStore.appState = await UpdateCollectionAuth(activeCollection.id, authWithOAuth2Defaults(activeCollection.auth, updates))
   }
 
-  function isProxyConfigUnset(proxy: types.ProxyConfig | undefined) {
-    if (!proxy) return true
-    return !proxy.inherit
-      && !proxy.disabled
-      && !proxy.protocol
-      && !proxy.hostname
-      && !proxy.port
-      && !proxy.bypassProxy
-      && !proxy.auth?.username
-      && !proxy.auth?.password
-      && !proxy.auth?.disabled
-  }
 
   function normalizedCollectionProxy(overrides: Partial<types.ProxyConfig> = {}) {
     const current = activeCollection?.proxy ?? ({} as types.ProxyConfig)
@@ -5859,12 +5857,6 @@
     } as types.ProxyConfig
   }
 
-  function collectionProxyMode(proxy: types.ProxyConfig | undefined) {
-    if (isProxyConfigUnset(proxy)) return 'inherit'
-    if (proxy?.disabled) return 'off'
-    if (proxy?.inherit ?? true) return 'inherit'
-    return 'manual'
-  }
 
   async function updateCollectionProxy(updates: Partial<types.ProxyConfig>) {
     if (!activeCollection) return
@@ -5927,13 +5919,6 @@
     } as types.ProxyPreferences
   }
 
-  function preferencesProxyMode(preferences: types.Preferences | undefined) {
-    const proxy = preferences?.proxy
-    if (proxy?.disabled) return 'off'
-    if (proxy?.source === 'pac') return 'pac'
-    if (proxy?.source === 'manual') return 'manual'
-    return 'inherit'
-  }
 
   function proxyModeLabel(mode: string) {
     if (mode === 'off') return 'Off'
@@ -7350,70 +7335,7 @@
     ].filter(Boolean)
   }
 
-  function formatRuntimeBytes(value: number | undefined) {
-    if (!value) return '0 B'
-    const units = ['B', 'KB', 'MB', 'GB']
-    let amount = value
-    let unitIndex = 0
-    while (amount >= 1024 && unitIndex < units.length - 1) {
-      amount /= 1024
-      unitIndex += 1
-    }
-    const precision = amount >= 10 || unitIndex === 0 ? 0 : 1
-    return `${amount.toFixed(precision)} ${units[unitIndex]}`
-  }
 
-  function requestCommandState(
-    request: types.RequestItem | undefined,
-    collection: types.Collection | undefined,
-    environmentName: string | undefined,
-    action: string,
-    webSocketConnected: boolean,
-    grpcConnected: boolean,
-    preferences: types.Preferences | undefined,
-    httpInFlight: boolean,
-    cancellationPending: boolean,
-    backgroundCancellation: RequestCommandState['backgroundCancellation']
-  ): RequestCommandState {
-    const response = request?.response
-    const status = response?.cancelled ? 'Cancelled' : response?.status ? String(response.status) : 'Idle'
-    const tone = response?.cancelled ? 'warning' : !response?.status ? 'idle' : response.status < 300 ? 'success' : response.status < 400 ? 'warning' : 'danger'
-    const transient = requestIsTransient(collection, request)
-    const collectionProxy = collectionProxyMode(collection?.proxy)
-    const preferencesProxy = preferencesProxyMode(preferences)
-    const proxyCue = collectionProxy === 'off'
-      ? 'Proxy off'
-      : collectionProxy === 'manual'
-        ? 'Proxy: collection'
-        : preferencesProxy === 'off'
-          ? 'Proxy off'
-          : preferencesProxy === 'manual'
-            ? 'Proxy: manual'
-            : preferencesProxy === 'pac'
-              ? 'Proxy: PAC'
-              : 'Proxy: system'
-    const tlsVerificationEnabled = request?.settings?.verifyTls !== false && preferences?.request?.sslVerification !== false
-    return {
-      protocol: request?.type === 'grpc' ? 'gRPC' : request?.type === 'websocket' ? 'WebSocket' : request?.type === 'graphql' ? 'GraphQL' : 'HTTP',
-      environmentName: environmentName || 'No environment',
-      saveLabel: transient ? 'Save temp' : 'Save',
-      dirty: transient || Boolean(request?.draft),
-      runningLabel: action,
-      canCancel: httpInFlight || webSocketConnected || grpcConnected,
-      cancelLabel: httpInFlight ? 'Cancel request' : request?.type === 'websocket' ? 'Disconnect' : 'Cancel stream',
-      cancelDuringBusy: httpInFlight,
-      cancellationPending,
-      backgroundCancellation,
-      transportCues: [tlsVerificationEnabled ? 'TLS verify' : 'TLS off', proxyCue],
-      response: {
-        status,
-        statusText: response?.cancelled ? 'Request cancelled' : response?.statusText || (response?.error ? 'Request failed' : 'No response yet'),
-        duration: `${response?.durationMs ?? 0} ms`,
-        size: formatRuntimeBytes(response?.size),
-        tone
-      }
-    }
-  }
 
   function requestNameForTransport(target: { collectionId: string; requestId: string }) {
     for (const workspace of appState?.workspaces ?? []) {
