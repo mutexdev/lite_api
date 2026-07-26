@@ -1878,3 +1878,61 @@ US-049 - History sidebar. DONE. Closes the history pair with US-048.
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 39.2s 0,
   svelte-check 202/0/0, eslint 0, npm test 158/158.
+
+US-038 - Test response.ts. DONE, but NOT AS WRITTEN, and the difference is the
+point.
+
+  The story says response.ts is "currently untested" and asks for Vitest +
+  @testing-library/svelte. Neither holds any more:
+
+  1. test/response.test.mts ALREADY EXISTS at 721 lines, covering all five
+     areas the story names - UTF-8 boundary slicing, Base64 quartet alignment,
+     hex dump, bounded diff, match cap. A previous session wrote it. I checked
+     before writing anything, per the US-055 lesson.
+
+  2. I did NOT add Vitest or @testing-library/svelte. response.ts is a PURE
+     MODULE with no DOM and no components; node --test covers it completely and
+     already runs 158 tests. A second runner for one pure module buys a
+     dependency tree, a config and a CI change in exchange for nothing.
+     @testing-library/svelte is for COMPONENT testing, which this file is not.
+     The toolchain in the story is means, not end - the end is "response.ts is
+     trustworthy".
+
+  WHAT WAS ACTUALLY LEFT: the existing tests documented EIGHT defects with
+  BUG: prefixes and pinned the broken behaviour instead of fixing it. Those are
+  real bugs in shipping code. Six had user-visible impact and are now fixed:
+
+    base64ByteLength dropped the final partial quartet, so unpadded Base64
+      (JWTs, many APIs) measured short and small payloads previewed as empty
+    hexPreview aligned quartets WITHOUT stripping whitespace, so line-wrapped
+      Base64 - what every MIME encoder emits - counted newlines as data, landed
+      mid-group and lost the last byte
+    a malformed filename* discarded the plain filename sitting beside it, so a
+      download that had a usable name got none. filename* is preferred by the
+      RFC, not exclusive
+    filename="" sanitised to the literal "__", a name that looks real and saves
+      a file nobody can identify
+    boundedLines reported truncated when the count merely REACHED the limit, so
+      "Showing first N lines" lied on every response landing exactly on it
+    lineDiff marked a row "changed" when one side simply had no line there. Now
+      carries change: added|removed|changed|unchanged; `changed` is retained so
+      the one consumer (ResponseInspector) is unaffected
+
+  TWO DEFECTS DELIBERATELY LEFT, still documented:
+    base64ByteLength does no alphabet validation. Every caller feeds it output
+      from Go's encoder, and scanning the payload on every preview keystroke to
+      defend against input that cannot occur is the wrong trade. Its test now
+      says so instead of implying an oversight.
+    findMatches trims the query, so a padded search term searches the trimmed
+      one. Arguably correct behaviour for a search box.
+
+  Negative controls, all six run and all six caught:
+    partial-quartet fix reverted    2 tests fail
+    hex whitespace strip reverted   1 test fails
+    filename fallback reverted      1 test fails
+    all-underscore guard reverted   1 test fails
+    truncation off-by-one reverted  2 tests fail
+    added/removed distinction gone  2 tests fail
+
+  Gates: go test 40.7s 0, svelte-check 202/0/0, eslint 0, npm test 158/158
+  (67 in response.test.mts).

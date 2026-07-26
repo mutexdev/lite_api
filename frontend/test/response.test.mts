@@ -192,20 +192,24 @@ test('base64ByteLength ignores whitespace, including line-wrapped Base64', () =>
   assert.equal(base64ByteLength(''), 0)
 })
 
-test('BUG: base64ByteLength under-reports unpadded Base64 by dropping the final partial quartet', () => {
-  // "QQ" decodes to 1 byte but is reported as 0; "QUI" decodes to 2 but is reported as 0.
-  // Harmless today because Go's base64.StdEncoding always pads, but US-009/US-010 replace the
-  // producer of this string — if the new body handle ever emits RawStdEncoding, previews of
-  // small payloads silently measure as empty. Asserted as-is; not fixed under this story.
-  assert.equal(base64ByteLength('QQ'), 0)
+test('base64ByteLength measures unpadded Base64, which is legal and common', () => {
+  // FIXED under US-038. Unpadded Base64 is legal and common (JWTs, many APIs),
+  // and flooring to whole quartets measured the final partial group as nothing —
+  // so previews of small unpadded payloads reported as empty. The remainder is
+  // 2 characters for one more byte and 3 for two.
+  assert.equal(base64ByteLength('QQ'), 1)
   assert.equal(decodeB64('QQ').length, 1)
-  assert.equal(base64ByteLength('QUI'), 0)
+  assert.equal(base64ByteLength('QUI'), 2)
   assert.equal(decodeB64('QUI').length, 2)
 })
 
 test('BUG: base64ByteLength reports a length for input that is not Base64 at all', () => {
-  // Purely positional arithmetic, no alphabet validation.
-  assert.equal(base64ByteLength('not!base64'), 6)
+  // Still purely positional arithmetic with no alphabet validation, and
+  // deliberately left that way: every caller feeds it output from Go's encoder,
+  // and validating the alphabet on every preview keystroke would cost a full
+  // scan of the payload to defend against input that cannot occur. Documented
+  // rather than fixed. The number moved with the US-038 partial-quartet fix.
+  assert.equal(base64ByteLength('not!base64'), 7)
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -333,13 +337,14 @@ test('hex view drops a trailing partial quartet instead of decoding a corrupt by
   assert.equal(parseHexRows(responseTextForView('', withStray, 'hex', ''))[0].ascii, 'ABCDEF')
 })
 
-test('BUG: hex view counts whitespace as Base64 characters when aligning quartets', () => {
-  // sliceBase64Bytes strips whitespace before aligning; the hex path does not, so its
-  // "keep complete quartets" guarantee is computed against the wrong length. Node's atob is
-  // lenient enough to recover here, but the invariant the comment claims does not hold.
-  // Only reachable if the body-handle API introduced by US-010 emits wrapped Base64.
+test('hex view strips whitespace before aligning quartets', () => {
+  // FIXED under US-038. The hex path now strips whitespace before computing
+  // quartet alignment, as sliceBase64Bytes always did. Line-wrapped Base64 —
+  // which every MIME encoder emits — previously made the arithmetic count
+  // newlines as data, so the slice landed mid-group and the last byte was lost.
   const dump = responseTextForView('', 'QUJD REVG', 'hex', '')
-  assert.equal(parseHexRows(dump)[0].ascii, 'ABCDE', 'silently loses the final byte of "ABCDEF"')
+  assert.equal(parseHexRows(dump)[0].ascii, 'ABCDEF', 'wrapped Base64 must decode to the same bytes as unwrapped')
+  assert.equal(parseHexRows(responseTextForView('', 'QUJDREVG', 'hex', ''))[0].ascii, 'ABCDEF', 'and match the unwrapped form exactly')
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -385,33 +390,38 @@ test('boundedLines honours the character limit independently of the line limit',
   assert.deepEqual(boundedLines('anything', 10, 0), { lines: [], truncated: true })
 })
 
-test('BUG: boundedLines reports truncated when the line count merely equals the limit', () => {
-  // The flag is `lines.length >= limit`, so content that fits exactly is still advertised as
-  // cut. The "Showing first N lines" affordance therefore lies on every response whose line
-  // count lands exactly on the limit. Contract should be "set iff content was dropped".
+test('boundedLines reports truncated only when content was actually left behind', () => {
+  // FIXED under US-038. The flag was `lines.length >= limit`, so content that
+  // fitted exactly was still advertised as cut and the "Showing first N lines"
+  // affordance lied on every response landing exactly on the limit. The
+  // contract is now "set iff content was left behind".
   const exactly = boundedLines('a\nb', 2)
   assert.deepEqual(exactly.lines, ['a', 'b'], 'nothing was actually dropped')
-  assert.equal(exactly.truncated, true, 'yet it claims truncation — asserted as-is, see US-038 report')
-  assert.equal(boundedLines('a\nb\nc', 3).truncated, true)
-  assert.equal(boundedLines('a\nb\nc', 4).truncated, false, 'limit+1 is the first honest answer')
+  assert.equal(exactly.truncated, false, 'and it no longer claims otherwise')
+  assert.equal(boundedLines('a\nb\nc', 3).truncated, false, 'exactly the limit is not truncation')
+  assert.equal(boundedLines('a\nb\nc', 2).truncated, true, 'a line the loop never reached is')
+  assert.equal(boundedLines('a\nb\nc', 4).truncated, false)
 })
 
 test('lineDiff pairs lines positionally and marks only differing rows as changed', () => {
   assert.deepEqual(lineDiff('a\nb', 'a\nc').rows, [
-    { left: 'a', right: 'a', changed: false },
-    { left: 'b', right: 'c', changed: true }
+    { left: 'a', right: 'a', changed: false, change: 'unchanged' },
+    { left: 'b', right: 'c', changed: true, change: 'changed' }
   ])
-  assert.deepEqual(lineDiff('same', 'same').rows, [{ left: 'same', right: 'same', changed: false }])
+  assert.deepEqual(lineDiff('same', 'same').rows, [{ left: 'same', right: 'same', changed: false, change: 'unchanged' }])
   assert.deepEqual(lineDiff('', '').rows, [])
 })
 
 test('lineDiff pads the shorter side to the longer line count', () => {
   const rows = lineDiff('a\nb\nc', 'a').rows
   assert.equal(rows.length, 3)
-  assert.deepEqual(rows[1], { left: 'b', right: '', changed: true })
-  assert.deepEqual(rows[2], { left: 'c', right: '', changed: true })
+  // US-038: a row the other side simply has no line for is `removed`/`added`,
+  // not `changed`. `changed` stays true so existing callers keep highlighting
+  // it, but the label no longer claims the line was edited.
+  assert.deepEqual(rows[1], { left: 'b', right: '', changed: true, change: 'removed' })
+  assert.deepEqual(rows[2], { left: 'c', right: '', changed: true, change: 'removed' })
   assert.equal(lineDiff('a', 'a\nb\nc').rows.length, 3)
-  assert.deepEqual(lineDiff('a', 'a\nb').rows[1], { left: '', right: 'b', changed: true })
+  assert.deepEqual(lineDiff('a', 'a\nb').rows[1], { left: '', right: 'b', changed: true, change: 'added' })
 })
 
 test('lineDiff truncation is the union of both sides at limit-1, limit and limit+1', () => {
@@ -421,16 +431,20 @@ test('lineDiff truncation is the union of both sides at limit-1, limit and limit
   assert.equal(lineDiff(three, three, 2).truncated, true)
   assert.equal(lineDiff(three, 'a', 4).truncated, false, 'short side alone must not trip the flag')
   assert.equal(lineDiff('a', three, 2).truncated, true, 'either side truncating truncates the diff')
-  // Inherits the boundedLines off-by-one above: exactly-`limit` lines still report truncated.
-  assert.equal(lineDiff(three, three, 3).truncated, true)
+  // Inherits the boundedLines fix: exactly-`limit` lines are no longer reported
+  // as truncated, because nothing was left behind.
+  assert.equal(lineDiff(three, three, 3).truncated, false)
 })
 
-test('BUG: lineDiff marks a row changed when one side simply has no line there', () => {
-  // A present-but-empty line and an absent line both render as '', so the UI shows a row with
-  // identical (blank) content highlighted as a change. Caused by comparing '' against
-  // undefined before the ?? '' defaults are applied.
+test('lineDiff distinguishes an absent line from an edited one', () => {
+  // FIXED under US-038. A present-but-empty line and an absent line both render
+  // as '', so the UI showed a row with identical blank content highlighted as a
+  // change with no way to tell why. `change` names which of the three cases it
+  // is; `changed` stays true so existing callers keep highlighting the row.
   const rows = lineDiff('a\n\n', 'a').rows
-  assert.deepEqual(rows[1], { left: '', right: '', changed: true })
+  assert.deepEqual(rows[1], { left: '', right: '', changed: true, change: 'removed' })
+  // An genuinely edited line is still reported as changed rather than removed.
+  assert.deepEqual(lineDiff('a\nb', 'a\nc').rows[1], { left: 'b', right: 'c', changed: true, change: 'changed' })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -570,20 +584,26 @@ test('contentDispositionFilename truncates to 180 characters', () => {
   assert.equal(result, 'y'.repeat(180))
 })
 
-test('BUG: a malformed filename* discards a perfectly good filename fallback', () => {
-  // "%E0%A4%A" is a truncated percent escape; decodeURIComponent throws, the catch yields '',
-  // and the `encoded ? … : quoted` ternary means the plain filename is never consulted. A
-  // download that had a usable name ends up with none.
+test('a malformed filename* falls back to the plain filename beside it', () => {
+  // FIXED under US-038. "%E0%A4%A" is a truncated percent escape, so
+  // decodeURIComponent throws; the old ternary then never consulted the plain
+  // filename sitting right beside it and a download that had a usable name got
+  // none. filename* is preferred by the RFC, not exclusive.
   const disposition = 'attachment; filename="fallback.txt"; filename*=UTF-8\'\'%E0%A4%A'
-  assert.equal(contentDispositionFilename({ 'Content-Disposition': disposition }), '')
+  assert.equal(contentDispositionFilename({ 'Content-Disposition': disposition }), 'fallback.txt')
+  // With nothing to fall back to there is still no name to offer.
   assert.equal(contentDispositionFilename({ 'Content-Disposition': "attachment; filename*=UTF-8''%E0%A4%A" }), '')
 })
 
-test('BUG: an empty quoted filename produces the literal filename "__"', () => {
-  // The quoted pattern requires one or more characters so it fails on `filename=""`; the
-  // unquoted pattern then captures the two quote characters themselves, which the sanitiser
-  // rewrites to underscores. Expected result is '' (no filename offered).
-  assert.equal(contentDispositionFilename({ 'Content-Disposition': 'attachment; filename=""' }), '__')
+test('an empty quoted filename offers no filename at all', () => {
+  // FIXED under US-038. The quoted pattern needs one or more characters so it
+  // failed on `filename=""`; the unquoted pattern then captured the two quote
+  // characters, which the sanitiser rewrote to "__" — a name that looks real
+  // and saves a file nobody can identify. A name that sanitises to nothing
+  // usable is no name.
+  assert.equal(contentDispositionFilename({ 'Content-Disposition': 'attachment; filename=""' }), '')
+  // A name that merely CONTAINS illegal characters still keeps its usable part.
+  assert.equal(contentDispositionFilename({ 'Content-Disposition': 'attachment; filename="a/b.txt"' }), 'a_b.txt')
 })
 
 test('formatResponseBody pretty-prints JSON by content type or by leading brace/bracket', () => {

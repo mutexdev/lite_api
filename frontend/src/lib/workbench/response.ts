@@ -17,7 +17,14 @@ export function base64ByteLength(value: string) {
   const compact = value.replace(/\s/g, '')
   if (!compact) return 0
   const padding = compact.endsWith('==') ? 2 : compact.endsWith('=') ? 1 : 0
-  return Math.max(0, Math.floor(compact.length / 4) * 3 - padding)
+  // US-038 fix. Unpadded Base64 is legal and common (JWTs, many APIs), and
+  // flooring to whole quartets discarded its final partial group — so a 3-byte
+  // payload encoded as "AAAA" plus a 2-character tail reported 3 bytes instead
+  // of 4. The remainder is 2 characters for one more byte and 3 for two.
+  const whole = Math.floor(compact.length / 4) * 3
+  const remainder = compact.length % 4
+  const partial = remainder === 2 ? 1 : remainder === 3 ? 2 : 0
+  return Math.max(0, whole + partial - padding)
 }
 
 /** Returns a valid Base64 prefix whose decoded payload fits the supplied byte budget. */
@@ -86,7 +93,12 @@ export function responseTextForView(body: string, bodyBase64: string, view: stri
 function hexPreview(bodyBase64: string) {
   // Callers pass either the automatic preview or an explicitly user-requested
   // full payload. Retain complete quartets so decoded byte coverage is honest.
-  const encoded = bodyBase64.slice(0, Math.floor(bodyBase64.length / 4) * 4)
+  // US-038 fix. Whitespace has to be stripped BEFORE aligning quartets:
+  // line-wrapped Base64 (which many servers and every MIME encoder emit) made
+  // the quartet arithmetic count newlines as data, so the slice landed
+  // mid-group and atob decoded a corrupt tail or threw and showed nothing.
+  const compact = bodyBase64.replace(/\s/g, '')
+  const encoded = compact.slice(0, Math.floor(compact.length / 4) * 4)
   if (!encoded) return ''
   try {
     const bytes = atob(encoded)
@@ -120,8 +132,25 @@ export function contentDispositionFilename(headers: Record<string, string> = {})
   const disposition = Object.entries(headers).find(([name]) => name.toLowerCase() === 'content-disposition')?.[1] ?? ''
   const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
   const quoted = disposition.match(/filename\s*=\s*"([^"]+)"/i)?.[1] ?? disposition.match(/filename\s*=\s*([^;\s]+)/i)?.[1]
-  let candidate = encoded ? (() => { try { return decodeURIComponent(encoded) } catch { return '' } })() : quoted ?? ''
+  // US-038 fix. A malformed filename* used to discard the plain filename
+  // fallback that sat right beside it, so a download that had a perfectly good
+  // name got none. Falling back is what the RFC intends: filename* is
+  // preferred, not exclusive.
+  const decoded = encoded
+    ? (() => {
+        try {
+          return decodeURIComponent(encoded)
+        } catch {
+          return ''
+        }
+      })()
+    : ''
+  let candidate = decoded || quoted || ''
   candidate = candidate.replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/^\.+/, '').trim()
+  // US-038 fix. Sanitising an all-illegal name produced a filename made only of
+  // underscores — `filename=""` became "__", which looks like a real name and
+  // saves a file nobody can identify. Nothing usable means no name.
+  if (!candidate.replace(/_/g, '').trim()) return ''
   return candidate.slice(0, 180)
 }
 
@@ -132,8 +161,15 @@ export function boundedLines(value: string, limit = 2400, characterLimit = fullR
   for (let index = 0; index < end && lines.length < limit; index += 1) {
     if (value[index] === '\n') { lines.push(value.slice(start, index)); start = index + 1 }
   }
-  if (start < end && lines.length < limit) lines.push(value.slice(start, end))
-  return { lines, truncated: end < value.length || lines.length >= limit }
+  const consumed = lines.length < limit && start < end
+  if (consumed) lines.push(value.slice(start, end))
+  // US-038 fix. `lines.length >= limit` reported truncation whenever the count
+  // merely REACHED the limit, so a body of exactly 2400 lines was labelled
+  // truncated while showing every one of them. Truncation means content was
+  // left behind: either characters past the budget, or a line the loop stopped
+  // before consuming.
+  const stoppedEarly = start < end && !consumed
+  return { lines, truncated: end < value.length || stoppedEarly }
 }
 
 export function lineDiff(left: string, right: string, limit = 2400) {
@@ -141,9 +177,19 @@ export function lineDiff(left: string, right: string, limit = 2400) {
   const rightLines = boundedLines(right, limit)
   const a = leftLines.lines
   const b = rightLines.lines
-  const rows: Array<{ left: string; right: string; changed: boolean }> = []
+  const rows: Array<{ left: string; right: string; changed: boolean; change: 'added' | 'removed' | 'changed' | 'unchanged' }> = []
   const count = Math.max(a.length, b.length)
-  for (let index = 0; index < count; index += 1) rows.push({ left: a[index] ?? '', right: b[index] ?? '', changed: a[index] !== b[index] })
+  for (let index = 0; index < count; index += 1) {
+    const leftLine = a[index]
+    const rightLine = b[index]
+    // US-038 fix. A row where one side simply HAS NO LINE was reported as
+    // "changed", which reads as "this line was edited" when the truth is that
+    // one document is longer. `change` distinguishes the three cases; `changed`
+    // is kept so existing callers are unaffected.
+    const change =
+      leftLine === undefined ? 'added' : rightLine === undefined ? 'removed' : leftLine === rightLine ? 'unchanged' : 'changed'
+    rows.push({ left: leftLine ?? '', right: rightLine ?? '', changed: change !== 'unchanged', change })
+  }
   return { rows, truncated: leftLines.truncated || rightLines.truncated }
 }
 
