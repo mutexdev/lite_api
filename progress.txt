@@ -6870,3 +6870,32 @@ US-026 - Store layer. DONE. Both named collapses complete.
   word "Notification", but the DESCRIPTION stops at "". An empty description is
   legitimate when the title already says everything, and inventing text there
   would put words in the notification's mouth.
+
+=== PHASE 6 — the .env parser ===
+
+  src/lib/dotEnv.ts — 13 tests. App.svelte 11,360 -> 11,342.
+  Frontend suite 471 -> 484.
+
+  These rows become the process.env values a request interpolates, so a line
+  parsed wrongly means a request sends the wrong secret, or none.
+
+  Pinned:
+    - the split is at the FIRST "=" only. Connection strings, base64 and JWTs
+      all contain them, and splitting on every one truncates the secret at its
+      first padding character. Control fails 2.
+    - a leading `export ` is stripped, but only as a whole word — a variable
+      genuinely named `exported` must not lose its first characters.
+    - lineIndex counts EVERY line including skipped ones, so writing an edit
+      back lands on the line it came from.
+    - a leading "=" is skipped: an empty variable name is not addressable.
+
+  A FIFTH VACUOUS TEST, SAME DISCOVERY ROUTE. Removing the "#" comment skip
+  failed NOTHING, because my comment fixtures ("# a comment") have no "=" and
+  the malformed-line check already drops them. The shape that discriminates is a
+  COMMENTED-OUT VARIABLE — "# TOKEN=old" — which without the rule becomes an
+  editable row named "# TOKEN". That is the common case too: people comment a
+  secret out rather than delete it. Added; the control now fails 1.
+
+  Five vacuous tests this restructure, every one found by a control reporting 0
+  and then asking what the two paths have in common. It is the single most
+  productive check I have used here — more than coverage, more than lint.

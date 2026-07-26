@@ -309,6 +309,7 @@
     notificationType,
     notificationsForDisplay
   } from './lib/notificationView'
+  import { parseDotEnvRows, type DotEnvRow } from './lib/dotEnv'
   import {
     authWithOAuth2Defaults,
     oauth2AuthWithDefaults,
@@ -393,11 +394,6 @@
     message?: string
     targetPath?: string
     at?: string
-  }
-  type DotEnvRow = {
-    lineIndex: number
-    name: string
-    value: string
   }
 	  type PromptDialogState = {
 	    prompts: string[]
@@ -3240,20 +3236,6 @@
     return `${file.scope}:${file.name}`
   }
 
-  function parseDotEnvRows(content: string): DotEnvRow[] {
-    return content.split('\n').flatMap((line, lineIndex) => {
-      const trimmed = line.trim()
-      if (!trimmed || trimmed.startsWith('#')) return []
-      const exported = trimmed.startsWith('export ') ? trimmed.slice(7).trimStart() : trimmed
-      const equalIndex = exported.indexOf('=')
-      if (equalIndex <= 0) return []
-      return [{
-        lineIndex,
-        name: exported.slice(0, equalIndex).trim(),
-        value: exported.slice(equalIndex + 1).trim()
-      }]
-    })
-  }
 
   function setDotEnvLine(lineIndex: number, name: string, value: string) {
     const lines = dotEnvContent.split('\n')
