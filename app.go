@@ -18864,7 +18864,7 @@ func newScriptRuntimeWithMeta(item RequestItem, response Response, vars map[stri
 		}
 		return goja.Undefined()
 	})
-	installPostmanScriptAPI(runtime, bruObject, scriptVars, item, meta)
+	installPostmanScriptAPI(runtime, bruObject, reqObject, resObject, scriptVars, response, item, meta)
 	return runtime, reqObject, reqState, resObject
 }
 
@@ -18880,11 +18880,21 @@ func newScriptRuntimeWithMeta(item RequestItem, response Response, vars map[stri
 // This is the core only. pm.environment / pm.collectionVariables / pm.globals
 // (US-040), pm.request / pm.response (US-041), pm.sendRequest / pm.cookies
 // (US-042) and pm.iterationData / pm.vault (US-043) land separately.
-func installPostmanScriptAPI(runtime *goja.Runtime, bruObject *goja.Object, scriptVars *scriptVariableContext, item RequestItem, meta scriptRuntimeMeta) {
+func installPostmanScriptAPI(runtime *goja.Runtime, bruObject, reqObject, resObject *goja.Object, scriptVars *scriptVariableContext, response Response, item RequestItem, meta scriptRuntimeMeta) {
 	pm := runtime.NewObject()
 	_ = pm.Set("test", runtime.Get("test"))
 	_ = pm.Set("expect", runtime.Get("expect"))
 	installPostmanVariableScopes(runtime, pm, bruObject, scriptVars)
+	installPostmanRequestAPI(runtime, pm, reqObject, item)
+	// pm.response is deliberately ABSENT during the pre-request phase, because
+	// there is no response yet. The alternative — exposing the zero Response —
+	// would answer pm.response.code with 0 and pm.response.text() with "",
+	// which reads as a server that returned nothing rather than as a script
+	// asking for something that does not exist. Left undefined, the script
+	// throws where Postman also throws.
+	if meta.TimelinePhase != "pre-request" {
+		installPostmanResponseAPI(runtime, pm, resObject, response)
+	}
 
 	info := runtime.NewObject()
 	_ = info.Set("requestName", item.Name)
@@ -43932,4 +43942,213 @@ func brunoWorkspaceEnvironmentUIDForPath(path string) string {
 		return uid
 	}
 	return uid + strings.Repeat("0", 21-len(uid))
+}
+
+// installPostmanRequestAPI exposes pm.request over the existing `req` object
+// (US-041). Every accessor delegates, so a script that mutates the request
+// through req and reads it back through pm.request sees its own change.
+func installPostmanRequestAPI(runtime *goja.Runtime, pm, reqObject *goja.Object, item RequestItem) {
+	request := runtime.NewObject()
+
+	// Postman's pm.request.url is an OBJECT, not a string: scripts routinely
+	// call pm.request.url.toString() and pm.request.url.getPath(). Exposing a
+	// bare string would satisfy toString() by accident and then fail on every
+	// other member.
+	url := runtime.NewObject()
+	_ = url.Set("toString", reqObject.Get("getUrl"))
+	_ = url.Set("getHost", reqObject.Get("getHost"))
+	_ = url.Set("getPath", reqObject.Get("getPath"))
+	_ = url.Set("getQueryString", reqObject.Get("getQueryString"))
+	_ = request.Set("url", url)
+
+	_ = request.Set("method", reqObject.Get("method"))
+	_ = request.Set("name", item.Name)
+	_ = request.Set("body", reqObject.Get("body"))
+	_ = request.Set("getHeaders", reqObject.Get("getHeaders"))
+
+	headers := runtime.NewObject()
+	_ = headers.Set("get", reqObject.Get("getHeader"))
+	_ = headers.Set("upsert", reqObject.Get("setHeader"))
+	_ = headers.Set("add", reqObject.Get("setHeader"))
+	_ = headers.Set("remove", reqObject.Get("deleteHeader"))
+	_ = headers.Set("toObject", reqObject.Get("getHeaders"))
+	// Delegated rather than reading a captured header map: req.setHeader can
+	// add a header during the pre-request script, and a snapshot taken at
+	// construction would report it missing.
+	_ = headers.Set("has", func(name string) bool {
+		fn, ok := goja.AssertFunction(reqObject.Get("getHeader"))
+		if !ok {
+			return false
+		}
+		result, err := fn(goja.Undefined(), runtime.ToValue(name))
+		return err == nil && strings.TrimSpace(result.String()) != ""
+	})
+	_ = request.Set("headers", headers)
+
+	_ = pm.Set("request", request)
+}
+
+// installPostmanResponseAPI exposes pm.response over the existing `res` object
+// (US-041), including the pm.response.to.have.* assertion chain.
+//
+// One deliberate divergence from `res`, and it is the kind that is silent if
+// got wrong: in Postman, pm.response.status is the status TEXT ("OK") and
+// pm.response.code is the NUMBER, whereas this codebase's res.status is the
+// number. Inside pm.* Postman's meaning wins, or every script copied across
+// that compares pm.response.status to "OK" is quietly always false. res.status
+// is untouched for bru scripts.
+func installPostmanResponseAPI(runtime *goja.Runtime, pm, resObject *goja.Object, response Response) {
+	responseObject := runtime.NewObject()
+	_ = responseObject.Set("code", response.Status)
+	_ = responseObject.Set("status", cleanStatusText(response.Status, response.StatusText))
+	_ = responseObject.Set("responseTime", response.DurationMs)
+	_ = responseObject.Set("responseSize", scriptResponseSize(response, scriptResponseHeaders(response.Headers))["body"])
+	_ = responseObject.Set("text", func() string { return responseCurrentBody(resObject, response) })
+	_ = responseObject.Set("json", func() goja.Value {
+		body := responseCurrentBody(resObject, response)
+		value, ok := responseJSONValue(body)
+		if !ok {
+			// Postman throws here rather than returning null, and the throw is
+			// the useful behaviour: a test that asked for JSON and got HTML
+			// should fail loudly, not compare against null and pass.
+			panic(runtime.NewGoError(errors.New("response body is not valid JSON")))
+		}
+		return runtime.ToValue(value)
+	})
+
+	headers := runtime.NewObject()
+	_ = headers.Set("get", resObject.Get("getHeader"))
+	_ = headers.Set("toObject", resObject.Get("getHeaders"))
+	_ = headers.Set("has", func(name string) bool {
+		return getHeaderValue(response.Headers, name) != ""
+	})
+	_ = responseObject.Set("headers", headers)
+
+	installPostmanResponseAssertions(runtime, responseObject, resObject, response)
+	_ = pm.Set("response", responseObject)
+}
+
+// responseCurrentBody reads the body from the live `res` object rather than the
+// captured Response, so a res.setBody() in an earlier script is visible to
+// pm.response.text(). Reading the snapshot would report the original body and
+// make the two surfaces disagree about what the response is.
+func responseCurrentBody(resObject *goja.Object, response Response) string {
+	if resObject != nil {
+		if value := resObject.Get("body"); value != nil && !goja.IsUndefined(value) && !goja.IsNull(value) {
+			return value.String()
+		}
+	}
+	return response.Body
+}
+
+// installPostmanResponseAssertions builds pm.response.to.have.* and
+// pm.response.to.be.*.
+//
+// Every failure panics with a GoError, which is what the enclosing pm.test
+// catches and records as a failed TestResult. An assertion that returned false
+// instead would let `pm.test("status is 200", () => pm.response.to.have.
+// status(200))` pass while the status was 500 — the exact silent green this
+// whole API is supposed to prevent.
+func installPostmanResponseAssertions(runtime *goja.Runtime, responseObject, resObject *goja.Object, response Response) {
+	fail := func(format string, args ...interface{}) {
+		panic(runtime.NewGoError(fmt.Errorf(format, args...)))
+	}
+
+	have := runtime.NewObject()
+	_ = have.Set("status", func(expected goja.Value) {
+		// Postman accepts either the code or the status text.
+		if expected == nil || goja.IsUndefined(expected) {
+			fail("status assertion needs an expected code or status text")
+		}
+		if number, ok := expected.Export().(int64); ok {
+			if response.Status != int(number) {
+				fail("expected response to have status %d but got %d", number, response.Status)
+			}
+			return
+		}
+		text := cleanStatusText(response.Status, response.StatusText)
+		if !strings.EqualFold(strings.TrimSpace(expected.String()), strings.TrimSpace(text)) {
+			fail("expected response to have status %q but got %q", expected.String(), text)
+		}
+	})
+	_ = have.Set("header", func(call goja.FunctionCall) goja.Value {
+		name := call.Argument(0).String()
+		actual := getHeaderValue(response.Headers, name)
+		if actual == "" {
+			fail("expected response to have header %q", name)
+		}
+		if len(call.Arguments) > 1 {
+			if expected := call.Argument(1).String(); actual != expected {
+				fail("expected header %q to be %q but got %q", name, expected, actual)
+			}
+		}
+		return goja.Undefined()
+	})
+	_ = have.Set("body", func(call goja.FunctionCall) goja.Value {
+		body := responseCurrentBody(resObject, response)
+		if len(call.Arguments) == 0 {
+			if body == "" {
+				fail("expected response to have a body")
+			}
+			return goja.Undefined()
+		}
+		if expected := call.Argument(0).String(); body != expected {
+			fail("expected body to be %q but got %q", expected, body)
+		}
+		return goja.Undefined()
+	})
+	_ = have.Set("jsonBody", func(call goja.FunctionCall) goja.Value {
+		body := responseCurrentBody(resObject, response)
+		value, ok := responseJSONValue(body)
+		if !ok {
+			fail("expected response body to be valid JSON")
+		}
+		if len(call.Arguments) == 0 {
+			return goja.Undefined()
+		}
+		// With a path, assert that path resolves; with a path and a value,
+		// assert equality at it.
+		path := call.Argument(0).String()
+		actual, found := scriptResponseJQ(value, path)
+		if !found {
+			fail("expected JSON body to have %q", path)
+		}
+		if len(call.Arguments) > 1 {
+			expected := call.Argument(1).Export()
+			if fmt.Sprintf("%v", actual) != fmt.Sprintf("%v", expected) {
+				fail("expected %q to be %v but got %v", path, expected, actual)
+			}
+		}
+		return goja.Undefined()
+	})
+
+	be := runtime.NewObject()
+	// These are PROPERTIES in Postman, not calls: `pm.response.to.be.ok`
+	// asserts on access. Defined as accessors so the assertion actually runs;
+	// a plain value would make every one of them a no-op that reads as a
+	// passing test.
+	statusClass := func(name string, low, high int) {
+		_ = be.DefineAccessorProperty(name, runtime.ToValue(func(goja.FunctionCall) goja.Value {
+			if response.Status < low || response.Status > high {
+				fail("expected response to be %s but status was %d", name, response.Status)
+			}
+			return goja.Undefined()
+		}), nil, goja.FLAG_FALSE, goja.FLAG_TRUE)
+	}
+	statusClass("ok", 200, 299)
+	statusClass("success", 200, 299)
+	statusClass("redirection", 300, 399)
+	statusClass("clientError", 400, 499)
+	statusClass("serverError", 500, 599)
+	_ = be.DefineAccessorProperty("error", runtime.ToValue(func(goja.FunctionCall) goja.Value {
+		if response.Status < 400 {
+			fail("expected response to be an error but status was %d", response.Status)
+		}
+		return goja.Undefined()
+	}), nil, goja.FLAG_FALSE, goja.FLAG_TRUE)
+
+	to := runtime.NewObject()
+	_ = to.Set("have", have)
+	_ = to.Set("be", be)
+	_ = responseObject.Set("to", to)
 }

@@ -415,3 +415,173 @@ func TestPmScopeMethodsAreAllPresent(t *testing.T) {
 		}
 	}
 }
+
+// US-041 — pm.request and pm.response.
+//
+// The assertion chain is where this story can go silently wrong. An assertion
+// that returns false instead of throwing lets
+// pm.test("status is 200", () => pm.response.to.have.status(200)) pass while
+// the status is 500 — a green test suite over a broken API. So every assertion
+// below is tested in BOTH directions: it must pass when true and it must
+// produce a FAILED TestResult when false.
+
+func TestPmRequestReflectsTheRequest(t *testing.T) {
+	app, collectionID, itemID, closeServer := scriptProbeFixture(t)
+	defer closeServer()
+
+	state := sendWithScripts(t, app, collectionID, itemID,
+		`req.setHeader("X-Added-In-Pre", "yes")`,
+		"",
+		`
+		test("method is exposed", function () {
+			expect(pm.request.method).to.equal("GET")
+		})
+		test("name is exposed", function () {
+			expect(pm.request.name).to.equal("script isolation probe")
+		})
+		test("url is an object with toString", function () {
+			expect(typeof pm.request.url).to.equal("object")
+			expect(pm.request.url.toString().indexOf("http")).to.equal(0)
+		})
+		test("url exposes host and path", function () {
+			expect(typeof pm.request.url.getHost()).to.equal("string")
+			expect(typeof pm.request.url.getPath()).to.equal("string")
+		})
+		test("headers.get sees a header added in the pre-request script", function () {
+			expect(pm.request.headers.get("X-Added-In-Pre")).to.equal("yes")
+			expect(pm.request.headers.has("X-Added-In-Pre")).to.equal(true)
+			expect(pm.request.headers.has("X-Never-Set")).to.equal(false)
+		})
+		test("getHeaders returns an object", function () {
+			expect(typeof pm.request.getHeaders()).to.equal("object")
+		})
+	`)
+
+	for _, result := range testResultsFor(t, state, collectionID, itemID) {
+		if !result.Passed {
+			t.Errorf("%s: %s", result.Name, result.Message)
+		}
+	}
+}
+
+// TestPmResponseUsesPostmanStatusSemantics. In Postman pm.response.status is
+// the status TEXT and pm.response.code is the number, while this codebase's
+// res.status is the number. Inside pm.* Postman's meaning has to win, or every
+// script copied across that compares pm.response.status to "OK" is quietly
+// always false.
+func TestPmResponseUsesPostmanStatusSemantics(t *testing.T) {
+	app, collectionID, itemID, closeServer := scriptProbeFixture(t)
+	defer closeServer()
+
+	state := sendWithScripts(t, app, collectionID, itemID, "", "", `
+		test("code is the number", function () {
+			expect(pm.response.code).to.equal(200)
+		})
+		test("status is the text, not the number", function () {
+			expect(pm.response.status).to.equal("OK")
+		})
+		test("res.status is still the number for bru scripts", function () {
+			expect(res.status).to.equal(200)
+		})
+		test("responseTime and responseSize are numbers", function () {
+			expect(typeof pm.response.responseTime).to.equal("number")
+			expect(pm.response.responseSize > 0).to.equal(true)
+		})
+		test("text and json read the body", function () {
+			expect(pm.response.text()).to.equal('{"ok":true}')
+			expect(pm.response.json().ok).to.equal(true)
+		})
+		test("headers.get works", function () {
+			expect(pm.response.headers.get("Content-Type")).to.equal("application/json")
+			expect(pm.response.headers.has("Content-Type")).to.equal(true)
+		})
+	`)
+
+	for _, result := range testResultsFor(t, state, collectionID, itemID) {
+		if !result.Passed {
+			t.Errorf("%s: %s", result.Name, result.Message)
+		}
+	}
+}
+
+func TestPmResponseAssertionsPassWhenTrue(t *testing.T) {
+	app, collectionID, itemID, closeServer := scriptProbeFixture(t)
+	defer closeServer()
+
+	state := sendWithScripts(t, app, collectionID, itemID, "", "", `
+		test("status by code", function () { pm.response.to.have.status(200) })
+		test("status by text", function () { pm.response.to.have.status("OK") })
+		test("header present", function () { pm.response.to.have.header("Content-Type") })
+		test("header value", function () { pm.response.to.have.header("Content-Type", "application/json") })
+		test("body present", function () { pm.response.to.have.body() })
+		test("body exact", function () { pm.response.to.have.body('{"ok":true}') })
+		test("json body", function () { pm.response.to.have.jsonBody() })
+		test("to.be.ok", function () { pm.response.to.be.ok })
+		test("to.be.success", function () { pm.response.to.be.success })
+	`)
+
+	for _, result := range testResultsFor(t, state, collectionID, itemID) {
+		if !result.Passed {
+			t.Errorf("%s: %s", result.Name, result.Message)
+		}
+	}
+}
+
+// TestPmResponseAssertionsFailWhenFalse is the half that matters. Each of these
+// MUST produce a failed TestResult; an assertion that quietly returned false
+// would make every one of them pass.
+func TestPmResponseAssertionsFailWhenFalse(t *testing.T) {
+	app, collectionID, itemID, closeServer := scriptProbeFixture(t)
+	defer closeServer()
+
+	state := sendWithScripts(t, app, collectionID, itemID, "", "", `
+		test("wrong status code", function () { pm.response.to.have.status(500) })
+		test("wrong status text", function () { pm.response.to.have.status("Not Found") })
+		test("missing header", function () { pm.response.to.have.header("X-Nope") })
+		test("wrong header value", function () { pm.response.to.have.header("Content-Type", "text/plain") })
+		test("wrong body", function () { pm.response.to.have.body("something else") })
+		test("missing json path", function () { pm.response.to.have.jsonBody("nope") })
+		test("to.be.clientError on a 200", function () { pm.response.to.be.clientError })
+		test("to.be.error on a 200", function () { pm.response.to.be.error })
+	`)
+
+	results := testResultsFor(t, state, collectionID, itemID)
+	if len(results) != 8 {
+		t.Fatalf("got %d results, want 8", len(results))
+	}
+	for _, result := range results {
+		if result.Passed {
+			t.Errorf("%q passed but its assertion is false — the assertion did not throw, so a broken API would report a green suite", result.Name)
+		}
+	}
+}
+
+// TestPmResponseIsAbsentDuringThePreRequestPhase. Exposing the zero Response
+// would answer pm.response.code with 0 and text() with "", which reads as a
+// server that returned nothing rather than as a script asking for something
+// that does not exist yet.
+func TestPmResponseIsAbsentDuringThePreRequestPhase(t *testing.T) {
+	app, collectionID, itemID, closeServer := scriptProbeFixture(t)
+	defer closeServer()
+
+	state := sendWithScripts(t, app, collectionID, itemID,
+		`bru.setVar("preResponseType", typeof pm.response)`,
+		"",
+		`
+		test("pm.response was undefined during the pre-request script", function () {
+			expect(bru.getVar("preResponseType")).to.equal("undefined")
+		})
+		test("pm.request was available during the pre-request script", function () {
+			expect(typeof pm.request).to.equal("object")
+		})
+		test("pm.response is present in the tests phase", function () {
+			expect(typeof pm.response).to.equal("object")
+		})
+	`)
+
+	for _, result := range testResultsFor(t, state, collectionID, itemID) {
+		if !result.Passed {
+			t.Errorf("%s: %s", result.Name, result.Message)
+		}
+	}
+}

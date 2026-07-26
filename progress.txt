@@ -1177,3 +1177,52 @@ US-040 - `pm` variable scopes. DONE.
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 37.4s 0,
   -race clean.
+
+US-041 - `pm.request` / `pm.response`. DONE.
+  Both built over the existing req/res objects by delegation, so a header added
+  by req.setHeader in the pre-request script is visible through
+  pm.request.headers.get - a snapshot taken at construction would report it
+  missing.
+
+  THE ASSERTION CHAIN IS THE RISK. pm.response.to.have.* must THROW on failure,
+  because that is what the enclosing pm.test catches and records. An assertion
+  that returned false instead would let
+    pm.test("status is 200", () => pm.response.to.have.status(200))
+  pass while the status was 500 - a green suite over a broken API, which is the
+  exact failure this whole surface exists to prevent. Every assertion is
+  therefore tested in BOTH directions: passes when true, produces a FAILED
+  TestResult when false.
+
+  to.be.ok / success / redirection / clientError / serverError / error are
+  PROPERTIES in Postman, not calls, so they are DefineAccessorProperty getters.
+  As plain values they would be no-ops that read as passing tests - the NC4
+  negative control confirmed exactly that.
+
+  One deliberate divergence from res, silent if wrong: in Postman
+  pm.response.status is the status TEXT and pm.response.code is the NUMBER,
+  while this codebase's res.status is the number. Inside pm.* Postman's meaning
+  wins, or every copied script comparing pm.response.status to "OK" is quietly
+  always false. res.status is untouched for bru scripts, and a test pins both.
+
+  pm.response is ABSENT during the pre-request phase rather than exposing the
+  zero Response. Answering pm.response.code with 0 and text() with "" reads as
+  a server that returned nothing rather than as a script asking for something
+  that does not exist yet; undefined makes the script throw where Postman
+  throws.
+
+  pm.response.json() throws on non-JSON rather than returning null: a test that
+  asked for JSON and got HTML should fail loudly, not compare against null and
+  pass.
+
+  pm.request.url is an OBJECT with toString/getHost/getPath/getQueryString,
+  matching Postman. A bare string would satisfy toString() by accident and then
+  fail on every other member.
+
+  Negative controls, all four run and all four caught:
+    assertions report, never throw   3+ false assertions reported as passed
+    status as the number             "expected 200 to equal OK"
+    pm.response during pre-request   "expected object to equal undefined"
+    to.be.* as plain values          clientError on a 200 reported as passed
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 40.5s 0,
+  -race clean.
