@@ -35,7 +35,7 @@ import (
 	"github.com/mutexdev/lite_api/internal/openapisync"
 	"github.com/mutexdev/lite_api/internal/scripting"
 	"github.com/mutexdev/lite_api/internal/store/bru"
-	"github.com/mutexdev/lite_api/internal/transport"
+	xport "github.com/mutexdev/lite_api/internal/transport"
 	"github.com/mutexdev/lite_api/internal/types"
 
 	"github.com/creack/pty"
@@ -119,7 +119,7 @@ type App struct {
 	// posture so requests reuse connections instead of cloning an empty pool
 	// per send. Its own lock is a leaf below a.mu; see http_transport_cache.go.
 	// The zero value is usable, so an App built as a bare literal works too.
-	transportCache         httpTransportCache
+	transportCache         xport.Cache
 	workspaceRuntime       *workspaceWindowRuntime
 	workspaceProcessStart  func(string, []string) error
 	collectionImportHooks  *collectionImportHooks
@@ -1643,7 +1643,7 @@ func (a *App) UpdateCollectionProxy(collectionID string, proxy ProxyConfig) (App
 	if err != nil {
 		return AppState{}, err
 	}
-	collection.Proxy = transport.NormalizeProxyConfig(proxy)
+	collection.Proxy = xport.NormalizeProxyConfig(proxy)
 	collection.UpdatedAt = time.Now()
 	return a.state, a.markDirty(persistScopeState)
 }
@@ -1673,12 +1673,12 @@ func (a *App) UpdatePreferences(preferences Preferences) (AppState, error) {
 		// this is not what keeps them apart — it stops connections opened
 		// under the previous trust settings from idling on in a pool the new
 		// settings would never have authorised.
-		a.transportCache.flush()
+		a.transportCache.Flush()
 	}
 	if a.state.Preferences.Proxy != next.Proxy || a.state.Preferences.ProxyMode != next.ProxyMode {
 		// Same reasoning for the proxy: the key already separates postures,
 		// the flush retires sockets opened through the previous proxy.
-		a.transportCache.flush()
+		a.transportCache.Flush()
 	}
 	a.state.Preferences = next
 	return a.state, a.markDirty(persistScopeState)
@@ -1693,7 +1693,7 @@ func (a *App) ClearSSLSessionCache() (AppState, error) {
 	a.tlsSessionCache = nil
 	// Cached transports hold the old session cache; drop them so a cleared
 	// cache really means no resumption from the tickets it held.
-	a.transportCache.flush()
+	a.transportCache.Flush()
 	return a.state, nil
 }
 
@@ -1765,7 +1765,7 @@ func (a *App) UpdateCollectionClientCertificates(collectionID string, certs []Cl
 	if err != nil {
 		return AppState{}, err
 	}
-	collection.ClientCertificates = transport.NormalizeClientCertificateRows(certs)
+	collection.ClientCertificates = xport.NormalizeClientCertificateRows(certs)
 	collection.UpdatedAt = time.Now()
 	return a.state, a.markDirty(persistScopeState)
 }

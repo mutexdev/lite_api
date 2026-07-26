@@ -857,7 +857,7 @@ func TestSSLSessionCacheEnablesTLSResumption(t *testing.T) {
 			// all. Dropping the pool reproduces the situation resumption
 			// exists for — a new connection to a server we have spoken to
 			// before — while leaving the app's TLS session cache intact.
-			app.transportCache.flush()
+			app.transportCache.Flush()
 		}
 		state, err = app.SendRequest(collection.ID, item.ID, "")
 		if err != nil {

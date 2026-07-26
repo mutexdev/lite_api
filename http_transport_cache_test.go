@@ -11,12 +11,13 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	xport "github.com/mutexdev/lite_api/internal/transport"
 )
 
 // US-016 / US-017 tests.
@@ -26,159 +27,6 @@ import (
 // transport built with InsecureSkipVerify, and nothing about the response would
 // look wrong. The connection-reuse test is the story's acceptance evidence, but
 // it is the less important of the two.
-
-func testTLSClientCertificate(t *testing.T) tls.Certificate {
-	t.Helper()
-	certPEM, keyPEM, _, _ := testClientCertificate(t)
-	certificate, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return certificate
-}
-
-func mustParseURL(t *testing.T, raw string) *url.URL {
-	t.Helper()
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return parsed
-}
-
-// TestTransportCacheKeySeparatesSecurityPostures enumerates one spec per input
-// that can change TLS or proxy behaviour and asserts every pair of them hashes
-// differently. If a future edit drops a field from cacheKey, two rows here
-// collide and this fails.
-func TestTransportCacheKeySeparatesSecurityPostures(t *testing.T) {
-	sourceA, ok := http.DefaultTransport.(*http.Transport)
-	if !ok {
-		t.Fatal("http.DefaultTransport is not an *http.Transport")
-	}
-	sourceB := sourceA.Clone()
-	certificateA := testTLSClientCertificate(t)
-	certificateB := testTLSClientCertificate(t)
-	sessionCacheA := tls.NewLRUClientSessionCache(4)
-	sessionCacheB := tls.NewLRUClientSessionCache(4)
-
-	base := transportSpec{source: sourceA, verifyTLS: true, keepDefaultCAs: true, proxyMode: transportProxyOff}
-	withSpec := func(mutate func(*transportSpec)) transportSpec {
-		spec := base
-		mutate(&spec)
-		return spec
-	}
-
-	specs := map[string]transportSpec{
-		"baseline":   base,
-		"verify off": withSpec(func(s *transportSpec) { s.verifyTLS = false }),
-		"custom CA on": withSpec(func(s *transportSpec) {
-			s.customCAEnabled = true
-			s.customCAPath = "/ca.pem"
-			s.customCAPEM = []byte("PEM-A")
-		}),
-		"custom CA other content": withSpec(func(s *transportSpec) {
-			s.customCAEnabled = true
-			s.customCAPath = "/ca.pem"
-			s.customCAPEM = []byte("PEM-B")
-		}),
-		"custom CA other path": withSpec(func(s *transportSpec) {
-			s.customCAEnabled = true
-			s.customCAPath = "/other.pem"
-			s.customCAPEM = []byte("PEM-A")
-		}),
-		"custom CA system roots dropped": withSpec(func(s *transportSpec) {
-			s.customCAEnabled = true
-			s.customCAPath = "/ca.pem"
-			s.customCAPEM = []byte("PEM-A")
-			s.keepDefaultCAs = false
-		}),
-		"keep default CAs off": withSpec(func(s *transportSpec) { s.keepDefaultCAs = false }),
-		"session cache A":      withSpec(func(s *transportSpec) { s.sessionCache = sessionCacheA }),
-		"session cache B":      withSpec(func(s *transportSpec) { s.sessionCache = sessionCacheB }),
-		"client certificate A": withSpec(func(s *transportSpec) {
-			s.clientCert = &certificateA
-			s.clientCertDigest = clientCertificateDigest(certificateA)
-		}),
-		"client certificate B": withSpec(func(s *transportSpec) {
-			s.clientCert = &certificateB
-			s.clientCertDigest = clientCertificateDigest(certificateB)
-		}),
-		"proxy inherited":   withSpec(func(s *transportSpec) { s.proxyMode = transportProxyInherit }),
-		"proxy from system": withSpec(func(s *transportSpec) { s.proxyMode = transportProxySystem }),
-		"proxy explicit": withSpec(func(s *transportSpec) {
-			s.proxyMode = transportProxyExplicit
-			s.proxyURL = mustParseURL(t, "http://proxy.invalid:8080")
-		}),
-		"proxy explicit port": withSpec(func(s *transportSpec) {
-			s.proxyMode = transportProxyExplicit
-			s.proxyURL = mustParseURL(t, "http://proxy.invalid:8081")
-		}),
-		"proxy explicit scheme": withSpec(func(s *transportSpec) {
-			s.proxyMode = transportProxyExplicit
-			s.proxyURL = mustParseURL(t, "socks5://proxy.invalid:8080")
-		}),
-		"proxy explicit user": withSpec(func(s *transportSpec) {
-			s.proxyMode = transportProxyExplicit
-			s.proxyURL = mustParseURL(t, "http://alice:secret@proxy.invalid:8080")
-		}),
-		"proxy explicit other password": withSpec(func(s *transportSpec) {
-			s.proxyMode = transportProxyExplicit
-			s.proxyURL = mustParseURL(t, "http://alice:other@proxy.invalid:8080")
-		}),
-		"other source transport": withSpec(func(s *transportSpec) { s.source = sourceB }),
-	}
-
-	seen := map[string]string{}
-	for name, spec := range specs {
-		key := spec.cacheKey()
-		if previous, clash := seen[key]; clash {
-			t.Fatalf("security postures %q and %q share a cache key; one of them would be served a transport built for the other", previous, name)
-		}
-		seen[key] = name
-	}
-	if len(seen) != len(specs) {
-		t.Fatalf("expected %d distinct keys, got %d", len(specs), len(seen))
-	}
-}
-
-// TestTransportCacheNeverServesInsecureTransportToVerifiedRequest is the
-// concrete form of the constraint: ask for verify-off first so the cache is
-// warm with an InsecureSkipVerify transport, then ask for verify-on with every
-// other input identical.
-func TestTransportCacheNeverServesInsecureTransportToVerifiedRequest(t *testing.T) {
-	cache := &httpTransportCache{}
-	insecureSpec := transportSpec{verifyTLS: false, keepDefaultCAs: true, proxyMode: transportProxyOff}
-	secureSpec := insecureSpec
-	secureSpec.verifyTLS = true
-
-	insecure, err := cache.transportFor(insecureSpec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if insecure.TLSClientConfig == nil || !insecure.TLSClientConfig.InsecureSkipVerify {
-		t.Fatal("verify-off posture did not produce an InsecureSkipVerify transport")
-	}
-
-	secure, err := cache.transportFor(secureSpec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if secure == insecure {
-		t.Fatal("verify-on request was handed the verify-off transport")
-	}
-	if secure.TLSClientConfig != nil && secure.TLSClientConfig.InsecureSkipVerify {
-		t.Fatal("verify-on request was handed a transport with InsecureSkipVerify")
-	}
-	// And the warm entry is still the insecure one for insecure callers, so
-	// the two postures coexist rather than overwrite each other.
-	again, err := cache.transportFor(insecureSpec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if again != insecure {
-		t.Fatal("verify-off posture was not served from the cache after a verify-on request")
-	}
-}
 
 // TestExecuteHTTPSeparatesVerifyPosturesEndToEnd proves the same thing through
 // the real request path against a server whose certificate is not trusted:
@@ -224,45 +72,6 @@ func TestExecuteHTTPSeparatesVerifyPosturesEndToEnd(t *testing.T) {
 	}
 }
 
-func TestTransportCacheReusesTransportForIdenticalPosture(t *testing.T) {
-	cache := &httpTransportCache{}
-	spec := transportSpec{verifyTLS: false, proxyMode: transportProxyOff}
-	first, err := cache.transportFor(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < 20; i++ {
-		next, err := cache.transportFor(spec)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if next != first {
-			t.Fatalf("iteration %d built a new transport instead of reusing the cached one", i)
-		}
-	}
-	if cache.size() != 1 {
-		t.Fatalf("expected 1 cache entry, got %d", cache.size())
-	}
-}
-
-// TestTransportCachePristineSpecKeepsCallerTransport covers the US-017 posture:
-// a spec that changes nothing is answered with the caller's own transport, so
-// the credential clients keep http.DefaultTransport's warm pool and the map
-// stays empty.
-func TestTransportCachePristineSpecKeepsCallerTransport(t *testing.T) {
-	cache := &httpTransportCache{}
-	transport, err := cache.transportFor(transportSpec{verifyTLS: true, proxyMode: transportProxyInherit})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if transport != http.DefaultTransport {
-		t.Fatalf("pristine spec did not return http.DefaultTransport, got %p", transport)
-	}
-	if cache.size() != 0 {
-		t.Fatalf("pristine spec should not occupy a cache entry, size=%d", cache.size())
-	}
-}
-
 func TestSharedOutboundClientsKeepTheirPreviousPosture(t *testing.T) {
 	credential := sharedCredentialHTTPClient()
 	if credential.Timeout != 30*time.Second {
@@ -291,149 +100,20 @@ func TestSharedOutboundClientsKeepTheirPreviousPosture(t *testing.T) {
 	}
 }
 
-func TestTransportCacheEvictsIdleEntries(t *testing.T) {
-	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
-	cache := &httpTransportCache{idleTTL: time.Minute, now: func() time.Time { return now }}
-
-	stale, err := cache.transportFor(transportSpec{verifyTLS: false, proxyMode: transportProxyOff})
-	if err != nil {
-		t.Fatal(err)
-	}
-	now = now.Add(2 * time.Minute)
-	fresh, err := cache.transportFor(transportSpec{verifyTLS: true, proxyMode: transportProxyOff})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stale == fresh {
-		t.Fatal("two postures collapsed into one transport")
-	}
-	if cache.size() != 1 {
-		t.Fatalf("idle entry was not evicted, size=%d", cache.size())
-	}
-	// The evicted posture must rebuild rather than come back from the map.
-	rebuilt, err := cache.transportFor(transportSpec{verifyTLS: false, proxyMode: transportProxyOff})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rebuilt == stale {
-		t.Fatal("evicted transport was still served from the cache")
-	}
-}
-
-func TestTransportCacheEvictsLeastRecentlyUsedOverCapacity(t *testing.T) {
-	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
-	cache := &httpTransportCache{maxEntries: 3, idleTTL: time.Hour, now: func() time.Time { return now }}
-
-	specFor := func(port int) transportSpec {
-		return transportSpec{
-			verifyTLS: true,
-			proxyMode: transportProxyExplicit,
-			proxyURL:  mustParseURL(t, "http://proxy.invalid:"+strconv.Itoa(port)),
-		}
-	}
-	first, err := cache.transportFor(specFor(9001))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, port := range []int{9002, 9003, 9004, 9005} {
-		now = now.Add(time.Second)
-		if _, err := cache.transportFor(specFor(port)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if cache.size() != 3 {
-		t.Fatalf("capacity not enforced, size=%d want 3", cache.size())
-	}
-	now = now.Add(time.Second)
-	rebuilt, err := cache.transportFor(specFor(9001))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rebuilt == first {
-		t.Fatal("least recently used entry survived eviction")
-	}
-	if cache.size() != 3 {
-		t.Fatalf("capacity not enforced after re-insert, size=%d want 3", cache.size())
-	}
-}
-
-func TestTransportCacheFlushDropsEveryEntry(t *testing.T) {
-	cache := &httpTransportCache{}
-	spec := transportSpec{verifyTLS: false, proxyMode: transportProxyOff}
-	before, err := cache.transportFor(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cache.flush()
-	if cache.size() != 0 {
-		t.Fatalf("flush left %d entries", cache.size())
-	}
-	after, err := cache.transportFor(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after == before {
-		t.Fatal("flushed transport was served again")
-	}
-}
-
 func TestClearSSLSessionCacheFlushesTransportCache(t *testing.T) {
 	app := newAppForTest(t)
-	spec := transportSpec{verifyTLS: false, proxyMode: transportProxyOff}
-	if _, err := app.transportCache.transportFor(spec); err != nil {
+	spec := xport.Spec{VerifyTLS: false, ProxyMode: xport.ProxyOff}
+	if _, err := app.transportCache.TransportFor(spec); err != nil {
 		t.Fatal(err)
 	}
-	if app.transportCache.size() != 1 {
-		t.Fatalf("expected a warm cache, size=%d", app.transportCache.size())
+	if app.transportCache.Size() != 1 {
+		t.Fatalf("expected a warm cache, size=%d", app.transportCache.Size())
 	}
 	if _, err := app.ClearSSLSessionCache(); err != nil {
 		t.Fatal(err)
 	}
-	if app.transportCache.size() != 0 {
-		t.Fatalf("ClearSSLSessionCache left %d cached transports", app.transportCache.size())
-	}
-}
-
-// TestTransportCacheConcurrentPosturesStaySeparate is the -race case: the cache
-// is shared mutable state on the request hot path.
-func TestTransportCacheConcurrentPosturesStaySeparate(t *testing.T) {
-	cache := &httpTransportCache{}
-	const goroutines = 64
-	results := make([]*http.Transport, goroutines)
-	var wait sync.WaitGroup
-	start := make(chan struct{})
-	for i := 0; i < goroutines; i++ {
-		wait.Add(1)
-		go func(index int) {
-			defer wait.Done()
-			<-start
-			transport, err := cache.transportFor(transportSpec{verifyTLS: index%2 == 0, proxyMode: transportProxyOff})
-			if err != nil {
-				t.Error(err)
-				return
-			}
-			results[index] = transport
-		}(i)
-	}
-	close(start)
-	wait.Wait()
-
-	distinct := map[*http.Transport]bool{}
-	for index, transport := range results {
-		if transport == nil {
-			t.Fatalf("goroutine %d produced no transport", index)
-		}
-		distinct[transport] = true
-		if index%2 == 0 {
-			if transport.TLSClientConfig != nil && transport.TLSClientConfig.InsecureSkipVerify {
-				t.Fatalf("goroutine %d asked to verify and got an insecure transport", index)
-			}
-		} else if transport.TLSClientConfig == nil || !transport.TLSClientConfig.InsecureSkipVerify {
-			t.Fatalf("goroutine %d asked to skip verification and got a verifying transport", index)
-		}
-	}
-	if len(distinct) != 2 {
-		t.Fatalf("expected exactly 2 transports for 2 postures, got %d", len(distinct))
+	if app.transportCache.Size() != 0 {
+		t.Fatalf("ClearSSLSessionCache left %d cached transports", app.transportCache.Size())
 	}
 }
 
@@ -622,8 +302,8 @@ func TestExecuteHTTPReusesOneConnectionThroughProxyAndClientCertificate(t *testi
 	if got := reused.Load(); got != sends-1 {
 		t.Fatalf("client reused a pooled connection %d times, want %d", got, sends-1)
 	}
-	if app.transportCache.size() != 1 {
-		t.Fatalf("expected exactly one cached transport for one posture, got %d", app.transportCache.size())
+	if app.transportCache.Size() != 1 {
+		t.Fatalf("expected exactly one cached transport for one posture, got %d", app.transportCache.Size())
 	}
 }
 
@@ -664,4 +344,15 @@ func TestNoOneOffOutboundClientsRemain(t *testing.T) {
 	if len(offenders) > 0 {
 		t.Errorf("app.go builds a one-off http.Client at line(s) %v — outbound calls must go through sharedCredentialHTTPClient/sharedPACHTTPClient so they share the US-016 transport cache", offenders)
 	}
+}
+
+// mustParseURL stayed with the App-level tests when the cache tests moved into
+// internal/transport; the package has its own copy.
+func mustParseURL(t *testing.T, raw string) *url.URL {
+	t.Helper()
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse %q: %v", raw, err)
+	}
+	return parsed
 }

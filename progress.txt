@@ -6052,3 +6052,39 @@ US-026 - Store layer. DONE. Both named collapses complete.
   that produced a false "0 failing" twice already — once in app.go at 10,800
   lines' distance, once in requestScanning.ts between two near-identical
   scanners.
+
+=== RESTRUCTURE PHASE 4 COMPLETE — the transport cache folds into internal/transport ===
+
+  http_transport_cache.go 694 -> 160 lines. internal/transport/cache.go is 545.
+  The 10 cache-internal tests moved with it.
+
+  SPLIT ALONG A LINE THE CODE ITSELF DRAWS. The file had two halves:
+    - the cache machinery (Spec, Cache, eviction, CA loading, proxy resolution)
+      -> moved, it is transport's job
+    - the WIRING: packageTransportCache, sharedCredentialHTTPClient,
+      sharedPACHTTPClient and the init() that calls awsv4.SetHTTPClient
+      -> STAYED, because its own comment says why: "Wiring it here rather than
+         in the package keeps the dependency pointing one way."
+
+  Moving the wiring too would have made internal/transport import
+  internal/auth/awsv4 purely to connect a seam — a new edge in an otherwise
+  clean DAG, added for no reason but proximity. The composition root belongs in
+  main. Reading the comment before moving the file is what caught that.
+
+  Spec's 12 fields had to be exported, which is a real widening of the package's
+  surface and the honest cost of this move. They are a cache KEY description
+  rather than behaviour, and every one carries a doc comment explaining what it
+  contributes to the key, so the documentation travelled with them.
+
+  A RENAME RULE THAT MATCHED PROSE AND LOCALS. Capitalising the Spec fields with
+  a `(?<![\w.])proxyURL(?=[ ,)])` rule — added so the doc comments would read
+  correctly — also renamed a LOCAL VARIABLE in two functions:
+      ProxyURL, err := ManualProxyURL(...)
+      spec.ProxyURL = proxyURL            // now undefined
+  and separately renamed candidate.source in collection_import.go, an unrelated
+  struct. Both were loud compile errors. Third variant of the same lesson: a
+  rename rule wide enough to catch comments is wide enough to catch identifiers
+  that only look alike.
+
+  Also deduplicated the internal/transport import in app.go, which the move left
+  imported twice (once plain, once as xport). staticcheck ST1019 caught it.
