@@ -18864,7 +18864,7 @@ func newScriptRuntimeWithMeta(item RequestItem, response Response, vars map[stri
 		}
 		return goja.Undefined()
 	})
-	installPostmanScriptAPI(runtime, item, meta)
+	installPostmanScriptAPI(runtime, bruObject, scriptVars, item, meta)
 	return runtime, reqObject, reqState, resObject
 }
 
@@ -18880,10 +18880,11 @@ func newScriptRuntimeWithMeta(item RequestItem, response Response, vars map[stri
 // This is the core only. pm.environment / pm.collectionVariables / pm.globals
 // (US-040), pm.request / pm.response (US-041), pm.sendRequest / pm.cookies
 // (US-042) and pm.iterationData / pm.vault (US-043) land separately.
-func installPostmanScriptAPI(runtime *goja.Runtime, item RequestItem, meta scriptRuntimeMeta) {
+func installPostmanScriptAPI(runtime *goja.Runtime, bruObject *goja.Object, scriptVars *scriptVariableContext, item RequestItem, meta scriptRuntimeMeta) {
 	pm := runtime.NewObject()
 	_ = pm.Set("test", runtime.Get("test"))
 	_ = pm.Set("expect", runtime.Get("expect"))
+	installPostmanVariableScopes(runtime, pm, bruObject, scriptVars)
 
 	info := runtime.NewObject()
 	_ = info.Set("requestName", item.Name)
@@ -18899,6 +18900,84 @@ func installPostmanScriptAPI(runtime *goja.Runtime, item RequestItem, meta scrip
 	_ = pm.Set("info", info)
 
 	_ = runtime.Set("pm", pm)
+}
+
+// installPostmanVariableScopes gives each Postman scope its OWN storage
+// (US-040).
+//
+// This is the story's whole point, and it is the bug in the import translator
+// that US-044 will demote: that table maps pm.environment.set,
+// pm.collectionVariables.set, pm.globals.set AND pm.variables.set all onto
+// bru.setVar, so four distinct scopes collapse into the runtime scope. Nothing
+// errors. A script that writes pm.globals.set("token", ...) and later reads
+// pm.environment.get("token") gets its value back, so the collapse looks like
+// it works — right up to the point where a second environment, or a second
+// collection, is supposed to see a different value and does not.
+//
+// Every method delegates to the bru function for that exact scope. Delegating
+// rather than reimplementing is what makes drift impossible: the dirty-tracking
+// that decides whether an environment gets written back to disk lives in those
+// closures, and a parallel implementation that forgot to set EnvDirty would
+// update variables that silently never persist.
+func installPostmanVariableScopes(runtime *goja.Runtime, pm, bruObject *goja.Object, scriptVars *scriptVariableContext) {
+	// replaceIn is scope-independent in Postman: it interpolates against the
+	// whole resolved chain regardless of which scope object it is called on.
+	replaceIn := bruObject.Get("interpolate")
+
+	scope := func(get, set, unset, has, clear, toObject string) *goja.Object {
+		object := runtime.NewObject()
+		_ = object.Set("get", bruObject.Get(get))
+		_ = object.Set("set", bruObject.Get(set))
+		_ = object.Set("unset", bruObject.Get(unset))
+		_ = object.Set("has", bruObject.Get(has))
+		_ = object.Set("clear", bruObject.Get(clear))
+		_ = object.Set("toObject", bruObject.Get(toObject))
+		_ = object.Set("replaceIn", replaceIn)
+		return object
+	}
+
+	_ = pm.Set("environment", scope(
+		"getEnvVar", "setEnvVar", "deleteEnvVar",
+		"hasEnvVar", "deleteAllEnvVars", "getAllEnvVars"))
+	_ = pm.Set("collectionVariables", scope(
+		"getCollectionVar", "setCollectionVar", "deleteCollectionVar",
+		"hasCollectionVar", "deleteAllCollectionVars", "getAllCollectionVars"))
+	_ = pm.Set("globals", scope(
+		"getGlobalEnvVar", "setGlobalEnvVar", "deleteGlobalEnvVar",
+		"hasGlobalEnvVar", "deleteAllGlobalEnvVars", "getAllGlobalEnvVars"))
+
+	// pm.variables is the odd one out and deliberately not built by scope():
+	// it READS the fully resolved chain across every scope, but WRITES to the
+	// runtime scope. Giving it its own storage would make a value set through
+	// it invisible to {{var}} interpolation, and routing its reads to one scope
+	// would silently miss variables defined anywhere else.
+	variables := runtime.NewObject()
+	_ = variables.Set("get", func(name string) goja.Value {
+		if scriptVars == nil {
+			return goja.Undefined()
+		}
+		if value, ok := scriptVars.CombinedInterface()[name]; ok {
+			return runtime.ToValue(value)
+		}
+		return goja.Undefined()
+	})
+	_ = variables.Set("has", func(name string) bool {
+		if scriptVars == nil {
+			return false
+		}
+		_, ok := scriptVars.CombinedInterface()[name]
+		return ok
+	})
+	_ = variables.Set("toObject", func() map[string]interface{} {
+		if scriptVars == nil {
+			return map[string]interface{}{}
+		}
+		return scriptVars.CombinedInterface()
+	})
+	_ = variables.Set("set", bruObject.Get("setVar"))
+	_ = variables.Set("unset", bruObject.Get("deleteVar"))
+	_ = variables.Set("replaceIn", replaceIn)
+	_ = pm.Set("variables", variables)
 }
 
 // postmanEventName maps this codebase's timeline phases onto the two event

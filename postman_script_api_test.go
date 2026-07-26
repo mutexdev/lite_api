@@ -232,3 +232,186 @@ func TestPmDoesNotDisplaceBru(t *testing.T) {
 		}
 	}
 }
+
+// TestPmVariableScopesAreDistinct is US-040, and the criterion the story calls
+// out as "the bug in the import table".
+//
+// The import translator maps pm.environment.set, pm.collectionVariables.set,
+// pm.globals.set and pm.variables.set ALL onto bru.setVar. Nothing errors, and
+// a script that writes to one scope and reads from another gets its value back
+// — so the collapse looks like it works, right up to the point where a second
+// environment or collection is supposed to see a different value and does not.
+//
+// Each assertion below writes to exactly one scope and demands the other three
+// stay empty. A collapsed implementation fails every one of them.
+func TestPmVariableScopesAreDistinct(t *testing.T) {
+	app, collectionID, itemID, closeServer := scriptProbeFixture(t)
+	defer closeServer()
+
+	state := sendWithScripts(t, app, collectionID, itemID, "", "", `
+		pm.environment.set("scoped", "environment")
+		pm.collectionVariables.set("scoped", "collection")
+		pm.globals.set("scoped", "global")
+
+		test("the environment scope kept its own value", function () {
+			expect(pm.environment.get("scoped")).to.equal("environment")
+		})
+		test("the collection scope kept its own value", function () {
+			expect(pm.collectionVariables.get("scoped")).to.equal("collection")
+		})
+		test("the global scope kept its own value", function () {
+			expect(pm.globals.get("scoped")).to.equal("global")
+		})
+		test("writing one scope did not write the runtime scope", function () {
+			pm.environment.set("envOnly", "e")
+			expect(bru.hasVar("envOnly")).to.equal(false)
+		})
+		test("the collection scope did not leak into the environment", function () {
+			pm.collectionVariables.set("collectionOnly", "c")
+			expect(pm.environment.has("collectionOnly")).to.equal(false)
+			expect(pm.globals.has("collectionOnly")).to.equal(false)
+		})
+		test("the global scope did not leak into the collection", function () {
+			pm.globals.set("globalOnly", "g")
+			expect(pm.collectionVariables.has("globalOnly")).to.equal(false)
+			expect(pm.environment.has("globalOnly")).to.equal(false)
+		})
+	`)
+
+	for _, result := range testResultsFor(t, state, collectionID, itemID) {
+		if !result.Passed {
+			t.Errorf("%s: %s", result.Name, result.Message)
+		}
+	}
+}
+
+// TestPmScopesDelegateToBru. Each pm scope must be the SAME storage as its bru
+// counterpart, not a parallel copy — the dirty tracking that decides whether an
+// environment is written back to disk lives in the bru closures, and a parallel
+// implementation would update variables that silently never persist.
+func TestPmScopesDelegateToBru(t *testing.T) {
+	app, collectionID, itemID, closeServer := scriptProbeFixture(t)
+	defer closeServer()
+
+	state := sendWithScripts(t, app, collectionID, itemID, "", "", `
+		bru.setEnvVar("viaBru", "1")
+		pm.environment.set("viaPm", "2")
+		test("pm reads what bru wrote", function () {
+			expect(pm.environment.get("viaBru")).to.equal("1")
+		})
+		test("bru reads what pm wrote", function () {
+			expect(bru.getEnvVar("viaPm")).to.equal("2")
+		})
+
+		bru.setCollectionVar("cBru", "1")
+		pm.collectionVariables.set("cPm", "2")
+		test("collection scope is shared with bru", function () {
+			expect(pm.collectionVariables.get("cBru")).to.equal("1")
+			expect(bru.getCollectionVar("cPm")).to.equal("2")
+		})
+
+		bru.setGlobalEnvVar("gBru", "1")
+		pm.globals.set("gPm", "2")
+		test("global scope is shared with bru", function () {
+			expect(pm.globals.get("gBru")).to.equal("1")
+			expect(bru.getGlobalEnvVar("gPm")).to.equal("2")
+		})
+	`)
+
+	for _, result := range testResultsFor(t, state, collectionID, itemID) {
+		if !result.Passed {
+			t.Errorf("%s: %s", result.Name, result.Message)
+		}
+	}
+}
+
+// TestPmVariablesReadsTheResolvedChain. pm.variables is the one scope that is
+// not its own storage: it reads across everything and writes to the runtime
+// scope. Giving it private storage would make a value set through it invisible
+// to {{var}} interpolation.
+func TestPmVariablesReadsTheResolvedChain(t *testing.T) {
+	app, collectionID, itemID, closeServer := scriptProbeFixture(t)
+	defer closeServer()
+
+	state := sendWithScripts(t, app, collectionID, itemID, "", "", `
+		pm.environment.set("fromEnvironment", "e")
+		pm.collectionVariables.set("fromCollection", "c")
+		pm.globals.set("fromGlobal", "g")
+		bru.setVar("fromRuntime", "r")
+
+		test("pm.variables sees every scope", function () {
+			expect(pm.variables.get("fromEnvironment")).to.equal("e")
+			expect(pm.variables.get("fromCollection")).to.equal("c")
+			expect(pm.variables.get("fromGlobal")).to.equal("g")
+			expect(pm.variables.get("fromRuntime")).to.equal("r")
+		})
+		test("pm.variables.has agrees with get", function () {
+			expect(pm.variables.has("fromCollection")).to.equal(true)
+			expect(pm.variables.has("definitelyNotSet")).to.equal(false)
+		})
+		test("an unset name is undefined, not empty string", function () {
+			expect(typeof pm.variables.get("definitelyNotSet")).to.equal("undefined")
+		})
+		test("pm.variables.set writes the runtime scope", function () {
+			pm.variables.set("written", "w")
+			expect(bru.getVar("written")).to.equal("w")
+			expect(pm.variables.get("written")).to.equal("w")
+		})
+		test("replaceIn interpolates against the resolved chain", function () {
+			expect(pm.variables.replaceIn("{{fromEnvironment}}/{{fromCollection}}")).to.equal("e/c")
+		})
+	`)
+
+	for _, result := range testResultsFor(t, state, collectionID, itemID) {
+		if !result.Passed {
+			t.Errorf("%s: %s", result.Name, result.Message)
+		}
+	}
+}
+
+// TestPmScopeMethodsAreAllPresent. Postman scripts use unset, clear and
+// toObject as much as get and set; a missing one is a TypeError mid-run rather
+// than a failed assertion.
+func TestPmScopeMethodsAreAllPresent(t *testing.T) {
+	app, collectionID, itemID, closeServer := scriptProbeFixture(t)
+	defer closeServer()
+
+	state := sendWithScripts(t, app, collectionID, itemID, "", "", `
+		["environment", "collectionVariables", "globals"].forEach(function (name) {
+			["get", "set", "unset", "has", "clear", "toObject", "replaceIn"].forEach(function (method) {
+				test("pm." + name + "." + method + " is a function", function () {
+					expect(typeof pm[name][method]).to.equal("function")
+				})
+			})
+		})
+		test("unset removes only from its own scope", function () {
+			pm.environment.set("temp", "1")
+			pm.collectionVariables.set("temp", "2")
+			pm.environment.unset("temp")
+			expect(pm.environment.has("temp")).to.equal(false)
+			expect(pm.collectionVariables.get("temp")).to.equal("2")
+		})
+		test("toObject returns that scope's contents", function () {
+			pm.globals.set("inGlobals", "yes")
+			expect(pm.globals.toObject().inGlobals).to.equal("yes")
+			expect(pm.environment.toObject().inGlobals).to.equal(undefined)
+		})
+		test("clear empties only its own scope", function () {
+			pm.environment.set("survivor", "1")
+			pm.collectionVariables.set("survivor", "2")
+			pm.environment.clear()
+			expect(pm.environment.has("survivor")).to.equal(false)
+			expect(pm.collectionVariables.get("survivor")).to.equal("2")
+		})
+	`)
+
+	results := testResultsFor(t, state, collectionID, itemID)
+	if len(results) < 24 {
+		t.Fatalf("only %d assertions ran, want at least 24 — the method sweep did not execute", len(results))
+	}
+	for _, result := range results {
+		if !result.Passed {
+			t.Errorf("%s: %s", result.Name, result.Message)
+		}
+	}
+}

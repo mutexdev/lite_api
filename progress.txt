@@ -1142,3 +1142,38 @@ US-039 - `pm` core. DONE.
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 36.7s 0,
   -race clean, svelte-check 198/0/0, eslint 0, npm test 105/105.
+
+US-040 - `pm` variable scopes. DONE.
+  pm.environment, pm.collectionVariables, pm.globals and pm.variables, each
+  with get/set/unset/has/clear/toObject/replaceIn.
+
+  The story flags this as "the bug in the import table" and it is exactly that:
+  postmanTranslateScript maps pm.environment.set, pm.collectionVariables.set,
+  pm.globals.set AND pm.variables.set all onto bru.setVar, collapsing four
+  scopes into the runtime scope. Nothing errors. A script that writes one scope
+  and reads another gets its value back, so the collapse LOOKS like it works -
+  until a second environment or collection is supposed to see a different value
+  and does not. The negative control reproduced it precisely: three scopes all
+  returned "global".
+
+  Every scope method delegates to the bru function for that exact scope rather
+  than reimplementing it. The dirty tracking that decides whether an
+  environment is written back to disk lives in those closures; a parallel
+  implementation that forgot EnvDirty would update variables that silently
+  never persist. Delegation makes that unrepresentable, and makes drift between
+  the two surfaces impossible.
+
+  pm.variables is deliberately NOT built by the shared scope() helper: it READS
+  the fully resolved chain across every scope but WRITES to the runtime scope.
+  Private storage would make a value set through it invisible to {{var}}
+  interpolation; routing its reads at one scope would silently miss variables
+  defined anywhere else. An unset name returns undefined rather than "" so
+  `typeof` guards behave as Postman scripts expect.
+
+  Negative controls, both run and both caught:
+    all scopes -> bru runtime scope   5 assertions fail, "expected global to
+                                      equal environment"
+    pm.variables reads Runtime only   "expected undefined to equal e"
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 37.4s 0,
+  -race clean.
