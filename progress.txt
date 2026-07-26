@@ -4414,3 +4414,34 @@ US-026 - Store layer. DONE. Both named collapses complete.
   1, and re-corrupting the literal fails 1.
 
   store/yamlstore 0%-covered functions: 4 -> 0. Overall 30 -> 16. Coverage 79.4%.
+
+--- Script error reporting — the one that could report GREEN on failure ---
+
+  ScriptErrorResponse, scriptPromiseRejectionMessage and
+  scriptFormInterfaceString were all at 0%.
+
+  ScriptErrorResponse carries a property worth guarding hard: a script that
+  THROWS must produce a FAILED test result. Flip that boolean and a broken
+  pre-request script reports as a PASSING test. This is an API testing tool, and
+  reporting green wrongly is the one outcome worse than crashing — the same
+  failure the assertion operators had, in a different place.
+
+  Six tests. Also pinned, because they are the difference between a useful
+  failure and a baffling one:
+    - the Error string names BOTH the phase and the cause, so the user knows
+      which script broke rather than just seeing "boom"
+    - Headers is an empty map, not nil, because the UI and the JSON encoder both
+      walk it and nil renders as null where an object is expected
+    - SentAt is set, or the timeline places the failure at the epoch
+    - a promise rejected with undefined/null still yields a message rather than
+      a blank failure
+
+  Controls: reporting PASSING fails 1, omitting the phase fails 1, a nil headers
+  map fails 1, a zero SentAt fails 1, a blank rejection message fails 1.
+
+  0%-covered: 30 -> 13. Coverage 79.5%.
+
+  WHAT IS LEFT AT 0% IS NOW ALMOST ALL ENVIRONMENT-BOUND: DNS lookups, OS
+  version, per-platform CWD, a live network interface, a real transport chain.
+  Those need either the network or a signature change to be testable, and I
+  would rather say so than write tests that call them and assert nothing.
