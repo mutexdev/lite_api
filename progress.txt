@@ -930,3 +930,38 @@ KNOWN ISSUE — diff attribution:
 
 
 
+
+US-047 - Runner bail on failure. DONE.
+  RunnerOptions gains BailOnFailure (json bailOnFailure). Two break points in
+  RunCollectionWithOptions: after a transport error, and after a "failed"
+  result. appendUnrunRunResults marks every remaining item "unrun".
+
+  The one judgement call worth recording: the bail check sits AFTER the
+  existing `status == "cancelled"` break. A cancelled run is not a failure, and
+  labelling the rest "not run: the run stopped at an earlier failure" would
+  misattribute the user's own cancellation to a test failure.
+
+  Three statuses now mean three different things, which is the whole story:
+    skipped   the runner declined to run it (wrong protocol, unresolved prompt)
+    cancelled the user stopped the run
+    unrun     an earlier failure ended the run first
+  Collapsing any pair leaves a reader unable to tell a failing suite from an
+  abandoned one.
+
+  Test-fixture trap found while writing runner_bail_test.go: the runner walks
+  the COLLECTION's item order, not the order of SelectedItemIDs. The first
+  version of the skipped-vs-unrun test created its websocket request last, so
+  it landed after the failure and came back "unrun" for the ordinary reason -
+  the test failed while the code was right. bailFixture now takes an ordered
+  spec list and the comment says why order matters.
+
+  Negative controls, both run and both caught:
+    unrun -> "skipped"        2 tests fail, incl. the collapse assertion
+    bail break disabled       2 tests fail, third request comes back "passed"
+
+  Frontend: a "Stop at the first failure" checkbox in RunnerPanel, bound
+  through App.svelte and reset with the rest of the runner config. Without it
+  the flag would be unreachable from the app.
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 37.0s 0,
+  -race clean, svelte-check 198/0/0, eslint 0, npm test 105/105.
