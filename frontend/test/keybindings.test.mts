@@ -14,6 +14,7 @@ import { test } from 'node:test'
 import {
   isKeyBindingModifier,
   validateKeyBinding,
+  normalizeEventKey,
   keyBindingParts,
   keyBindingSections,
   keyBindingPresets,
@@ -261,5 +262,65 @@ test('modifier order does not defeat the collision check', () => {
     validateKeyBinding('new', 'command+bind+alt+bind+k', ordered as never, 'mac'),
     /already in use/,
     'the same modifiers in a different order are the same shortcut'
+  )
+})
+
+const keyEvent = (key: string, code = '') => ({ key, code })
+
+// The short forms are what the binding table stores, so a captured shortcut
+// compares against a stored one without a second translation.
+test('named keys map to the binding vocabulary', () => {
+  assert.equal(normalizeEventKey(keyEvent(' ')), 'space')
+  assert.equal(normalizeEventKey(keyEvent('Escape')), 'esc')
+  assert.equal(normalizeEventKey(keyEvent('Enter')), 'enter')
+  assert.equal(normalizeEventKey(keyEvent('Backspace')), 'backspace')
+  assert.equal(normalizeEventKey(keyEvent('Tab')), 'tab')
+  assert.equal(normalizeEventKey(keyEvent('Delete')), 'delete')
+})
+
+// These must match isKeyBindingModifier's vocabulary exactly, or a captured
+// modifier would never be recognised as one.
+test('modifier keys normalise to the names the module recognises', () => {
+  for (const [key, want] of [['Control', 'ctrl'], ['Meta', 'command'], ['Alt', 'alt'], ['Shift', 'shift']] as const) {
+    const normalized = normalizeEventKey(keyEvent(key))
+    assert.equal(normalized, want)
+    assert.equal(isKeyBindingModifier(normalized), true, `${want} must be recognised as a modifier`)
+  }
+})
+
+// event.key is the character the LAYOUT produces; event.code is the physical
+// key. On AZERTY the QWERTY-Q position reports key "a", so reading key would
+// make command+q fire on what the user sees as A.
+test('letters come from the physical key, not the produced character', () => {
+  assert.equal(
+    normalizeEventKey({ key: 'a', code: 'KeyQ' }),
+    'q',
+    'an AZERTY layout must still report the physical Q for a Cmd+Q shortcut'
+  )
+  assert.equal(normalizeEventKey({ key: 'K', code: 'KeyK' }), 'k', 'a shifted letter is still its key')
+})
+
+test('digits come from the physical key too', () => {
+  assert.equal(normalizeEventKey({ key: '!', code: 'Digit1' }), '1', 'shift+1 is still the 1 key')
+  assert.equal(normalizeEventKey({ key: '9', code: 'Digit9' }), '9')
+})
+
+// event.code is empty for synthetic events; falling back to the character keeps
+// shortcuts working under a test harness rather than silently dead.
+test('a missing code falls back to the character', () => {
+  assert.equal(normalizeEventKey(keyEvent('k')), 'k')
+  assert.equal(normalizeEventKey(keyEvent('K')), 'k')
+  assert.equal(normalizeEventKey(keyEvent('F5')), 'f5')
+  assert.equal(normalizeEventKey(keyEvent('ArrowDown')), 'arrowdown')
+})
+
+// The round trip that matters: a captured chord must produce the signature of
+// the stored binding it is meant to match.
+test('a captured chord matches its stored binding signature', () => {
+  const captured = ['command', normalizeEventKey({ key: 'ß', code: 'KeyS' })].join('+bind+')
+  assert.equal(
+    keyBindingSignature(captured),
+    keyBindingSignature('command+bind+s'),
+    'a layout that produces a different character must still match Cmd+S'
   )
 })

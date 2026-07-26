@@ -263,3 +263,41 @@ export function validateKeyBinding(
   }
   return ''
 }
+
+/**
+ * normalizeEventKey turns a KeyboardEvent into the vocabulary a combo uses.
+ *
+ * The named keys map to the short forms the binding table stores — "esc" not
+ * "Escape", "command" not "Meta" — so a captured shortcut can be compared
+ * against a stored one without a second translation step.
+ *
+ * LETTERS AND DIGITS COME FROM event.code, NOT event.key, and that is the
+ * important part. event.key is the character the layout PRODUCES; event.code is
+ * the physical key. On a French AZERTY keyboard the key where QWERTY has Q
+ * reports event.key "a", so a shortcut stored as command+q would fire on what
+ * the user sees as A, and command+a would not fire at all. Reading the code
+ * means Cmd+Q is the same physical chord everywhere, which is what a keyboard
+ * shortcut is.
+ *
+ * The event.key fallbacks below still matter: event.code is empty for synthetic
+ * events and for keys that produce no code, and a shortcut that silently stops
+ * working under a test harness is worse than one that reads the character.
+ */
+export function normalizeEventKey(event: Pick<KeyboardEvent, 'key' | 'code'>): string {
+  if (event.key === ' ') return 'space'
+  if (event.key === 'Escape') return 'esc'
+  if (event.key === 'Enter') return 'enter'
+  if (event.key === 'Backspace') return 'backspace'
+  if (event.key === 'Tab') return 'tab'
+  if (event.key === 'Delete') return 'delete'
+  if (event.key === 'Control') return 'ctrl'
+  if (event.key === 'Meta') return 'command'
+  if (event.key === 'Alt') return 'alt'
+  if (event.key === 'Shift') return 'shift'
+  if (event.code?.startsWith('Key')) return event.code.slice(3).toLowerCase()
+  if (event.code?.startsWith('Digit')) return event.code.slice(5)
+  // No separate single-character branch: lower-casing the key is the same
+  // answer for "k" as for "ArrowDown", and a control proved removing it changed
+  // no test. One fallback rather than two that agree.
+  return event.key.toLowerCase()
+}

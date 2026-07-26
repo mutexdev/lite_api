@@ -30,6 +30,7 @@
     keyBindingParts,
     keyBindingSeparator,
     keyBindingSignature,
+    normalizeEventKey,
     validateKeyBinding as validateKeyBindingRule,
     keyBindingSections,
     keyBindingPresets,
@@ -1656,22 +1657,6 @@
 
 
 
-  function normalizeEventKey(event: KeyboardEvent) {
-    if (event.key === ' ') return 'space'
-    if (event.key === 'Escape') return 'esc'
-    if (event.key === 'Enter') return 'enter'
-    if (event.key === 'Backspace') return 'backspace'
-    if (event.key === 'Tab') return 'tab'
-    if (event.key === 'Delete') return 'delete'
-    if (event.key === 'Control') return 'ctrl'
-    if (event.key === 'Meta') return 'command'
-    if (event.key === 'Alt') return 'alt'
-    if (event.key === 'Shift') return 'shift'
-    if (event.code?.startsWith('Key')) return event.code.slice(3).toLowerCase()
-    if (event.code?.startsWith('Digit')) return event.code.slice(5)
-    if (event.key.length === 1) return event.key.toLowerCase()
-    return event.key.toLowerCase()
-  }
 
   function keyBindingComboFromEvent(event: KeyboardEvent) {
     const parts: string[] = []

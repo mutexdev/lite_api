@@ -6701,3 +6701,38 @@ US-026 - Store layer. DONE. Both named collapses complete.
     sidebarGroupWindow    variant that SHOULD differ -> documented
     networkSortLabel/Aria near-identical, both right -> tested against each other
   Same shape, three different right answers. Reading the code decided each one.
+
+=== PHASE 6 — keyboard event normalisation, completing the keybinding module ===
+
+  normalizeEventKey joins lib/keybindings.ts. 6 tests.
+  App.svelte 11,503 -> 11,488. Frontend suite 418 -> 424.
+
+  That module now owns the whole keybinding story: the default table, presets,
+  signatures, collision detection, validation, and now the bridge from a
+  KeyboardEvent to the vocabulary the rest of it uses. It started this session
+  holding only the table.
+
+  THE SUBTLE PART IS event.code VERSUS event.key, and it is a real
+  cross-platform behaviour that had no test.
+    event.key  = the character the LAYOUT PRODUCES
+    event.code = the PHYSICAL key
+  On a French AZERTY keyboard the position where QWERTY has Q reports
+  event.key "a". Reading the key would make a shortcut stored as command+q fire
+  on what the user sees as A, and command+a not fire at all. Reading the code
+  means Cmd+Q is the same physical chord everywhere, which is what a keyboard
+  shortcut IS.
+
+  Tested with {key:'a', code:'KeyQ'} and, as a round trip, that a chord captured
+  from {key:'ß', code:'KeyS'} produces the same SIGNATURE as the stored
+  command+bind+s. That last one is the property that actually matters: capture
+  and storage have to meet.
+
+  Also asserted that the four modifier normalisations agree with
+  isKeyBindingModifier — a captured "command" that the module did not recognise
+  as a modifier would fail validation for a reason nobody could see.
+
+  REMOVED A REDUNDANT BRANCH, ON EVIDENCE RATHER THAN TASTE. A control deleting
+  `if (event.key.length === 1) return event.key.toLowerCase()` failed NOTHING,
+  because the final line lower-cases the key anyway. Two fallbacks that agree;
+  now one. The control is what justified the deletion — without it I would have
+  been guessing that they were equivalent.
