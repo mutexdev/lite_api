@@ -52,6 +52,8 @@ export function CloseAllTabs():Promise<main.AppState>;
 
 export function CloseTab(arg1:string):Promise<main.AppState>;
 
+export function CodeGenerationTargets():Promise<Array<main.CodeGenerationTarget>>;
+
 export function CommitCollectionGit(arg1:string,arg2:string):Promise<main.CollectionGitOperationResult>;
 
 export function CompleteOAuth2Callback(arg1:string):Promise<boolean>;

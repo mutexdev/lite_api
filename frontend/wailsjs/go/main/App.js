@@ -102,6 +102,10 @@ export function CloseTab(arg1) {
   return window['go']['main']['App']['CloseTab'](arg1);
 }
 
+export function CodeGenerationTargets() {
+  return window['go']['main']['App']['CodeGenerationTargets']();
+}
+
 export function CommitCollectionGit(arg1, arg2) {
   return window['go']['main']['App']['CommitCollectionGit'](arg1, arg2);
 }

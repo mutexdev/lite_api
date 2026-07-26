@@ -4260,6 +4260,12 @@ func generateResponseExampleCode(example ResponseExample, language string) (stri
 	case "fetch", "javascript", "js", "node":
 		return generateFetchForResponseExample(example), nil
 	default:
+		// US-054. The extended targets live in code_generation.go and are
+		// dispatched from the same list the UI picker is built from, so a
+		// language can never appear in the picker and be unsupported here.
+		if code, ok := generateExtendedCode(example, language); ok {
+			return code, nil
+		}
 		return "", fmt.Errorf("unsupported code language %q", language)
 	}
 }

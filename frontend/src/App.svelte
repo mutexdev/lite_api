@@ -92,6 +92,7 @@
     ExportGlobalEnvironments,
     GenerateGrpcurlCommand,
 	    GenerateRequestCode,
+    CodeGenerationTargets,
 	    GenerateResponseExampleCode,
 	    GenerateGRPCMessage,
 	    GenerateCollectionDocs,
@@ -2961,6 +2962,11 @@
     })
   }
 
+  let codeGenerationTargets: { id: string; label: string }[] = [
+    { id: 'curl', label: 'cURL' },
+    { id: 'fetch', label: 'JavaScript (fetch)' }
+  ]
+
   async function beginGenerateRequestCode(collection: main.Collection, item: main.RequestItem) {
     if (!requestSupportsGenerateCode(item)) return
     if (!item.url?.trim()) {
@@ -2971,6 +2977,17 @@
       collectionId: collection.id,
       itemId: item.id,
       environmentId: requestCodeEnvironmentId(collection)
+    }
+    // Loaded lazily on first open rather than at startup: the list is static
+    // for the process, and fetching it eagerly would add a binding call to
+    // every launch for a dialog most sessions never open.
+    if (codeGenerationTargets.length <= 2) {
+      try {
+        codeGenerationTargets = await CodeGenerationTargets()
+      } catch {
+        // The hard-coded curl/fetch pair remains usable, so a failure here
+        // narrows the menu rather than breaking the dialog.
+      }
     }
     requestCodeTarget = target
     requestCodeLanguage = 'curl'
@@ -11782,6 +11799,7 @@
   {#await import('./lib/modals/codegen/RequestCodeModal.svelte') then RequestCodeModal}
     <svelte:component this={RequestCodeModal.default}
       {requestCodeLanguage}
+      {codeGenerationTargets}
       {requestGeneratedCode}
       {changeRequestCodeLanguage}
       {copyRequestCode}

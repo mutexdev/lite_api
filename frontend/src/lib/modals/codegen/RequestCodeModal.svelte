@@ -4,6 +4,11 @@
   import Modal from '../Modal.svelte'
 
   export let requestCodeLanguage: string
+  // US-054. The option list comes from the backend rather than being written
+  // out here, so the picker and the generator's dispatch table cannot disagree
+  // — a hard-coded entry the dispatcher does not know becomes a menu item that
+  // errors when chosen.
+  export let codeGenerationTargets: { id: string; label: string }[]
   export let requestGeneratedCode: string
   export let changeRequestCodeLanguage: (language: string) => void
   export let copyRequestCode: () => void
@@ -23,8 +28,9 @@
           value={requestCodeLanguage}
           on:change={(event) => changeRequestCodeLanguage(event.currentTarget.value)}
         >
-          <option value="curl">cURL</option>
-          <option value="fetch">JavaScript fetch</option>
+          {#each codeGenerationTargets as target (target.id)}
+            <option value={target.id}>{target.label}</option>
+          {/each}
         </select>
       </div>
       <pre class="generated-code" aria-label="Generated request code">{requestGeneratedCode}</pre>
