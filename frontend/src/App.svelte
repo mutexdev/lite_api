@@ -79,6 +79,15 @@
     normalizedThemeVariant as normalizedThemeVariantOf,
     normalizedZoomPercentage
   } from './lib/preferences'
+  import {
+    collectionFolderNameIsValid,
+    filesystemNameIsValid,
+    isReservedMetadataName,
+    isReservedRootDirectory,
+    requestFilesystemBaseName as requestFilesystemBaseNameOf,
+    sanitizeCollectionFolderName,
+    slashPathBase
+  } from './lib/filesystemNames'
   import { workspaceStore } from './lib/stores/workspaceStore.svelte'
   import { variableTooltips } from './lib/stores/variableTooltipStore.svelte'
   import {
@@ -859,25 +868,6 @@
   const oauth2TokenSources = ['access_token', 'id_token']
   const oauth1SignatureMethods = ['HMAC-SHA1', 'HMAC-SHA256', 'HMAC-SHA512', 'RSA-SHA1', 'RSA-SHA256', 'RSA-SHA512', 'PLAINTEXT']
   const oauth1Placements = ['header', 'query', 'body']
-  const invalidCollectionFolderCharacters = /[<>:"/\\|?*\x00-\x1F]/g
-  const reservedCollectionFolderNames = /^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])$/i
-  const collectionFolderFirstCharacter = /^[^\s\-<>:"/\\|?*\x00-\x1F]/
-  const collectionFolderMiddleCharacters = /^[^<>:"/\\|?*\x00-\x1F]*$/
-  const collectionFolderLastCharacter = /[^.\s<>:"/\\|?*\x00-\x1F]$/
-
-  function sanitizeCollectionFolderName(name: string) {
-    return name
-      .replace(invalidCollectionFolderCharacters, '-')
-      .replace(/^[\s-]+/, '')
-      .replace(/[.\s]+$/, '')
-  }
-
-  function collectionFolderNameIsValid(name: string) {
-    if (!name || name.length > 255) return false
-    if (reservedCollectionFolderNames.test(name)) return false
-    return collectionFolderFirstCharacter.test(name) && collectionFolderMiddleCharacters.test(name) && collectionFolderLastCharacter.test(name)
-  }
-
   function cloneCollectionDefaultLocation() {
     const preferred = appState?.preferences?.general?.defaultLocation || appState?.preferences?.defaultCollectionPath || ''
     return preferred || activeWorkspace?.path || ''
@@ -4337,7 +4327,7 @@
   }
 
   function newFolderDirectoryIsReservedRoot() {
-    return newFolderParentPath === '' && newFolderDirectoryDraft.trim().toLowerCase().includes('environments')
+    return isReservedRootDirectory(newFolderParentPath, newFolderDirectoryDraft)
   }
 
   function newFolderDirectoryNameIsValid() {
@@ -4347,11 +4337,6 @@
   function newFolderExpectedPath() {
     const directoryName = sanitizeCollectionFolderName(newFolderDirectoryDraft)
     return [newFolderParentPath, directoryName].filter(Boolean).join('/')
-  }
-
-  function slashPathBase(value: string | undefined) {
-    const parts = (value ?? '').replaceAll('\\', '/').split('/').filter(Boolean)
-    return parts.at(-1) ?? ''
   }
 
   function slashPathParent(value: string | undefined) {
@@ -4461,12 +4446,11 @@
   }
 
   function renameFolderDirectoryIsReserved() {
-    const value = renameFolderDirectoryDraft.trim().toLowerCase()
-    return value === 'collection' || value === 'folder'
+    return isReservedMetadataName(renameFolderDirectoryDraft)
   }
 
   function renameFolderDirectoryNameIsValid() {
-    return collectionFolderNameIsValid(renameFolderDirectoryDraft) && !renameFolderDirectoryIsReserved()
+    return filesystemNameIsValid(renameFolderDirectoryDraft)
   }
 
   function renamedFolderExpectedDisplayPath() {
@@ -4525,12 +4509,11 @@
   }
 
   function cloneFolderDirectoryIsReserved() {
-    const value = cloneFolderDirectoryDraft.trim().toLowerCase()
-    return value === 'collection' || value === 'folder'
+    return isReservedMetadataName(cloneFolderDirectoryDraft)
   }
 
   function cloneFolderDirectoryNameIsValid() {
-    return collectionFolderNameIsValid(cloneFolderDirectoryDraft) && !cloneFolderDirectoryIsReserved()
+    return filesystemNameIsValid(cloneFolderDirectoryDraft)
   }
 
   async function confirmCloneFolder() {
@@ -4572,12 +4555,11 @@
   }
 
   function cloneRequestFilenameIsReserved() {
-    const value = cloneRequestFilenameDraft.trim().toLowerCase()
-    return value === 'collection' || value === 'folder'
+    return isReservedMetadataName(cloneRequestFilenameDraft)
   }
 
   function cloneRequestFilenameIsValid() {
-    return collectionFolderNameIsValid(cloneRequestFilenameDraft) && !cloneRequestFilenameIsReserved()
+    return filesystemNameIsValid(cloneRequestFilenameDraft)
   }
 
   async function confirmCloneRequest() {
@@ -4594,10 +4576,7 @@
   }
 
   function requestFilesystemBaseName(request: types.RequestItem) {
-    const filePath = request.filePath ?? ''
-    const fileName = slashPathBase(filePath)
-    const withoutExtension = fileName.replace(/\.(bru|ya?ml)$/i, '')
-    return sanitizeCollectionFolderName(withoutExtension || request.name || 'Request')
+    return requestFilesystemBaseNameOf(request.filePath, request.name)
   }
 
   function openRenameRequestModal(collection: types.Collection, request: types.RequestItem) {
@@ -4626,12 +4605,11 @@
   }
 
   function renameRequestFilenameIsReserved() {
-    const value = renameRequestFilenameDraft.trim().toLowerCase()
-    return value === 'collection' || value === 'folder'
+    return isReservedMetadataName(renameRequestFilenameDraft)
   }
 
   function renameRequestFilenameIsValid() {
-    return collectionFolderNameIsValid(renameRequestFilenameDraft) && !renameRequestFilenameIsReserved()
+    return filesystemNameIsValid(renameRequestFilenameDraft)
   }
 
   async function confirmRenameRequest() {

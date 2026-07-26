@@ -7042,3 +7042,45 @@ US-026 - Store layer. DONE. Both named collapses complete.
       header marked as sorted over rows in arrival order. Control fails 1.
 
   Thirteen controls, thirteen failures.
+
+=== PHASE 6 — filesystem name validation ===
+
+  New src/lib/filesystemNames.ts, 16 tests. App.svelte 11,172 -> 11,150.
+  Suite 558 -> 574. Four byte-identical *IsReserved copies collapse into one.
+
+  These are not display names. Each becomes a real directory or file inside the
+  collection on disk, so this is the last thing between a typed string and a
+  path the backend will open. The backend checks again — but by then the dialog
+  has already told the user their name was fine.
+
+  Pinned:
+    - THE TRAILING-DOT RULE IS WHAT REJECTS "." AND "..". Traversal segments
+      never reach the backend as a directory name, and that is a CONSEQUENCE of
+      the rule rather than its stated purpose — anyone relaxing the trailing-dot
+      rule reopens it. Asserted directly for that reason. Control fails 2.
+    - a path separator does not make a name invalid to a filesystem; it makes it
+      a different PATH. "auth/tokens" in a rename dialog would write into a
+      directory the user never chose.
+    - windows device names are rejected ON EVERY PLATFORM. A collection created
+      on macOS with a folder named "aux" is simply unopenable once synced to
+      Windows, and nothing on the authoring machine says so. Control fails 2.
+    - "collection" and "folder" are this app's own metadata basenames. A request
+      saved as "folder" produces folder.bru, which the reader treats as the
+      enclosing folder's SETTINGS — the request disappears and the folder's
+      configuration is replaced by it. Compared case-insensitively, because the
+      filesystems this runs on mostly are. Control fails 1.
+    - THE TWO HALVES ARE INDEPENDENT AND BOTH TESTED SEPARATELY. "folder" is a
+      perfectly legal path segment and a device name is not app metadata, so a
+      test of either alone would let the other regress. Controls fail 2 and 1.
+    - the environments collision applies ONLY at the collection root; nested
+      folders have no environments directory beside them. Control fails 1.
+    - that match is a SUBSTRING, so "environments backup" is rejected too. That
+      is broader than the collision it guards. PRESERVED AS IT BEHAVED — a
+      narrowing control also fails, which is the point: the test pins current
+      behaviour, and changing it is a decision, not a move.
+    - the extension is stripped only at the END, so a request named
+      "v1.bru.backup" keeps its name. Control fails 1.
+    - the suggested basename is SANITIZED, so a display name full of separators
+      does not become a path when the user accepts the default unedited.
+
+  Twelve controls, twelve failures.
