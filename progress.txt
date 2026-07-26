@@ -6766,3 +6766,30 @@ US-026 - Store layer. DONE. Both named collapses complete.
   because a cookie with no path is a cookie for nothing, session true because no
   expiry IS a session cookie, hostOnly true because the narrower scope is the
   one to opt out of rather than into.
+
+=== PHASE 6 — the DevTools console aggregation ===
+
+  src/lib/devToolsConsole.ts — 7 tests. App.svelte 11,439 -> 11,416.
+  Frontend suite 436 -> 443.
+
+  A pm.console.log() lands on the RESPONSE of whichever request produced it, so
+  the logs are scattered across every collection and item. This console is the
+  only place they are visible together, which is what makes "which request
+  printed that?" answerable — and a log arriving without its origin is a log
+  nobody can act on.
+
+  Pinned:
+    - the source breadcrumb OMITS an empty folder path rather than rendering
+      "Collection /  / Request". A log whose origin reads with a gap in it looks
+      like the origin was lost.
+    - the original log fields survive the tagging. Dropping the spread fails 3
+      tests, including the one asserting a script's `args` array is not lost.
+    - order is collection, then item, then emission — NOT chronological across
+      requests. Logs from one run belong together; interleaving two requests by
+      timestamp makes a single script's output impossible to follow. Written
+      down because it looks like a bug until you know why.
+
+  scriptLogs is read through a cast because it is not on the generated Response
+  type — the Go side attaches it and regenerating bindings has never surfaced
+  it. Kept as a cast in ONE place rather than widening the shared type, and said
+  so in the code, so the looseness is contained and findable.

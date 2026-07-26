@@ -293,6 +293,12 @@
     type CookieForm
   } from './lib/cookieView'
   import {
+    devToolsConsoleLogs,
+    responseScriptLogs,
+    type DevToolsConsoleLog,
+    type ScriptLog
+  } from './lib/devToolsConsole'
+  import {
     authWithOAuth2Defaults,
     oauth2AuthWithDefaults,
     proxyConfigWithDefaults
@@ -379,16 +385,6 @@
     lineIndex: number
     name: string
     value: string
-  }
-  type ScriptLog = {
-    level: string
-    message: string
-    args?: string[]
-  }
-  type DevToolsConsoleLog = ScriptLog & {
-    collectionName: string
-    requestName: string
-    source: string
   }
 	  type PromptDialogState = {
 	    prompts: string[]
@@ -6739,9 +6735,6 @@
     return match ? String(match[1]) : ''
   }
 
-  function responseScriptLogs(response: types.Response | undefined): ScriptLog[] {
-    return ((response as unknown as { scriptLogs?: ScriptLog[] })?.scriptLogs ?? [])
-  }
 
   function timelineTimestamp(entry: types.TimelineItem) {
     if (!entry.at) return 0
@@ -6753,22 +6746,6 @@
     return [...entries].sort((left, right) => timelineTimestamp(right) - timelineTimestamp(left))
   }
 
-  function devToolsConsoleLogs(workspace: types.Workspace | undefined): DevToolsConsoleLog[] {
-    const rows: DevToolsConsoleLog[] = []
-    for (const collection of workspace?.collections ?? []) {
-      for (const item of collection.items ?? []) {
-        for (const log of responseScriptLogs(item.response)) {
-          rows.push({
-            ...log,
-            collectionName: collection.name,
-            requestName: item.name,
-            source: [collection.name, item.folderPath, item.name].filter(Boolean).join(' / ')
-          })
-        }
-      }
-    }
-    return rows
-  }
 
   function normalizedNetworkMethod(row: types.NetworkLog) {
     return (row.method || 'GET').toUpperCase()
