@@ -88,7 +88,7 @@ func ImportInsomnia(content, fallbackName string) (types.Collection, error) {
 	now := time.Now()
 	collection := types.Collection{
 		ID:             scalar.NewID("collection"),
-		Name:           scalar.FirstNonEmpty(strings.TrimSpace(raw.Name), strings.TrimSpace(fallbackName), "Insomnia types.Collection"),
+		Name:           scalar.FirstNonEmpty(strings.TrimSpace(raw.Name), strings.TrimSpace(fallbackName), "Insomnia Collection"),
 		Format:         "insomnia",
 		Auth:           types.AuthConfig{Mode: "none"},
 		SecurityConfig: types.CollectionSecurityConfig{JSSandboxMode: "safe"},
@@ -398,7 +398,7 @@ func insomniaEnvironments(values []insomniaEnvironment) []types.Environment {
 		}
 		result = append(result, types.Environment{
 			ID:        scalar.NewID("env"),
-			Name:      scalar.FirstNonEmpty(strings.TrimSpace(env.Name), fmt.Sprintf("types.Environment %d", index+1)),
+			Name:      scalar.FirstNonEmpty(strings.TrimSpace(env.Name), fmt.Sprintf("Environment %d", index+1)),
 			Variables: variables,
 		})
 	}

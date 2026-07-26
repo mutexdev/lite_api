@@ -676,7 +676,7 @@ func EnvironmentFromYAMLMap(root map[string]interface{}, fallbackName string) ty
 		name = strings.TrimSpace(fallbackName)
 	}
 	if name == "" {
-		name = "types.Environment"
+		name = "Environment"
 	}
 	return types.Environment{
 		ID:        scalar.NewID("env"),

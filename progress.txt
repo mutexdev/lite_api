@@ -4265,3 +4265,41 @@ US-026 - Store layer. DONE. Both named collapses complete.
   user's auth on upgrade.
 
   0%-covered: 30 -> 21. Coverage 79.0%.
+
+!!! SEVEN USER-VISIBLE STRINGS CORRUPTED BY MY OWN EXTRACTION !!!
+
+  Found while writing tests for the environment loader. EnvironmentFromYAMLMap
+  fell back to naming an unnamed environment "types.Environment".
+
+  The type-prefixing sweep rewrote bare type names to `types.X` across ~30,000
+  lines. A regex cannot tell a Go identifier from the same characters inside a
+  string, so seven user-visible names were rewritten and SHIPPED:
+
+      "Untitled Collection"   -> "Untitled types.Collection"
+      "Insomnia Collection"   -> "Insomnia types.Collection"
+      "Environment %d"        -> "types.Environment %d"
+      "Imported Environment"  -> "Imported types.Environment"    (x2)
+      "Environment"           -> "types.Environment"
+      "Import/Environment/…"  -> "Import/types.Environment/…"    (ledger prose)
+
+  Every one is a label shown after an import. Nothing failed, nothing logged,
+  every gate stayed green — the tests assert on ids and counts, never on the
+  fallback name a collection gets when its source has no title.
+
+  I had "fixed" this class TWICE already (the scripting JS shims, then
+  write.go's strings) and both times believed I was done. I was not, because
+  both fixes were the same shape as the bug: a regex looking at text it cannot
+  parse.
+
+  THE FIX IS A TRIPWIRE, NOT ANOTHER SWEEP. extraction_string_integrity_test.go
+  scans every non-test .go file with a REAL string scanner — tracking raw
+  strings, interpreted strings and comments — and fails on any package
+  qualifier inside a literal. It found the seventh one immediately, in ledger
+  prose my manual grep had skimmed past.
+
+  Controlled: re-introducing "types.Environment" makes it fail.
+
+  THE LESSON, stated plainly because it cost seven defects: when a mechanical
+  edit can corrupt data the compiler does not check, the remedy is a CHECK that
+  runs forever, not a more careful pass. I wrote three careful passes. The
+  check found what all three missed.

@@ -44,7 +44,7 @@ func ImportOpenAPI(content, fallbackName, groupBy string) (types.Collection, err
 		name = fallbackName
 	}
 	if name == "" {
-		name = "Untitled types.Collection"
+		name = "Untitled Collection"
 	}
 	variables := []types.Variable{{ID: scalar.NewID("var"), Name: "baseUrl", Value: "{{baseUrl}}", DataType: "string", Enabled: true}}
 	if len(doc.Servers) > 0 && doc.Servers[0].URL != "" {
