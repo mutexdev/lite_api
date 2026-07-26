@@ -448,3 +448,16 @@ frontend/dist/assets/index-*.css        113609
 #     measured and characterised, each needing a props-first reading rather than
 #     the grep-and-check loop that worked for the 27 dialogs)
 # ---------------------------------------------------------------------------
+
+# Dialog extraction #28 — command-palette, the one previously reverted:
+#   initial chunk 496,350 -> 495,281  (-1,069). Margin now 4,719 bytes.
+#
+# The earlier revert diagnosed the blocker correctly — runCommandPaletteAction
+# is typed against WorkbenchCommandID, so a widened `id: string` prop is not
+# assignable — but then assumed the union was a local type in App.svelte and
+# therefore unreachable. It is not local: workbenchCommands.ts EXPORTS it, and
+# App.svelte imports it from there at line 33.
+#
+# So the fix was one import, not a design decision. Checking whether a type is
+# exported before concluding it has to be mirrored or widened would have saved
+# the revert.
