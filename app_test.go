@@ -7,6 +7,7 @@ import (
 	"LiteAPI/internal/codegen"
 	"LiteAPI/internal/grpcexec"
 	"LiteAPI/internal/importers"
+	"LiteAPI/internal/scripting"
 	brustore "LiteAPI/internal/store/bru"
 	"LiteAPI/internal/store/yamlstore"
 	"LiteAPI/internal/transport"
@@ -607,14 +608,14 @@ func TestEncodeRequestURLMatchesBrunoToggleBehavior(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := encodeRequestURL(tt.raw); got != tt.want {
-				t.Fatalf("encodeRequestURL(%q) = %q, want %q", tt.raw, got, tt.want)
+			if got := scripting.EncodeRequestURL(tt.raw); got != tt.want {
+				t.Fatalf("scripting.EncodeRequestURL(%q) = %q, want %q", tt.raw, got, tt.want)
 			}
 		})
 	}
 
 	withParamRows := codegen.RequestURLWithParams("https://example.com/api", []KeyValue{{Name: "name", Value: "John Doe", Enabled: true}}, nil, nil)
-	if got, want := encodeRequestURL(withParamRows), "https://example.com/api?name=John%20Doe"; got != want {
+	if got, want := scripting.EncodeRequestURL(withParamRows), "https://example.com/api?name=John%20Doe"; got != want {
 		t.Fatalf("query param rows were encoded incorrectly: %q, want %q", got, want)
 	}
 }
@@ -650,7 +651,7 @@ func TestHTTPEncodeURLSettingControlsExecutionURL(t *testing.T) {
 	if !ok || item.Response == nil {
 		t.Fatalf("missing encoded response")
 	}
-	expectedURL := encodeRequestURL(rawURL)
+	expectedURL := scripting.EncodeRequestURL(rawURL)
 	if item.Response.RequestedURL != expectedURL {
 		t.Fatalf("requested URL = %q, want %q", item.Response.RequestedURL, expectedURL)
 	}
@@ -12548,16 +12549,16 @@ func TestImportPostmanAndBruRoundTrip(t *testing.T) {
 	if strings.Contains(untranslatedPre, "pm.") || strings.Contains(untranslatedPost, "pm.") || !strings.Contains(imported.Items[0].PreScript, "req.setHeader") || !strings.Contains(imported.Items[0].PostScript, "test(") || !strings.Contains(imported.Items[0].PostScript, "expect(res.status).to.equal(200)") || !strings.Contains(imported.Items[0].PostScript, "res.json.ok") || !strings.Contains(imported.Items[0].PostScript, "res.getHeader") {
 		t.Fatalf("postman request events not converted: pre=%q post=%q", imported.Items[0].PreScript, imported.Items[0].PostScript)
 	}
-	scripts := mergedRuntimeScripts(imported, imported.Items[0])
+	scripts := scripting.MergedRuntimeScripts(imported, imported.Items[0])
 	requestCopy := imported.Items[0]
-	runtimeVars := buildVariableMap(nil, &imported, "", requestCopy)
-	if err := runPreRequestScript(scripts.Pre, &requestCopy, runtimeVars, nil); err != nil {
+	runtimeVars := scripting.BuildVariableMap(nil, &imported, "", requestCopy)
+	if err := scripting.RunPreRequestScript(scripts.Pre, &requestCopy, runtimeVars, nil); err != nil {
 		t.Fatalf("translated postman pre-request script did not execute: %v\n%s", err, scripts.Pre)
 	}
 	if getKeyValue(requestCopy.Headers, "X-Postman") != "secret" || runtimeVars["collection_pre"] != "yes" || runtimeVars["request_pre"] != "yes" {
 		t.Fatalf("translated postman pre-request script did not mutate request/vars: headers=%#v vars=%#v", requestCopy.Headers, runtimeVars)
 	}
-	if err := runPostResponseScript(scripts.Post, requestCopy, Response{
+	if err := scripting.RunPostResponseScript(scripts.Post, requestCopy, Response{
 		Status:  http.StatusOK,
 		Body:    `{"ok":true}`,
 		Headers: map[string]string{"X-Test": "ok"},
@@ -12598,7 +12599,7 @@ func TestImportPostmanAndBruRoundTrip(t *testing.T) {
 	if graphQL.Auth.Mode != "inherit" {
 		t.Fatalf("postman request without auth should inherit: %#v", graphQL.Auth)
 	}
-	effectiveGraphQL := effectiveRequest(imported, graphQL)
+	effectiveGraphQL := scripting.EffectiveRequest(imported, graphQL)
 	if effectiveGraphQL.Auth.Mode != "apikey" || effectiveGraphQL.Auth.APIKey != "X-Collection-Key" {
 		t.Fatalf("postman collection auth was not inherited: %#v", effectiveGraphQL.Auth)
 	}
@@ -12609,7 +12610,7 @@ func TestImportPostmanAndBruRoundTrip(t *testing.T) {
 	if len(imported.Folders) != 1 || imported.Folders[0].Path != "Admin APIs" || imported.Folders[0].Auth.Mode != "basic" || imported.Folders[0].Auth.Username != "folder-user" || imported.Folders[0].Auth.Password != "folder-pass" || !strings.Contains(imported.Folders[0].PostScript, "folder_post") {
 		t.Fatalf("postman folder auth not converted: %#v", imported.Folders)
 	}
-	effectiveNested := effectiveRequest(imported, nested)
+	effectiveNested := scripting.EffectiveRequest(imported, nested)
 	if effectiveNested.Auth.Mode != "basic" || effectiveNested.Auth.Username != "folder-user" || effectiveNested.Auth.Password != "folder-pass" {
 		t.Fatalf("postman folder auth was not inherited: %#v", effectiveNested.Auth)
 	}
@@ -12744,7 +12745,7 @@ func TestImportPostmanAdvancedAuth(t *testing.T) {
 	if digest.Auth.Mode != "digest" || digest.Auth.Username != "digest-user" || digest.Auth.Password != "digest-pass" {
 		t.Fatalf("postman digest auth not converted: %#v", digest.Auth)
 	}
-	awsInherit := effectiveRequest(imported, imported.Items[1])
+	awsInherit := scripting.EffectiveRequest(imported, imported.Items[1])
 	if awsInherit.Auth.Mode != "awsv4" || awsInherit.Auth.AWSV4.Region != "us-east-1" {
 		t.Fatalf("postman folder awsv4 auth was not inherited: %#v", awsInherit.Auth)
 	}
@@ -12805,7 +12806,7 @@ func TestImportPostmanCookieScriptTranslation(t *testing.T) {
 		t.Fatalf("postman cookie script not translated: %s", script)
 	}
 	cookies := []CookieEntry{{Name: "session", Value: "abc123", Domain: "example.test", Path: "/", Session: true}}
-	if err := runPostResponseScript(script, imported.Items[0], Response{Status: http.StatusOK, Body: `{}`}, map[string]string{}, cookies); err != nil {
+	if err := scripting.RunPostResponseScript(script, imported.Items[0], Response{Status: http.StatusOK, Body: `{}`}, map[string]string{}, cookies); err != nil {
 		t.Fatalf("translated postman cookie script did not execute: %v\n%s", err, script)
 	}
 }
@@ -12863,7 +12864,7 @@ func TestImportPostmanHeaderListScriptTranslation(t *testing.T) {
 	if strings.Contains(script, "pm.response.headers") || strings.Contains(script, "pm.request.headers.has") || !strings.Contains(script, "res.headerList.count") || !strings.Contains(script, "req.headerList.toObject") {
 		t.Fatalf("postman header-list script not translated: %s", script)
 	}
-	if err := runPostResponseScript(script, imported.Items[0], Response{
+	if err := scripting.RunPostResponseScript(script, imported.Items[0], Response{
 		Status:  http.StatusOK,
 		Body:    `{}`,
 		Headers: map[string]string{"Content-Type": "application/json", "X-Test": "ok"},
@@ -22545,7 +22546,7 @@ paths:
 		}
 	}
 	linkVars := map[string]string{}
-	if err := runPostResponseScript(postReq.PostScript, postReq, Response{
+	if err := scripting.RunPostResponseScript(postReq.PostScript, postReq, Response{
 		Status:  http.StatusCreated,
 		Body:    `{"id":123,"name":"Lin"}`,
 		Headers: map[string]string{"Location": "/pets/123"},

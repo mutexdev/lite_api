@@ -40,14 +40,12 @@ import (
 // that a moved type embeds has to move too or the packages point both ways.
 type VisualizerPayload = types.VisualizerPayload
 
-// visualizerTemplateLimit bounds what a script may hand over. A template is
+// scripting.VisualizerTemplateLimit bounds what a script may hand over. A template is
 // held in memory, persisted with the response and injected into a document; an
 // unbounded one is a memory and state.json problem before it is a rendering
 // one.
-const visualizerTemplateLimit = 1 << 20 // 1 MiB
 
-// visualizerDataLimit bounds the data island for the same reason.
-const visualizerDataLimit = 4 << 20 // 4 MiB
+// scripting.VisualizerDataLimit bounds the data island for the same reason.
 
 // visualizerCSP is deliberately restrictive.
 //
@@ -63,16 +61,6 @@ const visualizerCSP = "default-src 'none'; script-src 'unsafe-inline'; style-src
 // allow-same-origin here would silently undo the whole containment, and it is
 // the kind of change that looks harmless in a diff.
 const VisualizerSandbox = "allow-scripts"
-
-func normalizeVisualizerPayload(payload VisualizerPayload) (VisualizerPayload, error) {
-	if len(payload.Template) > visualizerTemplateLimit {
-		return VisualizerPayload{}, fmt.Errorf("visualizer template is %d bytes, over the %d byte limit", len(payload.Template), visualizerTemplateLimit)
-	}
-	if len(payload.Data) > visualizerDataLimit {
-		return VisualizerPayload{}, fmt.Errorf("visualizer data is %d bytes, over the %d byte limit", len(payload.Data), visualizerDataLimit)
-	}
-	return payload, nil
-}
 
 // buildVisualizerDocument returns the complete srcdoc for the iframe.
 func buildVisualizerDocument(payload VisualizerPayload) string {

@@ -13,6 +13,7 @@ package main
 // correctly, right up until someone controls the data.
 
 import (
+	"LiteAPI/internal/scripting"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -180,13 +181,13 @@ func TestVisualizerHandlesMalformedInput(t *testing.T) {
 }
 
 func TestVisualizerRejectsOversizedPayloads(t *testing.T) {
-	if _, err := normalizeVisualizerPayload(VisualizerPayload{Template: strings.Repeat("x", visualizerTemplateLimit+1)}); err == nil {
+	if _, err := scripting.NormalizeVisualizerPayload(VisualizerPayload{Template: strings.Repeat("x", scripting.VisualizerTemplateLimit+1)}); err == nil {
 		t.Error("an oversized template should be rejected")
 	}
-	if _, err := normalizeVisualizerPayload(VisualizerPayload{Data: strings.Repeat("x", visualizerDataLimit+1)}); err == nil {
+	if _, err := scripting.NormalizeVisualizerPayload(VisualizerPayload{Data: strings.Repeat("x", scripting.VisualizerDataLimit+1)}); err == nil {
 		t.Error("oversized data should be rejected")
 	}
-	if _, err := normalizeVisualizerPayload(VisualizerPayload{Template: "<p>ok</p>", Data: `{"a":1}`}); err != nil {
+	if _, err := scripting.NormalizeVisualizerPayload(VisualizerPayload{Template: "<p>ok</p>", Data: `{"a":1}`}); err != nil {
 		t.Errorf("a normal payload was rejected: %v", err)
 	}
 }

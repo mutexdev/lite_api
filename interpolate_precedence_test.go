@@ -1,11 +1,12 @@
 // This one stayed in package main when the rest of the interpolation tests moved
-// to internal/interp: it asserts the contract BETWEEN buildVariableMap and the
-// interpolator, and buildVariableMap needs collections, environments and the
+// to internal/interp: it asserts the contract BETWEEN scripting.BuildVariableMap and the
+// interpolator, and scripting.BuildVariableMap needs collections, environments and the
 // workspace. A test that spans two packages belongs with the one that owns the
 // state.
 package main
 
 import (
+	"LiteAPI/internal/scripting"
 	"strings"
 	"testing"
 
@@ -27,11 +28,11 @@ func TestInterpolateCycleTermination(t *testing.T) {
 	}
 }
 
-// TestInterpolatePreservesPrecedence guards the contract with buildVariableMap:
+// TestInterpolatePreservesPrecedence guards the contract with scripting.BuildVariableMap:
 // interpolate resolves names against the map it is handed and does no
 // precedence work of its own, so the winner is whatever the map says.
 func TestInterpolatePreservesPrecedence(t *testing.T) {
-	vars := buildVariableMap(
+	vars := scripting.BuildVariableMap(
 		[]Environment{{ID: "g", Name: "global", Variables: []Variable{
 			{Name: "only_global", Value: "g-only", Enabled: true},
 			{Name: "shared", Value: "g-shared", Enabled: true},

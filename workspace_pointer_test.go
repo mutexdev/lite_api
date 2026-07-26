@@ -7,7 +7,7 @@ package main
 // sendRequestWithControlsContext resolved `ws` (a pointer INTO the
 // a.state.Workspaces backing array), released a.mu for the round trip,
 // re-acquired it, and then handed that same pointer to
-// applyScriptVariableContextToState. Anything that appended a workspace past
+// scripting.ApplyScriptVariableContextToState. Anything that appended a workspace past
 // the slice's capacity while the lock was free reallocated the backing array,
 // after which the captured pointer addressed memory nothing reads. The write
 // succeeded, reported no error, and vanished.
@@ -62,7 +62,7 @@ func globalVariableValue(state AppState, workspaceID, name string) string {
 // interleaving the bug needs.
 //
 // The workspace pointer is only dereferenced when a script marks GLOBAL
-// variables dirty (applyScriptVariableContextToState touches `workspace` under
+// variables dirty (scripting.ApplyScriptVariableContextToState touches `workspace` under
 // ctx.GlobalDirty and nowhere else), so the request runs a post-response script
 // that calls bru.setGlobalEnvVar. The httptest handler runs while a.mu is
 // released, and creates enough workspaces to guarantee the Workspaces slice
@@ -158,14 +158,14 @@ func TestRunnerGlobalVariableSurvivesWorkspaceReallocation(t *testing.T) {
 // regardless of fixture geometry.
 func TestRunnerResolvesWorkspaceAfterReacquiringTheLock(t *testing.T) {
 	source := readAppSourceForTest(t)
-	const call = "applyScriptVariableContextToState(&a.state, liveWorkspace, collection, environmentID, scriptVariables)"
+	const call = "scripting.ApplyScriptVariableContextToState(&a.state, liveWorkspace, collection, environmentID, scriptVariables)"
 	if !strings.Contains(source, call) {
 		t.Errorf("sendRequestWithControlsContext no longer passes the re-resolved workspace to "+
-			"applyScriptVariableContextToState.\nExpected to find:\n  %s\n"+
+			"scripting.ApplyScriptVariableContextToState.\nExpected to find:\n  %s\n"+
 			"If this call was legitimately restructured, keep the property: the workspace must be "+
 			"resolved AFTER a.mu is re-acquired, never captured across the release.", call)
 	}
-	if strings.Contains(source, "applyScriptVariableContextToState(&a.state, ws,") {
+	if strings.Contains(source, "scripting.ApplyScriptVariableContextToState(&a.state, ws,") {
 		t.Error("sendRequestWithControlsContext passes the pre-I/O `ws` pointer again (US-076 regression)")
 	}
 }

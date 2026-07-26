@@ -8,6 +8,7 @@ package main
 // would pass a unit test while shipping requests with {{userId}} in the URL.
 
 import (
+	"LiteAPI/internal/scripting"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -209,13 +210,13 @@ func TestDataFileRowsReachTheWire(t *testing.T) {
 // during it. If the row won, a script could not correct a value for the request
 // that follows, and would fail with no error to point at.
 func TestDataFileDoesNotOverrideRuntimeVariables(t *testing.T) {
-	ctx := newFlatScriptVariableContext(map[string]string{})
+	ctx := scripting.NewFlatScriptVariableContext(map[string]string{})
 	ctx.Env["token"] = "from-environment"
 	ctx.Env["only-env"] = "environment"
 	ctx.Runtime["token"] = "from-setVar"
 	ctx.Recompute()
 
-	applyIterationDataToContext(ctx, map[string]string{"token": "from-data", "userId": "42"})
+	scripting.ApplyIterationDataToContext(ctx, map[string]string{"token": "from-data", "userId": "42"})
 
 	if ctx.Combined["token"] != "from-setVar" {
 		t.Errorf("token = %q, want the bru.setVar value — data must not overwrite a runtime variable", ctx.Combined["token"])
@@ -231,7 +232,7 @@ func TestDataFileDoesNotOverrideRuntimeVariables(t *testing.T) {
 	// feature useful at all.
 	delete(ctx.Runtime, "token")
 	ctx.Recompute()
-	applyIterationDataToContext(ctx, map[string]string{"token": "from-data"})
+	scripting.ApplyIterationDataToContext(ctx, map[string]string{"token": "from-data"})
 	if ctx.Combined["token"] != "from-data" {
 		t.Errorf("token = %q, want the data row to beat the environment", ctx.Combined["token"])
 	}
@@ -240,10 +241,10 @@ func TestDataFileDoesNotOverrideRuntimeVariables(t *testing.T) {
 // TestNoDataFileLeavesTheDataScopeEmpty. Every run that predates US-046 must
 // behave identically, so an absent row is a no-op rather than a clear.
 func TestNoDataFileLeavesTheDataScopeEmpty(t *testing.T) {
-	ctx := newFlatScriptVariableContext(map[string]string{"a": "1"})
+	ctx := scripting.NewFlatScriptVariableContext(map[string]string{"a": "1"})
 	before := ctx.Combined["a"]
-	applyIterationDataToContext(ctx, nil)
-	applyIterationDataToContext(ctx, map[string]string{})
+	scripting.ApplyIterationDataToContext(ctx, nil)
+	scripting.ApplyIterationDataToContext(ctx, map[string]string{})
 	if ctx.Combined["a"] != before {
 		t.Errorf("an absent data row changed the variables: %q -> %q", before, ctx.Combined["a"])
 	}

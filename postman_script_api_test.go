@@ -10,6 +10,7 @@ package main
 
 import (
 	"LiteAPI/internal/importers"
+	"LiteAPI/internal/scripting"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -28,8 +29,8 @@ func TestPostmanEventName(t *testing.T) {
 		"tests":         "test",
 		"":              "test",
 	} {
-		if got := postmanEventName(phase); got != want {
-			t.Errorf("postmanEventName(%q) = %q, want %q", phase, got, want)
+		if got := scripting.PostmanEventName(phase); got != want {
+			t.Errorf("scripting.PostmanEventName(%q) = %q, want %q", phase, got, want)
 		}
 	}
 }
@@ -920,7 +921,7 @@ func TestPmVaultReadsTheSecretsLayer(t *testing.T) {
 }
 
 // TestPmVaultWritesAreRejected. The runtime cannot mark a value as secret —
-// scriptVariableContext holds plain maps with no Secret flag — so a
+// scripting.VariableContext holds plain maps with no Secret flag — so a
 // pm.vault.set would land the value in the environment as an ordinary variable
 // and get written to disk in the clear. A script storing a token would believe
 // it was vaulted while leaking it. The rejection has to be explicit.

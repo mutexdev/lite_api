@@ -18,6 +18,7 @@ package main
 
 import (
 	"LiteAPI/internal/importers"
+	"LiteAPI/internal/scripting"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -117,7 +118,7 @@ func fidelityFingerprint(collection Collection) string {
 	builder.WriteString("pre " + strings.TrimSpace(collection.PreScript) + "\n")
 	builder.WriteString("post " + strings.TrimSpace(collection.PostScript) + "\n")
 	for _, variable := range collection.Variables {
-		builder.WriteString("var " + variable.Name + "=" + scriptVariableString(variable.Value) + "\n")
+		builder.WriteString("var " + variable.Name + "=" + scripting.ScriptVariableString(variable.Value) + "\n")
 	}
 	for _, folder := range collection.Folders {
 		builder.WriteString("folder " + folder.Name + " auth=" + folder.Auth.Mode +

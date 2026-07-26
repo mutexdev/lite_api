@@ -18,6 +18,7 @@ package main
 // .ralph/baseline/bench.txt.
 
 import (
+	"LiteAPI/internal/scripting"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -178,9 +179,9 @@ func BenchmarkNewScriptRuntimeWithMeta(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		var testResults []TestResult
 		var scriptLogs []ScriptLog
-		rt, _, _, _ := newScriptRuntimeWithMeta(item, response, vars, &testResults, &scriptLogs, nil, scriptRuntimeMeta{})
+		rt, _, _, _ := scripting.NewScriptRuntimeWithMeta(item, response, vars, &testResults, &scriptLogs, nil, scripting.ScriptRuntimeMeta{})
 		if rt == nil {
-			b.Fatal("newScriptRuntimeWithMeta returned a nil runtime")
+			b.Fatal("scripting.NewScriptRuntimeWithMeta returned a nil runtime")
 		}
 	}
 }

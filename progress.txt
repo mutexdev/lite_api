@@ -3568,3 +3568,45 @@ US-026 - Store layer. DONE. Both named collapses complete.
   alias would take a second lock and two windows could open one workspace at
   once. That IS tested, and it is the kind of subtle property that usually is
   not - someone thought about it.
+
+--- US-068 — internal/scripting (DONE). The largest story in the plan. ---
+
+  14,829 lines: the goja runtime, the pm.* and bru.* API surfaces, the Node
+  shims, the test/assertion vocabulary and the sandbox.
+  app.go: 34,424 -> 19,701. It has now gone from ~44,000 to under 20,000.
+
+  I had deferred this twice as "too large to finish safely". What made it
+  possible was that the earlier extractions had already moved most of its
+  dependencies out: cookies, interp, scalar, types, codegen. The external-need
+  count had fallen from 22 to a handful.
+
+  The export surface was found by a COMPILER LOOP, not by reading: build, read
+  `undefined: X`, capitalise X in scripting, qualify it in main, repeat. Three
+  passes for the build, three more for the tests.
+
+  !!! THE REAL LESSON: THIS PACKAGE CONTAINS JAVASCRIPT, AND A GO REGEX
+      CANNOT TELL !!!
+
+  Three separate corruptions, none caught by the compiler, all caught by tests:
+
+  1. `new types.Response(...)` INSIDE the fetch shim's JS source. 4 sites.
+     Symptom: ReferenceError at <eval>:288.
+  2. The lodash shim's `merge` renamed to `Merge` by the export loop, so
+     `_.merge` became undefined. 3 sites.
+  3. `"types.Response"` and `"types.Environment"` inside DOUBLE-QUOTED Go
+     strings listing JS-visible global names. My first scan only checked
+     backtick strings and missed these entirely.
+
+  Every one compiled cleanly. Go has no idea that a string is a program.
+
+  AND TWO OF MY OWN SCANS WERE WRONG BEFORE THEY WERE RIGHT. A naive backtick
+  pairing reported 167 corruptions (it was reading Go struct tags as raw
+  strings) and later reported 39 renamed JS identifiers (same cause). The
+  correct scanner - the one tracking raw strings, interpreted strings and
+  comments, the same logic as tools/extraction/split.py - found 4, then 1.
+  A scanner that over-reports is not conservative; it hides the real hits.
+
+  Controls after: breaking pm.test assertions fails 5.
+
+  Gates: go build, go vet, go test ok across 16 packages; svelte-check 209/0/0;
+  eslint 0; npm test 223/223; vite build ok.

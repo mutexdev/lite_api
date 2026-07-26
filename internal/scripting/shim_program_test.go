@@ -1,6 +1,7 @@
-package main
+package scripting
 
 import (
+	"LiteAPI/internal/types"
 	"strings"
 	"sync"
 	"testing"
@@ -9,9 +10,9 @@ import (
 )
 
 // allScriptShimPrograms is every compiled-once cache slot for a built-in shim
-// source. Keep it in sync with the var block beside scriptShimProgram in app.go.
-func allScriptShimPrograms() map[string]*scriptShimProgram {
-	return map[string]*scriptShimProgram{
+// source. Keep it in sync with the var block beside ScriptShimProgram in app.go.
+func allScriptShimPrograms() map[string]*ScriptShimProgram {
+	return map[string]*ScriptShimProgram{
 		"console":         scriptConsoleModuleShim,
 		"buffer":          scriptBufferShim,
 		"timers/promises": scriptTimersPromisesShim,
@@ -89,7 +90,7 @@ func TestScriptShimProgramRunsInEveryRuntime(t *testing.T) {
 // ones RunString uses. goja's Runtime.RunString(src) is RunScript("", src),
 // which compiles with strict=false; compiling the shims with strict=true would
 // silently change the semantics of every one of them. This asserts the
-// difference is real and that scriptShimProgram lands on the sloppy side.
+// difference is real and that ScriptShimProgram lands on the sloppy side.
 func TestScriptShimProgramMatchesRunStringStrictness(t *testing.T) {
 	// Legal in sloppy mode, a SyntaxError in strict mode.
 	const src = `(function () { return 0777; })()`
@@ -140,20 +141,20 @@ func TestScriptShimProgramCompileFailurePanics(t *testing.T) {
 // shim. If a future change makes one lazy, the cache still works but this test
 // records the change instead of letting it pass unnoticed.
 func TestScriptShimProgramsAreAllReached(t *testing.T) {
-	item := RequestItem{ID: "shim", Name: "shim", Type: "http", Method: "GET", URL: "https://fixture.example.test/"}
-	var testResults []TestResult
-	var scriptLogs []ScriptLog
-	runtime, _, _, _ := newScriptRuntimeWithMeta(
+	item := types.RequestItem{ID: "shim", Name: "shim", Type: "http", Method: "GET", URL: "https://fixture.example.test/"}
+	var testResults []types.TestResult
+	var scriptLogs []types.ScriptLog
+	runtime, _, _, _ := NewScriptRuntimeWithMeta(
 		item,
-		Response{Status: 200, StatusText: "OK"},
+		types.Response{Status: 200, StatusText: "OK"},
 		map[string]string{},
 		&testResults,
 		&scriptLogs,
 		nil,
-		scriptRuntimeMeta{JSSandboxMode: "developer"},
+		ScriptRuntimeMeta{JSSandboxMode: "developer"},
 	)
 	if runtime == nil {
-		t.Fatal("newScriptRuntimeWithMeta returned a nil runtime")
+		t.Fatal("NewScriptRuntimeWithMeta returned a nil runtime")
 	}
 
 	for name, shim := range allScriptShimPrograms() {
@@ -167,20 +168,20 @@ func TestScriptShimProgramsAreAllReached(t *testing.T) {
 // widen what a safe-mode sandbox exposes. The developer-only modules must still
 // be unavailable, and process must still be absent.
 func TestScriptShimProgramSafeModeStillGatesDeveloperShims(t *testing.T) {
-	item := RequestItem{ID: "shim", Name: "shim", Type: "http", Method: "GET", URL: "https://fixture.example.test/"}
-	var testResults []TestResult
-	var scriptLogs []ScriptLog
-	runtime, _, _, _ := newScriptRuntimeWithMeta(
+	item := types.RequestItem{ID: "shim", Name: "shim", Type: "http", Method: "GET", URL: "https://fixture.example.test/"}
+	var testResults []types.TestResult
+	var scriptLogs []types.ScriptLog
+	runtime, _, _, _ := NewScriptRuntimeWithMeta(
 		item,
-		Response{Status: 200, StatusText: "OK"},
+		types.Response{Status: 200, StatusText: "OK"},
 		map[string]string{},
 		&testResults,
 		&scriptLogs,
 		nil,
-		scriptRuntimeMeta{JSSandboxMode: "safe"},
+		ScriptRuntimeMeta{JSSandboxMode: "safe"},
 	)
 	if runtime == nil {
-		t.Fatal("newScriptRuntimeWithMeta returned a nil runtime")
+		t.Fatal("NewScriptRuntimeWithMeta returned a nil runtime")
 	}
 
 	if process := runtime.Get("process"); process != nil && !goja.IsUndefined(process) {
