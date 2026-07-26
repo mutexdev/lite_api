@@ -4726,3 +4726,43 @@ US-026 - Store layer. DONE. Both named collapses complete.
   The lesson is the session's own, again: a number that moves the wrong way is
   telling you something about the instrument. I nearly wrote "coverage dipped
   slightly" and moved on.
+
+--- The script FILESYSTEM SANDBOX — 26% covered, and it is a security boundary ---
+
+  With the coverage instrument finally trustworthy (-count=1), I looked at LOW
+  coverage rather than only zero. The worst offender by consequence:
+
+      resolveScriptFSPath   26.5%
+
+  It decides where a pre-request or post-response script may read and write. In
+  safe mode a script may only touch its own collection; developer mode is an
+  explicit opt-out.
+
+  A hole here is not a crash. A script inside an IMPORTED collection — someone
+  else's file, opened out of curiosity — reads ~/.ssh/id_rsa or writes into a
+  startup directory, and the run looks entirely normal.
+
+  6 tests, now 91.2%. The one that could not be written with string fixtures:
+  confinement CANNOT be a prefix check, because a symlink inside the collection
+  can point out of it. The code resolves symlinks on BOTH sides before
+  comparing, so the test needs real files and a real symlink.
+
+  Controls: removing the containment check fails 3, an unknown mode defaulting
+  to developer fails 5, not resolving candidate symlinks fails 1, accepting a
+  blank collection path fails 1.
+
+  The unknown-mode default is the one I would flag to a reviewer. It must fall
+  back to SAFE: a typo, or a collection written before the setting existed,
+  otherwise opens the entire filesystem to a script.
+
+  !!! BOTH OF MY FIRST TWO FAILURES WERE THE TEST, NOT THE CODE !!!
+    - macOS /var is a symlink to /private/var. The function resolves symlinks
+      correctly; my prefix assertion compared against the UNRESOLVED temp path.
+    - I listed "Developer " as an unknown mode. NormalizeJSSandboxMode trims and
+      lowercases, so it is recognised and opening up is right.
+
+  Fifth time this session a red test was my error. The habit that keeps catching
+  it is the same one every time: read the function before deciding the code is
+  wrong.
+
+  Coverage, measured properly: 81.1%.
