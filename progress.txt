@@ -6736,3 +6736,33 @@ US-026 - Store layer. DONE. Both named collapses complete.
   because the final line lower-cases the key anyway. Two fallbacks that agree;
   now one. The control is what justified the deletion — without it I would have
   been guessing that they were equivalent.
+
+=== PHASE 6 — the cookie jar panel ===
+
+  src/lib/cookieView.ts — 12 tests. App.svelte 11,488 -> 11,439.
+  Frontend suite 424 -> 436.
+
+  None of this decides what gets SENT — the Go cookie jar does that — but all of
+  it decides what the user BELIEVES is stored, and a cookie hidden from the
+  panel is one nobody can inspect or delete.
+
+  Behaviours pinned, each with a reason:
+    - flags render "none" rather than blank when nothing is set. A blank cell
+      reads as "not loaded yet"; "none" states that the cookie carries no
+      protections, which for a cookie is information rather than its absence.
+    - SEARCHING INCLUDES THE FLAGS, so "httpOnly" or "sameSite=lax" finds every
+      cookie carrying that protection. That is the query someone runs when
+      auditing a jar, and matching only names would answer it with nothing.
+    - a cookie with no domain groups under "(no domain)" rather than being
+      dropped. It is still in the jar; hiding it means nobody can delete it.
+    - within a domain the order is PATH then name, so two cookies of the same
+      name scoped to different paths sit together and read distinctly. That pair
+      is exactly the confusion the panel exists to resolve.
+    - each group previews ONLY its own cookies. A control that made a group
+      preview the whole jar fails — a domain must not advertise another
+      domain's cookies as its own header.
+
+  The form defaults are the safe reading of an unfinished cookie: path "/"
+  because a cookie with no path is a cookie for nothing, session true because no
+  expiry IS a session cookie, hostOnly true because the narrower scope is the
+  one to opt out of rather than into.

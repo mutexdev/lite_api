@@ -285,6 +285,14 @@
     searchHit
   } from './lib/sidebarFilter'
   import {
+    cookieFlags,
+    cookieGroups,
+    cookieHeaderPreview,
+    cookieMatches,
+    emptyCookieForm,
+    type CookieForm
+  } from './lib/cookieView'
+  import {
     authWithOAuth2Defaults,
     oauth2AuthWithDefaults,
     proxyConfigWithDefaults
@@ -371,19 +379,6 @@
     lineIndex: number
     name: string
     value: string
-  }
-  type CookieForm = {
-    id: string
-    name: string
-    value: string
-    domain: string
-    path: string
-    expires: string
-    session: boolean
-    secure: boolean
-    httpOnly: boolean
-    sameSite: string
-    hostOnly: boolean
   }
   type ScriptLog = {
     level: string
@@ -7426,54 +7421,10 @@
 
 
 
-  function emptyCookieForm(): CookieForm {
-    return {
-      id: '',
-      name: '',
-      value: '',
-      domain: '',
-      path: '/',
-      expires: '',
-      session: true,
-      secure: false,
-      httpOnly: false,
-      sameSite: '',
-      hostOnly: true
-    }
-  }
 
-  function cookieGroups(cookies: types.CookieEntry[], query: string) {
-    const groups = new Map<string, types.CookieEntry[]>()
-    for (const cookie of cookies ?? []) {
-      if (query && !cookieMatches(cookie, query)) continue
-      const domain = cookie.domain || '(no domain)'
-      groups.set(domain, [...(groups.get(domain) ?? []), cookie])
-    }
-    return Array.from(groups.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([domain, groupCookies]) => ({
-        domain,
-        cookies: groupCookies.sort((a, b) => (a.path || '/').localeCompare(b.path || '/') || a.name.localeCompare(b.name)),
-        header: cookieHeaderPreview(groupCookies)
-      }))
-  }
 
-  function cookieMatches(cookie: types.CookieEntry, query: string) {
-    return [cookie.name, cookie.value, cookie.domain, cookie.path, cookie.sameSite, cookieFlags(cookie)].some((value) => searchHit(value, query))
-  }
 
-  function cookieHeaderPreview(cookies: types.CookieEntry[]) {
-    return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ')
-  }
 
-  function cookieFlags(cookie: types.CookieEntry) {
-    const flags = []
-    if (cookie.secure) flags.push('secure')
-    if (cookie.httpOnly) flags.push('httpOnly')
-    if (cookie.sameSite) flags.push(`sameSite=${cookie.sameSite}`)
-    if (cookie.hostOnly) flags.push('hostOnly')
-    return flags.join(', ') || 'none'
-  }
 
   function cookieExpiresInput(cookie: types.CookieEntry) {
     if (!cookie.expires) return ''
