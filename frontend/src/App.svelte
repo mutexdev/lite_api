@@ -19,6 +19,7 @@
   // US-036: the lazy wrapper, not CodeEditor itself — importing the real one
   // here is what pulled all of CodeMirror into the initial chunk.
   import CodeEditor from './lib/workbench/LazyCodeEditor.svelte'
+  import Modal from './lib/modals/Modal.svelte'
   import RequestSettingsPanel from './lib/workbench/RequestSettingsPanel.svelte'
   import ProtocolRequestLine from './lib/workbench/ProtocolRequestLine.svelte'
   import WorkspaceCommandBar from './lib/workbench/WorkspaceCommandBar.svelte'
@@ -12801,8 +12802,7 @@
 {/if}
 
 {#if deleteRequestTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-request-title">
+  <Modal labelledBy="delete-request-title" onClose={cancelDeleteRequestModal} closeOnBackdrop={false}>
       <form on:submit|preventDefault={confirmDeleteRequest}>
         <header>
           <h2 id="delete-request-title">Delete Request</h2>
@@ -12821,13 +12821,11 @@
           >{busy === 'delete request' ? 'Deleting...' : 'Delete'}</button>
         </div>
       </form>
-    </div>
-  </div>
+  </Modal>
 {/if}
 
 {#if deleteFolderTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-folder-title">
+  <Modal labelledBy="delete-folder-title" onClose={cancelDeleteFolderModal} closeOnBackdrop={false}>
       <form on:submit|preventDefault={confirmDeleteFolder}>
         <header>
           <h2 id="delete-folder-title">Delete Folder</h2>
@@ -12846,8 +12844,7 @@
           >{busy === 'delete folder' ? 'Deleting...' : 'Delete'}</button>
         </div>
       </form>
-    </div>
-  </div>
+  </Modal>
 {/if}
 
 {#if cloneCollectionTarget}
@@ -12955,8 +12952,7 @@
 {/if}
 
 {#if removeCollectionTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="remove-collection-title" data-testid="remove-collection-modal">
+  <Modal labelledBy="remove-collection-title" onClose={cancelRemoveCollectionModal} testId="remove-collection-modal" closeOnBackdrop={false}>
       <header>
         <h2 id="remove-collection-title">Remove Collection</h2>
         <button type="button" class="icon-button" title="Cancel" on:click={cancelRemoveCollectionModal}>x</button>
@@ -12967,8 +12963,7 @@
         <button type="button" data-testid="remove-collection-cancel" on:click={cancelRemoveCollectionModal}>Cancel</button>
         <button class="primary" type="button" data-testid="remove-collection-confirm" on:click={confirmRemoveCollection} disabled={busy !== ''}>{busy === 'remove collection' ? 'Removing...' : 'Remove'}</button>
       </div>
-    </div>
-  </div>
+  </Modal>
 {/if}
 
 	{#if showGenerateDocsModal && activeCollection}
