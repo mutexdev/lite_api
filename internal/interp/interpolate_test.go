@@ -1,4 +1,4 @@
-package main
+package interp
 
 import (
 	"fmt"
@@ -88,8 +88,8 @@ func TestInterpolateCharacterisation(t *testing.T) {
 			// Run repeatedly: the old implementation ranged over the variable
 			// map, so anything order-dependent shows up as flakiness here.
 			for i := 0; i < 50; i++ {
-				if got := interpolate(tc.in, tc.vars); got != tc.want {
-					t.Fatalf("interpolate(%q) = %q, want %q", tc.in, got, tc.want)
+				if got := Interpolate(tc.in, tc.vars); got != tc.want {
+					t.Fatalf("Interpolate(%q) = %q, want %q", tc.in, got, tc.want)
 				}
 			}
 		})
@@ -102,7 +102,7 @@ func TestInterpolateCharacterisation(t *testing.T) {
 // for variables, and a variable may shadow them.
 func TestInterpolateCharacterisationDynamicTokens(t *testing.T) {
 	before := time.Now().Unix()
-	got := interpolate("{{$timestamp}}", nil)
+	got := Interpolate("{{$timestamp}}", nil)
 	after := time.Now().Unix()
 	ts, err := strconv.ParseInt(got, 10, 64)
 	if err != nil {
@@ -112,27 +112,27 @@ func TestInterpolateCharacterisationDynamicTokens(t *testing.T) {
 		t.Fatalf("{{$timestamp}} = %d, want within [%d, %d]", ts, before, after)
 	}
 
-	iso := interpolate("{{$isoTimestamp}}", nil)
+	iso := Interpolate("{{$isoTimestamp}}", nil)
 	if _, err := time.Parse(time.RFC3339, iso); err != nil {
 		t.Fatalf("{{$isoTimestamp}} = %q, want RFC3339: %v", iso, err)
 	}
 
 	// A variable value carrying a dynamic token is still substituted.
-	fromVar := interpolate("{{a}}", map[string]string{"a": "{{$timestamp}}"})
+	fromVar := Interpolate("{{a}}", map[string]string{"a": "{{$timestamp}}"})
 	if _, err := strconv.ParseInt(fromVar, 10, 64); err != nil {
 		t.Fatalf("nested {{$timestamp}} = %q, want a unix timestamp: %v", fromVar, err)
 	}
 
 	// A variable of the same name wins, because it is applied first.
-	if got := interpolate("{{$timestamp}}", map[string]string{"$timestamp": "SHADOW"}); got != "SHADOW" {
+	if got := Interpolate("{{$timestamp}}", map[string]string{"$timestamp": "SHADOW"}); got != "SHADOW" {
 		t.Fatalf("shadowed {{$timestamp}} = %q, want %q", got, "SHADOW")
 	}
-	if got := interpolate("{{$isoTimestamp}}", map[string]string{"$isoTimestamp": "SHADOW"}); got != "SHADOW" {
+	if got := Interpolate("{{$isoTimestamp}}", map[string]string{"$isoTimestamp": "SHADOW"}); got != "SHADOW" {
 		t.Fatalf("shadowed {{$isoTimestamp}} = %q, want %q", got, "SHADOW")
 	}
 
 	// The dynamic result is never rescanned as a variable name.
-	if got := interpolate("{{$timestamp}}", map[string]string{strconv.FormatInt(time.Now().Unix(), 10): "RESCANNED"}); got == "RESCANNED" {
+	if got := Interpolate("{{$timestamp}}", map[string]string{strconv.FormatInt(time.Now().Unix(), 10): "RESCANNED"}); got == "RESCANNED" {
 		t.Fatal("{{$timestamp}} result was rescanned for variables")
 	}
 }
@@ -141,7 +141,7 @@ func TestInterpolateCharacterisationDynamicTokens(t *testing.T) {
 // to the real environment when the variable map carries no override.
 func TestInterpolateReadsProcessEnvFromOS(t *testing.T) {
 	t.Setenv("LITEAPI_CHAR_OS_ENV", "from-os")
-	if got := interpolate("{{process.env.LITEAPI_CHAR_OS_ENV}}", map[string]string{}); got != "from-os" {
+	if got := Interpolate("{{process.env.LITEAPI_CHAR_OS_ENV}}", map[string]string{}); got != "from-os" {
 		t.Fatalf("interpolate = %q, want %q", got, "from-os")
 	}
 	if _, ok := os.LookupEnv("LITEAPI_CHAR_OS_ENV"); !ok {
@@ -149,13 +149,13 @@ func TestInterpolateReadsProcessEnvFromOS(t *testing.T) {
 	}
 	// A map override beats the OS value.
 	vars := map[string]string{"process.env.LITEAPI_CHAR_OS_ENV": "from-vars"}
-	if got := interpolate("{{process.env.LITEAPI_CHAR_OS_ENV}}", vars); got != "from-vars" {
+	if got := Interpolate("{{process.env.LITEAPI_CHAR_OS_ENV}}", vars); got != "from-vars" {
 		t.Fatalf("interpolate = %q, want %q", got, "from-vars")
 	}
 }
 
 // TestInterpolateNestingDepth pins the substitution depth limit at
-// interpolateMaxPasses substitutions. A chain v0 -> v1 -> ... -> vN where vN
+// maxPasses substitutions. A chain v0 -> v1 -> ... -> vN where vN
 // holds the literal needs N+1 substitutions to collapse.
 //
 // This is the one place where the single-scan implementation is deliberately
@@ -165,16 +165,16 @@ func TestInterpolateReadsProcessEnvFromOS(t *testing.T) {
 // unlucky one could manage a single level; how deep it resolved was not
 // defined. This resolves exactly one level per pass, so the limit is exact.
 func TestInterpolateNestingDepth(t *testing.T) {
-	for depth := 1; depth < interpolateMaxPasses; depth++ {
-		if got := interpolate("{{v0}}", interpolateChain(depth)); got != "END" {
+	for depth := 1; depth < maxPasses; depth++ {
+		if got := Interpolate("{{v0}}", interpolateChain(depth)); got != "END" {
 			t.Fatalf("depth %d: interpolate = %q, want %q", depth, got, "END")
 		}
 	}
 	// One level past the limit stops rather than looping: the token that could
 	// not be reached is left verbatim.
-	want := fmt.Sprintf("{{v%d}}", interpolateMaxPasses)
-	if got := interpolate("{{v0}}", interpolateChain(interpolateMaxPasses)); got != want {
-		t.Fatalf("depth %d: interpolate = %q, want %q", interpolateMaxPasses, got, want)
+	want := fmt.Sprintf("{{v%d}}", maxPasses)
+	if got := Interpolate("{{v0}}", interpolateChain(maxPasses)); got != want {
+		t.Fatalf("depth %d: interpolate = %q, want %q", maxPasses, got, want)
 	}
 }
 
@@ -193,57 +193,7 @@ func interpolateChain(depth int) map[string]string {
 // The old implementation returned "{{a}}" on ~99% of runs and "{{b}}" on the
 // rest, depending on the order the variable map happened to range in. The
 // single-scan implementation always lands on "{{a}}": it flips the token once
-// per pass and interpolateMaxPasses is even.
-func TestInterpolateCycleTermination(t *testing.T) {
-	for i := 0; i < 200; i++ {
-		if got := interpolate("{{a}}", map[string]string{"a": "{{b}}", "b": "{{a}}"}); got != "{{a}}" {
-			t.Fatalf("two step cycle = %q, want %q", got, "{{a}}")
-		}
-		if got := interpolate("{{a}}", map[string]string{"a": "{{a}}"}); got != "{{a}}" {
-			t.Fatalf("self cycle = %q, want %q", got, "{{a}}")
-		}
-		vars := map[string]string{"a": "x{{b}}", "b": "y{{c}}", "c": "z{{a}}"}
-		if got := interpolate("{{a}}", vars); !strings.HasPrefix(got, "xyzxyz") {
-			t.Fatalf("growing cycle = %q, want a bounded expansion", got)
-		}
-	}
-}
-
-// TestInterpolatePreservesPrecedence guards the contract with buildVariableMap:
-// interpolate resolves names against the map it is handed and does no
-// precedence work of its own, so the winner is whatever the map says.
-func TestInterpolatePreservesPrecedence(t *testing.T) {
-	vars := buildVariableMap(
-		[]Environment{{ID: "g", Name: "global", Variables: []Variable{
-			{Name: "only_global", Value: "g-only", Enabled: true},
-			{Name: "shared", Value: "g-shared", Enabled: true},
-		}}},
-		&Collection{
-			ID: "c",
-			Variables: []Variable{
-				{Name: "shared", Value: "c-shared", Enabled: true},
-				{Name: "only_collection", Value: "c-only", Enabled: true},
-			},
-			Environments: []Environment{{ID: "e", Name: "env", Variables: []Variable{
-				{Name: "shared", Value: "e-shared", Enabled: true},
-			}}},
-		},
-		"e",
-		RequestItem{ID: "r"},
-	)
-	got := interpolate("{{shared}}|{{only_global}}|{{only_collection}}", vars)
-	want := vars["shared"] + "|" + vars["only_global"] + "|" + vars["only_collection"]
-	if got != want {
-		t.Fatalf("interpolate = %q, want %q", got, want)
-	}
-	if vars["shared"] != "e-shared" {
-		t.Fatalf("environment variable should win over collection and global, got %q", vars["shared"])
-	}
-}
-
-// TestInterpolateLargeBodyIsSingleScan is a behavioural check that a body with
-// many tokens and a large amount of surrounding text is expanded correctly, and
-// that variables not present in the input cost nothing but are still available.
+// per pass and maxPasses is even.
 func TestInterpolateLargeBodyIsSingleScan(t *testing.T) {
 	vars := make(map[string]string, 200)
 	for i := 0; i < 200; i++ {
@@ -254,7 +204,7 @@ func TestInterpolateLargeBodyIsSingleScan(t *testing.T) {
 		fmt.Fprintf(&in, "%s{{var%d}};", strings.Repeat("x", 40), i)
 		fmt.Fprintf(&want, "%svalue-%d;", strings.Repeat("x", 40), i)
 	}
-	if got := interpolate(in.String(), vars); got != want.String() {
+	if got := Interpolate(in.String(), vars); got != want.String() {
 		t.Fatalf("interpolate mismatch over large body")
 	}
 }

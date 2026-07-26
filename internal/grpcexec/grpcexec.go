@@ -9,6 +9,7 @@ package grpcexec
 
 import (
 	"LiteAPI/internal/auth/wsse"
+	"LiteAPI/internal/interp"
 	"LiteAPI/internal/scalar"
 	"LiteAPI/internal/transport"
 	"LiteAPI/internal/types"
@@ -47,11 +48,11 @@ func UserAgentFromHeaders(headers []types.KeyValue, vars map[string]string) stri
 		if !header.Enabled {
 			continue
 		}
-		name := strings.TrimSpace(interpolate(header.Name, vars))
+		name := strings.TrimSpace(interp.Interpolate(header.Name, vars))
 		if !isGRPCUserAgentHeaderName(name) {
 			continue
 		}
-		if value := strings.TrimSpace(interpolate(header.Value, vars)); value != "" {
+		if value := strings.TrimSpace(interp.Interpolate(header.Value, vars)); value != "" {
 			return value
 		}
 	}
@@ -98,12 +99,12 @@ type grpcurlTarget struct {
 }
 
 func GenerateGrpcurlCommand(collection types.Collection, item types.RequestItem, vars map[string]string) (string, error) {
-	targetURL := interpolate(item.URL, vars)
+	targetURL := interp.Interpolate(item.URL, vars)
 	target, err := grpcurlTargetForURL(targetURL)
 	if err != nil {
 		return "", err
 	}
-	method := interpolate(item.Method, vars)
+	method := interp.Interpolate(item.Method, vars)
 	if strings.TrimSpace(method) == "" || strings.EqualFold(strings.TrimSpace(method), "CALL") {
 		return "", errors.New("gRPC method is required")
 	}
@@ -116,8 +117,8 @@ func GenerateGrpcurlCommand(collection types.Collection, item types.RequestItem,
 			parts = append(parts, "-insecure")
 		}
 		if cert, ok := matchingClientCertificateConfig(collection.ClientCertificates, targetURL, vars); ok && strings.EqualFold(scalar.FirstNonEmpty(cert.Type, "cert"), "cert") {
-			certPath := transport.ResolveCollectionRelativePath(collection.Path, interpolate(cert.CertFilePath, vars))
-			keyPath := transport.ResolveCollectionRelativePath(collection.Path, interpolate(cert.KeyFilePath, vars))
+			certPath := transport.ResolveCollectionRelativePath(collection.Path, interp.Interpolate(cert.CertFilePath, vars))
+			keyPath := transport.ResolveCollectionRelativePath(collection.Path, interp.Interpolate(cert.KeyFilePath, vars))
 			if strings.TrimSpace(certPath) != "" && strings.TrimSpace(keyPath) != "" {
 				parts = append(parts, "-cert "+ShellSingleQuote(certPath), "-key "+ShellSingleQuote(keyPath))
 			}
@@ -126,13 +127,13 @@ func GenerateGrpcurlCommand(collection types.Collection, item types.RequestItem,
 		parts = append(parts, "-plaintext")
 	}
 	for _, header := range EnabledKeyValues(item.Headers) {
-		name := strings.TrimSpace(interpolate(header.Name, vars))
+		name := strings.TrimSpace(interp.Interpolate(header.Name, vars))
 		if name == "" {
 			continue
 		}
-		parts = append(parts, "-H "+ShellSingleQuote(name+": "+interpolate(header.Value, vars)))
+		parts = append(parts, "-H "+ShellSingleQuote(name+": "+interp.Interpolate(header.Value, vars)))
 	}
-	if protoPath := strings.TrimSpace(interpolate(item.ProtoPath, vars)); protoPath != "" {
+	if protoPath := strings.TrimSpace(interp.Interpolate(item.ProtoPath, vars)); protoPath != "" {
 		resolvedProtoPath := transport.ResolveCollectionRelativePath(collection.Path, protoPath)
 		parts = append(parts, "-import-path "+ShellSingleQuote(filepath.Dir(resolvedProtoPath)))
 		parts = append(parts, "-proto "+ShellSingleQuote(filepath.Base(resolvedProtoPath)))
@@ -198,7 +199,7 @@ func grpcurlTargetForURL(rawURL string) (grpcurlTarget, error) {
 
 func matchingClientCertificateConfig(certs []types.ClientCertificateConfig, requestURL string, vars map[string]string) (types.ClientCertificateConfig, bool) {
 	for _, cert := range transport.NormalizeClientCertificates(certs) {
-		if transport.ClientCertificateDomainMatches(requestURL, interpolate(cert.Domain, vars)) {
+		if transport.ClientCertificateDomainMatches(requestURL, interp.Interpolate(cert.Domain, vars)) {
 			return cert, true
 		}
 	}
@@ -213,7 +214,7 @@ func GrpcurlRequestMessages(item types.RequestItem, vars map[string]string) []ty
 			if name == "" {
 				name = fmt.Sprintf("message %d", index+1)
 			}
-			messages = append(messages, types.GrpcMessage{Name: name, Content: interpolate(message.Content, vars)})
+			messages = append(messages, types.GrpcMessage{Name: name, Content: interp.Interpolate(message.Content, vars)})
 		}
 		return messages
 	}
@@ -566,11 +567,11 @@ func grpcTemplateSingularValue(field protoreflect.FieldDescriptor, seen map[prot
 }
 
 func HasProtoInputs(item types.RequestItem, collection types.Collection, vars map[string]string) bool {
-	if strings.TrimSpace(interpolate(item.ProtoPath, vars)) != "" {
+	if strings.TrimSpace(interp.Interpolate(item.ProtoPath, vars)) != "" {
 		return true
 	}
 	for _, protoFile := range collection.Protobuf.ProtoFiles {
-		if strings.TrimSpace(interpolate(protoFile.Path, vars)) != "" {
+		if strings.TrimSpace(interp.Interpolate(protoFile.Path, vars)) != "" {
 			return true
 		}
 	}
@@ -600,11 +601,11 @@ func grpcProtoCompileInputs(item types.RequestItem, collection types.Collection,
 		if !importPath.Enabled {
 			continue
 		}
-		resolved := transport.ResolveCollectionRelativePath(collection.Path, interpolate(importPath.Path, vars))
+		resolved := transport.ResolveCollectionRelativePath(collection.Path, interp.Interpolate(importPath.Path, vars))
 		addImportPath(resolved)
 	}
 
-	rawRequestPath := strings.TrimSpace(interpolate(item.ProtoPath, vars))
+	rawRequestPath := strings.TrimSpace(interp.Interpolate(item.ProtoPath, vars))
 	compileFiles := []string{}
 	fullPaths := []string{}
 	addCompilePath := func(rawPath string) {
@@ -622,7 +623,7 @@ func grpcProtoCompileInputs(item types.RequestItem, collection types.Collection,
 		addCompilePath(rawRequestPath)
 	} else {
 		for _, protoFile := range collection.Protobuf.ProtoFiles {
-			addCompilePath(interpolate(protoFile.Path, vars))
+			addCompilePath(interp.Interpolate(protoFile.Path, vars))
 		}
 	}
 	if len(compileFiles) == 0 {
@@ -667,7 +668,7 @@ func grpcProtoCompileInput(rawPath string, baseDirs []string) (string, string, s
 }
 
 func grpcServiceAndMethod(method string, vars map[string]string) (string, string, error) {
-	method = strings.Trim(strings.TrimSpace(interpolate(method, vars)), "/")
+	method = strings.Trim(strings.TrimSpace(interp.Interpolate(method, vars)), "/")
 	if method == "" || strings.EqualFold(method, "CALL") {
 		return "", "", errors.New("gRPC method is required in package.Service/Method form")
 	}
@@ -683,7 +684,7 @@ func RequestContent(item types.RequestItem, vars map[string]string) string {
 	if len(item.GrpcMessages) > 0 {
 		content = item.GrpcMessages[0].Content
 	}
-	content = strings.TrimSpace(interpolate(content, vars))
+	content = strings.TrimSpace(interp.Interpolate(content, vars))
 	if content == "" {
 		return "{}"
 	}
@@ -706,7 +707,7 @@ func RequestMessages(item types.RequestItem, binding MethodBinding, vars map[str
 	requests := make([]*dynamicpb.Message, 0, len(contents))
 	for index, content := range contents {
 		req := dynamicpb.NewMessage(binding.Descriptor.Input())
-		content = strings.TrimSpace(interpolate(content, vars))
+		content = strings.TrimSpace(interp.Interpolate(content, vars))
 		if content == "" {
 			content = "{}"
 		}
@@ -722,21 +723,21 @@ func OutgoingContext(ctx context.Context, item types.RequestItem, vars map[strin
 	pairs := []string{}
 	for _, header := range item.Headers {
 		if header.Enabled && strings.TrimSpace(header.Name) != "" {
-			name := interpolate(header.Name, vars)
+			name := interp.Interpolate(header.Name, vars)
 			if isGRPCUserAgentHeaderName(name) {
 				continue
 			}
-			name, value := grpcOutgoingMetadataValue(name, interpolate(header.Value, vars))
+			name, value := grpcOutgoingMetadataValue(name, interp.Interpolate(header.Value, vars))
 			pairs = append(pairs, name, value)
 		}
 	}
 	switch strings.ToLower(item.Auth.Mode) {
 	case "bearer":
-		if token := strings.TrimSpace(interpolate(item.Auth.Token, vars)); token != "" {
+		if token := strings.TrimSpace(interp.Interpolate(item.Auth.Token, vars)); token != "" {
 			pairs = append(pairs, "authorization", "Bearer "+token)
 		}
 	case "oauth2":
-		token := strings.TrimSpace(interpolate(item.Auth.Token, vars))
+		token := strings.TrimSpace(interp.Interpolate(item.Auth.Token, vars))
 		if token == "" && strings.TrimSpace(item.Auth.OAuth2.GrantType) != "" && oauth2Fetcher != nil {
 			fetchedToken, err := oauth2Fetcher(item.Auth.OAuth2, vars)
 			if err != nil {
@@ -745,26 +746,26 @@ func OutgoingContext(ctx context.Context, item types.RequestItem, vars map[strin
 			token = strings.TrimSpace(fetchedToken)
 		}
 		if token != "" {
-			prefix := strings.TrimSpace(interpolate(item.Auth.OAuth2.TokenHeaderPrefix, vars))
+			prefix := strings.TrimSpace(interp.Interpolate(item.Auth.OAuth2.TokenHeaderPrefix, vars))
 			if prefix == "" {
 				prefix = "Bearer"
 			}
 			pairs = append(pairs, "authorization", strings.TrimSpace(prefix+" "+token))
 		}
 	case "basic":
-		username := interpolate(item.Auth.Username, vars)
-		password := interpolate(item.Auth.Password, vars)
+		username := interp.Interpolate(item.Auth.Username, vars)
+		password := interp.Interpolate(item.Auth.Password, vars)
 		if username != "" || password != "" {
 			pairs = append(pairs, "authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(username+":"+password)))
 		}
 	case "apikey":
 		if strings.EqualFold(scalar.FirstNonEmpty(item.Auth.APILocation, "header"), "header") && strings.TrimSpace(item.Auth.APIKey) != "" {
-			name, value := grpcOutgoingMetadataValue(interpolate(item.Auth.APIKey, vars), interpolate(item.Auth.APIValue, vars))
+			name, value := grpcOutgoingMetadataValue(interp.Interpolate(item.Auth.APIKey, vars), interp.Interpolate(item.Auth.APIValue, vars))
 			pairs = append(pairs, name, value)
 		}
 	case "wsse":
 		headers := http.Header{}
-		wsse.ApplyHeader(headers, interpolate(item.Auth.Username, vars), interpolate(item.Auth.Password, vars), time.Now().UTC())
+		wsse.ApplyHeader(headers, interp.Interpolate(item.Auth.Username, vars), interp.Interpolate(item.Auth.Password, vars), time.Now().UTC())
 		for name, values := range headers {
 			for _, value := range values {
 				pairName, pairValue := grpcOutgoingMetadataValue(name, value)
@@ -897,16 +898,4 @@ func (config DialConfig) DialOptions() []grpc.DialOption {
 	options := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
 	options = append(options, config.Options...)
 	return options
-}
-
-// interpolate expands template variables in URLs, metadata and message bodies.
-// Settable for the same reason as internal/transport's: the interpolator is
-// still in package main, and this package must not wait on US-069.
-var interpolate = func(value string, vars map[string]string) string { return value }
-
-// SetInterpolator installs the template-variable expander.
-func SetInterpolator(fn func(string, map[string]string) string) {
-	if fn != nil {
-		interpolate = fn
-	}
 }

@@ -1,4 +1,4 @@
-package main
+package interp
 
 // US-050 — tests for Postman dynamic variables.
 //
@@ -23,7 +23,7 @@ func TestDynamicVariablesResolvePerOccurrence(t *testing.T) {
 	// Twenty occurrences: with a single generated value substituted everywhere,
 	// the probability of all twenty legitimately matching is ~1001^-19.
 	input := strings.Repeat("{{$randomInt}},", 20)
-	out := interpolateDynamicVariables(input)
+	out := InterpolateDynamicVariables(input)
 
 	parts := strings.Split(strings.TrimSuffix(out, ","), ",")
 	if len(parts) != 20 {
@@ -49,7 +49,7 @@ func TestUnknownDynamicVariablesAreLeftLiteral(t *testing.T) {
 		"{{$notAThing}}",
 		"prefix {{$nope}} suffix",
 	} {
-		if got := interpolateDynamicVariables(input); got != input {
+		if got := InterpolateDynamicVariables(input); got != input {
 			t.Errorf("unknown variable was rewritten: %q -> %q", input, got)
 		}
 	}
@@ -59,7 +59,7 @@ func TestOrdinaryVariablesAreUntouched(t *testing.T) {
 	// The pattern must only match $-prefixed names, or normal interpolation
 	// would be broken by this feature.
 	input := "{{host}}/{{path}} {{ $spaced }} {{}}"
-	if got := interpolateDynamicVariables(input); got != input {
+	if got := InterpolateDynamicVariables(input); got != input {
 		t.Errorf("non-dynamic placeholders were altered: %q", got)
 	}
 }
@@ -165,7 +165,7 @@ func TestEveryStoryNamedVariableResolves(t *testing.T) {
 // criterion true.
 func TestDynamicVariablesResolveThroughInterpolate(t *testing.T) {
 	vars := map[string]string{"host": "https://api.example"}
-	got := interpolate("{{host}}/users/{{$randomInt}}?id={{$guid}}", vars)
+	got := Interpolate("{{host}}/users/{{$randomInt}}?id={{$guid}}", vars)
 
 	if !strings.HasPrefix(got, "https://api.example/users/") {
 		t.Fatalf("ordinary variable did not resolve: %q", got)
@@ -191,7 +191,7 @@ func TestDynamicVariablesResolveThroughInterpolate(t *testing.T) {
 // TestUnknownDynamicVariablesSurviveInterpolate — the literal-passthrough rule
 // has to hold through the real entry point too, not just the helper.
 func TestUnknownDynamicVariablesSurviveInterpolate(t *testing.T) {
-	got := interpolate("{{$definitelyNotReal}}", map[string]string{})
+	got := Interpolate("{{$definitelyNotReal}}", map[string]string{})
 	if got != "{{$definitelyNotReal}}" {
 		t.Errorf("unknown dynamic variable was altered by interpolate: %q", got)
 	}

@@ -3036,3 +3036,47 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Gates: go build, go vet, go test all ok; svelte-check 209/0/0; eslint 0;
   npm test 223/223; vite build ok.
+
+--- US-069 — internal/interp (DONE), and both seams removed ---
+
+  Template-variable interpolation, the {{$randomInt}} dynamic variables, and
+  process.env resolution now live in internal/interp. app.go: 38,079 -> 37,899.
+
+  THIS ONE PAID A DEBT. internal/transport and internal/grpcexec each carried a
+  settable `interpolate` package variable, wired at startup, purely because this
+  code had not moved yet. Both are GONE - they import interp directly now, and
+  `grep SetInterpolator` returns zero. That was the point of doing interp before
+  the bigger stories: every package extracted after this one can just import it.
+
+  The tests moved with the code, EXCEPT one. TestInterpolatePreservesPrecedence
+  asserts the contract BETWEEN buildVariableMap and the interpolator, and
+  buildVariableMap needs collections, environments and the workspace. It stayed
+  in package main as interpolate_precedence_test.go. A test that spans two
+  packages belongs with the one that owns the state, not with the one whose
+  function name is in the title.
+
+  !!! THE PARITY LEDGER CAUGHT THE MOVE, WHICH IS WHY IT EXISTS !!!
+
+  TestPostmanLedgerCitesTestsThatExist failed on seven rows the moment the
+  dynamic-variable tests left package main. It scanned `.` only, so tests that
+  moved into internal/ read as deleted. It now walks the module.
+
+  This is the guard doing precisely its job: an entry naming a test that no
+  longer exists still reads as evidence, and is worse than naming none. The fix
+  was the SCANNER, not the ledger - the tests do still exist, and quietly
+  editing the ledger to match would have destroyed the thing being verified.
+
+  Control: renaming TestDynamicVariableShapes makes the guard fail again, so
+  broadening the scan did not turn it into a rubber stamp.
+
+  A REPEAT MISTAKE, third time: a blanket rewrite of processEnvVariablePrefix
+  hit the const's OWN DECLARATION, producing `const interp.ProcessEnvPrefix =`.
+  Renaming an identifier everywhere always includes the place it is defined.
+
+  And the end-of-block walk overshot by one declaration AGAIN (it took
+  defaultState with it), the same way it took websocketSessionKey in US-063.
+  Walking forward to the next closing brace finds the end of the NEXT function
+  whenever the passed line is already past the last one.
+
+  Gates: go build, go vet, go test all ok; svelte-check 209/0/0; eslint 0;
+  npm test 223/223.

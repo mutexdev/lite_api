@@ -2,7 +2,6 @@ package main
 
 import (
 	"LiteAPI/internal/auth/awsv4"
-	"LiteAPI/internal/grpcexec"
 	xport "LiteAPI/internal/transport"
 	"crypto/sha256"
 	"crypto/tls"
@@ -687,11 +686,9 @@ func sharedPACHTTPClient() *http.Client {
 func init() {
 	awsv4.SetHTTPClient(sharedCredentialHTTPClient)
 
-	// internal/transport defaults to a plain client and a no-op interpolator so
-	// it stands alone. Inside the app, PAC fetches must go through the shared
-	// transport cache, and certificate paths and proxy fields contain template
-	// variables. Wiring both here keeps the dependency pointing one way.
+	// internal/transport defaults to a plain client so it stands alone; inside
+	// the app, PAC fetches must go through the shared transport cache. The
+	// interpolator seam is gone -- internal/interp exists now, so both packages
+	// import it directly instead of being handed a function at startup.
 	xport.SetPACHTTPClient(sharedPACHTTPClient)
-	xport.SetInterpolator(interpolate)
-	grpcexec.SetInterpolator(interpolate)
 }

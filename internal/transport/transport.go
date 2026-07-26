@@ -7,6 +7,7 @@
 package transport
 
 import (
+	"LiteAPI/internal/interp"
 	"LiteAPI/internal/scalar"
 	"LiteAPI/internal/types"
 	"bytes"
@@ -56,7 +57,7 @@ func WithClientCertificate(base http.RoundTripper, collectionPath string, certs 
 
 func MatchingTLSClientCertificate(collectionPath string, certs []types.ClientCertificateConfig, requestURL string, vars map[string]string) (tls.Certificate, bool, error) {
 	for _, certConfig := range NormalizeClientCertificates(certs) {
-		domain := interpolate(certConfig.Domain, vars)
+		domain := interp.Interpolate(certConfig.Domain, vars)
 		if !ClientCertificateDomainMatches(requestURL, domain) {
 			continue
 		}
@@ -87,11 +88,11 @@ func ClientCertificateDomainMatches(requestURL, domain string) bool {
 }
 
 func loadTLSClientCertificate(collectionPath string, certConfig types.ClientCertificateConfig, vars map[string]string) (tls.Certificate, error) {
-	passphrase := interpolate(certConfig.Passphrase, vars)
+	passphrase := interp.Interpolate(certConfig.Passphrase, vars)
 	switch strings.ToLower(strings.TrimSpace(scalar.FirstNonEmpty(certConfig.Type, "cert"))) {
 	case "cert", "pem":
-		certPath := ResolveCollectionRelativePath(collectionPath, interpolate(certConfig.CertFilePath, vars))
-		keyPath := ResolveCollectionRelativePath(collectionPath, interpolate(certConfig.KeyFilePath, vars))
+		certPath := ResolveCollectionRelativePath(collectionPath, interp.Interpolate(certConfig.CertFilePath, vars))
+		keyPath := ResolveCollectionRelativePath(collectionPath, interp.Interpolate(certConfig.KeyFilePath, vars))
 		if strings.TrimSpace(certPath) == "" || strings.TrimSpace(keyPath) == "" {
 			return tls.Certificate{}, errors.New("client certificate cert/key paths are required")
 		}
@@ -113,7 +114,7 @@ func loadTLSClientCertificate(collectionPath string, certConfig types.ClientCert
 		}
 		return certificate, nil
 	case "pfx", "pkcs12":
-		pfxPath := ResolveCollectionRelativePath(collectionPath, interpolate(certConfig.PFXFilePath, vars))
+		pfxPath := ResolveCollectionRelativePath(collectionPath, interp.Interpolate(certConfig.PFXFilePath, vars))
 		if strings.TrimSpace(pfxPath) == "" {
 			return tls.Certificate{}, errors.New("client certificate pfx path is required")
 		}
@@ -202,7 +203,7 @@ func WithoutProxy(base http.RoundTripper) http.RoundTripper {
 func WithManualProxy(base http.RoundTripper, proxy types.ProxyConfig, requestURL string, vars map[string]string) (http.RoundTripper, error) {
 	transport := CloneHTTPTransport(base)
 	transport.Proxy = nil
-	if !ShouldUseManualProxy(requestURL, interpolate(proxy.BypassProxy, vars)) {
+	if !ShouldUseManualProxy(requestURL, interp.Interpolate(proxy.BypassProxy, vars)) {
 		return transport, nil
 	}
 	proxyURL, err := ManualProxyURL(proxy, vars)
@@ -228,7 +229,7 @@ func transportWithSystemProxy(base http.RoundTripper, requestURL string) (http.R
 func transportWithPACProxy(base http.RoundTripper, pacSource, requestURL string, vars map[string]string) (http.RoundTripper, error) {
 	transport := CloneHTTPTransport(base)
 	transport.Proxy = nil
-	proxyURL, ok, err := ResolvePACProxyURL(interpolate(pacSource, vars), requestURL)
+	proxyURL, ok, err := ResolvePACProxyURL(interp.Interpolate(pacSource, vars), requestURL)
 	if err != nil || !ok {
 		return transport, nil
 	}
@@ -237,26 +238,26 @@ func transportWithPACProxy(base http.RoundTripper, pacSource, requestURL string,
 }
 
 func ManualProxyURL(proxy types.ProxyConfig, vars map[string]string) (*url.URL, error) {
-	protocol := strings.ToLower(strings.TrimSpace(interpolate(scalar.FirstNonEmpty(proxy.Protocol, "http"), vars)))
+	protocol := strings.ToLower(strings.TrimSpace(interp.Interpolate(scalar.FirstNonEmpty(proxy.Protocol, "http"), vars)))
 	if protocol == "" {
 		protocol = "http"
 	}
 	if protocol != "http" && protocol != "https" && protocol != "socks5" {
 		return nil, fmt.Errorf("unsupported proxy protocol %q", protocol)
 	}
-	host := strings.TrimSpace(interpolate(proxy.Hostname, vars))
+	host := strings.TrimSpace(interp.Interpolate(proxy.Hostname, vars))
 	if host == "" {
 		return nil, errors.New("proxy hostname is required")
 	}
-	port := strings.TrimSpace(interpolate(proxy.Port, vars))
+	port := strings.TrimSpace(interp.Interpolate(proxy.Port, vars))
 	hostPort := host
 	if port != "" {
 		hostPort = net.JoinHostPort(host, port)
 	}
 	proxyURL := &url.URL{Scheme: protocol, Host: hostPort}
 	if !proxy.Auth.Disabled {
-		username := interpolate(proxy.Auth.Username, vars)
-		password := interpolate(proxy.Auth.Password, vars)
+		username := interp.Interpolate(proxy.Auth.Username, vars)
+		password := interp.Interpolate(proxy.Auth.Password, vars)
 		if username != "" || password != "" {
 			proxyURL.User = url.UserPassword(username, password)
 		}
@@ -991,23 +992,6 @@ func NormalizeClientCertificateRows(certs []types.ClientCertificateConfig) []typ
 
 func HasClientCertificates(certs []types.ClientCertificateConfig) bool {
 	return len(NormalizeClientCertificates(certs)) > 0
-}
-
-// interpolate expands template variables in certificate paths, passphrases and
-// proxy fields.
-//
-// A settable function rather than an import: the interpolator lives in package
-// main for now (US-069 moves it), and this package must not wait on that. It is
-// a variable rather than a parameter -- unlike awsv4's resolve -- because vars
-// is threaded through eight functions here, and rewriting all their signatures
-// would have been a large mechanical edit for no gain in the boundary.
-var interpolate = func(value string, vars map[string]string) string { return value }
-
-// SetInterpolator installs the template-variable expander.
-func SetInterpolator(fn func(string, map[string]string) string) {
-	if fn != nil {
-		interpolate = fn
-	}
 }
 
 // Resolution is how a request's proxy was decided: which mode won, and the

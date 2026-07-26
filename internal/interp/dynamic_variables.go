@@ -1,4 +1,4 @@
-package main
+package interp
 
 // US-050 — Postman dynamic variables.
 //
@@ -160,7 +160,7 @@ func resolveDynamicVariable(name string) (string, bool) {
 // is what makes each occurrence independent. Unknown names are returned
 // unchanged, so they travel to the server as written and the user can see their
 // own typo.
-func interpolateDynamicVariables(input string) string {
+func InterpolateDynamicVariables(input string) string {
 	if !strings.Contains(input, "{{$") {
 		return input
 	}

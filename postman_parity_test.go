@@ -9,6 +9,7 @@ package main
 // just cites evidence that no longer exists.
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,21 +23,35 @@ func goTestNamesInPackage(t *testing.T) map[string]bool {
 	pattern := regexp.MustCompile(`(?m)^func (Test[A-Za-z0-9_]*)\(`)
 	names := map[string]bool{}
 
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatalf("read package directory: %v", err)
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
-			continue
-		}
-		data, err := os.ReadFile(entry.Name())
+	// Walks the whole module, not just this directory. The ledger cites tests by
+	// name, and as behaviour moves into internal/ packages the tests move with
+	// it -- scanning only package main made the ledger report those as missing
+	// the moment internal/interp took the dynamic-variable tests.
+	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
-			t.Fatalf("read %s: %v", entry.Name(), err)
+			return err
+		}
+		if entry.IsDir() {
+			switch entry.Name() {
+			case "node_modules", "frontend", "build", ".git":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(entry.Name(), "_test.go") {
+			return nil
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
 		}
 		for _, match := range pattern.FindAllStringSubmatch(string(data), -1) {
 			names[match[1]] = true
 		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scan for test names: %v", err)
 	}
 	return names
 }
