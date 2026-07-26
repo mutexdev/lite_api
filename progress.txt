@@ -7810,3 +7810,27 @@ US-026 - Store layer. DONE. Both named collapses complete.
   That last one is the second time this session a guard turned out to change no
   answer. The first (filter(Boolean) on example names) was deleted. This one is
   kept and labelled, because unlike that one it earns its place on cost.
+
+--- the last uncovered range: OData-style path parameters ---
+
+  requestScanning.ts 98.25% -> 100.00% lines, 100.00% functions. Suite 745 -> 748.
+
+  The last gap was a SECOND, SEPARATE path-parameter pass I had not noticed:
+  a segment shaped like a FUNCTION CALL — Users(:id) — which is how OData-style
+  APIs express a key. The plain :name scan cannot reach inside it because the
+  whole segment is not a token, so there is a dedicated pass for that shape.
+
+  Without it those parameters are INVISIBLE: the request sends a literal ":id"
+  inside the path and the server 404s on a resource whose name contains a colon.
+  Control fails 2.
+
+  Pinned alongside:
+    - one segment can carry SEVERAL, as a composite key does: f(:a,:b) -> a, b
+    - the segment must be NAME(...). A bare "(:id)" is NOT a function call and
+      is left alone rather than guessed at. Relaxing the name to optional makes
+      it match, and the control fails 1.
+
+  This is also the answer to something I got wrong earlier in the session: I had
+  guessed "https://api.test/(:id)" should yield ['id'] and treated the empty
+  result as suspicious. It is correct — there is no function name, so it is not
+  that form.

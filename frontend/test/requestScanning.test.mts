@@ -414,3 +414,25 @@ test('a leftover single filePath is scanned even when files[] is populated', () 
   assert.ok(found.includes('orphan'))
   assert.ok(found.includes('orphanType'))
 })
+
+// A path segment shaped like a function call — Users(:id) — is how OData-style
+// APIs express a key. The plain :name scan cannot reach inside it, because the
+// whole segment is not a token, so there is a separate pass for exactly this
+// shape. Without it those parameters are invisible: the request sends the
+// literal ":id" as part of the path and the server 404s on a resource whose
+// name contains a colon.
+test('a parameter inside a function-shaped path segment is found', () => {
+  assert.deepEqual(pathParamNamesFromURL('https://api.test/Users(:id)'), ['id'])
+  assert.deepEqual(pathParamNamesFromURL('https://api.test/Employees(:empId)/Manager'), ['empId'])
+})
+
+// One segment can carry several, as a composite key does.
+test('several parameters in one function segment are all found', () => {
+  assert.deepEqual(pathParamNamesFromURL('https://api.test/f(:a,:b)'), ['a', 'b'])
+})
+
+// The segment must be NAME(...) — a bare "(:id)" is not a function call and is
+// left alone rather than guessed at.
+test('a parenthesised segment with no function name is not treated as one', () => {
+  assert.deepEqual(pathParamNamesFromURL('https://api.test/(:id)'), [])
+})
