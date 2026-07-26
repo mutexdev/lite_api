@@ -170,3 +170,14 @@ frontend/dist/assets/index-*.css        113609
 # own reset-to-'zip' logic working unchanged.
 #
 # Running total: 1,159,933 -> 522,890 (54.9% smaller). 22,890 above target.
+
+# Hand extraction #5 — rename-collection (1,171 B of source):
+#   initial chunk 522,890 -> 522,246  (-644)
+#
+# Note the smaller return: this body is 1,171 B of source against
+# share-collection's 3,606 B. The ~2,400 B average from the first four came
+# from picking the LARGEST bodies first. Working down the size-ordered list in
+# bundle.txt keeps the return per commit as high as it can be; the tail of
+# sub-1 KB dialogs will each yield a few hundred bytes.
+#
+# Running total: 1,159,933 -> 522,246 (55.0% smaller). 22,246 above target.
