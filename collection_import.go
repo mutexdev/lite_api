@@ -539,6 +539,10 @@ func hashCollectionImportFolder(root string) (string, error) {
 func detectCollectionImport(content, name, override string) (string, Collection, []string, error) {
 	kind := strings.ToLower(strings.TrimSpace(override))
 	if kind != "" {
+		if kind == "har" {
+			collection, warnings, err := importHAR(content, strings.TrimSuffix(name, filepath.Ext(name)))
+			return kind, collection, warnings, err
+		}
 		if kind == "curl" {
 			collection, warnings, err := collectionFromCurlImport(content, strings.TrimSuffix(name, filepath.Ext(name)))
 			return kind, collection, warnings, err
@@ -564,9 +568,23 @@ func detectCollectionImport(content, name, override string) (string, Collection,
 		collection, err := collectionFromImport(ImportPayload{Kind: "bru", Name: strings.TrimSuffix(name, ".bru"), Content: content})
 		return "bru", collection, nil, err
 	}
+	if strings.HasSuffix(lowerName, ".har") {
+		collection, warnings, err := importHAR(content, strings.TrimSuffix(name, filepath.Ext(name)))
+		return "har", collection, warnings, err
+	}
 	var raw map[string]interface{}
 	if err := yaml.Unmarshal([]byte(content), &raw); err != nil || raw == nil {
 		return "unknown", Collection{}, nil, errors.New("source is not a supported JSON or YAML import")
+	}
+	// US-051. Shape detection as well as extension: HAR files are routinely
+	// saved as plain .json from a browser's network panel, and a HAR that
+	// reached the generic fallbacks below would be reported as "ambiguous"
+	// rather than imported.
+	if log, ok := raw["log"].(map[string]interface{}); ok {
+		if _, hasEntries := log["entries"]; hasEntries {
+			collection, warnings, err := importHAR(content, strings.TrimSuffix(name, filepath.Ext(name)))
+			return "har", collection, warnings, err
+		}
 	}
 	if _, ok := raw["swagger"]; ok {
 		return "swagger-2", Collection{}, nil, errors.New("imports from Swagger 2 are not supported; provide OpenAPI 3")

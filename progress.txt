@@ -1336,3 +1336,53 @@ US-044 - Fix + demote the import translator. DONE. Closes the pm cluster.
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 38.3s 0,
   -race clean, svelte-check 198/0/0, eslint 0, npm test 105/105.
+
+US-051 - HAR import. DONE.
+  har_import.go + fixture at docs/qa/import-fixtures/session.har. Registered in
+  detectCollectionImport by BOTH extension and shape, and in the manual
+  override path (a separate branch that drops warnings if you forget it).
+
+  A HAR is different in kind from every other importer here. Postman, Insomnia
+  and OpenAPI files are AUTHORED - what is in them is what someone meant to put
+  there. A HAR is whatever crossed the wire, which forces two decisions:
+
+  CREDENTIALS. Session cookies and Authorization headers are recorded verbatim.
+  They ARE imported, because stripping them silently produces a collection
+  where every request 401s for no visible reason. But the importer WARNS and
+  names the specific headers, because a collection is written to disk and this
+  app can commit one to git. The warning list is a small explicit set, not a
+  heuristic: a false positive trains people to ignore the warning.
+
+  NOISE. A recorded session holds the same polling request many times. Exact
+  duplicates are dropped - an exact duplicate carries no information the first
+  copy does not. The fingerprint covers method, URL, params, headers AND body.
+  Deduping on method+URL, the obvious implementation, collapses a login POST
+  and a logout POST to the same endpoint, or two writes with different bodies.
+  The negative control proved it: the fixture's two POSTs to /v1/users (Ada and
+  Grace) collapsed to one, losing a request outright.
+
+  Recording artefacts stripped: HTTP/2 pseudo-headers (:method) are not valid
+  to send, and a recorded content-length that no longer matches an edited body
+  makes the server read a truncated payload - a failure that reads as a server
+  bug.
+
+  Query strings are split into the params table rather than frozen into the URL
+  text, and parsed by hand rather than with url.ParseQuery, which returns a map
+  and so loses order AND repeated keys. Repeated keys are ordinary in recorded
+  traffic and losing one changes what the request asks for.
+
+  MY OWN TEST WAS WRONG FIRST: I asserted 3 surviving items when the fixture
+  has 5 entries with exactly ONE byte-identical repeat, so 4 survive. The code
+  was right; I miscounted. Fixed the expectation and the stale comments that
+  said "two exact repeats".
+
+  Negative controls, all four run and all four caught:
+    dedupe on method+URL only    3 items, the Grace POST lost
+    credential warning removed   warning text no longer names the headers
+    keep recording artefacts     :method, content-length and host survived
+    shape detection removed      a HAR named .json reported "ambiguous"
+
+  Frontend: HAR added to the manual format override list.
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 38.7s 0,
+  svelte-check 198/0/0, eslint 0, npm test 105/105.

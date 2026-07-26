@@ -34236,6 +34236,9 @@ func collectionFromImport(payload ImportPayload) (Collection, error) {
 		return collection, nil
 	case "postman":
 		return importPostman(payload.Content, name, payload.TranslatePostmanScripts)
+	case "har":
+		collection, _, err := importHAR(payload.Content, name)
+		return collection, err
 	case "insomnia":
 		return importInsomnia(payload.Content, name)
 	case "openapi":
