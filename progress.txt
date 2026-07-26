@@ -5142,3 +5142,41 @@ US-026 - Store layer. DONE. Both named collapses complete.
   A control also showed the two failure modes were collapsing: with the parse
   error unchecked, a CORRUPT key reports "is not an RSA key", sending someone
   off to regenerate a key that was fine. Now asserted separately.
+
+--- Response filters and schema coercion — 28-37% -> 100% ---
+
+  Both of these decide whether something MATCHES, which is the quietest kind of
+  failure: the filter returns no rows, or the wrong rows, and looks like the
+  response simply did not contain them.
+
+  Numbers arrive as float64 from encoding/json, as json.Number when the decoder
+  was told to keep precision, and as plain ints from Go callers. A type not
+  recognised as numeric falls through to TEXT comparison, where "10" sorts
+  before "9" — so a "> 9" filter drops the very rows it was written to find.
+  Each numeric type has its own control.
+
+  Ordering two strings is refused rather than guessed: `status > "active"`
+  matches nothing, which is at least consistent, where a lexicographic answer
+  returns rows nobody asked for.
+
+  ">=" must be tried before ">", or "price >= 10" splits at the ">" and compares
+  against the literal "= 10".
+
+  A quoted number stays TEXT, so `id = "10"` does not match a numeric id of 10 —
+  that distinction is the whole reason someone typed the quotes.
+
+  THE ABSENT-FIELD CONTROL FOUND A GAP IN MY OWN TEST. Removing the existence
+  check reported 0 failing, because for ordering operators a missing field
+  compares as nil and still says no. But for != it flips: `status != "gone"`
+  starts matching every row that HAS NO STATUS AT ALL, so a filter written to
+  exclude rows begins including ones it never described. Asserted, and the
+  control now fires.
+
+  For schema coercion: values from form fields and environment variables are
+  always strings, so without coercion "5" against a schema of type integer fails
+  every time and the user is told their good input is the wrong type. A value
+  that does NOT parse is returned unchanged so the validator can still reject
+  it — substituting a zero would report the input valid and send 0 to the
+  server. Going the other way, a number bound for a string field is formatted
+  as plain digits: Go's default gives "1e+21" for a large value, which would be
+  sent as that literal text.
