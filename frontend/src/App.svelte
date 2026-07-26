@@ -36,6 +36,7 @@
   // here is what pulled all of CodeMirror into the initial chunk.
   import CodeEditor from './lib/workbench/LazyCodeEditor.svelte'
   import Modal from './lib/modals/Modal.svelte'
+  import SidebarHeader from './lib/SidebarHeader.svelte'
   import SidebarSearch from './lib/SidebarSearch.svelte'
   import RequestSettingsPanel from './lib/workbench/RequestSettingsPanel.svelte'
   import ProtocolRequestLine from './lib/workbench/ProtocolRequestLine.svelte'
@@ -7951,21 +7952,7 @@
 {:else if appState}
   <main class="app-shell" class:sidebar-collapsed={sidebarCollapsed} style={`--sidebar-width: ${sidebarWidth}px;`} >
     <aside class="workspace-rail" aria-label="Collections sidebar">
-      <div class="brand">
-        <div class="brand-mark">LA</div>
-        <div>
-          <h1>LiteAPI</h1>
-          <p>Local-first API workbench</p>
-        </div>
-      </div>
-
-      <section class="rail-section rail-create">
-        <button class="primary new-request-button" type="button" onclick={(event) => openCreationFlow(event.currentTarget as HTMLElement)} aria-haspopup="dialog">
-          <span aria-hidden="true">+</span> New
-          <kbd>⌘N</kbd>
-        </button>
-        <small>Create a scratch request in the active collection.</small>
-      </section>
+      <SidebarHeader onNew={openCreationFlow} />
 
       <SidebarSearch bind:value={requestSearch} bind:input={requestSearchInput} matchCount={sidebarSearchCount} />
 

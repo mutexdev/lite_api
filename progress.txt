@@ -6533,3 +6533,28 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Cleaned up: dev server stopped, console artifacts removed, and the file-mode
   churn `wails dev` left on three generated wailsjs/runtime files restored.
+
+=== PHASE 6 — second component extraction, verified at runtime ===
+
+  src/lib/SidebarHeader.svelte — the brand block and the New button.
+  App.svelte 11,582 -> 11,569.
+
+  A CALLBACK prop this time rather than a bindable one, which is the other
+  convention lib/ already uses (CommandOverflowMenu's onSelect). The child owns
+  no state here; it reports a click and passes the invoker element up, because
+  the creation flow returns focus to whatever opened it and only the child knows
+  which element that was.
+
+  VERIFIED AT RUNTIME, not just statically. Now that the path is proven, a
+  component whose entire purpose is a click handler is worth actually clicking:
+
+    - the rail renders identically to before the extraction
+    - clicking "New" fires onNew -> openCreationFlow
+    - the "New request" dialog opens, correctly scoped to "Sample API"
+    - one console error, a 404 for /favicon.ico, which a native window has no
+      concept of. NO JavaScript errors.
+
+  Contrast with the previous run, where the only error turned out to be an HMR
+  artifact: a clean server start produces a clean console. That is what makes
+  the first run's ReferenceError identifiable as noise rather than signal — two
+  runs, one dirty from hot-reloading and one not.
