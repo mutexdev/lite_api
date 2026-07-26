@@ -44058,7 +44058,49 @@ func defaultFeatures() []Feature {
 			features[i].Tests = append(features[i].Tests, "TestPreferencesDisplayZoomPersistAndNormalize", "Browser UI smoke: display zoom preferences and shortcuts", "Browser UI smoke: closeBruno shortcut quits Wails")
 		}
 	}
-	return features
+	return append(features, postmanFeatures()...)
+}
+
+// postmanFeatures is the Postman-parity half of the ledger (US-059).
+//
+// Its own function rather than inlined into defaultFeatures so the Bruno
+// ledger it is appended to stays visibly intact — the story requires the Bruno
+// ledger retained, and one enormous literal makes "did anything get dropped"
+// unanswerable at a glance.
+func postmanFeatures() []Feature {
+	return []Feature{
+		postmanFeature("postman-scripts", "pm script API", "partial",
+			"Live pm object beside bru: pm.test and pm.expect bound to the same registry the runner reads, pm.info (requestName, requestId, eventName, 0-based iteration, iterationCount), four distinct variable scopes (pm.environment, pm.collectionVariables, pm.globals, pm.variables over the resolved chain), pm.request and pm.response with Postman status semantics and the pm.response.to.have.* assertion chain, pm.sendRequest/pm.cookies/pm.execution delegating to bru, pm.iterationData over the runner data-file row, and async pm.vault reads. pm.vault writes are refused rather than stored, because this runtime cannot mark a value secret and a write would land in the environment in plain text. Postman's remaining sandbox globals and the full Chai surface remain gaps.",
+			[]string{"TestPmTestFailuresReachTheRunner", "TestPmAndBruTestsShareOneRegistry", "TestPmInfoReportsTheRequest", "TestPmInfoEventNameInThePreRequestPhase", "TestPmInfoIterationCountsDuringACollectionRun", "TestPmDoesNotDisplaceBru", "TestPmVariableScopesAreDistinct", "TestPmScopesDelegateToBru", "TestPmVariablesReadsTheResolvedChain", "TestPmScopeMethodsAreAllPresent", "TestPmRequestReflectsTheRequest", "TestPmResponseUsesPostmanStatusSemantics", "TestPmResponseAssertionsPassWhenTrue", "TestPmResponseAssertionsFailWhenFalse", "TestPmResponseIsAbsentDuringThePreRequestPhase", "TestPmSideEffectsAreTheSameObjectsAsBru", "TestPmSendRequestPerformsARequest", "TestPmExecutionSetNextRequestDrivesTheRunner", "TestPmCookiesReadTheSameJarAsBru", "TestPmIterationDataReadsOnlyTheDataFile", "TestPmIterationDataIsEmptyWithoutADataFile", "TestPmVaultIsAsync", "TestPmVaultReadsTheSecretsLayer", "TestPmVaultWritesAreRejected", "TestPostmanEventName"}),
+
+		postmanFeature("postman-translator", "Import script translation", "done",
+			"pm.* to bru.* rewriting on Postman import is opt-in and off by default, because pm.* is now native and more faithful than a textual rewrite. Its scope collapse is fixed: pm.environment, pm.collectionVariables and pm.globals map to their own bru functions instead of all four families landing on bru.setVar. pm.variables is deliberately not translated, having no exact bru equivalent, and runs on the native object.",
+			[]string{"TestPostmanImportKeepsPmByDefault", "TestPostmanTranslatorNoLongerCollapsesScopes", "TestTranslatedScopesReachDistinctStorage", "TestUntranslatedPostmanScriptsRun", "TestApplyCollectionImportHonoursTheTranslateFlag"}),
+
+		postmanFeature("postman-runner", "Collection runner parity", "done",
+			"Iterations with per-iteration result rows and Iterations vs CompletedIterations, CSV/JSON data files driving one iteration per row through a Data variable scope that beats the environment but loses to runtime and prompt values, and bail-on-failure marking unrun requests distinctly from skipped and cancelled. A failed assertion now fails the run result, which it did not before: the runner derived status only from the transport and HTTP code, so a suite whose every assertion failed reported green.",
+			[]string{"TestRunnerIterationsRepeatEveryRequest", "TestSingleIterationRunsAreShapeCompatible", "TestRunnerBailStopsEveryIteration", "TestUnrunResultsAreNotCountedAsFailures", "TestNormalizeRunnerIterations", "TestRunnerDataRowsParsesCSV", "TestRunnerDataRowsParsesJSON", "TestRunnerDataRowsStripsTheUTF8BOM", "TestRunnerDataRowsToleratesRaggedAndBlankCSV", "TestRunnerIterationPlanClampsToTheRowCount", "TestDataFileRowsReachTheWire", "TestDataFileDoesNotOverrideRuntimeVariables", "TestNoDataFileLeavesTheDataScopeEmpty", "TestRunnerBailsAndMarksRemainingUnrun", "TestRunnerBailDistinguishesUnrunFromSkipped", "TestRunnerContinuesPastFailureByDefault", "TestFailedAssertionsFailTheRunResult", "TestFirstFailedTestResult"}),
+
+		postmanFeature("postman-dynamic-variables", "Dynamic variables", "partial",
+			"22 of Postman's dynamic variables resolve, each occurrence independently rather than once per request, with unknown $ names left literal so a typo travels to the wire visibly instead of resolving to empty. Postman's full faker set remains a gap.",
+			[]string{"TestDynamicVariablesResolvePerOccurrence", "TestUnknownDynamicVariablesAreLeftLiteral", "TestOrdinaryVariablesAreUntouched", "TestDynamicVariableShapes", "TestEveryStoryNamedVariableResolves", "TestDynamicVariablesResolveThroughInterpolate", "TestUnknownDynamicVariablesSurviveInterpolate"}),
+
+		postmanFeature("postman-import-export", "Import and export fidelity", "done",
+			"HAR import with credential-header warnings and exact-duplicate dropping, Swagger 2 import by conversion to OpenAPI 3, and Postman export carrying collection variables, collection/folder/request auth, event blocks, path params and descriptions. Import to export to import is idempotent across repeated cycles.",
+			[]string{"TestHARImportDropsOnlyExactDuplicates", "TestHARImportWarnsAboutCredentials", "TestHARImportKeepsCredentialHeaders", "TestHARImportStripsRecordingArtefacts", "TestHARImportKeepsRepeatedQueryKeys", "TestHARImportMapsBodyModes", "TestHARIsDetectedByShapeNotOnlyExtension", "TestSwagger2ConvertsVersionAndServers", "TestSwagger2RewritesEveryRef", "TestSwagger2BodyParameterBecomesRequestBody", "TestSwagger2FormDataBecomesRequestBody", "TestSwagger2ParameterTypesMoveIntoSchema", "TestSwagger2SecuritySchemesConvert", "TestSwagger2ResponseSchemasMoveUnderContent", "TestSwagger2IsDetectedAndImported", "TestPostmanRoundTripIsIdempotent", "TestPostmanExportCarriesEventBlocks", "TestPostmanExportCarriesPathParams", "TestPostmanExportPreservesDisabledParams", "TestPostmanExportRoundTripsGraphQL", "TestPostmanExportRoundTripsAuthAtEveryLevel", "TestPostmanExportRoundTripsDescription", "TestPostmanExportWritesExecAsLines"}),
+
+		postmanFeature("postman-codegen", "Code generation targets", "done",
+			"Python requests, Node axios, Go net/http, Java java.net.http, C# HttpClient, PHP cURL, Ruby net/http, HTTPie and PowerShell alongside curl and fetch, all from one normalised request view, with per-language quoting so a body containing quotes, backslashes, $ or #{ cannot break out of its literal or be interpolated.",
+			[]string{"TestEveryStoryNamedTargetGenerates", "TestCodegenTargetsAreDispatchable", "TestCodegenEscapesHostileBodies", "TestCodegenRespectsDisabledRows", "TestCodegenHandlesEveryBodyMode", "TestMultipartOmitsAHandWrittenContentType", "TestGeneratedJSONIsStillValidJSON", "TestUnknownCodegenLanguageIsRejected"}),
+
+		postmanFeature("postman-workbench", "Command palette, bulk edit and shortcut preset", "done",
+			"Cmd/Ctrl+Shift+P command palette registered in the customizable keybinding system and ranked exact > prefix > word-start > substring > subsequence, kept distinct from the Cmd/Ctrl+K object search; bulk text editing on request headers and params that round-trips disabled state, secret and description; and a selectable Postman keybinding preset layered between the defaults and the user's own overrides, with collisions still rejected.",
+			[]string{"TestKeyBindingPresetNormalizes", "TestKeyBindingPresetPersists", "npm test: commandPalette", "npm test: bulkEdit", "npm test: keybindings"}),
+
+		postmanFeature("postman-visualizer", "Response visualizer", "partial",
+			"pm.visualizer.set(template, data) and a Visualizer response tab rendering in an iframe sandboxed without allow-same-origin, under a default-src 'none' CSP, with interpolation HTML-escaped. The template engine is a bounded Handlebars subset; unrecognised helpers are left visible rather than dropped. Full Handlebars helper coverage remains a gap.",
+			[]string{"TestVisualizerSandboxNeverAllowsSameOrigin", "TestVisualizerDocumentCarriesAStrictCSP", "TestVisualizerEscapesResponseData", "TestVisualizerTripleBraceIsDeliberatelyRaw", "TestVisualizerRendersTemplateSubset", "TestVisualizerLeavesUnsupportedHelpersVisible", "TestVisualizerHandlesNestedBlocks", "TestVisualizerHandlesMalformedInput", "TestVisualizerRejectsOversizedPayloads", "TestPmVisualizerSetReachesTheResponse", "TestVisualizerSetInThePreRequestPhaseSurvives", "TestLaterPhaseWinsForVisualizer", "TestFrontendSandboxMatchesTheGoConstant"}),
+	}
 }
 
 func feature(id, name, category, status, description string, tests []string) Feature {
@@ -44073,6 +44115,31 @@ func feature(id, name, category, status, description string, tests []string) Fea
 			"/Users/mou/Developer/Workspace/bruno/tests",
 			"/Users/mou/Developer/Workspace/bruno/packages/bruno-app/src/components",
 			"/Users/mou/Developer/Workspace/bruno/packages/bruno-electron/src/ipc",
+		},
+	}
+}
+
+// postmanFeature is feature() with Postman's documentation as the reference
+// instead of Bruno's source tree.
+//
+// A separate constructor rather than a parameter on feature(): the Bruno rows
+// cite a checked-out repository that can be read, the Postman rows cite public
+// documentation that cannot, and conflating the two would let a Postman row
+// claim evidence from a tree that says nothing about Postman. The Bruno ledger
+// is untouched (US-059 requires it retained); these rows sit beside it.
+func postmanFeature(id, name, status, description string, tests []string) Feature {
+	return Feature{
+		ID:          id,
+		Name:        name,
+		Category:    "Postman parity",
+		Status:      status,
+		Description: description,
+		Tests:       tests,
+		SourceRefs: []string{
+			"https://learning.postman.com/docs/tests-and-scripts/write-scripts/postman-sandbox-api-reference/",
+			"https://learning.postman.com/docs/tests-and-scripts/write-scripts/variables-list/",
+			"https://learning.postman.com/docs/getting-started/installation/settings/shortcut-settings",
+			"POSTMAN-PARITY.md",
 		},
 	}
 }

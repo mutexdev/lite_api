@@ -1,0 +1,88 @@
+# LiteAPI Postman Parity Ledger
+
+This app is a Go + Svelte + Wails rebuild of Bruno. `PARITY.md` remains the authoritative Bruno ledger and is unchanged by this document; the two sit side by side because their evidence is different in kind. Bruno parity is checked against a readable source tree at `/Users/mou/Developer/Workspace/bruno`. Postman parity can only be checked against public documentation, so every claim below is instead anchored to a test in this repository that fails if the claim stops being true.
+
+Reference documentation: [Postman sandbox API](https://learning.postman.com/docs/tests-and-scripts/write-scripts/postman-sandbox-api-reference/), [dynamic variables](https://learning.postman.com/docs/tests-and-scripts/write-scripts/variables-list/), [shortcuts](https://learning.postman.com/docs/getting-started/installation/settings/shortcut-settings).
+
+## How to read this ledger
+
+Every row in the in-app `Feature` ledger under category `Postman parity` names the tests that support it, and `TestPostmanLedgerCitesTestsThatExist` fails the build if any named Go test has been renamed or deleted. A row marked `partial` must name what is still missing — `TestPostmanLedgerRowsAreWellFormed` enforces that too. The intent is that a stale claim breaks a test rather than quietly reading as evidence.
+
+## pm script API — partial
+
+- `pm.test` and `pm.expect` are bound to the same globals the runner already reads rather than reimplemented. Two independent registries would drift, and a `pm.test` whose failures did not reach the same `TestResults` slice would report a green run while its assertions failed. `TestPmTestFailuresReachTheRunner` asserts a failing `pm.expect` produces a failed result row; `TestPmAndBruTestsShareOneRegistry` asserts a script mixing `test` and `pm.test` produces one ordered list.
+- `pm.info.iteration` is 0-based as Postman defines it, converted at a single boundary while everything user-facing here counts from 1. A script copied out of Postman guards on `pm.info.iteration === 0` for first-iteration setup, and a 1-based value would make that guard never fire with no error anywhere. `TestPmInfoIterationCountsDuringACollectionRun` runs 1- and 3-iteration collections and reads the response's `TestResults` directly.
+- `pm.info.eventName` reports `prerequest` in the pre-request phase and `test` in both post-response phases, because Postman has no separate post-response event and inventing one would break the `pm.info.eventName === "test"` guard scripts actually write. `TestPostmanEventName` and `TestPmInfoEventNameInThePreRequestPhase`.
+- `pm.environment`, `pm.collectionVariables` and `pm.globals` each read and write their own storage, and `pm.variables` reads the fully resolved chain while writing to the runtime scope. `TestPmVariableScopesAreDistinct` writes the same name into three scopes and demands three values back; `TestPmVariablesReadsTheResolvedChain` demands `pm.variables` see all of them.
+- `pm.response.status` is the status text and `pm.response.code` the number, as Postman defines them, while `res.status` stays the number for bru scripts. Without the distinction every copied script comparing `pm.response.status` to `"OK"` is quietly always false. `TestPmResponseUsesPostmanStatusSemantics` pins both surfaces at once.
+- `pm.response.to.have.*` throws on failure, which is what the enclosing `pm.test` catches. An assertion that returned false would let `pm.test("status is 200", () => pm.response.to.have.status(200))` pass against a 500. `TestPmResponseAssertionsFailWhenFalse` asserts eight false assertions each produce a failed result row.
+- `pm.response` is absent during the pre-request phase rather than exposing a zero response, which would answer `code` with 0 and `text()` with `""` and read as a server that returned nothing. `TestPmResponseIsAbsentDuringThePreRequestPhase`.
+- `pm.sendRequest`, `pm.cookies` and `pm.execution.setNextRequest` are the same JavaScript objects as their `bru` counterparts, asserted by identity and by behaviour. `TestPmSideEffectsAreTheSameObjectsAsBru` checks `pm.sendRequest === bru.sendRequest`; `TestPmExecutionSetNextRequestDrivesTheRunner` runs a real three-request collection and demands the skipped request never appear.
+- `pm.vault` reads return promises, matching Postman's async API. **Writes are refused**, and this is a deliberate limitation rather than an oversight: the script runtime holds plain variable maps with no `Secret` flag, so a `pm.vault.set` would land the value in the environment as an ordinary variable and reach disk in the clear while the script believed it had vaulted a token. `TestPmVaultWritesAreRejected` asserts the rejection names "plain text" and that the value reaches no scope.
+- **Gaps**: Postman's remaining sandbox globals and the full Chai assertion surface.
+
+## Import script translation — done
+
+- Translating `pm.*` to `bru.*` on Postman import is now opt-in and off by default, because `pm.*` is native and more faithful than any textual rewrite. `TestPostmanImportKeepsPmByDefault` asserts a default import leaves the script verbatim; `TestUntranslatedPostmanScriptsRun` asserts a verbatim script actually runs.
+- The translator's scope collapse is fixed. It previously mapped `pm.environment.set`, `pm.collectionVariables.set`, `pm.globals.set` and `pm.variables.set` all onto `bru.setVar`, folding four scopes into one. Nothing errored, and a script that wrote one scope and read another got its value back — so it looked correct until a second environment was supposed to see a different value. `TestTranslatedScopesReachDistinctStorage` runs the translated output and demands three distinct scopes.
+- `pm.variables` is deliberately left untranslated: `bru.getVar` reads only the runtime scope, which was half the collapse.
+- Candidates are parsed during detection, before the apply request exists, so the flag is also honoured by re-importing Postman candidates at apply time. Without that the toggle would look like it worked and do nothing for every normally-detected file. `TestApplyCollectionImportHonoursTheTranslateFlag`.
+
+## Collection runner parity — done
+
+- `RunnerOptions.Iterations` with per-iteration result rows, and `Iterations` vs `CompletedIterations` so a reader can tell "10 iterations, all green" from "stopped during iteration 2 of 10". `TestRunnerIterationsRepeatEveryRequest`, `TestSingleIterationRunsAreShapeCompatible`.
+- Every pre-existing loop control was classified deliberately when the outer iteration loop was added: cancellation, bail-on-failure and `bru.runner.stopExecution()` end the run, while `setNextRequest(null)` ends only the current iteration, matching newman. `TestRunnerBailStopsEveryIteration` asserts a bail leaves later iterations unstarted.
+- CSV and JSON data files drive one iteration per row, through a `Data` variable scope that beats the environment but loses to runtime and prompt values — the row is chosen before the iteration starts, while `bru.setVar` is a deliberate act during it. `TestDataFileRowsReachTheWire` asserts the row's columns reach the request URL; `TestDataFileDoesNotOverrideRuntimeVariables` pins the precedence.
+- Asking for more iterations than there are rows clamps down rather than padding, because an iteration with no row sends `{{userId}}` unresolved to the server and reads as a broken collection. `TestRunnerIterationPlanClampsToTheRowCount`.
+- Fixture: `docs/qa/import-fixtures/session.har` is the HAR fixture; runner data files are constructed in-test.
+- **A failed assertion now fails the run result.** It did not before: the runner derived status only from the transport and the HTTP code, so a collection whose every assertion failed against 200 responses reported a fully green run, and `BailOnFailure` could never trigger on an assertion — the case its own criterion leads with. `TestFailedAssertionsFailTheRunResult`.
+- `unrun` is counted in no tally. It previously fell through to `Failed`, so a bailed run of five requests reported five failures for one real failure. `TestUnrunResultsAreNotCountedAsFailures`.
+
+## Dynamic variables — partial
+
+- 22 of Postman's dynamic variables resolve, each occurrence independently rather than once per request: a body with ten `{{$randomInt}}` placeholders gets ten different numbers. `TestDynamicVariablesResolvePerOccurrence` uses twenty occurrences, where a single-value implementation would collide with probability 1001⁻¹⁹.
+- Unknown `$` names are left literal rather than resolving to empty, so a typo like `{{$randomEmial}}` travels to the wire visibly instead of becoming a blank field that looks deliberate. `TestUnknownDynamicVariablesAreLeftLiteral`.
+- Values come from `crypto/rand`: these end up in request bodies, and a user generating test credentials should not get a sequence predictable from one sample.
+- **Gap**: Postman's full faker set is much larger than the 22 implemented here.
+
+## Import and export fidelity — done
+
+- HAR import, fixture `docs/qa/import-fixtures/session.har`. A HAR is a recording rather than an authored artefact, which forces two decisions no other importer faces. Credentials are imported rather than stripped — stripping leaves a collection where every request 401s for no visible reason — but the importer warns and names the specific headers, because a collection is written to disk and this app can commit one to git. `TestHARImportWarnsAboutCredentials`, `TestHARImportKeepsCredentialHeaders`.
+- Exact duplicates are dropped, fingerprinted on method, URL, params, headers **and** body. Deduping on method and URL alone collapses two POSTs to the same endpoint with different bodies, losing a request outright. `TestHARImportDropsOnlyExactDuplicates`.
+- Swagger 2 import, fixture `docs/qa/import-fixtures/swagger2.json`, by conversion to OpenAPI 3 and reuse of the existing importer. The conversions that matter are the ones whose absence is invisible at import time: without `servers` the collection imports perfectly and every request 404s; an unconverted `in: body` parameter loses the payload; `type: basic` left alone makes the importer read no auth at all. `TestSwagger2ConvertsVersionAndServers`, `TestSwagger2BodyParameterBecomesRequestBody`, `TestSwagger2SecuritySchemesConvert`.
+- The `$ref` rewrite is recursive over the whole document because a pointer appears anywhere a schema can. A missed one resolves to nothing and the schema comes back empty, reading as an API with no documented payload. `TestSwagger2RewritesEveryRef` uses a fixture with a self-referential property and a pointer inside array items.
+- Postman export now carries collection variables, collection/folder/request auth, event blocks, path params and descriptions, all of which were previously dropped silently — the export imported cleanly and behaved differently. `TestPostmanExportCarriesEventBlocks`, `TestPostmanExportRoundTripsAuthAtEveryLevel`.
+- Import → export → import is idempotent, asserted over **three** cycles because two would pass on an exporter losing something at a steady rate. `TestPostmanRoundTripIsIdempotent`.
+
+## Code generation targets — done
+
+- Python `requests`, Node `axios`, Go `net/http`, Java `java.net.http`, C# `HttpClient`, PHP cURL, Ruby `net/http`, HTTPie and PowerShell, alongside the existing curl and fetch. All read one normalised request view, so the same row cannot produce two different requests in two languages. `TestEveryStoryNamedTargetGenerates`.
+- The picker is built from the same list the dispatcher resolves, so a menu item that errors when chosen is unrepresentable. `TestCodegenTargetsAreDispatchable`.
+- Escaping is per-language and the reasons are not interchangeable: PHP and Ruby use single quotes because their double-quoted strings interpolate `$total` and `#{evil}`; PowerShell doubles single quotes and leaves backslashes alone, since escaping them would corrupt every Windows path. `TestCodegenEscapesHostileBodies` feeds every target a body containing quotes, backslashes, a newline, a dollar sign, a Handlebars-style interpolation opener and non-ASCII text.
+- Multipart never writes a `Content-Type` by hand, because the boundary is generated by the client and a hand-written one produces a request the server cannot parse — failing at the server rather than in the snippet. `TestMultipartOmitsAHandWrittenContentType`.
+
+## Command palette, bulk edit and shortcut preset — done
+
+- `Cmd/Ctrl+Shift+P` opens the command palette, kept deliberately distinct from the `Cmd/Ctrl+K` object search per the pre-implementation audit's instruction not to overload one modal with two unclear modes. The shortcut is registered in the customizable keybinding system rather than hard-coded, so it appears in Preferences and can be rebound; the previous hard-coded handler was removed, because two paths to one action would mean a customised shortcut silently doing nothing.
+- Results are ranked exact > prefix > word-start > substring > subsequence, with ties broken by declared order rather than alphabetically. The first row is what Enter runs, so an unranked list runs whatever the command array happened to declare first. Covered by `npm test: commandPalette` (20 assertions).
+- Bulk text editing on request headers and params round-trips disabled state, `secret` and `description`. The text format cannot express the latter two, so they are carried over per occurrence from the previous rows — without that a secret row silently becomes non-secret and its value starts being written in the clear. Newlines are escaped so a multi-line value does not split into bogus rows. Covered by `npm test: bulkEdit` (20 assertions).
+- A selectable Postman keybinding preset layers between the built-in defaults and the user's own overrides, so switching preset never replaces a shortcut somebody deliberately set. The preset is deliberately small: these defaults descend from Bruno's, which were modelled on Postman, so most already match, and a test fails any preset entry that merely restates its default. `TestKeyBindingPresetNormalizes`, `TestKeyBindingPresetPersists`, `npm test: keybindings` (13 assertions including a collision check against the real default table).
+
+## Response visualizer — partial
+
+- `pm.visualizer.set(template, data)` records onto the response through the same merge as the other script controls, so a visualizer set in any phase survives — the pre-request script runs before a response exists. `TestVisualizerSetInThePreRequestPhaseSurvives`, `TestLaterPhaseWinsForVisualizer`.
+- The template comes from whoever wrote the collection and the data from whatever the server returned, so the Visualizer renders attacker-influenced content. Three independent containment layers, tested separately because each fails silently:
+  - `sandbox="allow-scripts"` **without** `allow-same-origin`. Granting both would put the frame in the app's origin where it can read `localStorage` and script the parent, while still looking like a sandbox in the markup. `TestVisualizerSandboxNeverAllowsSameOrigin`, plus `TestFrontendSandboxMatchesTheGoConstant` which pins the Svelte attribute to the Go constant since nothing else connects them.
+  - A `default-src 'none'` CSP inside the document. Without it a template could exfiltrate the response it was handed by encoding it into an image URL, and the sandbox would not stop that — an opaque origin can still make requests. `TestVisualizerDocumentCarriesAStrictCSP`.
+  - HTML escaping in `{{ }}` interpolation, because containment is not a licence to let the frame's own DOM be hijacked. `TestVisualizerEscapesResponseData` feeds data that tries to close a table cell and to break out of an attribute.
+- The template engine is a bounded Handlebars subset (`{{path}}`, `{{{path}}}`, `#each` with `{{this}}` and `{{@index}}`, `#if`/`#else`). Unrecognised helpers are left **visible** rather than dropped: a partial Handlebars that silently ignores what it does not know renders a plausible-but-wrong page. `TestVisualizerLeavesUnsupportedHelpersVisible`.
+- **Gap**: full Handlebars helper coverage.
+
+## Not attempted
+
+These are listed so the ledger is not read as claiming more than it does.
+
+- Postman's cloud, account, workspace-sync and collaboration surfaces. The pre-implementation audit explicitly excludes them.
+- Postman's mock servers, monitors and API governance features.
+- The full Postman faker set beyond the 22 dynamic variables implemented.
+- Postman's Interceptor and proxy capture.

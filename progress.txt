@@ -1754,3 +1754,40 @@ US-058 - Visualizer. DONE.
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 38.4s 0,
   svelte-check 201/0/0, eslint 0, npm test 158/158.
+
+US-059 - Postman parity ledger. DONE. Closes the Postman cluster (039-059).
+  POSTMAN-PARITY.md in PARITY.md's evidence style, plus 8 rows in the in-app
+  Feature ledger under category "Postman parity". PARITY.md and the Bruno rows
+  are untouched, as the story requires.
+
+  THE LEDGER IS MACHINE-CHECKED, which is the only thing that makes one worth
+  reading. The failure mode is not a wrong entry - it is an entry that was TRUE
+  WHEN WRITTEN and quietly stopped being true when a test was renamed. Nothing
+  about a stale ledger looks wrong; it just cites evidence that no longer
+  exists. Five guards:
+    every cited Go test must exist in the package (regex over _test.go)
+    the Bruno ledger must still be there and must not have inherited Postman
+      references - `append` is exactly the operation a stray reassignment
+      silently replaces
+    Postman rows must cite Postman docs and POSTMAN-PARITY.md, never the Bruno
+      source tree, which says nothing about Postman
+    a "partial" row must NAME its gap, or the status is unactionable
+    every fixture path the markdown cites must resolve on disk
+
+  postmanFeature() is a separate constructor from feature(), not a parameter:
+  Bruno rows cite a checked-out repository that can be READ, Postman rows cite
+  public documentation that cannot. Conflating them would let a Postman row
+  claim evidence from a tree with no Postman in it.
+
+  The document ends with a "Not attempted" section - cloud/workspace sync, mock
+  servers, monitors, the full faker set, Interceptor. A parity ledger that
+  lists only what was built reads as a claim about everything.
+
+  Negative controls, all four run and all four caught:
+    cited test renamed          named the row and the missing test
+    Bruno ledger replaced       "the Bruno ledger is gone"
+    partial row drops its gap   named the row
+    Postman row cites Bruno     named two rows
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 38.4s 0,
+  svelte-check 201/0/0, npm test 158/158.
