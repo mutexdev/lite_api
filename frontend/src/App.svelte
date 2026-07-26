@@ -124,7 +124,14 @@
   import ProtocolRequestLine from './lib/workbench/ProtocolRequestLine.svelte'
   import WorkspaceCommandBar from './lib/workbench/WorkspaceCommandBar.svelte'
   import WorkspaceWindowPicker from './lib/workbench/WorkspaceWindowPicker.svelte'
-  import { hasReplaceImportSelection, selectedImportRows } from './lib/importPlanning'
+  import {
+    defaultImportDecision,
+    hasReplaceImportSelection,
+    importSelectionFor as importSelectionOf,
+    reconcileImportDecision,
+    selectedImportRows,
+    toggleImportChildID
+  } from './lib/importPlanning'
   import { canPushGitBranch, canStageGitSelection, canSwitchGitBranch, canUnstageGitSelection, reconcileGitRemoteBranch, reconcileGitSelection } from './lib/gitWorkbench'
   import type { RequestCommandState } from './lib/workbench/types'
   import {
@@ -3321,16 +3328,7 @@
   }
 
   function importDecisionFor(row: main.CollectionImportPreviewRow): ImportDecision {
-    const current = importDecisions[row.candidateId]
-    return current ?? {
-      selected: row.defaultSelect && !row.error,
-      environments: (row.environments ?? []).map((entry) => entry.selectionId),
-      folders: (row.folders ?? []).map((entry) => entry.selectionId),
-      requests: (row.requests ?? []).map((entry) => entry.selectionId),
-      outputName: row.collectionName ?? '',
-      kindOverride: '',
-      conflictAction: row.conflict === 'exists' || row.conflict === 'already-open' ? 'rename' : ''
-    }
+    return importDecisions[row.candidateId] ?? defaultImportDecision(row)
   }
 
   function updateImportDecision(candidateID: string, update: Partial<ImportDecision>) {
@@ -3375,22 +3373,7 @@
 	        const source = sources.find((entry) => entry.id === row.sourceId)
 	        const kindOverride = source?.kindOverride ?? ''
 	        const prior = resetDecisions ? undefined : priorDecisions[row.candidateId]
-	        const compatible = prior && !row.error && prior.kindOverride === kindOverride
-	        next[row.candidateId] = compatible ? {
-	          ...prior,
-	          selected: prior.selected && row.conflict !== 'unavailable',
-	          environments: prior.environments.filter((id) => (row.environments ?? []).some((entry) => entry.selectionId === id)),
-	          folders: prior.folders.filter((id) => (row.folders ?? []).some((entry) => entry.selectionId === id)),
-	          requests: prior.requests.filter((id) => (row.requests ?? []).some((entry) => entry.selectionId === id))
-	        } : {
-	          selected: row.defaultSelect && !row.error && row.conflict !== 'unavailable',
-          environments: (row.environments ?? []).map((entry) => entry.selectionId),
-          folders: (row.folders ?? []).map((entry) => entry.selectionId),
-          requests: (row.requests ?? []).map((entry) => entry.selectionId),
-          outputName: row.collectionName ?? '',
-	          kindOverride,
-          conflictAction: row.conflict === 'exists' || row.conflict === 'already-open' ? 'rename' : ''
-        }
+	        next[row.candidateId] = reconcileImportDecision(prior, row, kindOverride)
       }
       importDecisions = next
       importStatus = `${(preview.rows ?? []).length} source${(preview.rows ?? []).length === 1 ? '' : 's'} previewed`
@@ -3461,28 +3444,12 @@
   }
 
   function toggleImportChild(row: main.CollectionImportPreviewRow, kind: 'environments' | 'folders' | 'requests', id: string, checked: boolean) {
-    const current = selectedImportIDs(row, kind)
-    updateImportDecision(row.candidateId, { [kind]: checked ? [...new Set([...current, id])] : current.filter((entry) => entry !== id) } as Partial<ImportDecision>)
+    const next = toggleImportChildID(selectedImportIDs(row, kind), id, checked)
+    updateImportDecision(row.candidateId, { [kind]: next } as Partial<ImportDecision>)
   }
 
   function importSelectionFor(row: main.CollectionImportPreviewRow): main.CollectionImportSelection {
-    const decision = importDecisionFor(row)
-    const all = (kind: 'environments' | 'folders' | 'requests', entries: { selectionId: string }[] | undefined) => (entries ?? []).map((entry) => entry.selectionId)
-    const filtered = (kind: 'environments' | 'folders' | 'requests', entries: { selectionId: string }[] | undefined) => decision[kind].length !== all(kind, entries).length
-    return {
-      sourceId: row.sourceId,
-      candidateId: row.candidateId,
-      expectedContentHash: row.contentHash,
-      environmentIds: decision.environments,
-      folderIds: decision.folders,
-      requestIds: decision.requests,
-      outputName: decision.outputName,
-      kindOverride: decision.kindOverride,
-      conflictAction: decision.conflictAction,
-      filterEnvironments: filtered('environments', row.environments),
-      filterFolders: filtered('folders', row.folders),
-      filterRequests: filtered('requests', row.requests)
-    } as main.CollectionImportSelection
+    return importSelectionOf(row, importDecisionFor(row)) as main.CollectionImportSelection
   }
 
   // Keep both dependencies visible to Svelte: changes to a row checkbox must

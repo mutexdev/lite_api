@@ -7201,3 +7201,47 @@ US-026 - Store layer. DONE. Both named collapses complete.
       the control ambiguous rather than blank, which is worse.
 
   Ten controls, ten failures.
+
+=== PHASE 6 — the import decision planner ===
+
+  Seven exports onto src/lib/importPlanning.ts (2 -> 15 tests).
+  App.svelte 10,950 -> 10,917. Suite 616 -> 629.
+
+  A REAL DUPLICATE, AND CONSOLIDATING IT CHANGED BEHAVIOUR — stated rather than
+  hidden. Two near-identical default-decision constructions existed: the one in
+  previewImportSources included `row.conflict !== 'unavailable'`, the fallback
+  in importDecisionFor did NOT. Now one function, including the check. That
+  makes the fallback STRICTER, and since selectedImportRows already excludes
+  unavailable rows the observable behaviour is unchanged — but it is a change,
+  and the safe direction, so it is recorded as one.
+
+  Pinned — three defaults, each chosen against the destructive direction:
+    - a row that failed to parse, or whose destination is unavailable, is NOT
+      selected. Apply would otherwise write a half-read source, or write into a
+      place the app already knows it cannot use. Control fails 2.
+    - EVERY CHILD IS SELECTED. Importing a collection minus a request the user
+      never saw is worse than importing one they must prune. Control fails 2.
+    - A CONFLICT DEFAULTS TO RENAME, NEVER REPLACE. Replace destroys a
+      collection already on disk, and no default should be able to do that.
+      Control fails 1.
+
+  And on re-preview:
+    - a prior decision is discarded when the row stops parsing OR the source's
+      kind override changed — a source re-read as a different format has
+      entirely different children and its old ids mean nothing. Fails 1 and 1.
+    - surviving ids are filtered against the new preview. Passing an id the
+      backend no longer knows is NOT an error it reports; the import just
+      proceeds without that item. Control fails 1.
+    - expectedContentHash is an OPTIMISTIC-CONCURRENCY GUARD. The backend
+      compares it at apply time and refuses when the file changed since the
+      preview, so a source edited between the two steps is never imported as
+      something the user never saw. Control fails 1.
+
+  AN EIGHTH GAP OF THE SAME KIND. Rewiring filterFolders to read the requests
+  list failed NOTHING: my partial test checked that filterRequests flipped and
+  that filterEnvironments did not — never filterFolders. A flag reading another
+  kind's counts is false whenever that kind is untouched, which is most of the
+  time. Now every kind is deselected in turn and ALL THREE flags are asserted
+  each time; the three rewiring controls fail 1, 1 and 2.
+
+  Fourteen controls, fourteen failures after the fix.

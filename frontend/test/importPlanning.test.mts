@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { hasReplaceImportSelection, selectedImportRows } from '../src/lib/importPlanning.ts'
+import {
+  defaultImportDecision,
+  hasReplaceImportSelection,
+  importSelectionFor,
+  reconcileImportDecision,
+  selectedImportRows,
+  toggleImportChildID,
+  type ImportPreviewRowDetail
+} from '../src/lib/importPlanning.ts'
 
 const rows = [
   { candidateId: 'openapi', conflict: 'ready' },
@@ -30,4 +38,146 @@ test('replace confirmation is required only for selected replace rows', () => {
   }
   assert.equal(hasReplaceImportSelection(rows, decisions), true)
   assert.equal(hasReplaceImportSelection(rows, { ...decisions, 'already-open': { selected: false, conflictAction: 'replace' } }), false)
+})
+
+function detailRow(over: Partial<ImportPreviewRowDetail> = {}): ImportPreviewRowDetail {
+  return {
+    candidateId: 'c1',
+    sourceId: 's1',
+    contentHash: 'hash-1',
+    defaultSelect: true,
+    collectionName: 'Users API',
+    environments: [{ selectionId: 'e1' }, { selectionId: 'e2' }],
+    folders: [{ selectionId: 'f1' }],
+    requests: [{ selectionId: 'r1' }, { selectionId: 'r2' }],
+    ...over,
+  }
+}
+
+test('a healthy row starts selected with every child included', () => {
+  const decision = defaultImportDecision(detailRow())
+  assert.equal(decision.selected, true)
+  assert.deepEqual(decision.environments, ['e1', 'e2'])
+  assert.deepEqual(decision.requests, ['r1', 'r2'])
+  assert.equal(decision.outputName, 'Users API')
+})
+
+// Apply would otherwise write a half-read source, or write into a place the app
+// already knows it cannot use.
+test('a row that failed to parse or has nowhere to go is not selected', () => {
+  assert.equal(defaultImportDecision(detailRow({ error: 'unreadable' })).selected, false)
+  assert.equal(defaultImportDecision(detailRow({ conflict: 'unavailable' })).selected, false)
+  assert.equal(defaultImportDecision(detailRow({ defaultSelect: false })).selected, false)
+})
+
+// Replace destroys a collection already on disk. No default should be able to
+// do that, so a conflict defaults to rename and never to replace.
+test('a conflict defaults to rename, never to replace', () => {
+  for (const conflict of ['exists', 'already-open']) {
+    assert.equal(defaultImportDecision(detailRow({ conflict })).conflictAction, 'rename', conflict)
+  }
+  assert.equal(defaultImportDecision(detailRow()).conflictAction, '')
+  assert.notEqual(defaultImportDecision(detailRow({ conflict: 'exists' })).conflictAction, 'replace')
+})
+
+// A source re-read as a different format has entirely different children, and
+// its old selection ids mean nothing.
+test('a decision is discarded when the source kind changed', () => {
+  const prior = { ...defaultImportDecision(detailRow()), kindOverride: 'postman', outputName: 'Renamed' }
+  const fresh = reconcileImportDecision(prior, detailRow(), 'openapi')
+  assert.equal(fresh.outputName, 'Users API')
+  assert.equal(fresh.kindOverride, 'openapi')
+})
+
+test('a decision is discarded when the row no longer parses', () => {
+  const prior = { ...defaultImportDecision(detailRow()), outputName: 'Renamed' }
+  const fresh = reconcileImportDecision(prior, detailRow({ error: 'broken' }))
+  assert.equal(fresh.outputName, 'Users API')
+  assert.equal(fresh.selected, false)
+})
+
+test('a compatible decision survives a re-preview', () => {
+  const prior = { ...defaultImportDecision(detailRow()), outputName: 'Renamed', requests: ['r2'] }
+  const next = reconcileImportDecision(prior, detailRow())
+  assert.equal(next.outputName, 'Renamed')
+  assert.deepEqual(next.requests, ['r2'])
+})
+
+// Passing an id the backend no longer knows is not an error it reports; the
+// import simply proceeds without that item, so a stale id must be dropped here.
+test('ids the new preview no longer contains are dropped', () => {
+  const prior = { ...defaultImportDecision(detailRow()), requests: ['r1', 'r-gone'] }
+  const next = reconcileImportDecision(prior, detailRow())
+  assert.deepEqual(next.requests, ['r1'])
+})
+
+// The user's choice was made when importing was still possible.
+test('a row that became unavailable is deselected but keeps the rest of its decision', () => {
+  const prior = { ...defaultImportDecision(detailRow()), outputName: 'Renamed' }
+  const next = reconcileImportDecision(prior, detailRow({ conflict: 'unavailable' }))
+  assert.equal(next.selected, false)
+  assert.equal(next.outputName, 'Renamed')
+})
+
+test('toggling a child adds and removes without duplicating', () => {
+  assert.deepEqual(toggleImportChildID(['a'], 'b', true), ['a', 'b'])
+  assert.deepEqual(toggleImportChildID(['a', 'b'], 'a', false), ['b'])
+  assert.deepEqual(toggleImportChildID(['a'], 'a', true), ['a'])
+  assert.deepEqual(toggleImportChildID([], 'a', false), [])
+})
+
+// The backend compares this against the file as it is at APPLY time and refuses
+// when it changed since the preview. Without it, a source edited between the
+// two steps is imported as something the user never previewed.
+test('the selection carries the previewed content hash', () => {
+  const row = detailRow()
+  assert.equal(importSelectionFor(row, defaultImportDecision(row)).expectedContentHash, 'hash-1')
+})
+
+// A false flag tells the backend to take everything. It must be false only when
+// nothing was removed — sending false with a partial id list would import the
+// items the user unchecked.
+test('the filter flags are false only when nothing was deselected', () => {
+  const row = detailRow()
+  const full = importSelectionFor(row, defaultImportDecision(row))
+  assert.equal(full.filterEnvironments, false)
+  assert.equal(full.filterFolders, false)
+  assert.equal(full.filterRequests, false)
+
+  // Each kind must drive ITS OWN flag. Checking only one leaves the others free
+  // to be wired to the wrong list: a flag reading another kind's counts is
+  // false whenever that kind happens to be untouched, which is most of the
+  // time.
+  const kinds = [
+    { key: 'environments', flag: 'filterEnvironments', keep: ['e1'] },
+    { key: 'folders', flag: 'filterFolders', keep: [] as string[] },
+    { key: 'requests', flag: 'filterRequests', keep: ['r1'] }
+  ] as const
+  for (const { key, flag, keep } of kinds) {
+    const selection = importSelectionFor(row, { ...defaultImportDecision(row), [key]: keep })
+    for (const other of kinds) {
+      assert.equal(
+        (selection as unknown as Record<string, boolean>)[other.flag],
+        other.flag === flag,
+        `deselecting ${key} set ${other.flag}`
+      )
+    }
+  }
+})
+
+// Deselecting everything is not the same as selecting everything, and the count
+// comparison is what tells them apart.
+test('deselecting every child still filters', () => {
+  const row = detailRow()
+  const none = importSelectionFor(row, { ...defaultImportDecision(row), requests: [] })
+  assert.equal(none.filterRequests, true)
+  assert.deepEqual(none.requestIds, [])
+})
+
+// A row with no children of a kind has an empty list on both sides, so the
+// counts match and the flag stays false — the backend is told to take all zero
+// of them rather than to filter a list that does not exist.
+test('a kind with no children does not read as filtered', () => {
+  const row = detailRow({ folders: [] })
+  assert.equal(importSelectionFor(row, defaultImportDecision(row)).filterFolders, false)
 })
