@@ -588,3 +588,20 @@ frontend/dist/assets/index-*.css        113609
 # The lesson generalises the other way: "look for a smaller unit" is worth
 # checking every time and worth nothing if the markup does not offer one.
 # Preferences offered one; Import does not.
+
+# DevTools — the decomposition DOES transfer here, unlike Import.
+#
+#   Performance tab extracted: 2,303 B of source, 12 props.
+#   initial chunk 480,201 -> 478,783  (-1,418). Margin 21,217 bytes.
+#
+# devToolsPanel's body is an {#if devToolsTab === '...'} chain — console,
+# network, performance, terminal — so each TAB is separately extractable, the
+# same shape that made Preferences tractable. Import was the outlier, not
+# Preferences: its branch is a single <section> whose only heading sits inside
+# an {:else} arm.
+#
+# So the rule is: check the internal structure before sizing the job. Two of the
+# three large surfaces decomposed; one did not, and knowing which is a grep.
+#
+# Remaining DevTools tabs: console (~8583-8601), network (~8602-8750, the
+# largest, with its own nested details panel), terminal (the {:else} tail).

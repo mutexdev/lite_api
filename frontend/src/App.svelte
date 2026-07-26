@@ -8749,51 +8749,23 @@
                 </div>
               {/if}
             {:else if devToolsTab === 'performance'}
-              <div class="performance-toolbar">
-                <label>
-                  <span>View:</span>
-                  <select aria-label="Performance process view" bind:value={devToolsPerformanceView}>
-                    <option value="cumulative">Cumulative (All Processes)</option>
-                    {#each devToolsPerformanceProcesses as process (process.pid)}
-                      <option value={String(process.pid)}>PID {process.pid} - {process.title || 'LiteAPI'} ({process.type || 'main'})</option>
-                    {/each}
-                  </select>
-                </label>
-                <button type="button" on:click={refreshDevToolsSnapshot}>Refresh</button>
-              </div>
-              <h3>System Resources</h3>
-              <div class="resource-cards">
-                <article>
-                  <span>CPU Usage</span>
-                  <strong>{formatCPUPercent(displayedDevToolsCPUPercent)}</strong>
-                  <small>{selectedDevToolsPerformanceProcess ? 'Current CPU usage' : 'Total CPU usage'}</small>
-                </article>
-                <article>
-                  <span>Memory Usage</span>
-                  <strong>{formatRuntimeBytes(displayedDevToolsMemoryBytes)}</strong>
-                  <small>{selectedDevToolsPerformanceProcess ? 'Current memory usage' : 'Total memory usage'}</small>
-                </article>
-                <article>
-                  <span>Uptime</span>
-                  <strong>{formatUptime(displayedDevToolsUptimeSeconds)}</strong>
-                  <small>Process runtime</small>
-                </article>
-                <article>
-                  <span>Process ID</span>
-                  <strong>{displayedDevToolsPID ?? '-'}</strong>
-                  <small>{selectedDevToolsPerformanceProcess ? 'Process PID' : 'Main process PID'}</small>
-                </article>
-                <article>
-                  <span>Heap Alloc</span>
-                  <strong>{formatRuntimeBytes(devToolsSnapshot?.heapAllocBytes)}</strong>
-                  <small>Go heap allocation</small>
-                </article>
-                <article>
-                  <span>Goroutines</span>
-                  <strong>{devToolsSnapshot?.goroutines ?? '-'}</strong>
-                  <small>Runtime workers</small>
-                </article>
-              </div>
+          {#await import('./lib/views/devtools/PerformanceTab.svelte') then PerformanceTab}
+            <svelte:component
+              this={PerformanceTab.default}
+              {devToolsSnapshot}
+              {devToolsPerformanceProcesses}
+              {displayedDevToolsCPUPercent}
+              {displayedDevToolsMemoryBytes}
+              {displayedDevToolsUptimeSeconds}
+              {devToolsPerformanceView}
+              {displayedDevToolsPID}
+              {selectedDevToolsPerformanceProcess}
+              {formatCPUPercent}
+              {formatRuntimeBytes}
+              {formatUptime}
+              {refreshDevToolsSnapshot}
+            />
+          {/await}
             {:else}
               <div class="terminal-shell">
                 <header>
