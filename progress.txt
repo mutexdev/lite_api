@@ -2222,3 +2222,44 @@ US-074 - Docs viewer. DONE. Phase 6's standalone features are now complete
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 39.8s 0,
   -race clean, svelte-check 205/0/0, eslint 0, npm test 197/197.
+
+US-027 - Runes migration, lib/. DONE.
+  All five components in src/lib/ migrated: OAuth2AdditionalParams,
+  FileBodyTable, VariableTextOverlay, MultipartTable, KeyValueTable.
+  export let -> $props(), bind: -> $bindable, local let -> $state.
+  svelte-check 205/0/0 as the story requires - 0 errors AND 0 warnings.
+
+  MIGRATING A COMPONENT IS NOT JUST THE PROPS. Runes mode is per-component, and
+  turning it on surfaces three more things that all fail SILENTLY:
+
+  1. LOCAL `let` STOPS BEING REACTIVE. `let draggingIndex = null` compiles,
+     typechecks and renders - and the drag highlight simply never updates. Six
+     such variables across the five components (scroll sync, bulk-edit toggle,
+     bulk draft, drag state). svelte-check WARNS, which is why the story's
+     criterion is 0/0 rather than 0 errors. NC2 confirms: reverting one $state
+     produces exactly one warning.
+
+  2. `on:event` IS DEPRECATED in runes mode. 11 handlers in FileBodyTable alone.
+
+  3. EVENT MODIFIERS ARE GONE. Five `on:click|stopPropagation` in
+     VariableTextOverlay had to become explicit event.stopPropagation() calls.
+     Dropping them is not cosmetic: every one sits inside a clickable tooltip
+     surface, so the click would bubble to the parent and saving an edit would
+     also close the editor.
+
+  $bindable IS LOAD-BEARING AND NARROW. Exactly one prop needed it -
+  variableTooltipDraft, bound by App.svelte twice and by KeyValueTable and
+  MultipartTable. NC1: removing $bindable produces four hard errors ("Cannot
+  use 'bind:' with this property"), so this one cannot go wrong silently. Every
+  other prop is passed by value; marking more of them bindable would add a
+  writable surface nothing uses.
+
+  A MISTAKE WORTH RECORDING: I tried to generate MultipartTable's Props block
+  with a regex over `export let name: Type = default`. The regex split function
+  types at the `=` inside `=>`, so `onAdd: () => void = () => {}` became type
+  `()` and default `> void = () => {}` - 167 errors. Rewrote the block by hand.
+  The four other components were done explicitly and none had a problem. Being
+  clever about a 24-prop block cost more than typing it.
+
+  Gates: go test 38.8s 0, svelte-check 205 files 0/0, eslint 0,
+  npm test 197/197, vite build succeeds (initial chunk 478 KB).

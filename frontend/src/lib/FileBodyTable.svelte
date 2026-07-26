@@ -5,17 +5,35 @@
     selected: boolean
   }
 
-  export let rows: FileBodyRow[] = []
-  export let readonly = false
-  export let onAdd: () => void = () => {}
-  export let onChange: (index: number, field: keyof FileBodyRow, value: string | boolean) => void = () => {}
-  export let onMove: (index: number, direction: -1 | 1) => void = () => {}
-  export let onReorder: (from: number, to: number) => void = () => {}
-  export let onRemove: (index: number) => void = () => {}
-  export let showMove = false
+  // US-027 — runes. Nothing here is bound by a parent; every instance passes
+  // rows by value and mutates through the callbacks, so no $bindable.
+  type Props = {
+    rows?: FileBodyRow[]
+    readonly?: boolean
+    onAdd?: () => void
+    onChange?: (index: number, field: keyof FileBodyRow, value: string | boolean) => void
+    onMove?: (index: number, direction: -1 | 1) => void
+    onReorder?: (from: number, to: number) => void
+    onRemove?: (index: number) => void
+    showMove?: boolean
+  }
 
-  let draggingIndex: number | null = null
-  let dragOverIndex: number | null = null
+  let {
+    rows = [],
+    readonly = false,
+    onAdd = () => {},
+    onChange = () => {},
+    onMove = () => {},
+    onReorder = () => {},
+    onRemove = () => {},
+    showMove = false
+  }: Props = $props()
+
+  // US-027. $state, not a bare let: in runes mode a plain let is NOT reactive,
+  // so the drag-over highlight would silently stop updating — the component
+  // compiles, typechecks and renders, and only the visual feedback is gone.
+  let draggingIndex = $state<number | null>(null)
+  let dragOverIndex = $state<number | null>(null)
 
   function handleDragStart(index: number, event: DragEvent) {
     if (readonly || !showMove) return
@@ -64,17 +82,17 @@
         class:dragging={draggingIndex === index}
         class:drag-over={dragOverIndex === index && draggingIndex !== index}
         draggable={showMove && !readonly}
-        on:dragstart={(event) => handleDragStart(index, event)}
-        on:dragover={(event) => handleDragOver(index, event)}
-        on:drop={(event) => handleDrop(index, event)}
-        on:dragend={clearDragState}
+        ondragstart={(event) => handleDragStart(index, event)}
+        ondragover={(event) => handleDragOver(index, event)}
+        ondrop={(event) => handleDrop(index, event)}
+        ondragend={clearDragState}
       >
         <td>
           <input
             value={row.filePath}
             disabled={readonly}
             placeholder="/path/to/file"
-            on:input={(event) => onChange(index, 'filePath', event.currentTarget.value)}
+            oninput={(event) => onChange(index, 'filePath', event.currentTarget.value)}
           />
         </td>
         <td>
@@ -82,7 +100,7 @@
             value={row.contentType}
             disabled={readonly}
             placeholder="Auto"
-            on:input={(event) => onChange(index, 'contentType', event.currentTarget.value)}
+            oninput={(event) => onChange(index, 'contentType', event.currentTarget.value)}
           />
         </td>
         <td>
@@ -91,17 +109,17 @@
             name="file-body-selected"
             checked={row.selected}
             disabled={readonly}
-            on:change={(event) => onChange(index, 'selected', event.currentTarget.checked)}
+            onchange={(event) => onChange(index, 'selected', event.currentTarget.checked)}
           />
         </td>
         <td>
           {#if !readonly}
             {#if showMove}
               <button class="icon-button drag-handle" title="Drag file" aria-label="Drag file to reorder">::</button>
-              <button class="icon-button" title="Move file up" aria-label="Move file up" disabled={index === 0} on:click={() => onMove(index, -1)}>^</button>
-              <button class="icon-button" title="Move file down" aria-label="Move file down" disabled={index === rows.length - 1} on:click={() => onMove(index, 1)}>v</button>
+              <button class="icon-button" title="Move file up" aria-label="Move file up" disabled={index === 0} onclick={() => onMove(index, -1)}>^</button>
+              <button class="icon-button" title="Move file down" aria-label="Move file down" disabled={index === rows.length - 1} onclick={() => onMove(index, 1)}>v</button>
             {/if}
-            <button class="icon-button" title="Remove file" aria-label="Remove file" on:click={() => onRemove(index)}>x</button>
+            <button class="icon-button" title="Remove file" aria-label="Remove file" onclick={() => onRemove(index)}>x</button>
           {/if}
         </td>
       </tr>
@@ -110,5 +128,5 @@
 </table>
 
 {#if !readonly}
-  <button on:click={onAdd}>Add File</button>
+  <button onclick={onAdd}>Add File</button>
 {/if}

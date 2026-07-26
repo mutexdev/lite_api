@@ -5,11 +5,24 @@
   type Field = 'name' | 'value' | 'enabled'
   type SendIn = 'headers' | 'queryparams' | 'body'
 
-  export let title = ''
-  export let params: main.OAuth2AdditionalParam[] = []
-  export let onAdd: (sendIn: SendIn) => void | Promise<void> = () => {}
-  export let onChange: (index: number, field: Field, value: string | boolean) => void | Promise<void> = () => {}
-  export let onRemove: (index: number) => void | Promise<void> = () => {}
+  // US-027 — runes. No prop here is bound by a parent (App.svelte passes all
+  // three instances by value), so none needs $bindable: marking a prop bindable
+  // that nothing binds adds a writable surface for no reason.
+  type Props = {
+    title?: string
+    params?: main.OAuth2AdditionalParam[]
+    onAdd?: (sendIn: SendIn) => void | Promise<void>
+    onChange?: (index: number, field: Field, value: string | boolean) => void | Promise<void>
+    onRemove?: (index: number) => void | Promise<void>
+  }
+
+  let {
+    title = '',
+    params = [],
+    onAdd = () => {},
+    onChange = () => {},
+    onRemove = () => {}
+  }: Props = $props()
 
   const groups: { id: SendIn; label: string }[] = [
     { id: 'headers', label: 'Headers' },

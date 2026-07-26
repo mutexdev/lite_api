@@ -40,49 +40,94 @@
 	      info: VariableTooltipInfo
 	    }
 
-	  export let rows: KeyValueRow[] = []
-	  export let readonly = false
-	  export let readonlyNames = false
-	  export let showEnabled = true
-	  export let showActions = true
-	  export let showAddRow = true
-  export let showMove = false
-  export let showBulkEdit = false
-  export let bulkLabel = 'Bulk edit rows'
-		  export let variableOverlay = false
-		  export let multilineValues = false
-  export let activeVariableTooltip = ''
-  export let editingVariableTooltip = ''
-  export let variableTooltipDraft = ''
-  export let revealedVariableTooltips: Record<string, boolean> = {}
-  export let copiedVariableTooltips: Record<string, boolean> = {}
-  export let busy = ''
-  export let onAdd: () => void = () => {}
-  export let onChange: (index: number, field: 'name' | 'value' | 'enabled', value: string | boolean) => void = () => {}
-  export let onMove: (index: number, direction: -1 | 1) => void = () => {}
-  export let onReorder: (from: number, to: number) => void = () => {}
-  export let onBulkChange: (rows: KeyValueRow[]) => void = () => {}
-  export let onRemove: (index: number) => void = () => {}
-  export let valueVariableSegments: (value: string, index: number) => VariableTextSegment[] = () => []
-  export let displayTooltipValue: (info: VariableTooltipInfo, revealed: boolean) => string = (info) => info.resolvedValue
-  export let onToggleActive: (name: string) => void = () => {}
-  export let onBeginEdit: (info: VariableTooltipInfo) => void = () => {}
-  export let onEditorKey: (event: KeyboardEvent, info: VariableTooltipInfo) => void = () => {}
-  export let onEditorBlur: (event: FocusEvent, info: VariableTooltipInfo) => void = () => {}
-  export let onSave: (info: VariableTooltipInfo) => void | Promise<void> = () => {}
-  export let onCancel: () => void = () => {}
-  export let onCopy: (info: VariableTooltipInfo) => void | Promise<void> = () => {}
-  export let onToggleSecret: (name: string) => void = () => {}
+  // US-027 — runes. variableTooltipDraft is the only $bindable prop: App.svelte
+  // binds it in two places and MultipartTable in a third, and without $bindable
+  // the parent would stop tracking what the user types in the tooltip editor,
+  // so the edit would be silently discarded on save.
+  type Props = {
+    rows?: KeyValueRow[]
+    readonly?: boolean
+    readonlyNames?: boolean
+    showEnabled?: boolean
+    showActions?: boolean
+    showAddRow?: boolean
+    showMove?: boolean
+    showBulkEdit?: boolean
+    bulkLabel?: string
+    variableOverlay?: boolean
+    multilineValues?: boolean
+    activeVariableTooltip?: string
+    editingVariableTooltip?: string
+    variableTooltipDraft?: string
+    revealedVariableTooltips?: Record<string, boolean>
+    copiedVariableTooltips?: Record<string, boolean>
+    busy?: string
+    onAdd?: () => void
+    onChange?: (index: number, field: 'name' | 'value' | 'enabled', value: string | boolean) => void
+    onMove?: (index: number, direction: -1 | 1) => void
+    onReorder?: (from: number, to: number) => void
+    onBulkChange?: (rows: KeyValueRow[]) => void
+    onRemove?: (index: number) => void
+    valueVariableSegments?: (value: string, index: number) => VariableTextSegment[]
+    displayTooltipValue?: (info: VariableTooltipInfo, revealed: boolean) => string
+    onToggleActive?: (name: string) => void
+    onBeginEdit?: (info: VariableTooltipInfo) => void
+    onEditorKey?: (event: KeyboardEvent, info: VariableTooltipInfo) => void
+    onEditorBlur?: (event: FocusEvent, info: VariableTooltipInfo) => void
+    onSave?: (info: VariableTooltipInfo) => void | Promise<void>
+    onCancel?: () => void
+    onCopy?: (info: VariableTooltipInfo) => void | Promise<void>
+    onToggleSecret?: (name: string) => void
+  }
 
-	  let valueScrollLeft: Record<number, number> = {}
-	  let valueScrollTop: Record<number, number> = {}
-  let bulkMode = false
+  let {
+    rows = [],
+    readonly = false,
+    readonlyNames = false,
+    showEnabled = true,
+    showActions = true,
+    showAddRow = true,
+    showMove = false,
+    showBulkEdit = false,
+    bulkLabel = 'Bulk edit rows',
+    variableOverlay = false,
+    multilineValues = false,
+    activeVariableTooltip = '',
+    editingVariableTooltip = '',
+    variableTooltipDraft = $bindable(''),
+    revealedVariableTooltips = {},
+    copiedVariableTooltips = {},
+    busy = '',
+    onAdd = () => {},
+    onChange = () => {},
+    onMove = () => {},
+    onReorder = () => {},
+    onBulkChange = () => {},
+    onRemove = () => {},
+    valueVariableSegments = () => [],
+    displayTooltipValue = (info) => info.resolvedValue,
+    onToggleActive = () => {},
+    onBeginEdit = () => {},
+    onEditorKey = () => {},
+    onEditorBlur = () => {},
+    onSave = () => {},
+    onCancel = () => {},
+    onCopy = () => {},
+    onToggleSecret = () => {}
+  }: Props = $props()
+
+  // $state, not a bare let: in runes mode a plain let is not reactive, so the
+  // scroll sync, the bulk-edit toggle and the drag highlight would all silently
+  // stop updating while the component still compiled and rendered.
+  let valueScrollLeft = $state<Record<number, number>>({})
+  let valueScrollTop = $state<Record<number, number>>({})
+  let bulkMode = $state(false)
   // US-056. The text shown while editing is held locally rather than recomputed
   // from `rows` on every keystroke. Rendering rowsToBulkText(rows) live would
   // reformat the user's text under the cursor mid-edit — a half-typed line
   // becomes a name with an empty value, gets re-rendered as "name: ", and the
   // caret jumps.
-  let bulkDraft = ''
+  let bulkDraft = $state('')
 
   function enterBulkMode() {
     bulkDraft = rowsToBulkText(rows)
@@ -95,8 +140,8 @@
     // the text format cannot express, are carried over rather than reset.
     onBulkChange(parseBulkText(text, rows) as KeyValueRow[])
   }
-  let draggingIndex: number | null = null
-  let dragOverIndex: number | null = null
+  let draggingIndex = $state<number | null>(null)
+  let dragOverIndex = $state<number | null>(null)
 
 	  function syncValueScroll(index: number, event: Event) {
 	    const target = event.currentTarget as HTMLInputElement | HTMLTextAreaElement
@@ -144,8 +189,8 @@
 
 {#if showBulkEdit && !readonly}
   <div class="kv-bulk-toggle">
-    <button type="button" data-testid="kv-mode-rows" class:active={!bulkMode} on:click={() => (bulkMode = false)}>Key/Value Edit</button>
-    <button type="button" data-testid="kv-mode-bulk" class:active={bulkMode} on:click={enterBulkMode}>Bulk Edit</button>
+    <button type="button" data-testid="kv-mode-rows" class:active={!bulkMode} onclick={() => (bulkMode = false)}>Key/Value Edit</button>
+    <button type="button" data-testid="kv-mode-bulk" class:active={bulkMode} onclick={enterBulkMode}>Bulk Edit</button>
   </div>
   {#if bulkMode && bulkTextIsLossy(rows)}
     <p class="muted" data-testid="kv-bulk-warning">
@@ -160,7 +205,7 @@
     aria-label={bulkLabel}
     spellcheck="false"
     value={bulkDraft}
-    on:input={(event) => applyBulkDraft(event.currentTarget.value)}
+    oninput={(event) => applyBulkDraft(event.currentTarget.value)}
   ></textarea>
 {:else}
 	<table class="kv-table">
@@ -182,10 +227,10 @@
 	        class:dragging={draggingIndex === index}
 	        class:drag-over={dragOverIndex === index && draggingIndex !== index}
 	        draggable={showMove && !readonly}
-	        on:dragstart={(event) => handleDragStart(index, event)}
-	        on:dragover={(event) => handleDragOver(index, event)}
-	        on:drop={(event) => handleDrop(index, event)}
-	        on:dragend={clearDragState}
+	        ondragstart={(event) => handleDragStart(index, event)}
+	        ondragover={(event) => handleDragOver(index, event)}
+	        ondrop={(event) => handleDrop(index, event)}
+	        ondragend={clearDragState}
 	      >
 	        {#if showEnabled}
 	          <td>
@@ -193,7 +238,7 @@
 	              type="checkbox"
 	              checked={row.enabled}
 	              disabled={readonly}
-	              on:change={(event) => onChange(index, 'enabled', event.currentTarget.checked)}
+	              onchange={(event) => onChange(index, 'enabled', event.currentTarget.checked)}
 	            />
 	          </td>
 	        {/if}
@@ -202,7 +247,7 @@
 	            value={row.name}
 		            disabled={readonly || readonlyNames}
 		            placeholder="name"
-		            on:input={(event) => onChange(index, 'name', event.currentTarget.value)}
+		            oninput={(event) => onChange(index, 'name', event.currentTarget.value)}
 		          />
         </td>
         <td>
@@ -215,10 +260,10 @@
 	                  disabled={readonly}
 	                  placeholder="value"
 	                  rows="3"
-	                  on:input={(event) => changeValue(index, event)}
-	                  on:scroll={(event) => syncValueScroll(index, event)}
-	                  on:keyup={(event) => syncValueScroll(index, event)}
-	                  on:mouseup={(event) => syncValueScroll(index, event)}
+	                  oninput={(event) => changeValue(index, event)}
+	                  onscroll={(event) => syncValueScroll(index, event)}
+	                  onkeyup={(event) => syncValueScroll(index, event)}
+	                  onmouseup={(event) => syncValueScroll(index, event)}
 	                ></textarea>
 	              {:else}
 	                <input
@@ -227,10 +272,10 @@
 	                  value={row.value}
 	                  disabled={readonly}
 	                  placeholder="value"
-	                  on:input={(event) => changeValue(index, event)}
-	                  on:scroll={(event) => syncValueScroll(index, event)}
-	                  on:keyup={(event) => syncValueScroll(index, event)}
-	                  on:mouseup={(event) => syncValueScroll(index, event)}
+	                  oninput={(event) => changeValue(index, event)}
+	                  onscroll={(event) => syncValueScroll(index, event)}
+	                  onkeyup={(event) => syncValueScroll(index, event)}
+	                  onmouseup={(event) => syncValueScroll(index, event)}
 	                />
 	              {/if}
 	              <VariableTextOverlay
@@ -261,7 +306,7 @@
                 disabled={readonly}
                 placeholder="value"
                 rows="3"
-                on:input={(event) => onChange(index, 'value', event.currentTarget.value)}
+                oninput={(event) => onChange(index, 'value', event.currentTarget.value)}
               ></textarea>
             {:else}
               <input
@@ -269,7 +314,7 @@
                 value={row.value}
                 disabled={readonly}
                 placeholder="value"
-                on:input={(event) => onChange(index, 'value', event.currentTarget.value)}
+                oninput={(event) => onChange(index, 'value', event.currentTarget.value)}
               />
             {/if}
           {/if}
@@ -279,10 +324,10 @@
 	            {#if !readonly}
 	              {#if showMove}
 	                <button class="icon-button drag-handle" title="Drag row" aria-label="Drag row to reorder">::</button>
-	                <button class="icon-button" title="Move row up" aria-label="Move row up" disabled={index === 0} on:click={() => onMove(index, -1)}>^</button>
-	                <button class="icon-button" title="Move row down" aria-label="Move row down" disabled={index === rows.length - 1} on:click={() => onMove(index, 1)}>v</button>
+	                <button class="icon-button" title="Move row up" aria-label="Move row up" disabled={index === 0} onclick={() => onMove(index, -1)}>^</button>
+	                <button class="icon-button" title="Move row down" aria-label="Move row down" disabled={index === rows.length - 1} onclick={() => onMove(index, 1)}>v</button>
 	              {/if}
-	              <button class="icon-button" title="Remove row" aria-label="Remove row" on:click={() => onRemove(index)}>x</button>
+	              <button class="icon-button" title="Remove row" aria-label="Remove row" onclick={() => onRemove(index)}>x</button>
 	            {/if}
 	          </td>
 	        {/if}
@@ -293,5 +338,5 @@
 {/if}
 
 {#if !readonly && showAddRow && !(showBulkEdit && bulkMode)}
-	  <button on:click={onAdd}>Add row</button>
+	  <button onclick={onAdd}>Add row</button>
 {/if}

@@ -37,24 +37,54 @@
 	      info: VariableTooltipInfo
 	    }
 
-  export let segments: VariableTextSegment[] = []
-  export let activeVariableTooltip = ''
-  export let editingVariableTooltip = ''
-  export let variableTooltipDraft = ''
-  export let revealedVariableTooltips: Record<string, boolean> = {}
-  export let copiedVariableTooltips: Record<string, boolean> = {}
-  export let busy = ''
-  export let scrollLeft = 0
-  export let scrollTop = 0
-  export let displayTooltipValue: (info: VariableTooltipInfo, revealed: boolean) => string = (info) => info.resolvedValue
-  export let onToggleActive: (name: string) => void = () => {}
-  export let onBeginEdit: (info: VariableTooltipInfo) => void = () => {}
-  export let onEditorKey: (event: KeyboardEvent, info: VariableTooltipInfo) => void = () => {}
-  export let onEditorBlur: (event: FocusEvent, info: VariableTooltipInfo) => void = () => {}
-  export let onSave: (info: VariableTooltipInfo) => void = () => {}
-  export let onCancel: () => void = () => {}
-  export let onCopy: (info: VariableTooltipInfo) => void = () => {}
-  export let onToggleSecret: (name: string) => void = () => {}
+  // US-027 — runes.
+  //
+  // variableTooltipDraft is the ONLY $bindable prop here, and it has to be:
+  // App.svelte binds it in two places and KeyValueTable in a third, so without
+  // $bindable the parent's value would stop tracking what the user types in
+  // the tooltip editor — the field would appear to work and the edit would be
+  // discarded on save. Every other prop is passed by value.
+  type Props = {
+    segments?: VariableTextSegment[]
+    activeVariableTooltip?: string
+    editingVariableTooltip?: string
+    variableTooltipDraft?: string
+    revealedVariableTooltips?: Record<string, boolean>
+    copiedVariableTooltips?: Record<string, boolean>
+    busy?: string
+    scrollLeft?: number
+    scrollTop?: number
+    displayTooltipValue?: (info: VariableTooltipInfo, revealed: boolean) => string
+    onToggleActive?: (name: string) => void
+    onBeginEdit?: (info: VariableTooltipInfo) => void
+    onEditorKey?: (event: KeyboardEvent, info: VariableTooltipInfo) => void
+    onEditorBlur?: (event: FocusEvent, info: VariableTooltipInfo) => void
+    onSave?: (info: VariableTooltipInfo) => void
+    onCancel?: () => void
+    onCopy?: (info: VariableTooltipInfo) => void
+    onToggleSecret?: (name: string) => void
+  }
+
+  let {
+    segments = [],
+    activeVariableTooltip = '',
+    editingVariableTooltip = '',
+    variableTooltipDraft = $bindable(''),
+    revealedVariableTooltips = {},
+    copiedVariableTooltips = {},
+    busy = '',
+    scrollLeft = 0,
+    scrollTop = 0,
+    displayTooltipValue = (info) => info.resolvedValue,
+    onToggleActive = () => {},
+    onBeginEdit = () => {},
+    onEditorKey = () => {},
+    onEditorBlur = () => {},
+    onSave = () => {},
+    onCancel = () => {},
+    onCopy = () => {},
+    onToggleSecret = () => {}
+  }: Props = $props()
 
   const invalidVariableWarning = 'Invalid variable name! Variables must only contain alpha-numeric characters, "-", "_", "."'
 
@@ -85,8 +115,8 @@
             tabindex="0"
             class:cm-variable-valid={isValidVariableSegment(segment)}
             class:cm-variable-invalid={!isValidVariableSegment(segment)}
-            on:click={() => onToggleActive(segment.name)}
-            on:keydown={(event) => handleTokenKey(event, segment.name)}
+            onclick={() => onToggleActive(segment.name)}
+            onkeydown={(event) => handleTokenKey(event, segment.name)}
           >{segment.text}</span>
           <div class="CodeMirror-brunoVarInfo inline-var-tooltip" role="tooltip">
             <div class="variable-tooltip-title">
@@ -100,15 +130,15 @@
                 class="var-value-editor"
                 aria-label={'Edit variable ' + segment.info.name}
                 bind:value={variableTooltipDraft}
-                on:keydown={(event) => onEditorKey(event, segment.info)}
-                on:blur={(event) => onEditorBlur(event, segment.info)}
+                onkeydown={(event) => onEditorKey(event, segment.info)}
+                onblur={(event) => onEditorBlur(event, segment.info)}
               ></textarea>
               <div class="button-row compact">
-                <button class="var-save-button" on:click|stopPropagation={() => onSave(segment.info)} disabled={busy !== ''}>Save</button>
-                <button on:click|stopPropagation={onCancel}>Cancel</button>
+                <button class="var-save-button" onclick={(event) => { event.stopPropagation(); onSave(segment.info) }} disabled={busy !== ''}>Save</button>
+                <button onclick={(event) => { event.stopPropagation(); onCancel() }}>Cancel</button>
               </div>
             {:else if segment.info.editable}
-              <button type="button" class="var-value-editable-display" on:click|stopPropagation={() => onBeginEdit(segment.info)}>
+              <button type="button" class="var-value-editable-display" onclick={(event) => { event.stopPropagation(); onBeginEdit(segment.info) }}>
                 {displayTooltipValue(segment.info, Boolean(revealedVariableTooltips[segment.info.name]))}
               </button>
             {:else}
@@ -121,13 +151,13 @@
               <button
                 class="copy-button"
                 class:copy-success={copiedVariableTooltips[segment.info.name]}
-                on:click|stopPropagation={() => onCopy(segment.info)}
+                onclick={(event) => { event.stopPropagation(); onCopy(segment.info) }}
                 disabled={!segment.info.found || !segment.info.validName || copiedVariableTooltips[segment.info.name]}
               >
                 {copiedVariableTooltips[segment.info.name] ? 'Copied' : 'Copy'}
               </button>
               {#if segment.info.secret}
-                <button class="secret-toggle-button" on:click|stopPropagation={() => onToggleSecret(segment.info.name)}>
+                <button class="secret-toggle-button" onclick={(event) => { event.stopPropagation(); onToggleSecret(segment.info.name) }}>
                   {revealedVariableTooltips[segment.info.name] ? 'Hide' : 'Show'}
                 </button>
               {/if}
