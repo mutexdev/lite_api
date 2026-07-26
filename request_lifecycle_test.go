@@ -57,7 +57,7 @@ func TestCancelRequestCancelsInFlightHTTPTransport(t *testing.T) {
 		server.Close()
 	}()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +121,7 @@ func TestCancelRequestDuringPreRequestScriptPreventsMainTransport(t *testing.T) 
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -197,7 +197,7 @@ func TestCancelCollectionRunCancelsCurrentHTTPTransport(t *testing.T) {
 		server.Close()
 	}()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -267,7 +267,7 @@ func TestCancelCollectionRunDuringDelaySkipsNextTransport(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -360,7 +360,7 @@ func TestCancelRequestDoesNotCancelAnotherRequest(t *testing.T) {
 		server.Close()
 	}()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -549,7 +549,7 @@ func TestSendRequestWithoutCancellationStillSucceeds(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)

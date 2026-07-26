@@ -350,7 +350,7 @@ func firstMetadataValue(md metadata.MD, name string) string {
 
 func sendReflectedGRPCRequest(t *testing.T, address, method string, messages []GrpcMessage) *Response {
 	t.Helper()
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -407,7 +407,7 @@ func TestSendRequestInterpolatesExecutesAndRecordsResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -521,7 +521,7 @@ func TestSendGraphQLRequestUsesJSONEnvelope(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -616,7 +616,7 @@ func TestHTTPEncodeURLSettingControlsExecutionURL(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -684,7 +684,7 @@ func TestHTTPVerifyTLSSettingAllowsSelfSignedServer(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -744,7 +744,7 @@ func TestHTTPCustomCaCertificateAllowsSelfSignedServer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -812,7 +812,7 @@ func TestSSLSessionCacheEnablesTLSResumption(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -836,6 +836,15 @@ func TestSSLSessionCacheEnablesTLSResumption(t *testing.T) {
 
 	var ok bool
 	for i := 0; i < 2; i++ {
+		if i > 0 {
+			// US-016: sends of the same posture now share one transport and
+			// reuse its pooled connection, so the second request would ride
+			// the first request's handshake and never exercise resumption at
+			// all. Dropping the pool reproduces the situation resumption
+			// exists for — a new connection to a server we have spoken to
+			// before — while leaving the app's TLS session cache intact.
+			app.transportCache.flush()
+		}
 		state, err = app.SendRequest(collection.ID, item.ID, "")
 		if err != nil {
 			t.Fatal(err)
@@ -887,7 +896,7 @@ func TestPreferencesStoreAndSendCookiesAreSeparate(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -961,7 +970,7 @@ func TestPreferencesRequestTimeoutOverridesHTTPRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -1068,7 +1077,7 @@ func TestCollectionManualProxyExecutesHTTPRequest(t *testing.T) {
 	}))
 	defer proxy.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -1140,7 +1149,7 @@ func TestCollectionManualProxyBypassSkipsProxy(t *testing.T) {
 	}))
 	defer proxy.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -1203,7 +1212,7 @@ func TestCollectionProxyInheritUsesGlobalManualProxy(t *testing.T) {
 	defer proxy.Close()
 	proxyHost, proxyPort := splitTestServerHostPort(t, proxy.URL)
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -1265,7 +1274,7 @@ func TestGlobalProxyOffDisablesEnvironmentProxy(t *testing.T) {
 	t.Setenv("NO_PROXY", "")
 	t.Setenv("no_proxy", "")
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -1319,7 +1328,7 @@ func TestCollectionProxyInheritUsesSystemEnvironmentProxy(t *testing.T) {
 	t.Setenv("NO_PROXY", "")
 	t.Setenv("no_proxy", "")
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -1366,7 +1375,7 @@ func TestCollectionManualProxyOverridesGlobalProxy(t *testing.T) {
 	globalHost, globalPort := splitTestServerHostPort(t, globalProxy.URL)
 	collectionHost, collectionPort := splitTestServerHostPort(t, collectionProxy.URL)
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -1425,7 +1434,7 @@ func TestPACProxyRoutesFromFileAndFallsBackDirect(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -1505,7 +1514,7 @@ func TestPACProxyEvaluatesFindProxyForURLLogic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -1738,7 +1747,7 @@ settings:
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -1857,7 +1866,7 @@ func TestCollectionClientCertificateExecutesMTLSRequest(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			app := NewAppWithDir(t.TempDir())
+			app := newAppForTest(t)
 			state, err := app.GetState()
 			if err != nil {
 				t.Fatal(err)
@@ -1970,7 +1979,7 @@ settings:
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2019,7 +2028,7 @@ settings:
 }
 
 func TestUpdateCollectionClientCertificatesPreservesBlankEditorRows(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2042,7 +2051,7 @@ func TestUpdateCollectionClientCertificatesPreservesBlankEditorRows(t *testing.T
 }
 
 func TestCollectionPresetsApplyToNewRequests(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2085,7 +2094,7 @@ func TestCollectionPresetsApplyToNewRequests(t *testing.T) {
 
 func TestWorkspaceScratchCollectionIsTransientAndFileBacked(t *testing.T) {
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2184,7 +2193,7 @@ func TestWorkspaceScratchCollectionIsTransientAndFileBacked(t *testing.T) {
 	}
 
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(dir)
+	reloaded := newAppInDirForTest(t, dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2207,7 +2216,7 @@ func TestWorkspaceScratchCollectionIsTransientAndFileBacked(t *testing.T) {
 
 func TestSetActiveWorkspacePersistsSelection(t *testing.T) {
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2231,7 +2240,7 @@ func TestSetActiveWorkspacePersistsSelection(t *testing.T) {
 	}
 
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(dir)
+	reloaded := newAppInDirForTest(t, dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2243,7 +2252,7 @@ func TestSetActiveWorkspacePersistsSelection(t *testing.T) {
 
 func TestSetActiveWorkspaceRejectsUnknownIDWithoutMutation(t *testing.T) {
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2261,7 +2270,7 @@ func TestSetActiveWorkspaceRejectsUnknownIDWithoutMutation(t *testing.T) {
 	}
 
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(dir)
+	reloaded := newAppInDirForTest(t, dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2273,7 +2282,7 @@ func TestSetActiveWorkspaceRejectsUnknownIDWithoutMutation(t *testing.T) {
 
 func TestPreferencesThemeModeAndVariantsPersist(t *testing.T) {
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2291,7 +2300,7 @@ func TestPreferencesThemeModeAndVariantsPersist(t *testing.T) {
 	}
 
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(dir)
+	reloaded := newAppInDirForTest(t, dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2315,7 +2324,7 @@ func TestPreferencesThemeModeAndVariantsPersist(t *testing.T) {
 
 func TestPreferencesKeybindingsPersistAndNormalize(t *testing.T) {
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2346,7 +2355,7 @@ func TestPreferencesKeybindingsPersistAndNormalize(t *testing.T) {
 	}
 
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(dir)
+	reloaded := newAppInDirForTest(t, dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2381,7 +2390,7 @@ func TestPreferencesKeybindingsPersistAndNormalize(t *testing.T) {
 
 func TestPreferencesDevToolsPersistAndNormalize(t *testing.T) {
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2416,7 +2425,7 @@ func TestPreferencesDevToolsPersistAndNormalize(t *testing.T) {
 	}
 
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(dir)
+	reloaded := newAppInDirForTest(t, dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2459,7 +2468,7 @@ func TestPreferencesDevToolsPersistAndNormalize(t *testing.T) {
 
 func TestPreferencesLayoutPersistAndNormalize(t *testing.T) {
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2479,7 +2488,7 @@ func TestPreferencesLayoutPersistAndNormalize(t *testing.T) {
 	}
 
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(dir)
+	reloaded := newAppInDirForTest(t, dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2501,7 +2510,7 @@ func TestPreferencesLayoutPersistAndNormalize(t *testing.T) {
 
 func TestPreferencesDisplayZoomPersistAndNormalize(t *testing.T) {
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2521,7 +2530,7 @@ func TestPreferencesDisplayZoomPersistAndNormalize(t *testing.T) {
 	}
 
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(dir)
+	reloaded := newAppInDirForTest(t, dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2553,7 +2562,7 @@ func TestPreferencesDisplayZoomPersistAndNormalize(t *testing.T) {
 
 func TestPreferencesFontPersistAndNormalize(t *testing.T) {
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2574,7 +2583,7 @@ func TestPreferencesFontPersistAndNormalize(t *testing.T) {
 	}
 
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(dir)
+	reloaded := newAppInDirForTest(t, dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2607,7 +2616,7 @@ func TestPreferencesFontPersistAndNormalize(t *testing.T) {
 
 func TestPreferencesGeneralRequestAutoSaveCachePersistAndNormalize(t *testing.T) {
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2680,7 +2689,7 @@ func TestPreferencesGeneralRequestAutoSaveCachePersistAndNormalize(t *testing.T)
 	}
 
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(dir)
+	reloaded := newAppInDirForTest(t, dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2701,7 +2710,7 @@ func TestPreferencesGeneralRequestAutoSaveCachePersistAndNormalize(t *testing.T)
 
 func TestPreferencesOAuth2UseSystemBrowserPersists(t *testing.T) {
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2721,7 +2730,7 @@ func TestPreferencesOAuth2UseSystemBrowserPersists(t *testing.T) {
 	}
 
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(dir)
+	reloaded := newAppInDirForTest(t, dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2790,7 +2799,7 @@ settings:
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -2916,7 +2925,7 @@ settings:
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -3030,7 +3039,7 @@ func TestJavaScriptRuntimeMutatesRequestAndRunsTests(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -3102,7 +3111,7 @@ func TestJavaScriptRuntimeCapturesConsoleLogs(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -3148,7 +3157,7 @@ func TestJavaScriptRuntimeCapturesConsoleLogs(t *testing.T) {
 }
 
 func TestDevToolsSnapshotReportsRuntimeAndStateCounts(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 
 	app.mu.Lock()
 	app.state.NetworkLog = append(app.state.NetworkLog, NetworkLog{
@@ -3225,7 +3234,7 @@ func TestCalculateCPUPercent(t *testing.T) {
 
 func TestTerminalSessionLifecycleRunsShellCommand(t *testing.T) {
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	session, err := app.CreateTerminalSession(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -3301,7 +3310,7 @@ func TestRevealInFolderCommandUsesPlatformSelector(t *testing.T) {
 
 func TestRevealCollectionInFolderUsesCollectionPath(t *testing.T) {
 	root := t.TempDir()
-	app := NewAppWithDir(root)
+	app := newAppInDirForTest(t, root)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -3339,7 +3348,7 @@ func TestRevealCollectionInFolderUsesCollectionPath(t *testing.T) {
 
 func TestRevealCollectionInFolderRejectsMissingPath(t *testing.T) {
 	root := t.TempDir()
-	app := NewAppWithDir(root)
+	app := newAppInDirForTest(t, root)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -3409,7 +3418,7 @@ http:
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -3457,7 +3466,7 @@ http:
 
 func TestRevealCollectionItemActionsRejectMissingTargets(t *testing.T) {
 	root := t.TempDir()
-	app := NewAppWithDir(root)
+	app := newAppInDirForTest(t, root)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -3515,7 +3524,7 @@ func TestRevealCollectionItemActionsRejectMissingTargets(t *testing.T) {
 
 func TestRemoveCollectionUnmountsAndPreservesFilesAndTabs(t *testing.T) {
 	root := t.TempDir()
-	app := NewAppWithDir(root)
+	app := newAppInDirForTest(t, root)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -3569,7 +3578,7 @@ func TestRemoveCollectionUnmountsAndPreservesFilesAndTabs(t *testing.T) {
 }
 
 func TestRemoveCollectionRejectsScratchCollection(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -3591,7 +3600,7 @@ func TestRemoveCollectionRejectsScratchCollection(t *testing.T) {
 
 func TestRenameCollectionWritesYAMLMetadataAndKeepsPath(t *testing.T) {
 	root := t.TempDir()
-	app := NewAppWithDir(root)
+	app := newAppInDirForTest(t, root)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -3656,7 +3665,7 @@ func TestRenameCollectionWritesBruConfigAndKeepsPath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(collectionPath, "bruno.json"), []byte(`{"version":"1","name":"Bru API","type":"collection"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	app := NewAppWithDir(root)
+	app := newAppInDirForTest(t, root)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -3702,7 +3711,7 @@ func TestRenameCollectionWritesBruConfigAndKeepsPath(t *testing.T) {
 }
 
 func TestRenameCollectionRejectsBlankName(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -3718,7 +3727,7 @@ func TestRenameCollectionRejectsBlankName(t *testing.T) {
 }
 
 func TestRenameCollectionPreservesWhitespaceName(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -3775,7 +3784,7 @@ seq: 1
 	if err := os.WriteFile(filepath.Join(sourcePath, "notes.txt"), []byte("do not copy"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	app := NewAppWithDir(root)
+	app := newAppInDirForTest(t, root)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -3863,7 +3872,7 @@ http:
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	app := NewAppWithDir(root)
+	app := newAppInDirForTest(t, root)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -3905,7 +3914,7 @@ http:
 
 func TestCloneCollectionRejectsExistingTargetAndInvalidFolder(t *testing.T) {
 	root := t.TempDir()
-	app := NewAppWithDir(root)
+	app := newAppInDirForTest(t, root)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -3928,7 +3937,7 @@ func TestCloneCollectionRejectsExistingTargetAndInvalidFolder(t *testing.T) {
 
 func TestCreateFolderYAMLWritesFolderConfigAndNestedFolder(t *testing.T) {
 	root := t.TempDir()
-	app := NewAppWithDir(root)
+	app := newAppInDirForTest(t, root)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -3994,7 +4003,7 @@ func TestCreateFolderYAMLWritesFolderConfigAndNestedFolder(t *testing.T) {
 
 func TestCreateFolderBruWritesBrunoFolderDefaultsAndSequence(t *testing.T) {
 	root := t.TempDir()
-	app := NewAppWithDir(root)
+	app := newAppInDirForTest(t, root)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -4049,7 +4058,7 @@ func TestCreateFolderBruWritesBrunoFolderDefaultsAndSequence(t *testing.T) {
 
 func TestCreateFolderRejectsDuplicateReservedInvalidAndExistingDirectory(t *testing.T) {
 	root := t.TempDir()
-	app := NewAppWithDir(root)
+	app := newAppInDirForTest(t, root)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -4138,7 +4147,7 @@ http:
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -4226,7 +4235,7 @@ auth {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -4262,7 +4271,7 @@ auth {
 
 func TestRenameFolderRejectsDuplicateReservedInvalidAndBlank(t *testing.T) {
 	root := t.TempDir()
-	app := NewAppWithDir(root)
+	app := newAppInDirForTest(t, root)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -4359,7 +4368,7 @@ http:
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -4475,7 +4484,7 @@ get {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -4517,7 +4526,7 @@ get {
 
 func TestDeleteFolderRejectsMissingNotFoundLocallyAndMissingDirectory(t *testing.T) {
 	root := t.TempDir()
-	app := NewAppWithDir(root)
+	app := newAppInDirForTest(t, root)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -4612,7 +4621,7 @@ http:
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -4757,7 +4766,7 @@ get {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -4810,7 +4819,7 @@ get {
 
 func TestDeleteRequestRejectsMissingFileAndNotFoundLocally(t *testing.T) {
 	root := t.TempDir()
-	app := NewAppWithDir(root)
+	app := newAppInDirForTest(t, root)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -4931,7 +4940,7 @@ http:
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -5063,7 +5072,7 @@ websocket {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -5120,7 +5129,7 @@ websocket {
 
 func TestCloneFolderRejectsDuplicateReservedInvalidMissingAndNotFoundLocally(t *testing.T) {
 	root := t.TempDir()
-	app := NewAppWithDir(root)
+	app := newAppInDirForTest(t, root)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -5200,7 +5209,7 @@ http:
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -5298,7 +5307,7 @@ example {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -5343,7 +5352,7 @@ example {
 
 func TestCloneRequestRejectsDuplicateReservedInvalidMissingAndNotFoundLocally(t *testing.T) {
 	root := t.TempDir()
-	app := NewAppWithDir(root)
+	app := newAppInDirForTest(t, root)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -5437,7 +5446,7 @@ http:
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -5527,7 +5536,7 @@ example {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -5573,7 +5582,7 @@ example {
 
 func TestRenameRequestRejectsDuplicateReservedInvalidMissingAndNotFoundLocally(t *testing.T) {
 	root := t.TempDir()
-	app := NewAppWithDir(root)
+	app := newAppInDirForTest(t, root)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -5678,7 +5687,7 @@ func TestJavaScriptRuntimeSupportsChaiLikeExpectHelpers(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -5725,7 +5734,7 @@ func TestJavaScriptRuntimeSupportsChaiRequire(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -5770,7 +5779,7 @@ func TestJavaScriptRuntimeSupportsJSONSchemaAssertions(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -5845,7 +5854,7 @@ func TestJavaScriptRuntimeSupportsJSONBodyAssertions(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -5911,7 +5920,7 @@ func TestJavaScriptRuntimeSupportsJWTLibrary(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -6032,7 +6041,7 @@ func TestJavaScriptRuntimeSupportsCommonRequireShims(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -6529,7 +6538,7 @@ func TestJavaScriptRuntimeDeveloperModeSupportsPathSubmodules(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -6654,7 +6663,7 @@ func TestJavaScriptRuntimeDeveloperModeSupportsStreamPromisesBuiltin(t *testing.
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -6776,7 +6785,7 @@ func TestJavaScriptRuntimeDeveloperModeSupportsFSBuiltin(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -6847,7 +6856,7 @@ func TestJavaScriptRuntimeDeveloperModeSupportsFSPromisesBuiltin(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -6949,7 +6958,7 @@ func TestJavaScriptRuntimeDeveloperModeSupportsUtilTypesBuiltin(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -7060,7 +7069,7 @@ func TestJavaScriptRuntimeDeveloperModeSupportsHTTPBuiltins(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -7172,7 +7181,7 @@ func TestJavaScriptRuntimeDeveloperModeSupportsDNSBuiltin(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -7274,7 +7283,7 @@ func TestJavaScriptRuntimeDeveloperModeSupportsAssertBuiltin(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -7354,7 +7363,7 @@ func TestJavaScriptRuntimeDeveloperModeSupportsTimersBuiltins(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -7457,7 +7466,7 @@ func TestJavaScriptRuntimeDeveloperModeSupportsConsoleBuiltin(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -7533,7 +7542,7 @@ func TestJavaScriptRuntimeDeveloperModeSupportsPackageRequire(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -7614,7 +7623,7 @@ func TestJavaScriptRuntimeSupportsLocalCommonJSRequire(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -7722,7 +7731,7 @@ func TestJavaScriptRuntimeExposesBrunoResponseHelpers(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -7767,7 +7776,7 @@ func TestJavaScriptRuntimeExposesResponseDataBuffer(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -7811,7 +7820,7 @@ func TestJavaScriptRuntimeSupportsCallableResponseParser(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -7877,7 +7886,7 @@ func TestJavaScriptRuntimeSupportsSendRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -7958,7 +7967,7 @@ func TestTimelineCapturesPreRequestSendRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -8028,7 +8037,7 @@ func TestTimelineCapturesRunRequestAndBubbledSendRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -8111,7 +8120,7 @@ func TestTimelineCapturesSkippedRunRequestTargets(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -8196,7 +8205,7 @@ func TestJavaScriptRuntimeSupportsAsyncAwaitHelpers(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -8271,7 +8280,7 @@ func TestJavaScriptRuntimeSupportsSafeSetTimeout(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -8358,7 +8367,7 @@ func TestJavaScriptRuntimeSupportsDeveloperTimerGlobals(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -8465,7 +8474,7 @@ func TestJavaScriptRuntimeSupportsRepeatingSetInterval(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -8524,7 +8533,7 @@ func TestJavaScriptRuntimeSupportsProcessShim(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -8592,7 +8601,7 @@ func TestJavaScriptRuntimeDeveloperModeSupportsProcessBuiltin(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -8666,7 +8675,7 @@ func TestJavaScriptRuntimeSafeModeHidesProcessGlobal(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -8717,7 +8726,7 @@ func TestJavaScriptRuntimeSupportsTextEncodingGlobals(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -8791,7 +8800,7 @@ func TestJavaScriptRuntimeSupportsFetchAPIGlobals(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -8896,7 +8905,7 @@ func TestJavaScriptRuntimeSupportsEventTargetGlobals(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -8998,7 +9007,7 @@ func TestJavaScriptRuntimeSupportsGlobalCrypto(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -9080,7 +9089,7 @@ func TestJavaScriptRuntimeSupportsCryptoJS(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -9146,7 +9155,7 @@ func TestJavaScriptRuntimeSupportsMoment(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -9212,7 +9221,7 @@ func TestJavaScriptRuntimeSupportsRunRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -9317,7 +9326,7 @@ func TestJavaScriptRuntimeSupportsBruVariableHelpers(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -9377,7 +9386,7 @@ func TestJavaScriptRuntimePersistsScopedVariableMutations(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -9473,7 +9482,7 @@ func TestWorkspaceGlobalEnvironmentSelectionPrecedenceSecretsAndDiskRoundTrip(t 
 	defer server.Close()
 
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -9553,7 +9562,7 @@ func TestWorkspaceGlobalEnvironmentSelectionPrecedenceSecretsAndDiskRoundTrip(t 
 	}
 
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(dir)
+	reloaded := newAppInDirForTest(t, dir)
 	_, _, vars, err := reloaded.effectiveRequestContextForExecution(collection.ID, item.ID, envID)
 	if err != nil {
 		t.Fatal(err)
@@ -9590,7 +9599,7 @@ func TestWorkspaceActiveGlobalEnvironmentUIDMigratesFromWorkspaceYML(t *testing.
 		return nil
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -9631,7 +9640,7 @@ docs: ''
 	}
 
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(app.dataDir)
+	reloaded := newAppInDirForTest(t, app.dataDir)
 	state, err = reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -9658,7 +9667,7 @@ docs: ''
 	}
 
 	flushPersistForTest(t, reloaded)
-	restarted := NewAppWithDir(app.dataDir)
+	restarted := newAppInDirForTest(t, app.dataDir)
 	restartedState, err := restarted.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -9684,7 +9693,7 @@ func TestGlobalEnvironmentCopyImportExportScrubsSecretsAndRoundTrips(t *testing.
 	}
 
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -9751,7 +9760,7 @@ func TestGlobalEnvironmentCopyImportExportScrubsSecretsAndRoundTrips(t *testing.
 	}
 
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(dir)
+	reloaded := newAppInDirForTest(t, dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -9825,7 +9834,7 @@ func TestGlobalEnvironmentCopyImportExportScrubsSecretsAndRoundTrips(t *testing.
 		t.Fatalf("postman secret variable was not imported before persistence: %#v", postmanVars)
 	}
 	flushPersistForTest(t, reloaded)
-	reloadedAgain := NewAppWithDir(dir)
+	reloadedAgain := newAppInDirForTest(t, dir)
 	reloadedAgainState, err := reloadedAgain.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -9850,7 +9859,7 @@ func TestGlobalEnvironmentMultiExportAndCopyNameUsesBrunoConflictStyle(t *testin
 		return Environment{}
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -9930,7 +9939,7 @@ func TestGlobalEnvironmentMultiExportAndCopyNameUsesBrunoConflictStyle(t *testin
 
 func TestSaveGlobalEnvironmentExportWritesSingleFileAndFolder(t *testing.T) {
 	t.Setenv("LITEAPI_SECRET_KEY", "test-global-export-save-key")
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -10006,7 +10015,7 @@ func TestJavaScriptRuntimeSupportsBruMetadataBulkVarsAndUtils(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -10088,7 +10097,7 @@ func TestJavaScriptRuntimeSetBodyFormURLEncodedParity(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -10185,7 +10194,7 @@ func TestJavaScriptRuntimeCanMutateResponseBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -10244,7 +10253,7 @@ func TestJavaScriptRuntimeExposesBrunoRequestHelpers(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -10328,7 +10337,7 @@ func TestJavaScriptRuntimeCanControlRedirectsAndTimeout(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -10376,7 +10385,7 @@ func TestJavaScriptRuntimeCanDisableResponseJSONParsing(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -10422,7 +10431,7 @@ func TestJavaScriptRuntimeSupportsMutableRequestHeaderList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -10494,7 +10503,7 @@ func TestJavaScriptRuntimeResponseHeaderListIsReadOnly(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -10542,7 +10551,7 @@ func TestJavaScriptRuntimeCanSkipRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -10586,7 +10595,7 @@ func TestRequestOnFailHandlerRunsForTransportError(t *testing.T) {
 	targetURL := server.URL
 	server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -10622,7 +10631,7 @@ func TestRequestOnFailHandlerErrorAugmentsResponseError(t *testing.T) {
 	targetURL := server.URL
 	server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -10662,7 +10671,7 @@ func TestJavaScriptRuntimeCanReadRequestCookies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.SaveCookie(CookieInput{
 		Name:     "session",
 		Value:    "abc123",
@@ -10729,7 +10738,7 @@ func TestJavaScriptRuntimeCanWriteRequestCookiesBeforeSend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.SaveCookie(CookieInput{
 		Name:     "old",
 		Value:    "1",
@@ -10798,7 +10807,7 @@ func TestJavaScriptRuntimeCookieJarCanWriteCrossURLCookies(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -10862,7 +10871,7 @@ func TestJavaScriptRuntimeCookieJarSupportsCallbacks(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -10977,7 +10986,7 @@ func TestJavaScriptRuntimeCookieJarSupportsPromiseAPIs(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -11083,7 +11092,7 @@ func TestCookieStoreSendsSecureCookiesToLoopbackHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.SaveCookie(CookieInput{
 		Name:     "secure_local",
 		Value:    "ok",
@@ -11114,7 +11123,7 @@ func TestCookieStoreSendsSecureCookiesToLoopbackHTTP(t *testing.T) {
 func TestCookiePersistenceEncryptsValuesAndHydrates(t *testing.T) {
 	t.Setenv("LITEAPI_SECRET_KEY", "test-cookie-persistence-key")
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	state, err := app.SaveCookie(CookieInput{
 		Name:     "session",
 		Value:    "plain-cookie-secret",
@@ -11139,7 +11148,7 @@ func TestCookiePersistenceEncryptsValuesAndHydrates(t *testing.T) {
 		t.Fatalf("state.json did not encrypt cookie value: %s", stateData)
 	}
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(dir)
+	reloaded := newAppInDirForTest(t, dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -11166,7 +11175,7 @@ func TestCookiePrefixValidationMatchesBrunoJarRules(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	if _, err := app.SaveCookie(CookieInput{
 		Name:     "__Secure-MANUAL",
 		Value:    "bad",
@@ -11231,7 +11240,7 @@ await jar.setCookie("{{host}}/prefix", { key: "__Host-OK", value: "script", path
 }
 
 func TestCookieRuntimeValidationRejectsForeignPublicSuffixAndNormalizesPaths(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	if _, err := app.SaveCookie(CookieInput{
 		Name:     "manual_public",
 		Value:    "bad",
@@ -11305,7 +11314,7 @@ func TestJavaScriptRuntimeCookieJarRejectsInvalidDomainsAndNormalizesPaths(t *te
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -11381,7 +11390,7 @@ func TestCookieStoreCapturesSendsAndDeletesCookies(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -11450,7 +11459,7 @@ func TestCookieStoreCapturesAndSendsRedirectCookies(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -11496,7 +11505,7 @@ func TestCookieStoreCapturesRedirectCookieWhenRedirectsDisabled(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -11535,7 +11544,7 @@ func TestCookieStoreMergesManualCookieHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.SaveCookie(CookieInput{
 		Name:     "session",
 		Value:    "abc123",
@@ -11564,7 +11573,7 @@ func TestCookieStoreMergesManualCookieHeader(t *testing.T) {
 }
 
 func TestCookieManagerManualRawAndDomainClear(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.SaveCookie(CookieInput{
 		Name:     "manual",
 		Value:    "one",
@@ -11631,7 +11640,7 @@ func TestCookieManagerManualRawAndDomainClear(t *testing.T) {
 
 func TestNotificationsMarkReadAndClearPersist(t *testing.T) {
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	state, err := app.SaveCookie(CookieInput{
 		Name:     "notify",
 		Value:    "one",
@@ -11659,7 +11668,7 @@ func TestNotificationsMarkReadAndClearPersist(t *testing.T) {
 	}
 
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(dir)
+	reloaded := newAppInDirForTest(t, dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -11700,7 +11709,7 @@ func TestNotificationsMarkReadAndClearPersist(t *testing.T) {
 }
 
 func TestOpenRequestTabCreatesTabForExistingItem(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -11726,7 +11735,7 @@ func TestOpenRequestTabCreatesTabForExistingItem(t *testing.T) {
 }
 
 func TestOpenResponseExampleTabCreatesTabForSavedExample(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -11769,7 +11778,7 @@ func TestOpenResponseExampleTabCreatesTabForSavedExample(t *testing.T) {
 }
 
 func TestUpdateOpenTabPanesPersistsPaneSelection(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -11811,7 +11820,7 @@ func TestUpdateOpenTabPanesPersistsPaneSelection(t *testing.T) {
 		t.Fatalf("expected invalid response pane tab to fail")
 	}
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(app.dataDir)
+	reloaded := newAppInDirForTest(t, app.dataDir)
 	state, err = reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -11823,7 +11832,7 @@ func TestUpdateOpenTabPanesPersistsPaneSelection(t *testing.T) {
 }
 
 func TestOpenTabManagementPersistsOrderAndActiveState(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -11872,7 +11881,7 @@ func TestOpenTabManagementPersistsOrderAndActiveState(t *testing.T) {
 		t.Fatalf("moving active tab to start failed: %#v", state.OpenTabs)
 	}
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(app.dataDir)
+	reloaded := newAppInDirForTest(t, app.dataDir)
 	state, err = reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -11998,7 +12007,7 @@ func TestRunCollectionCountsPassFailAndSkipped(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -12046,7 +12055,7 @@ func TestRunCollectionWithOptionsSelectsRequestsAndAppliesDelay(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -12119,7 +12128,7 @@ func TestRunCollectionSkipsPromptVariableRequests(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -12188,7 +12197,7 @@ func TestRunCollectionPersistsRuntimeVariablesAcrossRequests(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -12247,7 +12256,7 @@ func TestRunCollectionHonorsStopExecution(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -12301,7 +12310,7 @@ func TestRunCollectionHonorsSetNextRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -12359,7 +12368,7 @@ func TestRunCollectionHonorsSetNextRequest(t *testing.T) {
 }
 
 func TestImportPostmanAndBruRoundTrip(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -12604,7 +12613,7 @@ func TestImportPostmanAndBruRoundTrip(t *testing.T) {
 }
 
 func TestImportPostmanAdvancedAuth(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -12720,7 +12729,7 @@ func TestImportPostmanAdvancedAuth(t *testing.T) {
 }
 
 func TestImportPostmanCookieScriptTranslation(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -12767,7 +12776,7 @@ func TestImportPostmanCookieScriptTranslation(t *testing.T) {
 }
 
 func TestImportPostmanHeaderListScriptTranslation(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -12824,7 +12833,7 @@ func TestImportPostmanHeaderListScriptTranslation(t *testing.T) {
 }
 
 func TestImportInsomniaV4AndV5(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -13733,7 +13742,7 @@ body:grpc {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -13836,7 +13845,7 @@ message HelloReply {
 	address, stop := startDynamicGreeterServer(t, protoPath, gotMetadata)
 	defer stop()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -13911,7 +13920,7 @@ message HelloReply {
 	stop := startDynamicGreeterServerOnListener(t, protoPath, listener, gotMetadata)
 	defer stop()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -13963,7 +13972,7 @@ func TestGRPCUnaryRequestCanUseServerReflection(t *testing.T) {
 	address, stop := startReflectedTestService(t, gotMetadata)
 	defer stop()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -14023,7 +14032,7 @@ func TestGRPCUnaryRequestUsesUserAgentHeaderAsDialUserAgent(t *testing.T) {
 	address, stop := startReflectedTestService(t, gotMetadata)
 	defer stop()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -14095,7 +14104,7 @@ func TestGRPCUnaryRequestAppliesOAuth2AndWSSEMetadata(t *testing.T) {
 	}))
 	defer tokenServer.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -14198,7 +14207,7 @@ func TestGRPCUnaryRequestUsesCollectionClientCertificate(t *testing.T) {
 		_ = listener.Close()
 	}()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -14265,7 +14274,7 @@ func TestGRPCUnaryRequestUsesCollectionClientCertificate(t *testing.T) {
 }
 
 func TestGenerateGrpcurlCommandIncludesMetadataProtoAndBody(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -14321,7 +14330,7 @@ func TestGenerateGrpcurlCommandIncludesMetadataProtoAndBody(t *testing.T) {
 }
 
 func TestGenerateGrpcurlCommandUsesCollectionClientCertificate(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -14371,7 +14380,7 @@ func TestGenerateGrpcurlCommandUsesCollectionClientCertificate(t *testing.T) {
 }
 
 func TestGenerateGrpcurlCommandUsesHeredocForClientStreaming(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -14431,7 +14440,7 @@ func TestGRPCServerStreamingErrorPreservesMetadataTrailersAndPartialResponses(t 
 	address, stop := startReflectedTestService(t, map[string]string{})
 	defer stop()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -14557,7 +14566,7 @@ func TestGRPCStreamingTimelineCapturesMethodAndCounts(t *testing.T) {
 	address, stop := startReflectedTestService(t, map[string]string{})
 	defer stop()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -14642,7 +14651,7 @@ func TestGRPCLiveBidiStreamSendEndRecordsEvents(t *testing.T) {
 	address, stop := startReflectedTestService(t, map[string]string{})
 	defer stop()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -14749,7 +14758,7 @@ func TestGRPCLiveStreamCancelMarksSessionCancelled(t *testing.T) {
 	address, stop := startReflectedTestService(t, map[string]string{})
 	defer stop()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -14828,7 +14837,7 @@ message SampleReply {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -14876,7 +14885,7 @@ message SampleReply {
 }
 
 func TestCollectionProtobufFallbackLoadsImportedMethodsAndSamples(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -14952,7 +14961,7 @@ service Greeter {
 }
 
 func TestGRPCUnaryRequestUsesCollectionProtobufConfig(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -15032,7 +15041,7 @@ func TestGRPCMethodsFromReflectionGenerateSampleMessage(t *testing.T) {
 	address, stop := startReflectedTestService(t, map[string]string{})
 	defer stop()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -15091,7 +15100,7 @@ func TestGRPCReflectionUsesRequestMetadataAndAuth(t *testing.T) {
 	})
 	defer stop()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -15171,7 +15180,7 @@ func TestWebSocketRequestSendsAndReadsMessage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -15268,7 +15277,7 @@ func TestWebSocketLiveConnectionUsesCollectionManualProxy(t *testing.T) {
 	}))
 	defer proxy.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -15350,7 +15359,7 @@ func TestWebSocketRequestUsesCollectionClientCertificate(t *testing.T) {
 	server.StartTLS()
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -15425,7 +15434,7 @@ func TestWebSocketRequestSendsMultipleSelectedMessages(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -15491,7 +15500,7 @@ func TestWebSocketPersistentConnectionSendsMessagesWithoutReconnect(t *testing.T
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -15595,7 +15604,7 @@ func TestWebSocketKeepAliveIntervalSendsPingFrames(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -15660,7 +15669,7 @@ func TestWebSocketBinaryResponsePreservesBase64AndHex(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -15725,7 +15734,7 @@ func TestWebSocketBinaryEventArrayIncludesBase64AndHex(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -15824,7 +15833,7 @@ func TestSSEPreviewModeIsDetected(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -15882,7 +15891,7 @@ headers {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -15930,7 +15939,7 @@ func TestRefreshChangedCollectionsReloadsExternalDiskChanges(t *testing.T) {
 	}
 	writeWatcherRequestFile(t, requestPath, "Ping", "https://example.test/ping", 1)
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -15996,7 +16005,7 @@ func TestRefreshChangedCollectionsReloadsExternalDiskChanges(t *testing.T) {
 
 func TestInternalSaveKeepsRequestAndTabIdentityAcrossWatcherAndRestart(t *testing.T) {
 	dataDir := t.TempDir()
-	app := NewAppWithDir(dataDir)
+	app := newAppInDirForTest(t, dataDir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -16049,7 +16058,7 @@ func TestInternalSaveKeepsRequestAndTabIdentityAcrossWatcherAndRestart(t *testin
 	}
 
 	flushPersistForTest(t, app)
-	restarted := NewAppWithDir(dataDir)
+	restarted := newAppInDirForTest(t, dataDir)
 	restartedState, err := restarted.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -16092,7 +16101,7 @@ func TestRefreshChangedCollectionsSkipsDirtyDrafts(t *testing.T) {
 	}
 	writeWatcherRequestFile(t, requestPath, "Ping", "https://example.test/ping", 1)
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -16160,7 +16169,7 @@ func TestOpenCollectionHonorsBrunoConfigIgnore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -16223,7 +16232,7 @@ func TestRefreshChangedCollectionsHonorsBrunoConfigIgnore(t *testing.T) {
 	keepPath := filepath.Join(collectionPath, "keep.bru")
 	writeWatcherRequestFile(t, keepPath, "Keep", "https://example.test/keep", 1)
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -16300,7 +16309,7 @@ get {
 	}
 
 	dataDir := t.TempDir()
-	app := NewAppWithDir(dataDir)
+	app := newAppInDirForTest(t, dataDir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -16396,7 +16405,7 @@ get {
 }
 
 func TestGenerateCollectionDocsBuildsBrunoStyleHTMLAndFiltersEnvironments(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -16464,7 +16473,7 @@ func TestGenerateCollectionDocsBuildsBrunoStyleHTMLAndFiltersEnvironments(t *tes
 }
 
 func TestShareCollectionExportsYamlZipPostmanAndSaves(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -16654,7 +16663,7 @@ get {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -16736,7 +16745,7 @@ get {
 }
 
 func TestSaveAllTabsAssignsUniquePathsForDuplicateRequestNames(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -16816,7 +16825,7 @@ get {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -16887,7 +16896,7 @@ body:json {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -16978,7 +16987,7 @@ body:form-urlencoded {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -17066,7 +17075,7 @@ body:multipart-form {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -17156,7 +17165,7 @@ body:file {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -17232,7 +17241,7 @@ get {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -17365,7 +17374,7 @@ get {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -17663,7 +17672,7 @@ example {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -17687,7 +17696,7 @@ example {
 }
 
 func TestGenerateRequestCodeUsesCurrentRequestAndVariables(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -17783,7 +17792,7 @@ func TestGenerateRequestCodeUsesCurrentRequestAndVariables(t *testing.T) {
 }
 
 func TestGenerateRequestCodeSupportsGraphQLAndRejectsInvalidTargets(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -17851,7 +17860,7 @@ func TestGenerateRequestCodeSupportsGraphQLAndRejectsInvalidTargets(t *testing.T
 
 func TestGitRemoteMetadataManagedIgnoreAndGhostRows(t *testing.T) {
 	dataDir := t.TempDir()
-	app := NewAppWithDir(dataDir)
+	app := newAppInDirForTest(t, dataDir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -17883,7 +17892,7 @@ func TestGitRemoteMetadataManagedIgnoreAndGhostRows(t *testing.T) {
 	}
 
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(dataDir)
+	reloaded := newAppInDirForTest(t, dataDir)
 	if err := os.RemoveAll(collection.Path); err != nil {
 		t.Fatal(err)
 	}
@@ -17940,7 +17949,7 @@ get {
 	runGit(t, source, "add", ".")
 	runGit(t, source, "-c", "user.name=LiteAPI Test", "-c", "user.email=liteapi@example.test", "commit", "-m", "initial")
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -18042,7 +18051,7 @@ docs: This request retrieves a list of users.
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -18156,7 +18165,7 @@ get {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -18289,7 +18298,7 @@ get {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -18415,7 +18424,7 @@ tests {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -18523,7 +18532,7 @@ get {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -18637,7 +18646,7 @@ func TestProcessEnvInterpolationAndFolderEnvPrecedence(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -18733,7 +18742,7 @@ func TestDotEnvProcessEnvPrecedenceAcrossCollectionWorkspaceAndOS(t *testing.T) 
 	defer server.Close()
 
 	appDir := t.TempDir()
-	app := NewAppWithDir(appDir)
+	app := newAppInDirForTest(t, appDir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -18808,7 +18817,7 @@ func TestDotEnvFileManagerListsSavesDeletesAndRuntimeExactEnvOnly(t *testing.T) 
 	t.Setenv("LITEAPI_DOTENV_UI", "os")
 	t.Setenv("LITEAPI_DOTENV_UI_OS_ONLY", "os-only")
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -18888,7 +18897,7 @@ func TestResolveProcessEnvValuesUsesRuntimePrecedence(t *testing.T) {
 	t.Setenv("LITEAPI_TOOLTIP_ENV_PRIORITY", "os")
 	t.Setenv("LITEAPI_TOOLTIP_ENV_OS_ONLY", "os-only")
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -18958,7 +18967,7 @@ func TestPromptVariableInterpolation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -19087,7 +19096,7 @@ body:json {
 		t.Fatal(err)
 	}
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -19177,7 +19186,7 @@ headers {
 	}
 
 	appDir := t.TempDir()
-	app := NewAppWithDir(appDir)
+	app := newAppInDirForTest(t, appDir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -19243,7 +19252,7 @@ headers {
 	}
 
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(appDir)
+	reloaded := newAppInDirForTest(t, appDir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -19274,7 +19283,7 @@ func TestCollectionEnvironmentSecretsHydrateBrunoEncryptedFallbacks(t *testing.T
 	}
 
 	appDir := t.TempDir()
-	app := NewAppWithDir(appDir)
+	app := newAppInDirForTest(t, appDir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -19309,7 +19318,7 @@ func TestCollectionEnvironmentSecretsHydrateBrunoEncryptedFallbacks(t *testing.T
 		t.Fatal(err)
 	}
 
-	reloaded := NewAppWithDir(appDir)
+	reloaded := newAppInDirForTest(t, appDir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -19372,7 +19381,7 @@ headers {
 	}
 
 	appDir := t.TempDir()
-	app := NewAppWithDir(appDir)
+	app := newAppInDirForTest(t, appDir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -19392,7 +19401,7 @@ headers {
 	}
 
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(appDir)
+	reloaded := newAppInDirForTest(t, appDir)
 	state, err = reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -19422,7 +19431,7 @@ func TestCollectionHeadersAndInheritedAuthAreApplied(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -19484,7 +19493,7 @@ func TestDigestAuthChallengeRetrySucceeds(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -19562,7 +19571,7 @@ func TestNTLMAuthChallengeFlowSucceeds(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -19647,7 +19656,7 @@ func TestOAuth2ClientCredentialsFetchesAndAppliesHeader(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -19702,7 +19711,7 @@ func TestTimelineCapturesOAuth2TokenRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -19843,7 +19852,7 @@ func TestOAuth2AuthorizationCodeFetchesTokenWithLoopbackCallback(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	app.oauth2CallbackTimeout = 5 * time.Second
 	app.oauth2OpenURL = func(ctx context.Context, authorizeURL string) error {
 		go func() {
@@ -19966,7 +19975,7 @@ func TestOAuth2AuthorizationBrowserPreferenceSelectsInAppOrSystemOpener(t *testi
 		CredentialsID:        "browser-pref",
 	}
 
-	inApp := NewAppWithDir(t.TempDir())
+	inApp := newAppForTest(t)
 	inApp.ctx = context.Background()
 	inApp.oauth2CallbackTimeout = 5 * time.Second
 	var inAppCalls int32
@@ -20003,7 +20012,7 @@ func TestOAuth2AuthorizationBrowserPreferenceSelectsInAppOrSystemOpener(t *testi
 		t.Fatalf("in-app OAuth2 opener was not selected: response=%#v inApp=%d system=%d", response, inAppCalls, unexpectedSystemCalls)
 	}
 
-	system := NewAppWithDir(t.TempDir())
+	system := newAppForTest(t)
 	system.ctx = context.Background()
 	system.oauth2CallbackTimeout = 5 * time.Second
 	state, err := system.GetState()
@@ -20090,7 +20099,7 @@ func TestOAuth2AuthorizationCodeSupportsHostedCallbackBridge(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	app.oauth2CallbackTimeout = 5 * time.Second
 	app.oauth2OpenURL = func(ctx context.Context, authorizeURL string) error {
 		go func() {
@@ -20202,7 +20211,7 @@ func TestOAuth2AuthorizationCodeUsesHostedDefaultCallbackAndProtocolHandoff(t *t
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	app.oauth2CallbackTimeout = 5 * time.Second
 	app.oauth2OpenURL = func(ctx context.Context, authorizeURL string) error {
 		client := http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -20318,7 +20327,7 @@ func TestOAuth2ImplicitFetchesTokenWithLoopbackFragmentCallback(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	app.oauth2CallbackTimeout = 5 * time.Second
 	app.oauth2OpenURL = func(ctx context.Context, authorizeURL string) error {
 		if ctx == nil {
@@ -20464,7 +20473,7 @@ func TestOAuth2ImplicitSupportsHostedCallbackBridge(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	app.oauth2CallbackTimeout = 5 * time.Second
 	app.oauth2OpenURL = func(ctx context.Context, authorizeURL string) error {
 		go func() {
@@ -20559,7 +20568,7 @@ func TestOAuth2ImplicitUsesHostedDefaultCallbackAndProtocolHandoff(t *testing.T)
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	app.oauth2CallbackTimeout = 5 * time.Second
 	app.oauth2OpenURL = func(ctx context.Context, authorizeURL string) error {
 		client := http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -20658,7 +20667,7 @@ func TestOAuth2PasswordGrantFetchesIDTokenIntoURL(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -20710,7 +20719,7 @@ func TestOAuth2TokenCacheReusesValidToken(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -20777,7 +20786,7 @@ func TestOAuth2CredentialStoreEncryptsAndHydrates(t *testing.T) {
 	defer server.Close()
 
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -20814,7 +20823,7 @@ func TestOAuth2CredentialStoreEncryptsAndHydrates(t *testing.T) {
 	}
 
 	flushPersistForTest(t, app)
-	reloaded := NewAppWithDir(dir)
+	reloaded := newAppInDirForTest(t, dir)
 	vars := reloaded.oauth2CredentialVariablesSnapshot()
 	if vars["$oauth2.persisted.access_token"] != accessToken || vars["$oauth2.persisted.refresh_token"] != refreshToken {
 		t.Fatalf("OAuth2 credential variables were not hydrated: %#v", vars)
@@ -20862,7 +20871,7 @@ func TestJavaScriptRuntimeSupportsOAuth2CredentialVars(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -20966,7 +20975,7 @@ func TestOAuth2TokenCacheRefreshesExpiredToken(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -21043,7 +21052,7 @@ func TestOAuth2AdditionalParamsApplyToTokenRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -21125,7 +21134,7 @@ func TestOAuth2AdditionalParamsApplyToRefreshRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -21342,7 +21351,7 @@ func TestAWSV4AuthSignsHTTPRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -21414,7 +21423,7 @@ region = us-east-2
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -21569,7 +21578,7 @@ region = `+region+`
 	}))
 	defer resourceServer.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -21678,7 +21687,7 @@ region = `+region+`
 	}))
 	defer resourceServer.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -21883,7 +21892,7 @@ region = `+region+`
 	}))
 	defer resourceServer.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -21978,7 +21987,7 @@ region = `+region+`
 	}))
 	defer resourceServer.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -22260,7 +22269,7 @@ func TestWSSEAuthHeaderSucceeds(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -22336,7 +22345,7 @@ func TestOAuth1AuthHeaderSignsHTTPRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -22718,7 +22727,7 @@ func parseWSSEHeader(header string) map[string]string {
 }
 
 func TestImportOpenAPIGeneratesRequests(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -22917,7 +22926,7 @@ paths:
 }
 
 func TestImportOpenAPITraceAndBrunoVariants(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -23000,7 +23009,7 @@ paths:
 }
 
 func TestImportOpenAPIWebhooksAndCallbacks(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -23094,7 +23103,7 @@ webhooks:
 }
 
 func TestImportOpenAPIServerOverrides(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -23175,7 +23184,7 @@ paths:
 }
 
 func TestOpenAPISyncApplyPreservesUserValuesAndScripts(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -23397,7 +23406,7 @@ paths:
 }
 
 func TestOpenAPISyncApplyHonorsEndpointDecisions(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -23496,7 +23505,7 @@ paths:
 }
 
 func TestOpenAPISyncApplyCanKeepRemovedEndpoint(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -23556,7 +23565,7 @@ paths:
 }
 
 func TestUpdateOpenAPISyncConfigPersistsAutoCheckSettings(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -23654,7 +23663,7 @@ paths:
 }
 
 func TestCheckOpenAPIUpdatesComparesRemoteSpecHash(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -23746,7 +23755,7 @@ paths:
 }
 
 func TestGetOpenAPISyncSpecReturnsCachedSpec(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -23789,7 +23798,7 @@ paths:
 }
 
 func TestGetOpenAPISyncSpecFetchesWhenCacheMissing(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -23862,7 +23871,7 @@ paths:
 }
 
 func TestGetOpenAPISyncSpecDiffComparesStoredAndIncomingSpec(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -23947,7 +23956,7 @@ paths:
 }
 
 func TestGetOpenAPISyncSpecDiffFetchesConfiguredSource(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -24019,7 +24028,7 @@ paths:
 }
 
 func TestOpenAPILocalDriftDetectsAndAppliesCollectionChanges(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -24152,7 +24161,7 @@ paths:
 }
 
 func TestOpenAPILocalDriftIgnoresPreservedValues(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -24224,7 +24233,7 @@ paths:
 
 func TestOpenAPISyncFetchCacheAndRejectsSwagger(t *testing.T) {
 	dataDir := t.TempDir()
-	app := NewAppWithDir(dataDir)
+	app := newAppInDirForTest(t, dataDir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)

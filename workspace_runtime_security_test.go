@@ -29,7 +29,7 @@ func TestProductionRejectsSymlinkMutableArtifact(t *testing.T) {
 	if err := os.Symlink(external, sharedAppStatePath(dir)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := newProductionApp(dir, nil); err == nil {
+	if _, err := newProductionAppForTest(t, dir, nil); err == nil {
 		t.Fatal("symlinked shared state was followed")
 	}
 }
@@ -45,7 +45,7 @@ func TestOAuthCorruptionPropagatesWithoutOverwritingEvidence(t *testing.T) {
 	if err := os.WriteFile(path, original, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := newProductionApp(dir, nil); err == nil {
+	if _, err := newProductionAppForTest(t, dir, nil); err == nil {
 		t.Fatal("production load ignored corrupt OAuth evidence")
 	}
 	app := newAppBase(dir)

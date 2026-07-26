@@ -68,7 +68,7 @@ func TestDeleteRequestRecoverableRestoresBytesTabsExamplesAndRestart(t *testing.
 	}
 
 	// A new App instance proves the manifest and payload survive restart.
-	restarted := NewAppWithDir(dataDir)
+	restarted := newAppInDirForTest(t, dataDir)
 	entries, err := restarted.ListRecoveryEntries()
 	if err != nil || len(entries) != 1 || entries[0].ID != deleted.Entry.ID {
 		t.Fatalf("durable recovery entry missing after restart: entries=%#v err=%v", entries, err)
@@ -106,7 +106,7 @@ func TestDeleteRequestRecoverableRestoresBytesTabsExamplesAndRestart(t *testing.
 }
 
 func TestFreshDefaultRequestIsFileBackedAndRecoverable(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -214,7 +214,7 @@ func TestDeleteFolderRecoverableRestoresWholeTreeAndOrdering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app := NewAppWithDir(filepath.Join(root, "app"))
+	app := newAppInDirForTest(t, filepath.Join(root, "app"))
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -607,7 +607,7 @@ func recoveryTestCollection(t *testing.T) (*App, Collection, RequestItem, string
 	writeRecoveryFile(t, requestPath, recoveryBru("First", "https://example.test/first", 1))
 	writeRecoveryFile(t, filepath.Join(collectionPath, "second.bru"), recoveryBru("Second", "https://example.test/second", 2))
 	dataDir := filepath.Join(root, "app")
-	app := NewAppWithDir(dataDir)
+	app := newAppInDirForTest(t, dataDir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)

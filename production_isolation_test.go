@@ -10,7 +10,7 @@ func TestProductionDataDirectoriesDoNotShareSavedRequestsOrOpenTabs(t *testing.T
 	secondDir := t.TempDir()
 	const requestName = "Production isolation sentinel"
 
-	first, err := newProductionApp(firstDir, nil)
+	first, err := newProductionAppForTest(t, firstDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestProductionDataDirectoriesDoNotShareSavedRequestsOrOpenTabs(t *testing.T
 	flushPersistForTest(t, first)
 	first.workspaceRuntime.release()
 
-	reloadedFirst, err := newProductionApp(firstDir, nil)
+	reloadedFirst, err := newProductionAppForTest(t, firstDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestProductionDataDirectoriesDoNotShareSavedRequestsOrOpenTabs(t *testing.T
 	flushPersistForTest(t, reloadedFirst)
 	reloadedFirst.workspaceRuntime.release()
 
-	second, err := newProductionApp(secondDir, nil)
+	second, err := newProductionAppForTest(t, secondDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -35,6 +36,181 @@ import (
 	"testing"
 	"time"
 )
+
+// newAppForTest builds an App rooted at a fresh temp directory and guarantees
+// its background persist writer is stopped before that directory is removed.
+//
+// ORDERING — do not reorder these two lines. t.Cleanup functions run LIFO, and
+// t.TempDir() registers the directory's removal at the moment it is called. The
+// stop registered *after* the TempDir call therefore runs *before* the removal.
+// Reversed, the writer would still be sleeping when RemoveAll walks the
+// directory, and a state.json created between the walk and the final rmdir
+// fails the cleanup with "directory not empty" — the US-012 flake this exists
+// to prevent.
+func newAppForTest(t testing.TB) *App {
+	t.Helper()
+	return newAppInDirForTest(t, t.TempDir())
+}
+
+// newAppInDirForTest is newAppForTest for the tests that need to choose the
+// directory: the mutate-then-reload pairs that build a second App over the
+// first one's data directory, and the ones that root the App in a subdirectory
+// of a temp dir. Every one of those Apps runs its own writer, so every one of
+// them needs its own stop.
+//
+// The same LIFO ordering argument applies, and it is the caller's to keep: dir
+// must already exist as (or under) a t.TempDir() taken earlier in the test, so
+// that this cleanup is registered after that directory's removal and therefore
+// runs before it.
+func newAppInDirForTest(t testing.TB, dir string) *App {
+	t.Helper()
+	return stopPersistWriterOnCleanup(t, NewAppWithDir(dir))
+}
+
+// stopPersistWriterOnCleanup registers the writer stop for an App that was
+// built somewhere this package does not control the constructor — newProductionApp
+// and newLargeWorkspaceApp both hand back a live App rooted at a temp dir.
+func stopPersistWriterOnCleanup(t testing.TB, app *App) *App {
+	t.Helper()
+	t.Cleanup(app.stopPersistWriter)
+	return app
+}
+
+// newProductionAppForTest wraps newProductionApp, which is production code:
+// there is no t there to register a cleanup with, but the App it returns runs a
+// writer rooted at the caller's temp directory just the same. A sweep over the
+// NewAppWithDir call sites in _test.go files does not reach this one, which is
+// precisely why it needs its own wrapper.
+func newProductionAppForTest(t testing.TB, dataDir string, args []string) (*App, error) {
+	t.Helper()
+	app, err := newProductionApp(dataDir, args) // stopPersistWriterOnCleanup: this is the wrapper
+	// Registered even on the error paths: app is nil there, and
+	// stopPersistWriter tolerates a nil receiver, so this stays a single
+	// unconditional rule rather than a condition to get wrong.
+	stopPersistWriterOnCleanup(t, app)
+	return app, err
+}
+
+// newLargeWorkspaceAppForTest is the same wrapper for the benchmark fixture's
+// constructor, which lives in workspace_fixture.go — also outside _test.go.
+func newLargeWorkspaceAppForTest(t testing.TB, dir string, opts largeWorkspaceOptions) *App {
+	t.Helper()
+	return stopPersistWriterOnCleanup(t, newLargeWorkspaceApp(dir, opts))
+}
+
+// TestEveryTestAppGoesThroughAWriterStoppingConstructor keeps the sweep above
+// from rotting. An App built directly in a test runs a background writer that
+// outlives the test by up to a debounce interval, and writes state.json into a
+// directory t.TempDir() is concurrently removing — a cleanup failure that
+// reproduces on roughly one run in eight and blames whichever test happens to
+// be holding the directory.
+//
+// Rather than trust that nobody reintroduces one, this fails the build the
+// moment a raw constructor appears in a _test.go file. The wrappers above are
+// the only sanctioned way in, and each of them registers the stop.
+func TestEveryTestAppGoesThroughAWriterStoppingConstructor(t *testing.T) {
+	raw := regexp.MustCompile(`\b(NewAppWithDir|newProductionApp|newLargeWorkspaceApp)\(`)
+	sanctioned := regexp.MustCompile(`\b(newAppForTest|newAppInDirForTest|newProductionAppForTest|newLargeWorkspaceAppForTest|stopPersistWriterOnCleanup)\b`)
+
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read package directory: %v", err)
+	}
+	offenders := []string{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		for index, line := range strings.Split(string(data), "\n") {
+			if !raw.MatchString(line) || sanctioned.MatchString(line) {
+				continue
+			}
+			offenders = append(offenders, fmt.Sprintf("%s:%d: %s", name, index+1, strings.TrimSpace(line)))
+		}
+	}
+	if len(offenders) > 0 {
+		t.Fatalf("these test Apps never have their background persist writer stopped, so they can write into a t.TempDir() being removed; use newAppForTest/newAppInDirForTest instead:\n%s", strings.Join(offenders, "\n"))
+	}
+}
+
+// TestStopPersistWriterIsSynchronousIdempotentAndKeepsFlushWorking pins the
+// three properties the cleanup ordering depends on. None of them is asserted by
+// waiting: "the writer has stopped" is read off persistRunning, which the writer
+// clears under persistMu before the channel stopPersistWriter blocks on is
+// closed. A test that had to sleep to see this would be asserting nothing.
+func TestStopPersistWriterIsSynchronousIdempotentAndKeepsFlushWorking(t *testing.T) {
+	dir := t.TempDir()
+	app := newAppInDirForTest(t, dir)
+
+	path := filepath.Join(dir, "state.json")
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("state.json exists before any write: %v", err)
+	}
+
+	if err := app.markDirty(persistScopeState); err != nil {
+		t.Fatalf("markDirty: %v", err)
+	}
+	app.persistMu.Lock()
+	running := app.persistRunning
+	app.persistMu.Unlock()
+	if !running {
+		t.Fatal("markDirty did not start a background writer; the rest of this test would prove nothing")
+	}
+
+	app.stopPersistWriter()
+
+	app.persistMu.Lock()
+	running = app.persistRunning
+	dirty := app.persistDirty
+	app.persistMu.Unlock()
+	if running {
+		t.Fatal("stopPersistWriter returned while the writer was still running; it is not synchronous")
+	}
+	// Stopping discards nothing: the mutation is still pending, it simply has
+	// no background writer left to carry it.
+	if !dirty {
+		t.Fatal("stopPersistWriter cleared the dirty flag; the pending mutation would be lost")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("a stopped writer still wrote state.json: %v", err)
+	}
+
+	// Idempotent, and still synchronous the second time.
+	app.stopPersistWriter()
+
+	// A mutation arriving after the stop — a straggling goroutine, say — must
+	// not resurrect the writer, or the temp directory is unsafe again.
+	if err := app.markDirty(persistScopeState); err != nil {
+		t.Fatalf("markDirty after stop: %v", err)
+	}
+	app.persistMu.Lock()
+	running = app.persistRunning
+	app.persistMu.Unlock()
+	if running {
+		t.Fatal("markDirty started a new writer after stopPersistWriter; the stop does not stick")
+	}
+
+	// And the synchronous path still works, which is what shutdown relies on.
+	flushPersistForTest(t, app)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("flushPersist after stopPersistWriter did not write state.json: %v", err)
+	}
+}
+
+// TestStopPersistWriterOnAppThatNeverStartedOne covers the bare-literal and
+// never-mutated cases: the stop is registered unconditionally by the test
+// helpers, so it has to be a no-op rather than a nil-channel hang.
+func TestStopPersistWriterOnAppThatNeverStartedOne(t *testing.T) {
+	newAppForTest(t).stopPersistWriter()
+	(&App{}).stopPersistWriter()
+	var absent *App
+	absent.stopPersistWriter()
+}
 
 // flushPersistForTest force-writes the app's coalesced state. Every assertion
 // whose meaning is "the mutation reached disk" — reading state.json, or loading
@@ -97,7 +273,7 @@ func TestPersistStateJSONStaysParsableUnderConcurrentWrites(t *testing.T) {
 	opts.RequestsPerColl = 5
 	opts.LargeResponses = 1
 	opts.LargeResponseSize = 256 << 10
-	app := newLargeWorkspaceApp(dir, opts)
+	app := newLargeWorkspaceAppForTest(t, dir, opts)
 	// The fixture bypasses the binding layer, so publish it once before the
 	// race starts. NewAppWithDir alone does not write state.json.
 	app.mu.Lock()
@@ -177,7 +353,7 @@ func TestPersistKillHelperProcess(t *testing.T) {
 	opts.RequestsPerColl = 10
 	opts.LargeResponses = 2
 	opts.LargeResponseSize = 2 << 20
-	app := newLargeWorkspaceApp(dir, opts)
+	app := newLargeWorkspaceAppForTest(t, dir, opts)
 	app.mu.Lock()
 	seedErr := app.persistLocked()
 	app.mu.Unlock()
@@ -302,7 +478,7 @@ func TestPersistStateJSONSurvivesSIGKILL(t *testing.T) {
 // burst of mutations produces one write rather than one per mutation.
 func TestMarkDirtyDoesNotWriteInlineAndBackgroundWriterCoalesces(t *testing.T) {
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	if _, err := app.GetState(); err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +532,7 @@ func TestMarkDirtyDoesNotWriteInlineAndBackgroundWriterCoalesces(t *testing.T) {
 // background writer.
 func TestFlushPersistLosesNoMutation(t *testing.T) {
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 
 	state, err := app.GetState()
 	if err != nil {
@@ -390,7 +566,7 @@ func TestFlushPersistLosesNoMutation(t *testing.T) {
 	}
 
 	// And a reload — the pattern the rest of the suite uses — sees it too.
-	reloaded := NewAppWithDir(dir)
+	reloaded := newAppInDirForTest(t, dir)
 	reloadedState, err := reloaded.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -407,7 +583,7 @@ func TestFlushPersistLosesNoMutation(t *testing.T) {
 func TestBackgroundWriteFailureIsSurfacedAndRetried(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "data")
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	if _, err := app.GetState(); err != nil {
 		t.Fatal(err)
 	}
@@ -489,7 +665,7 @@ func TestBackgroundWriteFailureIsSurfacedAndRetried(t *testing.T) {
 // inside the debounce window must be on disk once shutdown returns.
 func TestShutdownFlushesPendingState(t *testing.T) {
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 
 	state, err := app.GetState()
 	if err != nil {
@@ -515,7 +691,7 @@ func TestShutdownFlushesPendingState(t *testing.T) {
 // workbench calls on window blur.
 func TestFlushPendingWritesBindingFlushes(t *testing.T) {
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 
 	state, err := app.GetState()
 	if err != nil {

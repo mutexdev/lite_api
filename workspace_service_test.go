@@ -3,7 +3,7 @@ package main
 import "testing"
 
 func TestWorkspaceLookupHelpersPreserveActiveFallbackAndCollectionOwnership(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)

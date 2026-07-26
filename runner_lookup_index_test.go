@@ -17,7 +17,7 @@ func indexTestItem(id, name string) RequestItem {
 
 func newIndexTestApp(t *testing.T) *App {
 	t.Helper()
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	app.state.Workspaces = []Workspace{
 		{
 			ID:   "ws-1",
@@ -351,7 +351,7 @@ func TestRunnerLookupIndexScalesLinearly(t *testing.T) {
 		opts.LargeResponses = 0
 		opts.LargeResponseSize = 1
 		opts.SmallResponseSize = 1
-		app := NewAppWithDir(t.TempDir())
+		app := newAppForTest(t)
 		app.state = buildLargeWorkspaceState(opts)
 
 		index := newRunnerLookupIndex(&app.state)
@@ -399,7 +399,7 @@ func TestRunnerLookupIndexAcrossFixtureShapes(t *testing.T) {
 			opts.LargeResponses = 0
 			opts.LargeResponseSize = 1
 			opts.SmallResponseSize = 1
-			app := NewAppWithDir(t.TempDir())
+			app := newAppForTest(t)
 			app.state = buildLargeWorkspaceState(opts)
 			index := newRunnerLookupIndex(&app.state)
 			assertIndexAgreesWithScan(t, app, index, "fixture")

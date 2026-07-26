@@ -67,7 +67,7 @@ func runConcurrently(t *testing.T, timeout time.Duration, work ...func(iteration
 // conversion, because concurrent identical writes to the same word are only
 // reported when the detector sees at least one of them.
 func TestConcurrentReadPathsAgainstWriters(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatalf("GetState: %v", err)
@@ -134,7 +134,7 @@ func TestConcurrentReadPathsAgainstWriters(t *testing.T) {
 // path is entered repeatedly and concurrently, which is the only way to observe
 // a missing re-check or a torn read of the interface value.
 func TestConcurrentTLSSnapshotDoubleCheckedLocking(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatalf("GetState: %v", err)
@@ -170,7 +170,7 @@ func TestConcurrentTLSSnapshotDoubleCheckedLocking(t *testing.T) {
 // GetState to RLock without first making ensureReadyLocked side-effect free,
 // this test reports the race.
 func TestConcurrentGetStateAgainstWriters(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatalf("GetState: %v", err)

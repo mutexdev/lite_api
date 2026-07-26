@@ -5,7 +5,7 @@ import "testing"
 func TestWebStorageScopeIsStablePerDataDirectoryAndIsolatedAcrossDirectories(t *testing.T) {
 	firstDir := t.TempDir()
 	secondDir := t.TempDir()
-	first, err := newProductionApp(firstDir, nil)
+	first, err := newProductionAppForTest(t, firstDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -17,7 +17,7 @@ func TestWebStorageScopeIsStablePerDataDirectoryAndIsolatedAcrossDirectories(t *
 	// persistWorkspaceRuntimeLocked needs, so pending state must land first.
 	flushPersistForTest(t, first)
 	first.workspaceRuntime.release()
-	reloaded, err := newProductionApp(firstDir, nil)
+	reloaded, err := newProductionAppForTest(t, firstDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestWebStorageScopeIsStablePerDataDirectoryAndIsolatedAcrossDirectories(t *
 		t.Fatalf("scope was not stable across same-dir relaunch: first=%q reloaded=%q", firstScope, reloadedScope)
 	}
 
-	second, err := newProductionApp(secondDir, nil)
+	second, err := newProductionAppForTest(t, secondDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

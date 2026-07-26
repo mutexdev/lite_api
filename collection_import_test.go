@@ -57,7 +57,7 @@ func TestCollectionImportRejectsDuplicateSourceIDs(t *testing.T) {
 	if _, err := previewCollectionImport(CollectionImportPreviewRequest{Sources: sources}); err == nil || !strings.Contains(err.Error(), "duplicate") {
 		t.Fatalf("preview error = %v", err)
 	}
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +68,7 @@ func TestCollectionImportRejectsDuplicateSourceIDs(t *testing.T) {
 }
 
 func TestCollectionImportManualOverrideRescuesDetectionError(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestCollectionImportManualOverrideRescuesDetectionError(t *testing.T) {
 }
 
 func TestCollectionImportPreviewHasNamedHierarchyAndDestination(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -126,7 +126,7 @@ func TestCollectionImportRejectsDuplicateSelectionsAndUnknownConflictAction(t *t
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			app := NewAppWithDir(t.TempDir())
+			app := newAppForTest(t)
 			state, err := app.GetState()
 			if err != nil {
 				t.Fatal(err)
@@ -148,7 +148,7 @@ func TestCollectionImportRejectsDuplicateSelectionsAndUnknownConflictAction(t *t
 }
 
 func TestCollectionImportPreviewApplyAndRelaunch(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -179,7 +179,7 @@ func TestCollectionImportPreviewApplyAndRelaunch(t *testing.T) {
 	if _, err := app.SaveRequest(imported.ID, imported.Items[0].ID); err != nil {
 		t.Fatalf("immediate save after import failed: %v", err)
 	}
-	restarted := NewAppWithDir(app.dataDir)
+	restarted := newAppInDirForTest(t, app.dataDir)
 	restored, err := restarted.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -269,7 +269,7 @@ func TestCollectionImportFolderHashIgnoresNoiseAndRejectsStaleSelection(t *testi
 	if err := os.WriteFile(requestPath, append(request, []byte("# changed\n")...), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -296,7 +296,7 @@ func TestCollectionImportDetectsChangedSourceAtApply(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"broken":true}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, _ := app.GetState()
 	result, err := app.ApplyCollectionImport(CollectionImportApplyRequest{WorkspaceID: state.Workspaces[0].ID, Sources: []CollectionImportSource{{ID: "source", Path: path}}, Selections: []CollectionImportSelection{{SourceID: "source", CandidateID: "source:collection", ExpectedContentHash: preview.Rows[0].ContentHash}}})
 	if err != nil {
@@ -308,7 +308,7 @@ func TestCollectionImportDetectsChangedSourceAtApply(t *testing.T) {
 }
 
 func TestCollectionImportConflictActionsAndLegacyMaterialization(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -362,7 +362,7 @@ func TestCollectionImportConflictActionsAndLegacyMaterialization(t *testing.T) {
 }
 
 func TestCollectionImportPersistFailureRollsBackBatch(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -403,7 +403,7 @@ func TestCollectionImportPersistFailureRollsBackBatch(t *testing.T) {
 }
 
 func TestCollectionImportWriteFailureRollsBackStaging(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -424,7 +424,7 @@ func TestCollectionImportWriteFailureRollsBackStaging(t *testing.T) {
 }
 
 func TestCollectionImportReplaceRenameFailureRestoresExistingTarget(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -470,7 +470,7 @@ func TestCollectionImportReplaceRenameFailureRestoresExistingTarget(t *testing.T
 }
 
 func TestCollectionImportRetriesBackupCleanup(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -514,7 +514,7 @@ func TestCollectionImportOpeningFolderSeedsWatcherAndFirstTab(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(folder, "Request.bru"), []byte("meta {\n  name: Request\n  type: http\n  seq: 1\n}\nget {\n  url: https://example.test\n}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -543,7 +543,7 @@ func applySingleImport(t *testing.T, app *App, workspaceID string, source Collec
 }
 
 func TestCollectionImportExplicitEmptyRequestFilter(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -560,7 +560,7 @@ func TestCollectionImportExplicitEmptyRequestFilter(t *testing.T) {
 }
 
 func TestCollectionImportManualOverrideHonorsRequestFilter(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -596,7 +596,7 @@ func TestCollectionImportManualOverrideHonorsRequestFilter(t *testing.T) {
 
 func TestCollectionImportURLFetchesOncePerApplyAndScrubsQuery(t *testing.T) {
 	var calls atomic.Int32
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	app.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		calls.Add(1)
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"info":{"name":"Remote"},"item":[]}`))}, nil
@@ -639,7 +639,7 @@ func TestCollectionImportURLPolicyAndCurlImportDoNotLeakCredentials(t *testing.T
 }
 
 func TestCollectionImportURLFailureIsRowScopedAlongsideValidSource(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, _ := app.GetState()
 	sources := []CollectionImportSource{
 		{ID: "remote-failure", URL: "https://user:token@example.test/spec.json"},
@@ -656,7 +656,7 @@ func TestCollectionImportURLFailureIsRowScopedAlongsideValidSource(t *testing.T)
 }
 
 func TestCollectionImportPreviewConflictStatesAndRememberedDirectory(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -700,7 +700,7 @@ func TestCollectionImportPreviewConflictStatesAndRememberedDirectory(t *testing.
 }
 
 func TestCollectionImportOverrideRescueWithSubselection(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, _ := app.GetState()
 	source := CollectionImportSource{ID: "override-subset", Name: "misnamed.zip", Content: `{"info":{"name":"Override subset"},"item":[{"name":"Keep","request":{"method":"GET","url":"https://keep.test"}},{"name":"Drop","request":{"method":"GET","url":"https://drop.test"}}]}`}
 	preview, err := app.PreviewCollectionImport(CollectionImportPreviewRequest{Sources: []CollectionImportSource{{ID: source.ID, Name: source.Name, Content: source.Content, KindOverride: "postman"}}})
@@ -722,7 +722,7 @@ func TestCollectionImportOverrideRescueWithSubselection(t *testing.T) {
 }
 
 func TestLegacyImportPersistenceFailureRollsBack(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)

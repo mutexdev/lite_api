@@ -129,7 +129,7 @@ func TestResponseDownloadFilenameContentDispositionSafety(t *testing.T) {
 
 func responseExportApp(t *testing.T) (*App, Collection, RequestItem) {
 	t.Helper()
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)

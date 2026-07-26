@@ -15,7 +15,7 @@ import (
 
 func TestWorkspaceWindowRuntimeLaunchesStrictChildAndHydratesOnlySelectedWorkspace(t *testing.T) {
 	dir := t.TempDir()
-	parent := NewAppWithDir(dir)
+	parent := newAppInDirForTest(t, dir)
 	if err := parent.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestWorkspaceWindowRuntimeLaunchesStrictChildAndHydratesOnlySelectedWorkspa
 
 func TestWorkspaceWindowLaunchPreflightAndSpawnCleanup(t *testing.T) {
 	dir := t.TempDir()
-	app := NewAppWithDir(dir)
+	app := newAppInDirForTest(t, dir)
 	if err := app.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestWorkspaceWindowLaunchPreflightAndSpawnCleanup(t *testing.T) {
 
 func TestProductionMarkerLaunchRejectsStaleLegacyAndCorruptMarker(t *testing.T) {
 	dir := t.TempDir()
-	legacy := NewAppWithDir(dir)
+	legacy := newAppInDirForTest(t, dir)
 	if err := legacy.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestProductionMarkerLaunchRejectsStaleLegacyAndCorruptMarker(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(dir, "state.json"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	app, err := newProductionApp(dir, nil)
+	app, err := newProductionAppForTest(t, dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,21 +116,21 @@ func TestProductionMarkerLaunchRejectsStaleLegacyAndCorruptMarker(t *testing.T) 
 	if err := os.WriteFile(workspaceMigrationMarkerPath(dir), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := newProductionApp(dir, nil); err == nil {
+	if _, err := newProductionAppForTest(t, dir, nil); err == nil {
 		t.Fatal("corrupt marker silently remigrated")
 	}
 }
 
 func TestProductionRelaunchAcceptsMutableArtifactsButRejectsCorruption(t *testing.T) {
 	dir := t.TempDir()
-	legacy := NewAppWithDir(dir)
+	legacy := newAppInDirForTest(t, dir)
 	if err := legacy.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
 	if err := ExecuteWorkspaceMigration(dir, legacy.state, "main-window"); err != nil {
 		t.Fatal(err)
 	}
-	app, err := newProductionApp(dir, nil)
+	app, err := newProductionAppForTest(t, dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestProductionRelaunchAcceptsMutableArtifactsButRejectsCorruption(t *testin
 	// persistWorkspaceRuntimeLocked needs, so pending state must land first.
 	flushPersistForTest(t, app)
 	app.workspaceRuntime.release()
-	reloaded, err := newProductionApp(dir, nil)
+	reloaded, err := newProductionAppForTest(t, dir, nil)
 	if err != nil {
 		t.Fatalf("valid mutable artifacts rejected: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestProductionRelaunchAcceptsMutableArtifactsButRejectsCorruption(t *testin
 	if err := os.WriteFile(sharedAppStatePath(dir), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := newProductionApp(dir, nil); err == nil {
+	if _, err := newProductionAppForTest(t, dir, nil); err == nil {
 		t.Fatal("corrupt mutable artifact accepted")
 	}
 }
@@ -168,7 +168,7 @@ func TestProductionRelaunchHydratesNewEmptyCollections(t *testing.T) {
 	for _, format := range []string{"yml", "bru"} {
 		t.Run(format, func(t *testing.T) {
 			dir := t.TempDir()
-			app, err := newProductionApp(dir, nil)
+			app, err := newProductionAppForTest(t, dir, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -203,7 +203,7 @@ func TestProductionRelaunchHydratesNewEmptyCollections(t *testing.T) {
 			flushPersistForTest(t, app)
 			app.workspaceRuntime.release()
 
-			reloaded, err := newProductionApp(dir, nil)
+			reloaded, err := newProductionAppForTest(t, dir, nil)
 			if err != nil {
 				t.Fatalf("production relaunch rejected empty collection: %v", err)
 			}
@@ -319,7 +319,7 @@ func TestWorkspaceSessionReuseRestoresWorkspaceStateAndMainSession(t *testing.T)
 	if err := ExecuteWorkspaceMigration(dir, legacy, "main-window"); err != nil {
 		t.Fatal(err)
 	}
-	a, err := newProductionApp(dir, nil)
+	a, err := newProductionAppForTest(t, dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +398,7 @@ func TestWorkspaceSessionIdentityFilteringAndOrientationRestore(t *testing.T) {
 	if err := writeWorkspaceMigrationSession(dir, session); err != nil {
 		t.Fatal(err)
 	}
-	app, err := newProductionApp(dir, nil)
+	app, err := newProductionAppForTest(t, dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -414,7 +414,7 @@ func TestWorkspaceSessionIdentityFilteringAndOrientationRestore(t *testing.T) {
 	if err := writeWorkspaceMigrationSession(dir, session); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := newProductionApp(dir, nil); err == nil {
+	if _, err := newProductionAppForTest(t, dir, nil); err == nil {
 		t.Fatal("workspace-path mismatch accepted")
 	}
 }
@@ -543,7 +543,7 @@ func TestScopedCreateWorkspaceDoesNotSwitchAndCanLaunchNewTarget(t *testing.T) {
 	if err := ExecuteWorkspaceMigration(dir, legacy, "main-window"); err != nil {
 		t.Fatal(err)
 	}
-	app, err := newProductionApp(dir, nil)
+	app, err := newProductionAppForTest(t, dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

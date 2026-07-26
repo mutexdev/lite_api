@@ -87,7 +87,7 @@ func TestInitializeCollectionGitCreatesOnlyDotGit(t *testing.T) {
 	if _, err := gitVersion(); err != nil {
 		t.Skip(err)
 	}
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -179,7 +179,7 @@ func gitWorkbenchFixture(t *testing.T) (*App, Collection, string) {
 	runGit(t, seed, "remote", "add", "origin", "file://"+bare)
 	runGit(t, seed, "push", "-u", "origin", "HEAD")
 
-	app := NewAppWithDir(filepath.Join(root, "app-data"))
+	app := newAppInDirForTest(t, filepath.Join(root, "app-data"))
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)

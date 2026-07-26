@@ -34,7 +34,7 @@ func benchFixtureOptions() largeWorkspaceOptions {
 // synchronous, non-atomic os.WriteFile. Target of US-012 (async coalesced
 // persistence) and US-009 (response body store).
 func BenchmarkPersistLocked(b *testing.B) {
-	app := newLargeWorkspaceApp(b.TempDir(), benchFixtureOptions())
+	app := newLargeWorkspaceAppForTest(b, b.TempDir(), benchFixtureOptions())
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -52,7 +52,7 @@ func BenchmarkPersistLocked(b *testing.B) {
 // credential storage) from payload cost. The delta against the benchmark above
 // is the part that scales with cached response bodies.
 func BenchmarkPersistLockedSmallState(b *testing.B) {
-	app := NewAppWithDir(b.TempDir())
+	app := newAppForTest(b)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -71,7 +71,7 @@ func BenchmarkPersistLockedSmallState(b *testing.B) {
 // number BenchmarkPersistLocked should be read against — persistLocked still
 // exists and is still expensive, it just no longer runs per typed character.
 func BenchmarkMarkDirty(b *testing.B) {
-	app := newLargeWorkspaceApp(b.TempDir(), benchFixtureOptions())
+	app := newLargeWorkspaceAppForTest(b, b.TempDir(), benchFixtureOptions())
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -89,7 +89,7 @@ func BenchmarkMarkDirty(b *testing.B) {
 // collection to disk, which is what currently happens when a single request is
 // saved. Target of US-015 (dirty-set collection writes).
 func BenchmarkWriteCollectionFilesLocked(b *testing.B) {
-	app := newLargeWorkspaceApp(b.TempDir(), benchFixtureOptions())
+	app := newLargeWorkspaceAppForTest(b, b.TempDir(), benchFixtureOptions())
 
 	app.mu.Lock()
 	if len(app.state.Workspaces) == 0 || len(app.state.Workspaces[0].Collections) == 0 {
@@ -199,7 +199,7 @@ func BenchmarkExecuteHTTP(b *testing.B) {
 	}))
 	defer server.Close()
 
-	app := NewAppWithDir(b.TempDir())
+	app := newAppForTest(b)
 	collection := Collection{ID: "bench-coll", Name: "bench", Format: "bru"}
 	item := RequestItem{
 		ID:     "bench-req",
@@ -270,7 +270,7 @@ func BenchmarkRunnerLookups(b *testing.B) {
 		// sub-benchmark to build. Shape (collections x requests) is what this
 		// benchmark varies.
 		opts.LargeResponses = 0
-		app := newLargeWorkspaceApp(b.TempDir(), opts)
+		app := newLargeWorkspaceAppForTest(b, b.TempDir(), opts)
 
 		targets := []target{}
 		app.mu.Lock()

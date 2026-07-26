@@ -34,7 +34,7 @@ func TestDiscardRequestDraftRestoresSavedRequest(t *testing.T) {
 }
 
 func TestDiscardUnsavedScratchRequestDistinguishesSavedAndNeverSaved(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +96,7 @@ func TestDiscardUnsavedScratchRequestDistinguishesSavedAndNeverSaved(t *testing.
 }
 
 func TestNewNormalRequestIsTransientDraftUntilSaveOrRename(t *testing.T) {
-	app := NewAppWithDir(t.TempDir())
+	app := newAppForTest(t)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)
@@ -169,7 +169,7 @@ func TestNewNormalRequestIsTransientDraftUntilSaveOrRename(t *testing.T) {
 
 func TestDiscardUnsavedDraftPersistFailureRollsBackMemoryAndTabs(t *testing.T) {
 	dataDir := t.TempDir()
-	app := NewAppWithDir(dataDir)
+	app := newAppInDirForTest(t, dataDir)
 	state, err := app.GetState()
 	if err != nil {
 		t.Fatal(err)

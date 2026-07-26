@@ -164,13 +164,16 @@ type App struct {
 	lastCPUWall                 time.Time
 	requests                    *requestLifecycleRegistry
 	collectionRuns              *collectionRunLifecycleRegistry
-	systemProxyMu               sync.Mutex
-	systemProxyTransport        http.RoundTripper
-	workspaceRuntime            *workspaceWindowRuntime
-	workspaceProcessStart       func(string, []string) error
-	collectionImportHooks       *collectionImportHooks
-	gitWorkbenchExecutable      string
-	gitWorkbenchPersist         func() error
+	// transportCache (US-016) keys one *http.Transport per outbound security
+	// posture so requests reuse connections instead of cloning an empty pool
+	// per send. Its own lock is a leaf below a.mu; see http_transport_cache.go.
+	// The zero value is usable, so an App built as a bare literal works too.
+	transportCache         httpTransportCache
+	workspaceRuntime       *workspaceWindowRuntime
+	workspaceProcessStart  func(string, []string) error
+	collectionImportHooks  *collectionImportHooks
+	gitWorkbenchExecutable string
+	gitWorkbenchPersist    func() error
 
 	// Coalesced persistence (US-012). persistMu is a leaf lock: it is never
 	// held while acquiring a.mu, so markDirty stays safe to call from the
@@ -181,6 +184,13 @@ type App struct {
 	persistErr      error
 	persistFailures int
 	persistWrites   uint64
+	// Writer lifecycle. persistStop/persistDone belong to the writer currently
+	// running: stopPersistWriter closes the first and waits on the second, so
+	// "the writer has stopped" is an observable fact rather than a hope.
+	// persistStopped is sticky, so no later markDirty can start a replacement.
+	persistStop    chan struct{}
+	persistDone    chan struct{}
+	persistStopped bool
 }
 
 type TerminalSession struct {
@@ -1352,9 +1362,15 @@ func (a *App) handleSecondInstanceArgs(args []string) {
 }
 
 func (a *App) shutdown(ctx context.Context) {
-	// Force-flush first: state still inside the debounce window is data loss
-	// once the process exits, and the workspace runtime release below gives up
-	// the ownership lease persistWorkspaceRuntimeLocked needs.
+	// Retire the background writer before the flush, not after. It waits out a
+	// write already in flight, so the flush below is the last write of the
+	// process: nothing can land concurrently with — or after — the workspace
+	// runtime release, which gives up the ownership lease
+	// persistWorkspaceRuntimeLocked needs. Stopping loses nothing, because the
+	// flush that follows is synchronous and writes whatever is still dirty.
+	a.stopPersistWriter()
+	// Force-flush: state still inside the debounce window is data loss once the
+	// process exits.
 	if err := a.flushPersist(); err != nil {
 		a.logPersistError("Could not save workspace state on exit: " + err.Error())
 	}
@@ -5990,6 +6006,16 @@ func (a *App) UpdatePreferences(preferences Preferences) (AppState, error) {
 	next := normalizePreferences(preferences)
 	if tlsSessionPreferencesChanged(a.state.Preferences, next) {
 		a.tlsSessionCache = nil
+		// The cache key already separates the old and new TLS postures, so
+		// this is not what keeps them apart — it stops connections opened
+		// under the previous trust settings from idling on in a pool the new
+		// settings would never have authorised.
+		a.transportCache.flush()
+	}
+	if a.state.Preferences.Proxy != next.Proxy || a.state.Preferences.ProxyMode != next.ProxyMode {
+		// Same reasoning for the proxy: the key already separates postures,
+		// the flush retires sockets opened through the previous proxy.
+		a.transportCache.flush()
 	}
 	a.state.Preferences = next
 	return a.state, a.markDirty(persistScopeState)
@@ -6002,6 +6028,9 @@ func (a *App) ClearSSLSessionCache() (AppState, error) {
 		return AppState{}, err
 	}
 	a.tlsSessionCache = nil
+	// Cached transports hold the old session cache; drop them so a cleared
+	// cache really means no resumption from the tickets it held.
+	a.transportCache.flush()
 	return a.state, nil
 }
 
@@ -8553,9 +8582,15 @@ func (a *App) markDirty(scope persistScope) error {
 
 	a.persistMu.Lock()
 	a.persistDirty = true
-	if !a.persistRunning {
+	// A stopped App schedules nothing further: the state stays dirty and
+	// flushPersist remains the way to get it to disk. Without the sticky flag a
+	// mutation arriving from a straggling goroutine after stopPersistWriter
+	// returned would start a fresh writer and reopen the window this closes.
+	if !a.persistRunning && !a.persistStopped {
 		a.persistRunning = true
-		go a.persistWriterLoop()
+		a.persistStop = make(chan struct{})
+		a.persistDone = make(chan struct{})
+		go a.persistWriterLoop(a.persistStop, a.persistDone)
 	}
 	previous := a.persistErr
 	a.persistErr = nil
@@ -8592,13 +8627,36 @@ func (a *App) persistEnvironmentSecretsLocked() error {
 // persistWriterLoop is the background writer. At most one runs per App: it is
 // started by the first markDirty and exits once it observes a clean state, so
 // an idle App holds no goroutine.
-func (a *App) persistWriterLoop() {
+//
+// stop and done are passed in rather than read off the App so that a writer
+// which already exited on its own cannot be confused with the one a later
+// markDirty started: each generation owns its own pair of channels.
+func (a *App) persistWriterLoop(stop <-chan struct{}, done chan<- struct{}) {
+	// Closed on every exit path, including a panic in persistOnce: this is what
+	// stopPersistWriter blocks on, and a writer that died without closing it
+	// would hang every caller.
+	defer close(done)
+
 	delay := persistDebounceInterval
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
 	for {
-		time.Sleep(delay)
+		select {
+		case <-stop:
+			a.persistMu.Lock()
+			a.persistRunning = false
+			a.persistMu.Unlock()
+			return
+		case <-timer.C:
+		}
 
 		a.persistMu.Lock()
-		if !a.persistDirty {
+		// persistStopped is re-checked here, under persistMu and before any
+		// write, because select picks at random when both the timer and stop
+		// are ready. Checking the flag the stopper set under the same mutex —
+		// rather than trusting which case select happened to take — is what
+		// makes "no write can start after stopPersistWriter" a guarantee.
+		if a.persistStopped || !a.persistDirty {
 			a.persistRunning = false
 			a.persistMu.Unlock()
 			return
@@ -8633,6 +8691,46 @@ func (a *App) persistWriterLoop() {
 			delay = persistDebounceInterval + elapsed
 		}
 		a.persistMu.Unlock()
+
+		// The timer has already fired and been drained by the select above, so
+		// it is safe to reset without the Stop/drain dance.
+		timer.Reset(delay)
+	}
+}
+
+// stopPersistWriter stops this App's background writer and does not return
+// until that goroutine has exited. Once it returns, the App cannot write to
+// a.dataDir again on its own: the sticky persistStopped flag keeps markDirty
+// from starting a replacement.
+//
+// It is idempotent, and safe on an App that never started a writer (a bare
+// literal, or one that was never mutated). It must be called *without* a.mu
+// held, since the writer it waits on may be inside persistOnce, which takes
+// a.mu; the lock order a.mu -> persistMu is unchanged, and persistMu is still a
+// leaf — it is released before the wait on persistDone.
+//
+// Stopping does not flush. A stop is issued when the App is finished with (test
+// cleanup, process shutdown), and at that point a directory may already be
+// being torn down; writing state into it is exactly the hazard this closes.
+// Callers that need the pending state on disk flush first — shutdown does, and
+// flushPersist keeps working afterwards because it writes synchronously on the
+// caller's own goroutine rather than through the writer.
+func (a *App) stopPersistWriter() {
+	if a == nil {
+		return
+	}
+	a.persistMu.Lock()
+	done := a.persistDone
+	if !a.persistStopped {
+		a.persistStopped = true
+		if a.persistStop != nil {
+			close(a.persistStop)
+		}
+	}
+	a.persistMu.Unlock()
+
+	if done != nil {
+		<-done
 	}
 }
 
@@ -9421,27 +9519,12 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 	}
 	tlsSettings := a.appTLSSettingsSnapshot()
 	verifyTLS := requestTLSVerificationEnabled(tlsSettings.Request, item.Settings.VerifyTLS)
-	var tlsErr error
-	baseTransport, tlsErr = transportWithAppTLSSettings(baseTransport, tlsSettings, verifyTLS)
-	if tlsErr != nil {
-		result.Error = tlsErr.Error()
-		result.DurationMs = time.Since(start).Milliseconds()
-		return result
-	}
-	if collectionPath, certs, ok := a.collectionClientCertificateConfig(collectionID); ok {
-		var certErr error
-		baseTransport, certErr = transportWithClientCertificate(baseTransport, collectionPath, certs, targetURL, vars)
-		if certErr != nil {
-			result.Error = certErr.Error()
-			result.DurationMs = time.Since(start).Milliseconds()
-			return result
-		}
-	}
-	proxyResolution := a.collectionProxyResolution(collectionID)
-	var proxyErr error
-	baseTransport, proxyErr = a.transportWithProxyResolution(baseTransport, proxyResolution, targetURL, vars)
-	if proxyErr != nil {
-		result.Error = proxyErr.Error()
+	// US-016: one shared transport per security posture, so sequential sends
+	// reuse the connection instead of handshaking into a fresh empty pool.
+	var transportErr error
+	baseTransport, transportErr = a.requestTransport(baseTransport, tlsSettings, verifyTLS, collectionID, targetURL, vars)
+	if transportErr != nil {
+		result.Error = transportErr.Error()
 		result.DurationMs = time.Since(start).Milliseconds()
 		return result
 	}
@@ -9876,26 +9959,6 @@ func transportWithProxyResolution(base http.RoundTripper, resolution proxyResolu
 	}
 }
 
-func (a *App) transportWithProxyResolution(base http.RoundTripper, resolution proxyResolution, requestURL string, vars map[string]string) (http.RoundTripper, error) {
-	if strings.EqualFold(strings.TrimSpace(resolution.Mode), "system") && base == http.DefaultTransport {
-		a.systemProxyMu.Lock()
-		defer a.systemProxyMu.Unlock()
-		if a.systemProxyTransport == nil {
-			transport := cloneHTTPTransport(base)
-			transport.Proxy = func(req *http.Request) (*url.URL, error) {
-				target := requestURL
-				if req != nil && req.URL != nil {
-					target = req.URL.String()
-				}
-				return systemProxyURLForRequest(target)
-			}
-			a.systemProxyTransport = transport
-		}
-		return a.systemProxyTransport, nil
-	}
-	return transportWithProxyResolution(base, resolution, requestURL, vars)
-}
-
 func cloneHTTPTransport(base http.RoundTripper) *http.Transport {
 	source, ok := base.(*http.Transport)
 	if !ok || source == nil {
@@ -10152,8 +10215,10 @@ func loadPACSource(pacSource string) (string, error) {
 		return string(data), err
 	}
 	if strings.HasPrefix(strings.ToLower(pacSource), "http://") || strings.HasPrefix(strings.ToLower(pacSource), "https://") {
-		client := http.Client{Timeout: 5 * time.Second, Transport: transportWithoutProxy(http.DefaultTransport)}
-		res, err := client.Get(pacSource)
+		// US-017: shared no-proxy client (a PAC fetch must not go through the
+		// proxy it is being consulted to discover). Was a fresh transport clone
+		// per fetch.
+		res, err := sharedPACHTTPClient().Get(pacSource)
 		if err != nil {
 			return "", err
 		}
@@ -14569,8 +14634,10 @@ func requestOAuth2TokenFormWithTimeline(cfg OAuth2Auth, tokenURL string, form ur
 	}
 	setRequestBodyString(tokenReq, form.Encode())
 	timelineStart := time.Now()
-	client := http.Client{Timeout: 30 * time.Second}
-	res, err := client.Do(tokenReq)
+	// US-017: shared client. Posture unchanged (verified TLS, environment
+	// proxy) — an OAuth2 client-secret exchange must not inherit the user's
+	// proxy or a "disable SSL verification" toggle.
+	res, err := sharedCredentialHTTPClient().Do(tokenReq)
 	duration := time.Since(timelineStart).Milliseconds()
 	if err != nil {
 		timelineEntry := oauth2TimelineItemFromRequest(tokenReq, nil, duration, err)
@@ -16101,8 +16168,9 @@ func assumeAWSV4Role(profileName string, profile map[string]string, source awsV4
 	}, nil, time.Now().UTC()); err != nil {
 		return awsV4ProfileCredentials{}, fmt.Errorf("sign AWS STS AssumeRole request: %w", err)
 	}
-	client := http.Client{Timeout: 30 * time.Second}
-	res, err := client.Do(req)
+	// US-017: shared client, posture unchanged — AWS credential calls keep
+	// verified TLS and the environment proxy, not the user's proxy settings.
+	res, err := sharedCredentialHTTPClient().Do(req)
 	if err != nil {
 		return awsV4ProfileCredentials{}, fmt.Errorf("call AWS STS AssumeRole: %w", err)
 	}
@@ -16202,8 +16270,8 @@ func assumeAWSV4RoleWithWebIdentity(profileName string, profile map[string]strin
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	setRequestBodyString(req, form.Encode())
-	client := http.Client{Timeout: 30 * time.Second}
-	res, err := client.Do(req)
+	// US-017: shared client, posture unchanged.
+	res, err := sharedCredentialHTTPClient().Do(req)
 	if err != nil {
 		return awsV4ProfileCredentials{}, fmt.Errorf("call AWS STS AssumeRoleWithWebIdentity: %w", err)
 	}
@@ -16461,8 +16529,8 @@ func refreshAWSV4SSOToken(payload awsV4SSOTokenCachePayload, ssoProfile awsV4SSO
 		return awsV4SSOTokenCachePayload{}, awsV4SSOToken{}, fmt.Errorf("create AWS SSO OIDC token refresh request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	client := http.Client{Timeout: 30 * time.Second}
-	res, err := client.Do(req)
+	// US-017: shared client, posture unchanged.
+	res, err := sharedCredentialHTTPClient().Do(req)
 	if err != nil {
 		return awsV4SSOTokenCachePayload{}, awsV4SSOToken{}, fmt.Errorf("call AWS SSO OIDC token refresh: %w", err)
 	}
@@ -16562,8 +16630,8 @@ func requestAWSV4SSORoleCredentials(profile awsV4SSOProfile, rawProfile map[stri
 		return awsV4ProfileCredentials{}, fmt.Errorf("create AWS SSO GetRoleCredentials request: %w", err)
 	}
 	req.Header.Set("x-amz-sso_bearer_token", accessToken)
-	client := http.Client{Timeout: 30 * time.Second}
-	res, err := client.Do(req)
+	// US-017: shared client, posture unchanged.
+	res, err := sharedCredentialHTTPClient().Do(req)
 	if err != nil {
 		return awsV4ProfileCredentials{}, fmt.Errorf("call AWS SSO GetRoleCredentials: %w", err)
 	}
@@ -19444,8 +19512,11 @@ func scriptSendRequest(runtime *goja.Runtime, configValue goja.Value, vars map[s
 		}
 	}
 	start := time.Now()
-	client := &http.Client{Timeout: 30 * time.Second}
-	res, err := client.Do(req)
+	// US-017: shared client. Posture deliberately unchanged: script
+	// sendRequest has never used the collection's proxy or TLS settings, and
+	// adopting them here would let a verify-off request reach a script's
+	// outbound call without anything in the UI saying so.
+	res, err := sharedCredentialHTTPClient().Do(req)
 	duration := time.Since(start).Milliseconds()
 	timelineEntry.Duration = duration
 	if err != nil {

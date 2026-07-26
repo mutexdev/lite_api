@@ -371,8 +371,8 @@
         "R2",
         "R5"
       ],
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Keyed transport cache in http_transport_cache.go. Key is a SHA-256 over a LENGTH-PREFIXED encoding (so a proxy password containing a separator cannot forge another key's bytes) covering: source transport pointer, verifyTLS, custom-CA enabled/path/PEM CONTENT, keepDefaultCaCertificates, TLS session cache pointer, matched client cert as SHA-256 over the DER chain, and proxy mode + full URL incl. userinfo. Completeness argument: build() differs from source in exactly TLSClientConfig and Proxy; every field it writes has a key column, everything else is inherited from source which is keyed by pointer. CA is keyed by content not path, so editing the CA file cannot silently reuse old roots. VERIFIED BY ORCHESTRATOR: 11 security/reuse tests pass, incl. a verify-off->verify-on collision test and an end-to-end executeHTTP test in both orders against an untrusted cert. Connection reuse proven: proxy + client cert, 5 sends, 1 proxy accept + 1 target accept + 1 ConnectStart + 4 reused GotConn - and shown to FAIL at b61be41 with 5 connections. Eviction: 5-min idle TTL (above DefaultTransport's 90s IdleConnTimeout so entries owning live idle sockets are not dropped) + 32-entry LRU, scan on insert and at most once per 30s on hit, evicted transports CloseIdleConnections after unlock. ExecuteHTTP 186,624 -> ~102,000 ns/op, allocs 255 -> 151."
     },
     {
       "id": "US-017",
@@ -391,8 +391,8 @@
         "R1",
         "R2"
       ],
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Six one-off 30s http.Clients plus the 5s PAC client now share cached transports. CRITICAL AND DELIBERATE: none were given the user's proxy or TLS settings. All six had a nil Transport (DefaultTransport: always-verified, ProxyFromEnvironment) and handle credential exchanges - OAuth2 token exchange, AWS STS AssumeRole and AssumeRoleWithWebIdentity, AWS SSO OIDC refresh and GetRoleCredentials, script sendRequest. Routing a client-secret exchange through a user-configured proxy it previously bypassed, or letting a 'disable SSL verification' toggle reach a token endpoint, would be a security regression dressed as a refactor. They now share one client whose transport short-circuits to http.DefaultTransport itself, so the win is uniformity, not connections. The genuine fix is the PAC fetch, which was transportWithoutProxy(...) = a fresh clone with an empty pool per fetch; now one shared transport, still Proxy: nil, because a PAC fetch must not go through the proxy it is being consulted to discover. Asserted in TestSharedOutboundClientsKeepTheirPreviousPosture."
     },
     {
       "id": "US-018",
@@ -863,8 +863,8 @@
         "R1",
         "R5"
       ],
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "74 tests (7 existing + 67 new) in frontend/test/response.test.mts. Chose node --test over the story's Vitest: response.ts is pure functions so @testing-library/svelte adds nothing, and Vitest would mean a second runner/config/CI invocation for zero coverage. DOMParser stubbed in 5 lines rather than adding jsdom. MUTATION TESTED: 24 targeted mutations applied to response.ts, all 24 killed; response.ts restored byte-identical. sliceUtf8 and sliceBase64Bytes are property-tested across every byte limit rather than against expected strings, so they are a spec not a mirror. 8 real bugs documented and asserted as-is (not fixed - protected asset): boundedLines.truncated is a false positive at exactly the limit; lineDiff marks a row changed when one side has no line; base64ByteLength under-reports UNPADDED base64 (matters for US-009/010 which replace the producer); malformed filename* discards a good filename fallback; filename=\"\" yields the literal __; hex path does not strip whitespace before quartet alignment (matters once US-010 emits wrapped base64); findMatches trims the query so highlight offsets are wrong; the 500-match cap is silent. Bundle byte-identical."
     },
     {
       "id": "US-039",
@@ -1599,6 +1599,26 @@
       ],
       "passes": false,
       "notes": "Found by Reviewer 3 computer-use QA against commit 2fe68f0; see .ralph/reviews/phase0-qa-round-1.md and .ralph/baseline/phase0-main-window.png. Not covered by US-037 (that is a spacing/type token migration, this is a responsive-overflow defect). Evidence: 'Development' ends x=666 while 'Cookies' starts x=655 (11px sibling overlap); breadcrumb compressed to x=716..796."
+    },
+    {
+      "id": "US-076",
+      "title": "Fix workspace pointer captured across the runner's lock release",
+      "description": "As a user running a collection while the workspace tree changes, I want the runner not to write through a stale pointer, so that my state is not silently corrupted.",
+      "acceptanceCriteria": [
+        "sendRequestWithControlsContext no longer holds a *Workspace (pointer into a.state.Workspaces) across the release of a.mu during network I/O",
+        "The workspace is re-resolved by ID after a.mu is re-acquired, or the write is performed by index rather than through a captured pointer",
+        "A test reallocates a.state.Workspaces (append past capacity) during the I/O window and asserts the runner's write lands in live state, not a dead backing array",
+        "go test -race clean",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R4"
+      ],
+      "passes": false,
+      "notes": "Found during US-024 review, pre-existing and NOT introduced by it. sendRequestWithControlsContext captures ws (a pointer into a.state.Workspaces) before releasing a.mu, then uses it after re-acquiring, at applyScriptVariableContextToState. Any append that grows Workspaces past capacity reallocates the backing array, so the captured pointer then writes into memory nothing reads. Silent corruption, not a crash. US-024 deliberately preserved the existing behaviour rather than fixing it inside a performance story."
     }
   ]
 }
