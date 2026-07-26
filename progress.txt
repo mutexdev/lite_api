@@ -4620,3 +4620,32 @@ US-026 - Store layer. DONE. Both named collapses complete.
   occasions where a control corrected ME rather than the code — a wrong
   expectation about timeRange's end bound, about drift ordering, about
   credential precedence, and a test whose NAME pointed at the wrong mechanism.
+
+--- US-019: the workaround is FORECLOSED, so the decision is unavoidable ---
+
+  I looked for a way to take the performance win WITHOUT the semantics change —
+  share one runtime across the post-response phase but keep the three phases
+  isolated, so nobody has to decide what a tests script may see.
+
+  The measurement kills it:
+
+      goja.New()                 949 ns      1,712 B         8 allocs
+      NewScriptRuntimeWithMeta   664,256 ns  734,537 B   8,482 allocs
+
+  The bare runtime is 0.09% of the allocations. NINETY-NINE POINT NINE PERCENT
+  OF THE COST IS THE SHIMS — installing pm.*, bru.*, the Node shims and the test
+  vocabulary onto the global object.
+
+  So sharing the RUNTIME while re-installing the shims per phase saves 8
+  allocations out of 8,482: nothing. The only way to bank the ~17,000 allocations
+  is to share the SHIMS, and shared shims mean a shared global object, which is
+  exactly what makes a post-response script's globals visible to the tests
+  script. That IS the semantics change.
+
+  There is no clever third option. The choice is:
+      (a) accept the visibility change — closer to Postman, where post-response
+          state is visible to tests — and update the four pinned tests, or
+      (b) keep the isolation and leave 1.5 MB per request on the table.
+
+  Both are defensible. Neither is mine to pick, and I would rather say that
+  plainly than implement one and describe it as a refactor.
