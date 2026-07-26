@@ -4388,3 +4388,29 @@ US-026 - Store layer. DONE. Both named collapses complete.
   "0 failing" I would otherwise have believed.
 
   0%-covered: 30 -> 18. Coverage 79.3%.
+
+--- GraphQL and environment loading — yamlstore now has NO 0% functions ---
+
+  The last two untested loaders in the package.
+
+  applyYAMLGraphQL: the mode is set UNCONDITIONALLY, before the body is read, so
+  a file with no body block still loads AS a GraphQL request. That matters —
+  loaded as raw text instead, the editor opens it wrong and the user's query is
+  one save away from being discarded. Also pinned: "post" in a hand-edited file
+  upper-cases to POST, and absent keys do not clobber what the item already has.
+
+  ParseYAMLEnvironmentContent: name, colour, variables and the secret flag. A
+  lost secret flag renders the value unmasked in the UI.
+
+  ONE TEST IS THERE FOR A SPECIFIC REASON. TestEnvironmentContentWithNoNameAtAll
+  pins the literal "Environment" — the exact string my extraction corrupted to
+  "types.Environment" and shipped. The integrity tripwire catches the pattern
+  across the tree; this one catches THIS string behaviourally, from the outside,
+  by loading a file and reading the name back. Two independent nets on the same
+  defect, because it got through three careful passes.
+
+  Controls: dropping graphql variables fails 1, not setting graphql mode fails
+  2, not upper-casing the method fails 1, ignoring the env fallback name fails
+  1, and re-corrupting the literal fails 1.
+
+  store/yamlstore 0%-covered functions: 4 -> 0. Overall 30 -> 16. Coverage 79.4%.
