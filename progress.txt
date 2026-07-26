@@ -5590,3 +5590,45 @@ US-026 - Store layer. DONE. Both named collapses complete.
   liveWorkspace` added so the mutation compiles: both assertions fire. Third
   time this session that an absent result has impersonated a negative one
   (blank grep count, un-run `timeout` command, now a failed build).
+
+=== RESTRUCTURE PHASE 2 COMPLETE — app.go 17,314 -> 3,398 lines (-80%) ===
+
+  24 app_*.go files. Final wave, deliberately last:
+    app_openapi_sync.go     10 decls, 299 lines
+    app_export_bindings.go   7 decls, 206 lines
+    app_bootstrap.go        13 decls, 389 lines
+    app_persist.go          26 decls, 554 lines   <- riskiest, done last
+
+  app.go now holds only the spine: imports, the App struct, the session/secret
+  types, construction and lifecycle, assertions, and the tab/notification
+  internals.
+
+  THE PERSISTENCE ENGINE WENT LAST ON PURPOSE. It holds the coalesced-write
+  loop and the *Locked convention the whole a.mu discipline rests on. By the
+  time it moved, the mechanics had been proven on sixteen uneventful slices.
+  Race-tested specifically: go test -race on the persist/revision/flush tests
+  passes.
+
+  persistLocked was missed by the range selection (it sat one line outside the
+  window) and moved in a follow-up call. The tool takes NAMES, so the fix was
+  naming it — no line arithmetic, no second chance to be off by one.
+
+  WROTE DOWN A SECOND INVARIANT THAT MOTION SEPARATED FROM ITS CODE.
+  persistStop/persistDone/persistStopped stay on the App struct in app.go
+  because they are App state, but every reader and writer of them
+  (markDirty, persistWriterLoop, stopPersistWriter, persistOnce) is now in
+  app_persist.go. The comment explaining that persistStopped is sticky now
+  points at the file where that is actually enforced. Same treatment as the
+  executeHTTP lock invariant: the split makes implicit knowledge explicit, or
+  it loses it.
+
+  GOIMPORTS DOES NOT RESTORE ALIASED IMPORTS. Moving the persist block left
+  wailsruntime.BrowserOpenURL with no import; goimports could not infer the
+  `wailsruntime` alias for wails/v2/pkg/runtime and left the file broken. Loud
+  failure (undefined: wailsruntime), fixed by hand. Second goimports limitation
+  this phase, after the go.starlark.net/lib/proto misresolution.
+
+  Verified after every slice: gofmt, go vet, golangci-lint (0), full test suite
+  (19 packages), the go doc binding invariant (188, byte-identical list), and
+  wails generate module producing no change to frontend/wailsjs. Cold-cache
+  build and vet re-run at the end.
