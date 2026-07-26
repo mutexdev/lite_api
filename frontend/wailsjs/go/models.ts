@@ -1992,6 +1992,7 @@ export namespace main {
 	    networkLog: NetworkLog[];
 	    runner: RunnerSnapshot;
 	    cookies: CookieEntry[];
+	    revision: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppState(source);
@@ -2011,6 +2012,7 @@ export namespace main {
 	        this.networkLog = this.convertValues(source["networkLog"], NetworkLog);
 	        this.runner = this.convertValues(source["runner"], RunnerSnapshot);
 	        this.cookies = this.convertValues(source["cookies"], CookieEntry);
+	        this.revision = source["revision"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

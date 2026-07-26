@@ -258,6 +258,10 @@ export function FetchCollectionGit(arg1, arg2) {
   return window['go']['main']['App']['FetchCollectionGit'](arg1, arg2);
 }
 
+export function FlushPendingWrites() {
+  return window['go']['main']['App']['FlushPendingWrites']();
+}
+
 export function GenerateCollectionDocs(arg1, arg2) {
   return window['go']['main']['App']['GenerateCollectionDocs'](arg1, arg2);
 }

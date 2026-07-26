@@ -130,6 +130,8 @@ export function ExportGlobalEnvironments(arg1:string,arg2:Array<string>,arg3:str
 
 export function FetchCollectionGit(arg1:string,arg2:string):Promise<main.CollectionGitOperationResult>;
 
+export function FlushPendingWrites():Promise<void>;
+
 export function GenerateCollectionDocs(arg1:string,arg2:main.GenerateCollectionDocsOptions):Promise<main.GenerateCollectionDocsResult>;
 
 export function GenerateGRPCMessage(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;

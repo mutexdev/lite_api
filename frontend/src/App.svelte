@@ -141,6 +141,7 @@
 		StageCollectionGitPaths,
 		UnstageCollectionGitPaths,
 		FetchCollectionGit,
+    FlushPendingWrites,
     SaveGlobalEnvironmentExport,
     SaveRequest,
     SaveResponseBody,
@@ -359,6 +360,7 @@
   let compactWorkbench = false
   let compactWorkbenchMedia: MediaQueryList | undefined
   let removeCompactWorkbenchListener: (() => void) | undefined
+  let removeFlushOnBlurListeners: (() => void) | undefined
   let collectionTab: CollectionTab = 'overview'
   let responseView: 'pretty' | 'raw' | 'base64' | 'hex' = 'pretty'
   let tabLifecycleDialog: TabLifecycleDialog | null = null
@@ -1195,6 +1197,28 @@
 	    updateCompactWorkbench()
 	    compactWorkbenchMedia.addEventListener('change', updateCompactWorkbench)
 	    removeCompactWorkbenchListener = () => compactWorkbenchMedia?.removeEventListener('change', updateCompactWorkbench)
+    // US-012 wanted a force-flush on window blur, and the Go side has had
+    // FlushPendingWrites all along — but the Wails binding for it was never
+    // regenerated, so the frontend half was silently missing. Persistence is
+    // now deferred behind a 250 ms debounce, so without this a user who
+    // switches away (or whose machine sleeps) within that window loses the
+    // last edit. visibilitychange covers the sleep/hide case that blur misses.
+    const flushPendingWrites = () => {
+      void FlushPendingWrites().catch(() => {
+        // A failed background write is surfaced to the user by the Go side's
+        // notification path on the next mutation; there is nothing useful to
+        // do from a blur handler, and throwing here would be unhandled.
+      })
+    }
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushPendingWrites()
+    }
+    window.addEventListener('blur', flushPendingWrites)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    removeFlushOnBlurListeners = () => {
+      window.removeEventListener('blur', flushPendingWrites)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
 	    stopGitCloneProgress = EventsOn('git:clone:progress', (event: GitCloneProgress) => {
 	      gitCloneProgress = [...gitCloneProgress, event].slice(-24)
 	    })
@@ -1229,6 +1253,7 @@
 	    stopCollectionWatchPolling()
 	    stopOpenAPISyncPolling()
 	    removeCompactWorkbenchListener?.()
+	    removeFlushOnBlurListeners?.()
 	    stopGitCloneProgress?.()
 	    stopOAuth2Authorize?.()
 	    stopNativeMenuCommands?.()

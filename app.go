@@ -191,6 +191,15 @@ type App struct {
 	persistStop    chan struct{}
 	persistDone    chan struct{}
 	persistStopped bool
+
+	// revision (US-008) is the authoritative monotonic mutation counter, and
+	// AppState.Revision is only ever a stamped copy of it. Keeping it on the
+	// App rather than in the state is what makes monotonicity unconditional:
+	// several paths restore a whole previous AppState — the collection-import
+	// rollbacks and the OpenAPI-sync rollback at ImportCollection — and a
+	// counter living inside that value would travel backwards with it.
+	// Guarded by a.mu, like a.state itself.
+	revision int64
 }
 
 type TerminalSession struct {
@@ -232,6 +241,19 @@ type AppState struct {
 	NetworkLog         []NetworkLog   `json:"networkLog"`
 	Runner             RunnerSnapshot `json:"runner"`
 	Cookies            []CookieEntry  `json:"cookies"`
+	// Revision is a monotonic counter, bumped exactly once per mutation by
+	// markDirty and never by a read. The frontend compares the revision on a
+	// narrow mutator result against the one it last applied; a gap means it
+	// missed an update and must refetch the whole AppState (US-014).
+	//
+	// It is deliberately NOT persisted — stateForStorage zeroes it. The
+	// guarantee the frontend needs is monotonicity within one App instance,
+	// and restoring a counter from disk cannot provide that: under the
+	// multi-window shared-state model a window that reloads state written by
+	// another window would see the revision jump backwards. Starting every
+	// instance at zero is both monotonic and honest, because the frontend
+	// fetches the full state on boot anyway.
+	Revision int64 `json:"revision"`
 }
 
 type Workspace struct {
@@ -1426,6 +1448,11 @@ func (a *App) GetState() (AppState, error) {
 	if err := a.ensureReadyLocked(); err != nil {
 		return AppState{}, err
 	}
+	// Re-stamp rather than bump: a read must never advance the counter, but it
+	// must also never report a revision older than the last mutation. The stamp
+	// inside a.state can lag a.revision after a path that restores a whole
+	// earlier AppState (see App.revision).
+	a.state.Revision = a.revision
 	return a.state, nil
 }
 
@@ -8455,7 +8482,30 @@ func preferenceProxyMode(proxy ProxyPreferences) string {
 	}
 }
 
+// persistLocked writes state.json synchronously on behalf of a mutation that
+// wants durability before it returns — imports, recovery, draft-guard saves and
+// the readiness normalisation in ensureReadyLocked. Because every one of those
+// call sites is a real mutation, this is the second place (with markDirty) that
+// owns the US-008 revision bump.
+//
+// Callers that merely want in-memory state flushed to disk — persistOnce and
+// flushPersistLocked, which are draining a mutation markDirty has ALREADY
+// counted — must call writeStateLocked instead, or the same mutation would be
+// counted twice and the frontend would see a phantom revision gap.
 func (a *App) persistLocked() error {
+	a.bumpRevisionLocked()
+	return a.writeStateLocked()
+}
+
+// bumpRevisionLocked advances the mutation counter and stamps it into the state
+// the bindings hand back. a.mu must be held.
+func (a *App) bumpRevisionLocked() {
+	a.revision++
+	a.state.Revision = a.revision
+}
+
+// writeStateLocked is the write itself, with no revision side effect.
+func (a *App) writeStateLocked() error {
 	if a.workspaceRuntime != nil {
 		return a.persistWorkspaceRuntimeLocked()
 	}
@@ -8578,6 +8628,12 @@ const (
 // user. Reading it clears it, so a single failure is reported once.
 func (a *App) markDirty(scope persistScope) error {
 	_ = scope
+	// US-008. markDirty is the one call every mutation site already funnels
+	// through, and reads never reach it — ensureReadyLocked mutates but does
+	// not mark dirty — so bumping here satisfies "exactly once per mutation,
+	// never on a read" without touching 81 call sites. a.mu is held by
+	// contract, which is what makes the increment safe.
+	a.bumpRevisionLocked()
 	secretsErr := a.persistEnvironmentSecretsLocked()
 
 	a.persistMu.Lock()
@@ -8749,7 +8805,9 @@ func persistBackoff(failures int) time.Duration {
 func (a *App) persistOnce() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	err := a.persistLocked()
+	// writeStateLocked, not persistLocked: this is draining a mutation markDirty
+	// already counted (US-008).
+	err := a.writeStateLocked()
 	if err != nil {
 		a.reportPersistFailureLocked(err)
 	}
@@ -8809,7 +8867,8 @@ func (a *App) flushPersistLocked() error {
 	if !dirty {
 		return pending
 	}
-	if err := a.persistLocked(); err != nil {
+	// writeStateLocked, not persistLocked: see persistOnce (US-008).
+	if err := a.writeStateLocked(); err != nil {
 		a.persistMu.Lock()
 		a.persistDirty = true
 		a.persistMu.Unlock()
@@ -9298,6 +9357,9 @@ func stateForStorage(state AppState, dataDir string) AppState {
 	scrubbed := stateWithoutCollectionEnvironmentSecrets(state)
 	scrubbed = stateWithoutScratchCollections(scrubbed)
 	scrubbed.Cookies = encryptCookieValuesForStorage(dataDir, scrubbed.Cookies)
+	// See AppState.Revision: the counter is per-instance, so it must not
+	// survive a restart or cross between windows via the shared state file.
+	scrubbed.Revision = 0
 	return scrubbed
 }
 
