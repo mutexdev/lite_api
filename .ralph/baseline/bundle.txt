@@ -53,3 +53,35 @@ frontend/dist/assets/index-*.css        113609
 # CodeMirror is currently a separate component. The story does not state this
 # ordering constraint; it should be run AFTER US-025.
 # ---------------------------------------------------------------------------
+
+
+# ===========================================================================
+# Re-measured after US-025 (all 29 dialogs moved onto the shared Modal shell)
+# ===========================================================================
+#
+#   initial chunk  533,898 -> 532,602 bytes   (-1,296)
+#
+# Essentially unchanged, and that is the expected result rather than a
+# disappointment: US-025 replaced each dialog's hand-rolled backdrop/dialog
+# WRAPPER with <Modal>, but every dialog's BODY is still inline in App.svelte.
+# The wrappers were a few lines each; the bodies are the bytes.
+#
+# WHAT IT WOULD TAKE to clear the 500,000-byte target, measured rather than
+# estimated. The 29 modal bodies total ~57 KB of source in App.svelte:
+#
+#   3,757  generate-docs          3,649  rename-request      3,613  clone-request
+#   3,606  share-collection       3,454  rename-folder       3,350  clone-folder
+#   3,337  new-folder             3,336  openapi-spec-diff   3,281  clone-collection
+#   2,696  notifications          2,385  openapi-settings    ... 18 more under 2 KB
+#
+# The remaining gap is 32,602 bytes of MINIFIED output. Moving the bodies into
+# lazily-imported components under lib/modals/ would very likely clear it, since
+# ~57 KB of source minifies to more than that — but each extraction has to
+# thread that dialog's form state and handlers as props, and the large ones
+# (the folder/request/collection forms) carry a lot of both. This is a
+# component-by-component job, not a scripted one: unlike the wrapper conversion,
+# there is no structural pattern a script can derive the props from.
+#
+# So US-036 remains PARTIAL. The 54% reduction from deferring CodeMirror stands;
+# the <500 KB criterion needs the modal bodies extracted, which is the natural
+# continuation of US-025 rather than a separate technique.

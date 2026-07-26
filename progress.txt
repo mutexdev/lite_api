@@ -115,7 +115,12 @@ evidence for each story; this file carries the cross-story findings.
   still load eagerly, which is worth knowing before anyone "optimises" by
   adding manualChunks without a dynamic import.
 
-  NOT MET: "initial chunk under 500 KB". 533,898 is 33,898 over.
+  NOT MET: "initial chunk under 500 KB". 533,898 was 33,898 over; after US-025
+  it is 532,602, still 32,602 over — US-025 moved dialog WRAPPERS, not bodies,
+  so it barely moved the number and was never going to. Closing the gap means
+  extracting the 29 modal BODIES (~57 KB of source, itemised in bundle.txt) into
+  lazily-imported components. Unlike the wrapper conversion that is NOT
+  scriptable: each body needs its own form state and handlers threaded as props.
   AND IT CANNOT BE MET IN THIS STORY. frontend/package.json "dependencies"
   contains ONLY @codemirror/* and codemirror — every one now deferred. The
   remaining chunk is App.svelte's own compiled output (~14k lines) plus the
