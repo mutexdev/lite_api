@@ -3248,3 +3248,43 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Gates: go build, go vet, go test ok across 11 packages; svelte-check 209/0/0;
   eslint 0; npm test 223/223.
+
+--- WSSE tests — the tautology, fourth and final signer ---
+
+  wsse.PasswordDigest was the last unchecked one, and it had the same shape:
+  the single test in package main built its expectation by calling
+  PasswordDigest. Making it return the PASSWORD UNCHANGED failed nothing.
+
+  ALL FOUR SIGNERS IN THIS REPO HAD IT:
+    SigV4       verification recomputed with the signer's own helpers
+    OAuth 1.0a  expectation built from Signature/ParameterString/Encode
+    Digest      expectation built from MD5Hex
+    WSSE        expectation built from PasswordDigest
+
+  Four for four. This was not four separate oversights, it is one habit: when
+  you already have a function that computes the value, using it to state the
+  expectation feels like reuse. It produces a test that can only fail if the
+  code disagrees with itself.
+
+  !!! A SPEC DEVIATION FOUND WHILE WRITING THE TEST - PINNED, NOT FIXED !!!
+
+  The WSSE UsernameToken profile says
+      PasswordDigest = Base64(SHA1(nonce + created + password))
+  over the RAW 20 digest bytes. This code hex-encodes the digest FIRST and
+  base64s that string, so the value is double-encoded: 40 hex characters
+  base64'd rather than 20 binary bytes.
+
+  I PINNED THE CURRENT BEHAVIOUR AND DID NOT CHANGE IT. Correcting it alters
+  what goes out on the wire for every user whose server accepts today's format,
+  and that is not a call to make silently inside a refactor. The test states
+  both forms explicitly and fails if the output ever becomes the profile form
+  without someone updating the note, so the decision is visible rather than
+  buried. Whether to move to the profile form is a real decision with a
+  compatibility cost, and it belongs to whoever owns the product.
+
+  Six tests added. Controls: digest as identity fails 2, Created not normalised
+  to UTC fails 1, unescaped username quotes fails 1, constant nonce fails 1.
+
+  The UTC one is worth keeping: a server comparing Created against its own
+  window rejects a local-time value, and the symptom is an intermittent auth
+  failure that looks like anything but a formatting bug.
