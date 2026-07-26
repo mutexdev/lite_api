@@ -102,6 +102,7 @@
     visibleEnvironmentVariables
   } from './lib/environmentVariables'
   import { resolveNativeMenuCommand } from './lib/nativeMenu'
+  import { movedRows, normalizeBulkKeyValueRows, reorderedRows } from './lib/rowEdits'
   import { resolveShortcut, shortcutTabNumber } from './lib/shortcuts'
   import { workspaceStore } from './lib/stores/workspaceStore.svelte'
   import { variableTooltips } from './lib/stores/variableTooltipStore.svelte'
@@ -2247,33 +2248,6 @@
       draft.response = response
       return draft
     })
-  }
-
-  function movedRows<T>(rows: T[] | undefined, index: number, direction: -1 | 1) {
-    const next = [...(rows ?? [])]
-    const target = index + direction
-    if (index < 0 || target < 0 || index >= next.length || target >= next.length) return next
-    const [row] = next.splice(index, 1)
-    next.splice(target, 0, row)
-    return next
-  }
-
-  function reorderedRows<T>(rows: T[] | undefined, from: number, to: number) {
-    const next = [...(rows ?? [])]
-    if (from < 0 || to < 0 || from >= next.length || to >= next.length || from === to) return next
-    const [row] = next.splice(from, 1)
-    next.splice(Math.min(to, next.length), 0, row)
-    return next
-  }
-
-  function normalizeBulkKeyValueRows(rows: Array<{ name: string; value: string; enabled: boolean; secret?: boolean; description?: string }>) {
-    return rows.map((row) => ({
-      name: row.name,
-      value: row.value,
-      enabled: row.enabled,
-      secret: row.secret ?? false,
-      description: row.description ?? ''
-    }) as types.KeyValue)
   }
 
   function addResponseExampleRequestParam(example: types.ResponseExample) {

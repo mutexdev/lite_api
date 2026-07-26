@@ -7317,3 +7317,36 @@ US-026 - Store layer. DONE. Both named collapses complete.
   mutation of the flattening didn't type-check, so it was rejected rather than
   counted. The control runner refuses to report a number for code that does not
   compile, which is the only reason that was visible.
+
+=== PHASE 6 — the key/value row operations ===
+
+  New src/lib/rowEdits.ts, 15 tests. App.svelte 10,851 -> 10,825.
+  Suite 658 -> 673.
+
+  Every key/value table in the app — params, headers, form fields, multipart
+  parts, file rows, and the same six again inside a response example — drives
+  its buttons and its drag handle through these four functions. The bounds
+  arithmetic is the same arithmetic in a dozen places, and an off-by-one in it
+  DOES NOT THROW: it drops a row, or duplicates one, or ignores a drag.
+
+  Pinned:
+    - EVERY PATH RETURNS A NEW ARRAY, including the ones that change nothing.
+      Svelte's reactivity is identity-based, so a handler returning the same
+      array leaves the table showing its PRE-DRAG order until something else
+      invalidates it. Controls fail 6, 1 and 1 — the strongest signal in the
+      slice, and the property least visible in the code.
+    - a move off either end leaves the order alone rather than WRAPPING. The
+      up-arrow on the first row is visible and clickable. Control fails 1.
+    - THE Math.min AFTER THE REMOVAL. The array is one shorter once the dragged
+      row is spliced out, so dropping onto the LAST position gives an insertion
+      index equal to the new length. Two controls — removing the clamp, and
+      tightening the bound by one — each drop the row entirely. Fail 1 and 1.
+    - an edit past the end fills a BLANK ROW rather than being dropped. That
+      path is reachable: a background refresh can shorten the list between the
+      render and the keystroke, and losing the character the user just typed is
+      worse than gaining a row they can delete. Control fails 1.
+    - bulk rows gain `secret` and `description`, which the "name: value" bulk
+      format cannot express. Undefined is not the same as absent — it writes a
+      DIFFERENT FILE each time the same table is saved. Controls fail 1 and 1.
+
+  Eleven controls, eleven failures.
