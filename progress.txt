@@ -4332,3 +4332,34 @@ US-026 - Store layer. DONE. Both named collapses complete.
   quotes, exactly like the 167 and 39 false positives earlier. Checking the
   built artifact sidestepped the parsing problem entirely, which is what I
   should have reached for first.
+
+--- fs.writeFile byte conversion — data corruption at rest, 0% covered ---
+
+  scriptFSBytesFromInterfaceSlice and scriptFSBytesFromIndexedObject turn what a
+  script hands to fs.writeFile — a Uint8Array, an ArrayBuffer view, or a plain
+  array of numbers — into the bytes actually written to disk.
+
+  The failure is corruption at rest. A conversion that truncates, misreads a
+  numeric type or substitutes zeroes writes a file that EXISTS, has a plausible
+  size, and contains the wrong bytes. Nothing errors and the script reports
+  success. Nobody notices until the file is read back by something that cares.
+
+  7 tests. Two are worth calling out:
+
+    - goja hands numbers over as int, int64, float64 OR json.Number depending
+      on how they were written. All four must survive; the test spells "Hello"
+      using a different Go type for each letter, so dropping any one case is
+      visible.
+
+    - A HOLE in the array must become a zero byte, not a shorter file. Writing
+      fewer bytes than asked silently mangles any offset-sensitive format —
+      the file still opens, the header still parses, the data is shifted.
+
+  Also pinned: both guards. A negative length would panic on make([]byte, n),
+  and without the 64 MB cap a single script call could allocate the process to
+  death.
+
+  Controls: ignoring json.Number fails 1, removing the negative-length guard
+  fails 1, removing the size cap fails 1, an off-by-one in the byte read fails 2.
+
+  0%-covered: 30 -> 19. Coverage 79.2%.
