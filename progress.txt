@@ -6269,3 +6269,35 @@ US-026 - Store layer. DONE. Both named collapses complete.
   Also recorded: searchHit lowercases the CANDIDATE, not the query, so callers
   must lowercase first. Written down because it is exactly the asymmetry that
   reads as a bug until you find the call site.
+
+=== RESTRUCTURE PHASE 6 — eighth slice, auth and proxy defaults ===
+
+  src/lib/authDefaults.ts — 58 lines, 13 tests. App.svelte 11,653 -> 11,621.
+  Frontend suite 360 -> 373.
+
+  These run on every keystroke in the auth and proxy editors, merging three
+  things: what is stored, what the user just changed, and what the protocol
+  requires when neither says anything.
+
+  THE ORDER IS THE WHOLE THING, AND IT IS EASY TO GET BACKWARDS.
+    merge first (stored <- update), THEN default the still-empty fields.
+  Default-then-merge would overwrite what the user typed. Defaulting with ?? in
+  place of || would make a CLEARED field impossible to clear — it would keep the
+  default forever, because "" is not nullish. Both have controls; the ?? swap
+  fails 1.
+
+  The OAuth2 defaults are protocol REQUIREMENTS rather than preferences: a token
+  request with no grant type, or a bearer token with no header prefix, is one
+  the server rejects. Writing them at edit time means the stored request is
+  always sendable.
+
+  And they are written only when the request actually uses OAuth2 OR the oauth2
+  block was the thing edited — otherwise every basic-auth request would grow a
+  pointless oauth2 block. Both halves of that condition have a control.
+
+  FIXED THE CONTROL RUNNER'S OWN REPORTING. It printed "NOT UNIQUE(0)" for a
+  pattern that was not found at all, conflating "your anchor is ambiguous" with
+  "your anchor is wrong". Four controls reported that here — all four were
+  indentation drift from the dedent, not ambiguity. Now it says NOT FOUND or
+  AMBIGUOUS(n). A control runner that misreports why it refused is a control
+  runner that gets ignored.

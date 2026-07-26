@@ -275,6 +275,11 @@
     requestMatches,
     searchHit
   } from './lib/sidebarFilter'
+  import {
+    authWithOAuth2Defaults,
+    oauth2AuthWithDefaults,
+    proxyConfigWithDefaults
+  } from './lib/authDefaults'
   import { BrowserOpenURL, EventsOn, OnFileDrop, OnFileDropOff, Quit } from '../wailsjs/runtime/runtime'
 
   type View = 'request' | 'collection' | 'git' | 'runner' | 'environments' | 'import' | 'features' | 'network' | 'cookies' | 'history' | 'preferences' | 'devtools'
@@ -807,26 +812,7 @@
     return preferred || activeWorkspace?.path || ''
   }
 
-  function oauth2AuthWithDefaults(auth: types.OAuth2Auth | undefined, updates: Partial<types.OAuth2Auth> = {}) {
-    const merged = { ...(auth ?? {}), ...updates } as types.OAuth2Auth
-    return {
-      ...merged,
-      grantType: merged.grantType || 'client_credentials',
-      credentialsPlacement: merged.credentialsPlacement || 'basic_auth_header',
-      tokenSource: merged.tokenSource || 'access_token',
-      tokenPlacement: merged.tokenPlacement || 'header',
-      tokenHeaderPrefix: merged.tokenHeaderPrefix || 'Bearer',
-      tokenQueryKey: merged.tokenQueryKey || 'access_token'
-    } as types.OAuth2Auth
-  }
 
-  function authWithOAuth2Defaults(auth: types.AuthConfig | undefined, updates: Partial<types.AuthConfig> = {}) {
-    const next = { ...(auth ?? {}), ...updates } as types.AuthConfig
-    if (next.mode === 'oauth2' || updates.oauth2 !== undefined) {
-      next.oauth2 = oauth2AuthWithDefaults(auth?.oauth2, updates.oauth2)
-    }
-    return next
-  }
 
   const grpcMethodTypes = ['', 'unary', 'client-streaming', 'server-streaming', 'bidi-streaming']
   const wsMessageTypes = ['json', 'xml', 'text', 'binary']
@@ -5896,24 +5882,6 @@
     await updateCollectionProxy({ auth: { ...(activeCollection.proxy?.auth ?? {}), ...updates } as types.ProxyAuthConfig })
   }
 
-  function proxyConfigWithDefaults(config: types.ProxyConfig | undefined, overrides: Partial<types.ProxyConfig> = {}) {
-    const auth = config?.auth ?? ({} as types.ProxyAuthConfig)
-    return {
-      inherit: false,
-      disabled: false,
-      protocol: config?.protocol || 'http',
-      hostname: config?.hostname || '',
-      port: config?.port || '',
-      bypassProxy: config?.bypassProxy || '',
-      ...overrides,
-      auth: {
-        username: auth.username || '',
-        password: auth.password || '',
-        disabled: auth.disabled ?? false,
-        ...(overrides.auth ?? {})
-      }
-    } as types.ProxyConfig
-  }
 
   function proxyPreferencesWithDefaults(overrides: Partial<types.ProxyPreferences> = {}) {
     const current = appState?.preferences?.proxy ?? ({} as types.ProxyPreferences)
