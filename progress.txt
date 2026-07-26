@@ -2362,3 +2362,38 @@ US-029 - Runes migration, App.svelte. ATTEMPTED, NOT COMPLETED. Tree restored
 
   Nothing was committed. svelte-check 205/0/0, eslint 0, npm test 197/197,
   go test 39.2s 0 - all verified against the restored tree.
+
+US-029 prerequisite - rename `state` to `appState` in App.svelte. DONE.
+  Standalone commit, no other change, as the handover recommended.
+
+  CORRECTION TO THE PREVIOUS ENTRY. I wrote that "neither form is usable" -
+  that both `$state(...)` and `$state<T>(...)` fail while the variable is named
+  `state`. Only the first half was right. An isolated probe component shows:
+    let state: T | null = $state(null)   -> "Cannot use 'state' as a store"
+    let appState = $state<T | null>(null) -> 0 errors
+  The "untyped function calls may not accept type arguments" errors were a
+  CASCADE of the store collision, not an independent problem. So the pipeline's
+  original output form was correct all along and only the name was wrong. I
+  should have isolated the collision before concluding anything about the
+  generic form; it cost one wrong diagnosis in the handover.
+
+  The rename itself, 283 bare occurrences, with three categories deliberately
+  NOT renamed because they are different things that share a spelling:
+    result.state / outcome.state (6)  property access on other objects
+    { state: … } (3)                  OAuth2's own `state` parameter, an API
+                                      field name, not this variable
+    child `state` props (8)           the CHILD's public prop name is its own
+                                      interface. The shorthand {state} became
+                                      {appState} and stopped matching, so those
+                                      are now explicit state={appState}. This
+                                      is the one thing a blind rename breaks
+                                      silently-looking: svelte-check caught all
+                                      eight as unknown-property errors.
+  `...state` spreads (13) ARE the variable and were renamed, despite the dot
+  before them - handled with a sentinel rather than a blanket "not after a dot".
+
+  Verified: svelte-check 205/0/0, eslint 0, npm test 197/197, vite build
+  succeeds, go test 39.2s 0.
+
+  US-029 IS NOW UNBLOCKED. The pipeline in scratchpad/{derive2,effects,state}.py
+  is correct as of this commit and should be re-run against this file.

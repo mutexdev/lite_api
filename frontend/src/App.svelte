@@ -384,7 +384,7 @@
 	    grantType: string
 	  }
 
-	  let state: main.AppState | null = null
+	  let appState: main.AppState | null = null
   let activeView: View = 'request'
   let requestPaneTab: RequestPaneTab = 'params'
   let responseTab: ResponseTab = 'response'
@@ -813,7 +813,7 @@
   }
 
   function cloneCollectionDefaultLocation() {
-    const preferred = state?.preferences?.general?.defaultLocation || state?.preferences?.defaultCollectionPath || ''
+    const preferred = appState?.preferences?.general?.defaultLocation || appState?.preferences?.defaultCollectionPath || ''
     return preferred || activeWorkspace?.path || ''
   }
 
@@ -937,8 +937,8 @@
     return `"${escaped}", ${defaultCodeFontFamily}`
   }
 
-  $: activeWorkspace = state?.workspaces?.find((workspace) => workspace.id === state?.activeWorkspaceId) ?? state?.workspaces?.[0]
-  $: activeTab = state?.openTabs?.find((tab) => tab.id === state?.activeTabId)
+  $: activeWorkspace = appState?.workspaces?.find((workspace) => workspace.id === appState?.activeWorkspaceId) ?? appState?.workspaces?.[0]
+  $: activeTab = appState?.openTabs?.find((tab) => tab.id === appState?.activeTabId)
   $: if (activeTab?.id && activeTab.id !== hydratedActiveTabID) {
     hydratedActiveTabID = activeTab.id
     if (requestTabs.some((tab) => tab.id === activeTab.requestPaneTab)) requestPaneTab = activeTab.requestPaneTab as RequestPaneTab
@@ -1003,10 +1003,10 @@
     runnerIterations = 1
     runnerDataFile = ''
   }
-  $: responsePaneOrientation = normalizedResponsePaneOrientation(state?.preferences?.layout?.responsePaneOrientation)
-  $: appZoomPercentage = normalizedZoomPercentage(state?.preferences?.display?.zoomPercentage)
-  $: codeFont = normalizedCodeFont(state?.preferences?.font?.codeFont)
-  $: codeFontSize = normalizedCodeFontSize(state?.preferences?.font?.codeFontSize ?? state?.preferences?.codeFontSize)
+  $: responsePaneOrientation = normalizedResponsePaneOrientation(appState?.preferences?.layout?.responsePaneOrientation)
+  $: appZoomPercentage = normalizedZoomPercentage(appState?.preferences?.display?.zoomPercentage)
+  $: codeFont = normalizedCodeFont(appState?.preferences?.font?.codeFont)
+  $: codeFontSize = normalizedCodeFontSize(appState?.preferences?.font?.codeFontSize ?? appState?.preferences?.codeFontSize)
   $: activeResponseTabs = (activeRequest?.type === 'grpc' ? responseTabs : responseTabs.filter((tab) => tab.id !== 'metadata' && tab.id !== 'trailers'))
     // US-058. Shown only when a script set a visualizer. A tab that is always
     // there and always empty teaches people to ignore it.
@@ -1137,7 +1137,7 @@
     }
   }
 
-  // US-049 — history surface state. The filter is applied SERVER-SIDE through
+  // US-049 — history surface appState. The filter is applied SERVER-SIDE through
   // HistoryQuery rather than by pulling the whole log and filtering here: each
   // entry carries its headers, so a client-side filter would move hundreds of
   // kilobytes across the binding on every keystroke to render a screenful.
@@ -1170,10 +1170,10 @@
   }
 
   // The original request may have been renamed, moved or deleted since the
-  // send, so this is checked against live state rather than assumed.
+  // send, so this is checked against live appState rather than assumed.
   function historyEntryStillExists(entry: main.HistoryEntry) {
     if (!entry.collectionId || !entry.itemId) return false
-    return (state?.workspaces ?? []).some((workspace) =>
+    return (appState?.workspaces ?? []).some((workspace) =>
       (workspace.collections ?? []).some(
         (collection) =>
           collection.id === entry.collectionId && (collection.items ?? []).some((item) => item.id === entry.itemId)
@@ -1188,7 +1188,7 @@
     const itemId = entry.itemId
     if (!collectionId || !itemId || !historyEntryStillExists(entry)) return
     await runAction('open history request', async () => {
-      state = await OpenRequestTab(collectionId, itemId)
+      appState = await OpenRequestTab(collectionId, itemId)
       activeView = 'request'
     })
   }
@@ -1196,7 +1196,7 @@
   async function saveHistoryEntryToCollection(entry: main.HistoryEntry) {
     if (!historySaveTargetID) return
     await runAction('save history request', async () => {
-      state = await CreateRequestFromHistory(historySaveTargetID, entry.id)
+      appState = await CreateRequestFromHistory(historySaveTargetID, entry.id)
     })
   }
 
@@ -1207,7 +1207,7 @@
     })
   }
 
-  $: historyCollections = (state?.workspaces ?? []).flatMap((workspace) =>
+  $: historyCollections = (appState?.workspaces ?? []).flatMap((workspace) =>
     (workspace.collections ?? []).map((collection) => ({ id: collection.id, name: collection.name }))
   )
   $: if (!historySaveTargetID && historyCollections.length > 0) historySaveTargetID = historyCollections[0].id
@@ -1239,9 +1239,9 @@
   $: visibleGlobalEnvironmentRows = visibleEnvironmentVariables(selectedGlobalEnvironment?.variables, globalEnvironmentVariableTab, globalEnvironmentVariableQuery)
   $: visibleEnvironmentRows = visibleEnvironmentVariables(selectedEnvironment?.variables, environmentVariableTab, environmentVariableQuery)
   $: dotEnvRows = parseDotEnvRows(dotEnvContent)
-  $: doneFeatures = state?.featureLedger?.filter((feature) => feature.status === 'done').length ?? 0
-  $: partialFeatures = state?.featureLedger?.filter((feature) => feature.status === 'partial').length ?? 0
-  $: totalFeatures = state?.featureLedger?.length ?? 0
+  $: doneFeatures = appState?.featureLedger?.filter((feature) => feature.status === 'done').length ?? 0
+  $: partialFeatures = appState?.featureLedger?.filter((feature) => feature.status === 'partial').length ?? 0
+  $: totalFeatures = appState?.featureLedger?.length ?? 0
   $: websocketConnected = activeRequest?.type === 'websocket' && responseHeaderValue(activeRequest.response, 'x-websocket-connected') === 'true'
   $: websocketEventCount = responseHeaderValue(activeRequest?.response, 'x-websocket-events')
   $: grpcStreamConnected = activeRequest?.type === 'grpc' && responseHeaderValue(activeRequest.response, 'x-grpc-stream-connected') === 'true'
@@ -1261,7 +1261,7 @@
       pending: httpCancellationRequested
     }
     : undefined
-  $: runnerCancelledCount = runnerCancellationCount(state?.runner)
+  $: runnerCancelledCount = runnerCancellationCount(appState?.runner)
   $: runnerCompletedCancelled = runnerCancelledCount > 0 || lastCollectionRunCancelled
   $: requestCommand = requestCommandState(
     activeRequest,
@@ -1270,7 +1270,7 @@
     busy,
     websocketConnected,
     grpcStreamConnected,
-    state?.preferences,
+    appState?.preferences,
     httpTransportInFlight,
     httpTransportInFlight && httpCancellationRequested,
     backgroundHTTPTransport
@@ -1285,9 +1285,9 @@
       ? liveSessionLogs[liveSessionKey(activeCollection.id, activeRequest.id)]
       : undefined
   $: devToolsConsoleRows = devToolsConsoleLogs(activeWorkspace)
-  $: rawDevToolsNetworkRows = state?.networkLog ?? []
-  $: if (state && devToolsNetworkPreferencesKeyFor(state.preferences?.devTools?.network) !== devToolsNetworkPreferencesKey) {
-    applyDevToolsNetworkPreferences(state.preferences?.devTools?.network)
+  $: rawDevToolsNetworkRows = appState?.networkLog ?? []
+  $: if (appState && devToolsNetworkPreferencesKeyFor(appState.preferences?.devTools?.network) !== devToolsNetworkPreferencesKey) {
+    applyDevToolsNetworkPreferences(appState.preferences?.devTools?.network)
   }
   $: devToolsNetworkMethodCounts = Object.fromEntries(devToolsNetworkMethods.map((method) => [method, rawDevToolsNetworkRows.filter((row) => normalizedNetworkMethod(row) === method).length])) as Record<string, number>
   $: devToolsNetworkActiveFilterCount = devToolsNetworkMethods.filter((method) => devToolsNetworkFilters[method]).length
@@ -1323,7 +1323,7 @@
     const workspace = activeWorkspace
     const collection = activeCollection
     const request = activeRequest
-    const key = `${request.id}:${state?.revision ?? 0}:${selectedEnvironmentId}:${processEnvTooltipSignature}`
+    const key = `${request.id}:${appState?.revision ?? 0}:${selectedEnvironmentId}:${processEnvTooltipSignature}`
     const result = memoized(tooltipMemo, key, () =>
       variableTooltipsForRequest(workspace, collection, request, selectedEnvironmentId, processEnvTooltipValues)
     )
@@ -1332,7 +1332,7 @@
   })()
   $: searchQuery = normalizedSearch(requestSearch)
   $: globalSearchResults = buildGlobalSearchResults(activeWorkspace, globalSearchQuery)
-  $: visibleNotifications = notificationsForDisplay(state?.notifications ?? [])
+  $: visibleNotifications = notificationsForDisplay(appState?.notifications ?? [])
   $: unreadNotificationCount = visibleNotifications.filter((notification) => !notification.read).length
   $: listedNotifications = notificationTab === 'unread'
     ? pinnedUnreadNotificationIDs
@@ -1343,12 +1343,12 @@
   $: visibleSidebarCollections = sidebarCollections(activeWorkspace, searchQuery)
   $: sidebarSearchCount = sidebarRequestCount(activeWorkspace, searchQuery)
   $: cookieSearchQuery = normalizedSearch(cookieSearch)
-  $: visibleCookieGroups = cookieGroups(state?.cookies ?? [], cookieSearchQuery)
-  $: selectedThemeMode = normalizedThemeMode(state?.preferences?.theme)
+  $: visibleCookieGroups = cookieGroups(appState?.cookies ?? [], cookieSearchQuery)
+  $: selectedThemeMode = normalizedThemeMode(appState?.preferences?.theme)
   $: displayedThemeMode = selectedThemeMode === 'system' ? systemThemeMode : selectedThemeMode
   $: selectedThemeVariant = displayedThemeMode === 'dark'
-    ? normalizedThemeVariant(state?.preferences?.themeVariantDark, darkThemeVariants)
-    : normalizedThemeVariant(state?.preferences?.themeVariantLight, lightThemeVariants)
+    ? normalizedThemeVariant(appState?.preferences?.themeVariantDark, darkThemeVariants)
+    : normalizedThemeVariant(appState?.preferences?.themeVariantLight, lightThemeVariants)
   $: applyThemeToDocument(displayedThemeMode, selectedThemeVariant)
   $: applyZoomToDocument(appZoomPercentage)
   $: applyCodeFontToDocument(codeFont, codeFontSize)
@@ -1557,13 +1557,13 @@
   // US-057. The preset sits between the defaults and the user's overrides, and
   // the order is the point: a shortcut somebody deliberately set must not be
   // silently replaced by switching preset.
-  $: activeKeyBindingPreset = normalizeKeyBindingPreset(state?.preferences?.keyBindingPreset) as KeyBindingPresetID
+  $: activeKeyBindingPreset = normalizeKeyBindingPreset(appState?.preferences?.keyBindingPreset) as KeyBindingPresetID
   $: presetKeyBindings = effectiveKeyBindings(keyBindingSections, keyBindingPresets[activeKeyBindingPreset])
 
   function mergedKeyBinding(action: string): KeyBindingDefinition | undefined {
     const base = presetKeyBindings[action]
     if (!base) return undefined
-    const override = state?.preferences?.keyBindings?.[action] as main.KeyBinding | undefined
+    const override = appState?.preferences?.keyBindings?.[action] as main.KeyBinding | undefined
     return {
       ...base,
       ...(override ?? {}),
@@ -1650,7 +1650,7 @@
   }
 
   function keyBindingIsCustomized(action: string) {
-    return Boolean(state?.preferences?.keyBindings?.[action])
+    return Boolean(appState?.preferences?.keyBindings?.[action])
   }
 
   function keyBindingCanEdit(action: string) {
@@ -2179,24 +2179,24 @@
         if (!environment || info.index < 0) throw new Error(`Global variable ${info.name} was not found`)
         const vars = [...(environment.variables ?? [])]
         vars[info.index] = { ...vars[info.index], value }
-        state = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, environment.id, vars)
+        appState = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, environment.id, vars)
       } else if (info.source === 'collection') {
         if (info.index < 0) throw new Error(`Collection variable ${info.name} was not found`)
         const vars = [...(activeCollection.variables ?? [])]
         vars[info.index] = { ...vars[info.index], value }
-        state = await UpdateCollectionVariables(activeCollection.id, vars)
+        appState = await UpdateCollectionVariables(activeCollection.id, vars)
       } else if (info.source === 'environment') {
         const environment = activeCollection.environments?.find((candidate) => candidate.id === info.environmentId)
         if (!environment || info.index < 0) throw new Error(`Environment variable ${info.name} was not found`)
         const vars = [...(environment.variables ?? [])]
         vars[info.index] = { ...vars[info.index], value }
-        state = await UpdateEnvironmentVariables(activeCollection.id, environment.id, vars)
+        appState = await UpdateEnvironmentVariables(activeCollection.id, environment.id, vars)
       } else if (info.source === 'path') {
         if (info.index < 0) throw new Error(`Path parameter ${info.name} was not found`)
         const pathParams = [...(activeRequest.pathParams ?? [])]
         pathParams[info.index] = { ...pathParams[info.index], value, enabled: true }
-        state = await UpdateRequest(activeCollection.id, activeRequest.id, { pathParams } as unknown as main.RequestPatch)
-        state = await SaveRequest(activeCollection.id, activeRequest.id)
+        appState = await UpdateRequest(activeCollection.id, activeRequest.id, { pathParams } as unknown as main.RequestPatch)
+        appState = await SaveRequest(activeCollection.id, activeRequest.id)
       } else if (info.source === 'request' || info.source === 'missing') {
         const req = [...(activeRequest.vars?.req ?? [])]
         if (info.source === 'request' && info.index >= 0) {
@@ -2206,8 +2206,8 @@
         }
         const collectionId = activeCollection.id
         const requestId = activeRequest.id
-        state = await UpdateRequest(collectionId, requestId, { vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as main.RequestPatch)
-        state = await SaveRequest(collectionId, requestId)
+        appState = await UpdateRequest(collectionId, requestId, { vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as main.RequestPatch)
+        appState = await SaveRequest(collectionId, requestId)
       }
       editingVariableTooltip = ''
       variableTooltipDraft = ''
@@ -2219,7 +2219,7 @@
     loading = true
     loadingStatus = 'Opening workspace'
     await runAction('load', async () => {
-      state = await GetState()
+      appState = await GetState()
 	    workbenchStorageScope = await GetWebStorageScope()
 	    restoreWorkbenchLayout()
       loadingStatus = 'Checking recovery'
@@ -2227,7 +2227,7 @@
       loadingStatus = 'Measuring local cache'
       await refreshFileCacheSize()
       loadingStatus = 'Preparing workbench'
-      applyDevToolsShellPreferences(state.preferences?.devTools)
+      applyDevToolsShellPreferences(appState.preferences?.devTools)
       if (devToolsOpen) await refreshDevToolsSnapshot()
       selectedEnvironmentId = activeCollection?.environments?.[0]?.id ?? ''
     })
@@ -2248,7 +2248,7 @@
     recoveryBusyEntryID = entry.id
     let restored = false
     await runAction('restore recovery entry', async () => {
-      state = await RestoreRecoveryEntry(entry.id)
+      appState = await RestoreRecoveryEntry(entry.id)
       restored = true
       await refreshRecoveryEntries()
     })
@@ -2433,14 +2433,14 @@
   async function createCollection() {
     if (!activeWorkspace) return
     await runAction('create collection', async () => {
-      state = await CreateCollection(activeWorkspace.id, collectionName, 'yml')
+      appState = await CreateCollection(activeWorkspace.id, collectionName, 'yml')
     })
   }
 
   async function createRequest() {
     if (!activeCollection) return
     await runAction('create request', async () => {
-      state = await CreateRequest(activeCollection.id, requestType, requestName)
+      appState = await CreateRequest(activeCollection.id, requestType, requestName)
       selectedCollectionId = activeCollection.id
       activeView = 'request'
     })
@@ -2449,20 +2449,20 @@
   async function saveRequest() {
     if (!activeCollection || !activeRequest) return
     await runAction('save request', async () => {
-      state = await SaveRequest(activeCollection.id, activeRequest.id)
+      appState = await SaveRequest(activeCollection.id, activeRequest.id)
     })
   }
 
   async function saveAllOpenTabs() {
     await runAction('save all tabs', async () => {
-      state = await SaveAllTabs(activeTab?.collectionId ?? activeCollection?.id ?? '')
+      appState = await SaveAllTabs(activeTab?.collectionId ?? activeCollection?.id ?? '')
     })
   }
 
   async function saveResponseExample() {
     if (!activeCollection || !activeRequest?.response) return
     await runAction('save response example', async () => {
-      state = await SaveResponseExample(activeCollection.id, activeRequest.id, '')
+      appState = await SaveResponseExample(activeCollection.id, activeRequest.id, '')
       responseTab = 'examples'
     })
   }
@@ -2498,7 +2498,7 @@
     const name = createResponseExampleName.trim()
     if (!name) return
     await runAction('create response example', async () => {
-      state = await CreateResponseExample(activeCollection.id, activeRequest.id, name, createResponseExampleDescription.trim())
+      appState = await CreateResponseExample(activeCollection.id, activeRequest.id, name, createResponseExampleDescription.trim())
       responseTab = 'examples'
       cancelCreateResponseExample()
     })
@@ -2579,7 +2579,7 @@
     const name = responseExampleNameDraft.trim()
     if (!name) return
     await runAction('rename response example', async () => {
-      state = await RenameResponseExample(activeCollection.id, activeRequest.id, responseExampleIdentifier(example), name)
+      appState = await RenameResponseExample(activeCollection.id, activeRequest.id, responseExampleIdentifier(example), name)
       editingResponseExampleID = ''
       responseExampleNameDraft = ''
       responseTab = 'examples'
@@ -2589,7 +2589,7 @@
   async function cloneResponseExample(example: main.ResponseExample) {
     if (!activeCollection || !activeRequest) return
     await runAction('clone response example', async () => {
-      state = await CloneResponseExample(activeCollection.id, activeRequest.id, responseExampleIdentifier(example))
+      appState = await CloneResponseExample(activeCollection.id, activeRequest.id, responseExampleIdentifier(example))
       responseTab = 'examples'
       deletingResponseExampleID = ''
     })
@@ -2604,7 +2604,7 @@
     if (!activeCollection || !activeRequest) return
     const id = responseExampleIdentifier(example)
     await runAction('delete response example', async () => {
-      state = await DeleteResponseExample(activeCollection.id, activeRequest.id, id)
+      appState = await DeleteResponseExample(activeCollection.id, activeRequest.id, id)
       deletingResponseExampleID = ''
       if (editingResponseExampleDetailsID === id) editingResponseExampleDetailsID = ''
       const { [id]: _deleted, ...remainingDrafts } = responseExampleDrafts
@@ -3092,7 +3092,7 @@
     const draft = responseExampleDrafts[id]
     if (!draft) return
     await runAction('update response example', async () => {
-      state = await UpdateResponseExample(activeCollection.id, activeRequest.id, id, draft)
+      appState = await UpdateResponseExample(activeCollection.id, activeRequest.id, id, draft)
       editingResponseExampleDetailsID = ''
       const { [id]: _saved, ...remainingDrafts } = responseExampleDrafts
       responseExampleDrafts = remainingDrafts
@@ -3227,7 +3227,7 @@
     const promptValues = await promptValuesForGrpcStreamMessage(null)
     if (promptValues === null) return
     await runAction('start gRPC stream', async () => {
-      state = Object.keys(promptValues).length > 0
+      appState = Object.keys(promptValues).length > 0
         ? await ConnectGRPCStreamWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, promptValues)
         : await ConnectGRPCStream(activeCollection.id, activeRequest.id, selectedEnvironmentId)
       activeView = 'request'
@@ -3238,7 +3238,7 @@
   async function endActiveGrpcStream() {
     if (!activeCollection || !activeRequest) return
     await runAction('end gRPC stream', async () => {
-      state = await EndGRPCStream(activeCollection.id, activeRequest.id)
+      appState = await EndGRPCStream(activeCollection.id, activeRequest.id)
       activeView = 'request'
       responseTab = 'response'
     })
@@ -3247,7 +3247,7 @@
   async function cancelActiveGrpcStream() {
     if (!activeCollection || !activeRequest) return
     await runAction('cancel gRPC stream', async () => {
-      state = await CancelGRPCStream(activeCollection.id, activeRequest.id)
+      appState = await CancelGRPCStream(activeCollection.id, activeRequest.id)
       activeView = 'request'
       responseTab = 'response'
     })
@@ -3260,15 +3260,15 @@
     await runAction('send gRPC stream message', async () => {
       const hasPromptValues = Object.keys(promptValues).length > 0
       try {
-        state = hasPromptValues
+        appState = hasPromptValues
           ? await SendGRPCStreamMessageWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, index, promptValues)
           : await SendGRPCStreamMessage(activeCollection.id, activeRequest.id, selectedEnvironmentId, index)
       } catch (err) {
         if (!String(err).includes('gRPC stream is not connected')) throw err
-        state = hasPromptValues
+        appState = hasPromptValues
           ? await ConnectGRPCStreamWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, promptValues)
           : await ConnectGRPCStream(activeCollection.id, activeRequest.id, selectedEnvironmentId)
-        state = hasPromptValues
+        appState = hasPromptValues
           ? await SendGRPCStreamMessageWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, index, promptValues)
           : await SendGRPCStreamMessage(activeCollection.id, activeRequest.id, selectedEnvironmentId, index)
       }
@@ -3312,7 +3312,7 @@
     if (promptValues === null) return
     resetLiveSessionLog(activeCollection.id, activeRequest.id)
     await runAction('connect WebSocket', async () => {
-      state = Object.keys(promptValues).length > 0
+      appState = Object.keys(promptValues).length > 0
         ? await ConnectWebSocketWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, promptValues)
         : await ConnectWebSocket(activeCollection.id, activeRequest.id, selectedEnvironmentId)
       activeView = 'request'
@@ -3323,7 +3323,7 @@
   async function disconnectActiveWebSocket() {
     if (!activeCollection || !activeRequest) return
     await runAction('disconnect WebSocket', async () => {
-      state = await DisconnectWebSocket(activeCollection.id, activeRequest.id)
+      appState = await DisconnectWebSocket(activeCollection.id, activeRequest.id)
       activeView = 'request'
       responseTab = 'response'
     })
@@ -3336,15 +3336,15 @@
     await runAction('send WebSocket message', async () => {
       const hasPromptValues = Object.keys(promptValues).length > 0
       try {
-        state = hasPromptValues
+        appState = hasPromptValues
           ? await SendWebSocketMessageWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, index, promptValues)
           : await SendWebSocketMessage(activeCollection.id, activeRequest.id, selectedEnvironmentId, index)
       } catch (err) {
         if (!String(err).includes('WebSocket is not connected')) throw err
-        state = hasPromptValues
+        appState = hasPromptValues
           ? await ConnectWebSocketWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, promptValues)
           : await ConnectWebSocket(activeCollection.id, activeRequest.id, selectedEnvironmentId)
-        state = hasPromptValues
+        appState = hasPromptValues
           ? await SendWebSocketMessageWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, index, promptValues)
           : await SendWebSocketMessage(activeCollection.id, activeRequest.id, selectedEnvironmentId, index)
       }
@@ -3380,10 +3380,10 @@
         httpCancellationRequested = false
       }
       try {
-        state = promptValues
+        appState = promptValues
           ? await SendRequestWithPromptValues(collectionId, requestId, environmentId, promptValues)
           : await SendRequest(collectionId, requestId, environmentId)
-        if (state.activeTabId === tabId) {
+        if (appState.activeTabId === tabId) {
           activeView = 'request'
           responseTab = 'response'
         }
@@ -3518,7 +3518,7 @@
           iterations: normalizedRunnerIterations(runnerIterations),
           dataFile: runnerDataFile
         } as main.RunnerOptions)
-        state = completedRunState
+        appState = completedRunState
         if (activeView === viewAtStart && activeCollection?.id === collection.id) activeView = 'runner'
       } finally {
         if (activeCollectionRun?.collectionId === collection.id) {
@@ -3550,7 +3550,7 @@
   async function createEnvironment() {
     if (!activeCollection) return
     await runAction('create environment', async () => {
-      state = await CreateEnvironment(activeCollection.id, environmentName)
+      appState = await CreateEnvironment(activeCollection.id, environmentName)
       selectedEnvironmentId = activeCollection?.environments?.at(-1)?.id ?? selectedEnvironmentId
       environmentVariableTab = 'variables'
       activeView = 'environments'
@@ -3560,7 +3560,7 @@
   async function createGlobalEnvironment() {
     if (!activeWorkspace) return
     await runAction('create global environment', async () => {
-      state = await CreateGlobalEnvironment(activeWorkspace.id, globalEnvironmentName)
+      appState = await CreateGlobalEnvironment(activeWorkspace.id, globalEnvironmentName)
       globalEnvironmentVariableTab = 'variables'
       activeView = 'environments'
     })
@@ -3568,15 +3568,15 @@
 
   async function setActiveGlobalEnvironment(environmentId: string) {
     if (!activeWorkspace) return
-    state = await SetActiveGlobalEnvironment(activeWorkspace.id, environmentId)
+    appState = await SetActiveGlobalEnvironment(activeWorkspace.id, environmentId)
   }
 
   async function setActiveWorkspace(workspaceId: string) {
-    if (!state || !workspaceId || workspaceId === state.activeWorkspaceId) return
+    if (!appState || !workspaceId || workspaceId === appState.activeWorkspaceId) return
     await runAction('switch workspace', async () => {
       const nextState = await SetActiveWorkspace(workspaceId)
       const workspace = nextState.workspaces?.find((candidate) => candidate.id === workspaceId)
-      state = nextState
+      appState = nextState
       selectedCollectionId = workspace?.collections?.[0]?.id ?? ''
       selectedEnvironmentId = workspace?.collections?.[0]?.environments?.[0]?.id ?? ''
     })
@@ -3623,7 +3623,7 @@
   }
 
   async function openSelectedWorkspaceInNewWindow(target: main.WorkspaceWindowTarget) {
-    if (workspaceWindowPickerBusy || target.id === state?.activeWorkspaceId) return
+    if (workspaceWindowPickerBusy || target.id === appState?.activeWorkspaceId) return
     workspaceWindowPickerBusy = true
     workspaceWindowPickerBusyAction = 'opening'
     workspaceWindowPickerError = ''
@@ -3660,7 +3660,7 @@
       const normalizedName = trimmedName.toLocaleLowerCase()
       const createdTarget = newlyRegistered.find((target) => target.name.trim().toLocaleLowerCase() === normalizedName)
         ?? (newlyRegistered.length === 1 ? newlyRegistered[0] : undefined)
-        ?? refreshedTargets.find((target) => target.id !== state?.activeWorkspaceId && target.name.trim().toLocaleLowerCase() === normalizedName)
+        ?? refreshedTargets.find((target) => target.id !== appState?.activeWorkspaceId && target.name.trim().toLocaleLowerCase() === normalizedName)
       if (!createdTarget) {
         workspaceWindowPickerError = 'The workspace was created, but it isn’t available in the window list yet. Close and reopen the picker to refresh.'
         return
@@ -3681,7 +3681,7 @@
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     const name = field === 'name' ? value : selectedGlobalEnvironment.name
     const color = field === 'color' ? value : selectedGlobalEnvironment.color
-    state = await UpdateGlobalEnvironment(activeWorkspace.id, selectedGlobalEnvironment.id, name, color)
+    appState = await UpdateGlobalEnvironment(activeWorkspace.id, selectedGlobalEnvironment.id, name, color)
   }
 
   function dotEnvFileKey(file: Pick<main.DotEnvFile, 'scope' | 'name'>) {
@@ -4006,7 +4006,7 @@
       await runAction('apply import', async () => {
 	        const result = await ApplyCollectionImport({ workspaceId: importDestinationWorkspaceID, destinationRoot: importDestinationRoot, sources: importSources, selections: importReadyRows.map(importSelectionFor), translatePostmanScripts: importTranslatePostmanScripts } as main.CollectionImportApplyRequest)
         importApplyResult = result
-	        state = result.state
+	        appState = result.state
         const completed = new Set([...(result.applied ?? []), ...(result.skipped ?? [])].map((row) => row.candidateId))
 	        importDecisions = Object.fromEntries(Object.entries(importDecisions).map(([id, decision]) => [id, completed.has(id) ? { ...decision, selected: false } : decision]))
         importStatus = `${result.applied?.length ?? 0} imported, ${result.skipped?.length ?? 0} skipped, ${result.errors?.length ?? 0} errors`
@@ -4067,7 +4067,7 @@
 	    const sourceUrl = openAPISyncSettingsSourceURL.trim()
 	    const groupBy = existing?.groupBy || openAPISyncGroupBy || 'tag'
 	    await runAction('save OpenAPI sync settings', async () => {
-	      state = await UpdateOpenAPISyncConfig(collectionId, {
+	      appState = await UpdateOpenAPISyncConfig(collectionId, {
 	        sourceUrl,
 	        groupBy,
 	        lastSyncDate: existing?.lastSyncDate,
@@ -4117,12 +4117,12 @@
 	  }
 
 	  async function refreshChangedCollectionsQuietly() {
-	    if (!state || collectionWatchRefreshInFlight) return
+	    if (!appState || collectionWatchRefreshInFlight) return
 	    collectionWatchRefreshInFlight = true
 	    try {
 	      const result = await RefreshChangedCollections()
 	      if (result.changed) {
-	        state = result.state
+	        appState = result.state
 	      }
 	    } catch {
 	      // Collection files can be briefly unreadable while external editors are writing them.
@@ -4254,7 +4254,7 @@
     if (resetIds.length + restoreIds.length + deleteIds.length === 0) return
     const collectionId = activeCollection.id
     await runAction('apply OpenAPI collection changes', async () => {
-      state = await ApplyOpenAPILocalDrift(collectionId, {
+      appState = await ApplyOpenAPILocalDrift(collectionId, {
         resetIds,
         restoreIds,
         deleteIds
@@ -4282,7 +4282,7 @@
   async function connectOpenAPISync() {
     if (!activeCollection) return
     await runAction('connect OpenAPI sync', async () => {
-      state = await ConnectOpenAPISync(activeCollection.id, openAPISyncOptions())
+      appState = await ConnectOpenAPISync(activeCollection.id, openAPISyncOptions())
       openAPISyncResult = await CheckOpenAPISync(activeCollection.id, openAPISyncOptions())
       reconcileOpenAPISyncEndpointDecisions(openAPISyncResult)
       openAPILocalDriftResult = undefined
@@ -4300,7 +4300,7 @@
 	  async function applyOpenAPISync() {
 	    if (!activeCollection) return
 	    await runAction('apply OpenAPI sync', async () => {
-	      state = await ApplyOpenAPISync(activeCollection.id, openAPISyncOptions())
+	      appState = await ApplyOpenAPISync(activeCollection.id, openAPISyncOptions())
 	      openAPISyncResult = await CheckOpenAPISync(activeCollection.id, openAPISyncOptions())
       reconcileOpenAPISyncEndpointDecisions(openAPISyncResult)
 	      openAPILocalDriftResult = undefined
@@ -4370,7 +4370,7 @@
 		  async function disconnectOpenAPISync() {
 		    if (!activeCollection) return
 		    await runAction('disconnect OpenAPI sync', async () => {
-		      state = await DisconnectOpenAPISync(activeCollection.id)
+		      appState = await DisconnectOpenAPISync(activeCollection.id)
 	      openAPISyncResult = undefined
 	      openAPISyncSourceURL = ''
 	      openAPISyncContent = ''
@@ -4388,8 +4388,8 @@
   async function openCollection() {
     if (!activeWorkspace) return
     await runAction('open collection', async () => {
-      state = await OpenCollection(activeWorkspace.id, openCollectionPath)
-      selectedCollectionId = state.workspaces?.find((workspace) => workspace.id === activeWorkspace.id)?.collections?.at(-1)?.id ?? selectedCollectionId
+      appState = await OpenCollection(activeWorkspace.id, openCollectionPath)
+      selectedCollectionId = appState.workspaces?.find((workspace) => workspace.id === activeWorkspace.id)?.collections?.at(-1)?.id ?? selectedCollectionId
       activeView = 'request'
     })
   }
@@ -4397,13 +4397,13 @@
   async function refreshCollection() {
     if (!activeCollection) return
     await runAction('refresh collection', async () => {
-      state = await RefreshCollection(activeCollection.id)
+      appState = await RefreshCollection(activeCollection.id)
     })
   }
 
   async function resetDemoData() {
     await runAction('reset demo data', async () => {
-      state = await ResetDemoData()
+      appState = await ResetDemoData()
       selectedEnvironmentId = activeCollection?.environments?.[0]?.id ?? ''
       activeView = 'request'
     })
@@ -4411,35 +4411,35 @@
 
   async function deleteCookie(cookieId: string) {
     await runAction('delete cookie', async () => {
-      state = await DeleteCookie(cookieId)
+      appState = await DeleteCookie(cookieId)
       if (cookieForm.id === cookieId) cookieForm = emptyCookieForm()
     })
   }
 
   async function clearCookies() {
     await runAction('clear cookies', async () => {
-      state = await ClearCookies()
+      appState = await ClearCookies()
       cookieForm = emptyCookieForm()
     })
   }
 
   async function clearDomainCookies(domain: string) {
     await runAction('clear domain cookies', async () => {
-      state = await ClearDomainCookies(domain)
+      appState = await ClearDomainCookies(domain)
       if (cookieForm.domain.toLowerCase() === domain.toLowerCase()) cookieForm = emptyCookieForm()
     })
   }
 
   async function saveCookieForm() {
     await runAction('save cookie', async () => {
-      state = await SaveCookie(cookieForm as unknown as main.CookieInput)
+      appState = await SaveCookie(cookieForm as unknown as main.CookieInput)
       cookieForm = emptyCookieForm()
     })
   }
 
   async function importRawCookie() {
     await runAction('import cookie', async () => {
-      state = await AddCookieFromHeader(rawCookieHeader, rawCookieURL)
+      appState = await AddCookieFromHeader(rawCookieHeader, rawCookieURL)
     })
   }
 
@@ -4501,7 +4501,7 @@
     await runAction('switch tab', async () => {
       const result = await SetActiveTabNarrow(tabId)
       await applyNarrow((current, held) => applyTabsMutation(current, held, result))
-      // Read the tab out of the mutation result rather than back out of state:
+      // Read the tab out of the mutation result rather than back out of appState:
       // it is the authoritative list the backend just produced, and it is
       // correct even on the path where applyNarrow had to refetch.
       const nextTab = result.openTabs?.find((tab) => tab.id === tabId)
@@ -4512,17 +4512,17 @@
   }
 
   function activeOpenTabIndex() {
-    return state?.openTabs?.findIndex((tab) => tab.id === state?.activeTabId) ?? -1
+    return appState?.openTabs?.findIndex((tab) => tab.id === appState?.activeTabId) ?? -1
   }
 
   async function switchToOpenTabAt(index: number) {
-    const tab = state?.openTabs?.[index]
+    const tab = appState?.openTabs?.[index]
     if (!tab) return
     await setActiveTab(tab.id)
   }
 
   async function switchToRelativeOpenTab(offset: number) {
-    const tabs = state?.openTabs ?? []
+    const tabs = appState?.openTabs ?? []
     if (tabs.length === 0) return
     const activeIndex = activeOpenTabIndex()
     const currentIndex = activeIndex >= 0 ? activeIndex : 0
@@ -4532,7 +4532,7 @@
 
   function lifecycleRequests(): LifecycleRequest[] {
     const requests: LifecycleRequest[] = []
-    for (const workspace of state?.workspaces ?? []) {
+    for (const workspace of appState?.workspaces ?? []) {
       for (const collection of workspace.collections ?? []) {
         for (const request of collection.items ?? []) {
           requests.push({
@@ -4550,10 +4550,10 @@
 
   function lifecycleTabsFor(action: TabLifecycleAction, targetTabID = ''): LifecycleOpenTab[] {
     if (action === 'close-active') {
-      const target = targetTabID ? (state?.openTabs ?? []).find((tab) => tab.id === targetTabID) : activeTab
+      const target = targetTabID ? (appState?.openTabs ?? []).find((tab) => tab.id === targetTabID) : activeTab
       return target ? [target] : []
     }
-    return state?.openTabs ?? []
+    return appState?.openTabs ?? []
   }
 
   function beginTabLifecycleAction(action: TabLifecycleAction, targetTabID = '') {
@@ -4597,7 +4597,7 @@
     let discarded = false
     await runAction('discard changes', async () => {
       for (const request of dialog.affected) {
-        state = await DiscardRequestDraft(request.collectionId, request.requestId)
+        appState = await DiscardRequestDraft(request.collectionId, request.requestId)
       }
       discarded = true
     })
@@ -4618,7 +4618,7 @@
     let saved = false
     await runAction('save and close', async () => {
       for (const request of dialog.affected) {
-        state = await SaveRequest(request.collectionId, request.requestId)
+        appState = await SaveRequest(request.collectionId, request.requestId)
       }
       saved = true
     })
@@ -4647,10 +4647,10 @@
 
   async function closeActiveTabDirect(targetTabID = activeTab?.id) {
     const tabID = targetTabID
-    if (!tabID || !(state?.openTabs ?? []).some((tab) => tab.id === tabID)) return
+    if (!tabID || !(appState?.openTabs ?? []).some((tab) => tab.id === tabID)) return
     await runAction('close tab', async () => {
       const nextState = await CloseTab(tabID)
-      state = nextState
+      appState = nextState
       const nextTab = nextState.openTabs?.find((tab) => tab.id === nextState.activeTabId)
       selectedCollectionId = nextTab?.collectionId ?? selectedCollectionId
       activeView = 'request'
@@ -4664,7 +4664,7 @@
 
   async function closeAllOpenTabsDirect() {
     await runAction('close all tabs', async () => {
-      state = await CloseAllTabs()
+      appState = await CloseAllTabs()
       activeView = 'request'
     })
   }
@@ -4676,7 +4676,7 @@
   async function reopenLastClosedTab() {
     await runAction('reopen last closed tab', async () => {
       const nextState = await ReopenLastClosedTab(activeTab?.collectionId ?? '')
-      state = nextState
+      appState = nextState
       const nextTab = nextState.openTabs?.find((tab) => tab.id === nextState.activeTabId)
       selectedCollectionId = nextTab?.collectionId ?? selectedCollectionId
       activeView = 'request'
@@ -4695,7 +4695,7 @@
 
   async function openRequestTab(collectionId: string, itemId: string) {
     await runAction('open request', async () => {
-      state = await OpenRequestTab(collectionId, itemId)
+      appState = await OpenRequestTab(collectionId, itemId)
       selectedCollectionId = collectionId
       activeView = 'request'
     })
@@ -4711,7 +4711,7 @@
 
   async function openResponseExampleTabFor(collectionId: string, itemId: string, example: main.ResponseExample) {
     await runAction('open response example', async () => {
-      state = await OpenResponseExampleTab(collectionId, itemId, responseExampleIdentifier(example))
+      appState = await OpenResponseExampleTab(collectionId, itemId, responseExampleIdentifier(example))
       selectedCollectionId = collectionId
       activeView = 'request'
       responseTab = 'examples'
@@ -4726,7 +4726,7 @@
   async function connectGitRemote() {
     if (!activeCollection) return
     await runAction('connect git remote', async () => {
-      state = await ConnectCollectionGitRemote(activeCollection.id, gitRemoteURL)
+      appState = await ConnectCollectionGitRemote(activeCollection.id, gitRemoteURL)
       selectedCollectionId = activeCollection.id
     })
   }
@@ -4734,7 +4734,7 @@
   async function disconnectGitRemote(collectionId = activeCollection?.id ?? '') {
     if (!collectionId) return
     await runAction('remove git remote', async () => {
-      state = await DisconnectCollectionGitRemote(collectionId)
+      appState = await DisconnectCollectionGitRemote(collectionId)
       if (selectedCollectionId === collectionId) selectedCollectionId = ''
     })
   }
@@ -4811,7 +4811,7 @@
     if (!renameCollectionTarget || renameCollectionDraft === '') return
     const collectionID = renameCollectionTarget.id
     await runAction('rename collection', async () => {
-      state = await RenameCollection(collectionID, renameCollectionDraft)
+      appState = await RenameCollection(collectionID, renameCollectionDraft)
       selectedCollectionId = collectionID
       renameCollectionTarget = undefined
       renameCollectionDraft = ''
@@ -4859,7 +4859,7 @@
       const cloned = nextState.workspaces
         .flatMap((workspace) => workspace.collections ?? [])
         .find((collection) => !previousIDs.has(collection.id))
-      state = nextState
+      appState = nextState
       selectedCollectionId = cloned?.id ?? sourceID
       selectedFolderPath = ''
       cancelCloneCollectionModal()
@@ -4981,7 +4981,7 @@
         .flatMap((workspace) => workspace.collections ?? [])
         .find((collection) => collection.id === collectionID)
       const createdFolder = (nextCollection?.folders ?? []).find((folder) => folder.path === expectedPath)
-      state = nextState
+      appState = nextState
       selectedCollectionId = collectionID
       selectedFolderPath = createdFolder?.path ?? expectedPath
       collectionTab = 'folders'
@@ -5043,7 +5043,7 @@
         .flatMap((workspace) => workspace.collections ?? [])
         .find((collection) => collection.id === collectionID)
       const renamedFolder = (nextCollection?.folders ?? []).find((folder) => folder.displayPath === expectedDisplayPath)
-      state = nextState
+      appState = nextState
       selectedCollectionId = collectionID
       selectedFolderPath = renamedFolder?.path ?? sourcePath
       collectionTab = 'folders'
@@ -5096,7 +5096,7 @@
     const sourcePath = cloneFolderTarget.folder.path
     await runAction('clone folder', async () => {
       const nextState = await CloneFolder(collectionID, sourcePath, cloneFolderNameDraft, cloneFolderDirectoryDraft)
-      state = nextState
+      appState = nextState
       selectedCollectionId = collectionID
       cancelCloneFolderModal()
     })
@@ -5143,7 +5143,7 @@
     const requestID = cloneRequestTarget.request.id
     await runAction('clone request', async () => {
       const nextState = await CloneRequest(collectionID, requestID, cloneRequestNameDraft, cloneRequestFilenameDraft)
-      state = nextState
+      appState = nextState
       selectedCollectionId = collectionID
       activeView = 'request'
       cancelCloneRequestModal()
@@ -5197,7 +5197,7 @@
     const requestID = renameRequestTarget.request.id
     await runAction('rename request', async () => {
       const nextState = await RenameRequest(collectionID, requestID, renameRequestNameDraft, renameRequestFilenameDraft)
-      state = nextState
+      appState = nextState
       selectedCollectionId = collectionID
       activeView = 'request'
       cancelRenameRequestModal()
@@ -5220,10 +5220,10 @@
     const requestID = deleteRequestTarget.request.id
     await runAction('delete request', async () => {
       if (requestDeletionAction(deleteRequestTarget!.request) === 'discard-draft') {
-        state = await DiscardRequestDraft(collectionID, requestID)
+        appState = await DiscardRequestDraft(collectionID, requestID)
       } else {
         const result = await DeleteRequestRecoverable(collectionID, requestID)
-        state = result.state
+        appState = result.state
         await refreshRecoveryEntries()
       }
       selectedCollectionId = collectionID
@@ -5254,7 +5254,7 @@
       const nextCollection = nextState.workspaces
         .flatMap((workspace) => workspace.collections ?? [])
         .find((collection) => collection.id === collectionID)
-      state = nextState
+      appState = nextState
       await refreshRecoveryEntries()
       selectedCollectionId = collectionID
       if (slashPathHasPrefix(selectedFolderPath, sourcePath)) {
@@ -5280,7 +5280,7 @@
     const collectionID = removeCollectionTarget.id
     await runAction('remove collection', async () => {
       const result = await RemoveCollectionRecoverable(collectionID)
-      state = result.state
+      appState = result.state
       await refreshRecoveryEntries()
       if (selectedCollectionId === collectionID) selectedCollectionId = ''
       removeCollectionTarget = undefined
@@ -5620,8 +5620,8 @@
   async function openSelectedGitCollections() {
     if (!activeWorkspace) return
     await runAction('open git collections', async () => {
-      state = await OpenGitCollections(activeWorkspace.id, selectedGitCollectionPaths, gitCloneURL)
-      selectedCollectionId = state.workspaces
+      appState = await OpenGitCollections(activeWorkspace.id, selectedGitCollectionPaths, gitCloneURL)
+      selectedCollectionId = appState.workspaces
         ?.find((workspace) => workspace.id === activeWorkspace.id)
         ?.collections?.find((collection) => selectedGitCollectionPaths.includes(collection.path))?.id ?? selectedCollectionId
       activeView = 'request'
@@ -5637,27 +5637,27 @@
   // US-014. Applies a narrow mutator result, or refetches the whole AppState
   // when the revision says we missed an update.
   //
-  // `state.revision` is read directly rather than through a `$:` derivation
+  // `appState.revision` is read directly rather than through a `$:` derivation
   // because a reactive statement does not run until Svelte's next update tick,
   // so two mutations dispatched inside one tick would both compare against the
   // same stale revision — making the second look like a gap and refetch for
   // nothing.
   async function applyNarrow(merge: (current: main.AppState, held: number) => MergeOutcome): Promise<void> {
-    if (!state) {
+    if (!appState) {
       // Nothing to patch onto. Only reachable before the boot fetch has landed.
-      state = await GetState()
+      appState = await GetState()
       return
     }
-    const outcome = merge(state, state.revision ?? 0)
+    const outcome = merge(appState, appState.revision ?? 0)
     if (outcome.kind === 'applied') {
-      state = outcome.state
+      appState = outcome.state
       return
     }
-    // Not silent. A refetch means something mutated state behind our back, and
+    // Not silent. A refetch means something mutated appState behind our back, and
     // while recovery is automatic, a run of these is a real signal that some
     // mutator still needs migrating.
-    console.warn(`[US-014] refetching full state: ${outcome.reason}`)
-    state = await GetState()
+    console.warn(`[US-014] refetching full appState: ${outcome.reason}`)
+    appState = await GetState()
   }
 
   // US-035. The keystroke path. US-014 made each round trip 511x smaller
@@ -5665,7 +5665,7 @@
   // them happening at all, by coalescing a burst of typing into one call.
   //
   // The backend call is deferred, but the UI is NOT: applyOptimisticPatch below
-  // updates local state synchronously, so the input never lags behind the
+  // updates local appState synchronously, so the input never lags behind the
   // keyboard. The authoritative result overwrites it when the flush lands.
   const requestPatchCoalescer = new PatchCoalescer<main.RequestPatch>(
     async ({ collectionId, itemId }, patch) => {
@@ -5689,10 +5689,10 @@
   // mutation has happened yet, so claiming one would desynchronise US-014's gap
   // detection and make the next real result look like a missed update.
   function applyOptimisticPatch(collectionId: string, itemId: string, patch: main.RequestPatch) {
-    if (!state) return
-    state = {
-      ...state,
-      workspaces: state.workspaces.map((workspace) => ({
+    if (!appState) return
+    appState = {
+      ...appState,
+      workspaces: appState.workspaces.map((workspace) => ({
         ...workspace,
         collections: (workspace.collections ?? []).map((collection) =>
           collection.id !== collectionId
@@ -5716,7 +5716,7 @@
     void requestPatchCoalescer.queue({ collectionId, itemId: requestId }, patch)
   }
 
-  // Every path that reads server-side request state has to drain the queue
+  // Every path that reads server-side request appState has to drain the queue
   // first and WAIT for it, or it races the edit the user just made. A
   // fire-and-forget flush would be worse than none: it looks correct and loses
   // the last keystroke exactly when the user is watching for it.
@@ -6074,20 +6074,20 @@
     if (!activeCollection) return
     const vars = [...(activeCollection.variables ?? [])]
     vars[index] = { ...vars[index], [field]: value }
-    state = await UpdateCollectionVariables(activeCollection.id, vars)
+    appState = await UpdateCollectionVariables(activeCollection.id, vars)
   }
 
   async function addCollectionVariable() {
     if (!activeCollection) return
     const vars = [...(activeCollection.variables ?? []), { id: `ui-var-${Date.now()}`, name: '', value: '', type: 'text', dataType: 'string', enabled: true, secret: false }]
-    state = await UpdateCollectionVariables(activeCollection.id, vars)
+    appState = await UpdateCollectionVariables(activeCollection.id, vars)
   }
 
   async function updateEnvironmentVariable(index: number, field: keyof main.Variable, value: string | boolean) {
     if (!activeCollection || !selectedEnvironment) return
     const vars = [...(selectedEnvironment.variables ?? [])]
     vars[index] = field === 'dataType' ? { ...vars[index], dataType: String(value), type: String(value) } : { ...vars[index], [field]: value }
-    state = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
+    appState = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
   }
 
   async function addEnvironmentVariable() {
@@ -6096,21 +6096,21 @@
       ...(selectedEnvironment.variables ?? []),
       { id: `ui-env-var-${Date.now()}`, name: '', value: '', type: 'text', dataType: 'string', enabled: true, secret: environmentVariableTab === 'secrets' }
     ]
-    state = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
+    appState = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
   }
 
   async function removeEnvironmentVariable(index: number) {
     if (!activeCollection || !selectedEnvironment) return
     const vars = [...(selectedEnvironment.variables ?? [])]
     vars.splice(index, 1)
-    state = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
+    appState = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
   }
 
   async function updateGlobalEnvironmentVariable(index: number, field: keyof main.Variable, value: string | boolean) {
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     const vars = [...(selectedGlobalEnvironment.variables ?? [])]
     vars[index] = field === 'dataType' ? { ...vars[index], dataType: String(value), type: String(value) } : { ...vars[index], [field]: value }
-    state = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
+    appState = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
   }
 
   async function addGlobalEnvironmentVariable() {
@@ -6119,20 +6119,20 @@
       ...(selectedGlobalEnvironment.variables ?? []),
       { id: `ui-global-env-var-${Date.now()}`, name: '', value: '', type: 'text', dataType: 'string', enabled: true, secret: globalEnvironmentVariableTab === 'secrets' }
     ]
-    state = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
+    appState = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
   }
 
   async function removeGlobalEnvironmentVariable(index: number) {
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     const vars = [...(selectedGlobalEnvironment.variables ?? [])]
     vars.splice(index, 1)
-    state = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
+    appState = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
   }
 
   async function deleteGlobalEnvironment() {
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     await runAction('delete global environment', async () => {
-      state = await DeleteGlobalEnvironment(activeWorkspace.id, selectedGlobalEnvironment.id)
+      appState = await DeleteGlobalEnvironment(activeWorkspace.id, selectedGlobalEnvironment.id)
     })
   }
 
@@ -6140,7 +6140,7 @@
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     await runAction('copy global environment', async () => {
       const copyName = globalEnvironmentCopyName.trim()
-      state = copyName
+      appState = copyName
         ? await CopyGlobalEnvironmentAs(activeWorkspace.id, selectedGlobalEnvironment.id, copyName)
         : await CopyGlobalEnvironment(activeWorkspace.id, selectedGlobalEnvironment.id)
       globalEnvironmentCopyName = ''
@@ -6185,7 +6185,7 @@
   async function importGlobalEnvironment() {
     if (!activeWorkspace || !globalEnvironmentPayload.trim()) return
     await runAction('import global environment', async () => {
-      state = await ImportGlobalEnvironment(activeWorkspace.id, globalEnvironmentPayload)
+      appState = await ImportGlobalEnvironment(activeWorkspace.id, globalEnvironmentPayload)
     })
   }
 
@@ -6193,25 +6193,25 @@
     if (!activeCollection) return
     const headers = [...(activeCollection.headers ?? [])]
     headers[index] = { ...headers[index], [field]: value }
-    state = await UpdateCollectionHeaders(activeCollection.id, headers)
+    appState = await UpdateCollectionHeaders(activeCollection.id, headers)
   }
 
   async function addCollectionHeader() {
     if (!activeCollection) return
     const headers = [...(activeCollection.headers ?? []), { name: '', value: '', enabled: true, secret: false, description: '' }]
-    state = await UpdateCollectionHeaders(activeCollection.id, headers)
+    appState = await UpdateCollectionHeaders(activeCollection.id, headers)
   }
 
   async function removeCollectionHeader(index: number) {
     if (!activeCollection) return
     const headers = [...(activeCollection.headers ?? [])]
     headers.splice(index, 1)
-    state = await UpdateCollectionHeaders(activeCollection.id, headers)
+    appState = await UpdateCollectionHeaders(activeCollection.id, headers)
   }
 
   async function updateCollectionAuth(updates: Partial<main.AuthConfig>) {
     if (!activeCollection) return
-    state = await UpdateCollectionAuth(activeCollection.id, authWithOAuth2Defaults(activeCollection.auth, updates))
+    appState = await UpdateCollectionAuth(activeCollection.id, authWithOAuth2Defaults(activeCollection.auth, updates))
   }
 
   function isProxyConfigUnset(proxy: main.ProxyConfig | undefined) {
@@ -6257,7 +6257,7 @@
 
   async function updateCollectionProxy(updates: Partial<main.ProxyConfig>) {
     if (!activeCollection) return
-    state = await UpdateCollectionProxy(activeCollection.id, normalizedCollectionProxy(updates))
+    appState = await UpdateCollectionProxy(activeCollection.id, normalizedCollectionProxy(updates))
   }
 
   async function updateCollectionProxyMode(mode: string) {
@@ -6276,7 +6276,7 @@
 
   async function updateCollectionSandboxMode(mode: JSSandboxMode) {
     if (!activeCollection || collectionSandboxMode(activeCollection) === mode) return
-    state = await UpdateCollectionSecurityConfig(activeCollection.id, { jsSandboxMode: mode } as main.CollectionSecurityConfig)
+    appState = await UpdateCollectionSecurityConfig(activeCollection.id, { jsSandboxMode: mode } as main.CollectionSecurityConfig)
   }
 
   async function updateCollectionProxyAuth(updates: Partial<main.ProxyAuthConfig>) {
@@ -6304,12 +6304,12 @@
   }
 
   function proxyPreferencesWithDefaults(overrides: Partial<main.ProxyPreferences> = {}) {
-    const current = state?.preferences?.proxy ?? ({} as main.ProxyPreferences)
+    const current = appState?.preferences?.proxy ?? ({} as main.ProxyPreferences)
     const pac = { source: current.pac?.source || '', ...(overrides.pac ?? {}) }
     const config = proxyConfigWithDefaults(current.config, overrides.config ?? {})
     return {
       disabled: current.disabled ?? false,
-      source: current.source || (state?.preferences?.proxyMode === 'pac' ? 'pac' : state?.preferences?.proxyMode === 'manual' ? 'manual' : 'inherit'),
+      source: current.source || (appState?.preferences?.proxyMode === 'pac' ? 'pac' : appState?.preferences?.proxyMode === 'manual' ? 'manual' : 'inherit'),
       ...overrides,
       pac,
       config
@@ -6339,14 +6339,14 @@
   }
 
   async function updatePreferencesProxy(updates: Partial<main.ProxyPreferences>) {
-    if (!state) return
+    if (!appState) return
     const proxy = proxyPreferencesWithDefaults(updates)
     const preferences = {
-      ...state.preferences,
+      ...appState.preferences,
       proxy,
       proxyMode: preferenceProxyModeValue(proxy)
     } as main.Preferences
-    state = await UpdatePreferences(preferences)
+    appState = await UpdatePreferences(preferences)
   }
 
   async function updatePreferencesProxyMode(mode: string) {
@@ -6362,19 +6362,19 @@
   }
 
   async function updatePreferencesProxyConfig(updates: Partial<main.ProxyConfig>) {
-    const current = state?.preferences?.proxy?.config
+    const current = appState?.preferences?.proxy?.config
     await updatePreferencesProxy({ config: proxyConfigWithDefaults(current, updates) })
   }
 
   async function updatePreferencesProxyAuth(updates: Partial<main.ProxyAuthConfig>) {
-    const current = state?.preferences?.proxy?.config
+    const current = appState?.preferences?.proxy?.config
     await updatePreferencesProxyConfig({ auth: { ...(current?.auth ?? {}), ...updates } as main.ProxyAuthConfig })
   }
 
   async function updateAppearancePreferences(updates: Partial<main.Preferences>) {
-    if (!state) return
-    state = await UpdatePreferences({
-      ...state.preferences,
+    if (!appState) return
+    appState = await UpdatePreferences({
+      ...appState.preferences,
       ...updates
     } as main.Preferences)
   }
@@ -6392,11 +6392,11 @@
   }
 
   async function setResponsePaneOrientation(orientation: ResponsePaneOrientation) {
-    if (!state) return
-    state = await UpdatePreferences({
-      ...state.preferences,
+    if (!appState) return
+    appState = await UpdatePreferences({
+      ...appState.preferences,
       layout: {
-        ...(state.preferences.layout ?? {}),
+        ...(appState.preferences.layout ?? {}),
         responsePaneOrientation: orientation
       } as main.LayoutPreferences
     } as main.Preferences)
@@ -6407,11 +6407,11 @@
   }
 
   async function setZoomPercentage(percentage: number) {
-    if (!state) return
-    state = await UpdatePreferences({
-      ...state.preferences,
+    if (!appState) return
+    appState = await UpdatePreferences({
+      ...appState.preferences,
       display: {
-        ...(state.preferences.display ?? {}),
+        ...(appState.preferences.display ?? {}),
         zoomPercentage: normalizedZoomPercentage(percentage)
       } as main.DisplayPreferences
     } as main.Preferences)
@@ -6426,14 +6426,14 @@
   }
 
   async function updateFontPreferences(updates: Partial<main.FontPreferences>) {
-    if (!state) return
+    if (!appState) return
     const nextFont = {
-      ...(state.preferences.font ?? {}),
+      ...(appState.preferences.font ?? {}),
       ...updates
     } as main.FontPreferences
-    const nextSize = normalizedCodeFontSize(nextFont.codeFontSize ?? state.preferences.codeFontSize)
-    state = await UpdatePreferences({
-      ...state.preferences,
+    const nextSize = normalizedCodeFontSize(nextFont.codeFontSize ?? appState.preferences.codeFontSize)
+    appState = await UpdatePreferences({
+      ...appState.preferences,
       font: {
         ...nextFont,
         codeFont: normalizedCodeFont(nextFont.codeFont),
@@ -6453,8 +6453,8 @@
 
   async function updateRequestPreferences(updates: Partial<main.RequestPreferences>) {
     requestPreferencesSaveQueue = requestPreferencesSaveQueue.catch(() => {}).then(async () => {
-      if (!state) return
-      const current = state.preferences.request ?? ({} as main.RequestPreferences)
+      if (!appState) return
+      const current = appState.preferences.request ?? ({} as main.RequestPreferences)
       const next = {
         sslVerification: updates.sslVerification ?? (current.sslVerification !== false),
         customCaCertificate: {
@@ -6466,12 +6466,12 @@
           enabled: current.keepDefaultCaCertificates?.enabled !== false,
           ...(updates.keepDefaultCaCertificates ?? {})
         } as main.KeepDefaultCaCertificatesPreferences,
-        storeCookies: updates.storeCookies ?? current.storeCookies ?? state.preferences.storeCookies ?? true,
+        storeCookies: updates.storeCookies ?? current.storeCookies ?? appState.preferences.storeCookies ?? true,
         sendCookies: updates.sendCookies ?? current.sendCookies ?? true,
         timeout: normalizedRequestTimeout(updates.timeout ?? current.timeout)
       } as main.RequestPreferences
-      state = await UpdatePreferences({
-        ...state.preferences,
+      appState = await UpdatePreferences({
+        ...appState.preferences,
         request: next,
         storeCookies: next.storeCookies ?? true
       } as main.Preferences)
@@ -6480,12 +6480,12 @@
   }
 
   async function browseCustomCaCertificate() {
-    if (!state) return
+    if (!appState) return
     const filePath = await SelectCustomCaCertificate()
     if (!filePath) return
     await updateRequestPreferences({
       customCaCertificate: {
-        ...(state.preferences.request?.customCaCertificate ?? {}),
+        ...(appState.preferences.request?.customCaCertificate ?? {}),
         enabled: true,
         filePath
       } as main.CustomCaCertificatePreferences
@@ -6495,20 +6495,20 @@
   async function clearCustomCaCertificate() {
     await updateRequestPreferences({
       customCaCertificate: {
-        ...(state?.preferences?.request?.customCaCertificate ?? {}),
+        ...(appState?.preferences?.request?.customCaCertificate ?? {}),
         filePath: ''
       } as main.CustomCaCertificatePreferences
     })
   }
 
   async function updateGeneralPreferences(updates: Partial<main.GeneralPreferences>) {
-    if (!state) return
+    if (!appState) return
     const next = {
-      ...(state.preferences.general ?? {}),
+      ...(appState.preferences.general ?? {}),
       ...updates
     } as main.GeneralPreferences
-    state = await UpdatePreferences({
-      ...state.preferences,
+    appState = await UpdatePreferences({
+      ...appState.preferences,
       general: next,
       defaultCollectionPath: next.defaultLocation ?? ''
     } as main.Preferences)
@@ -6525,14 +6525,14 @@
   }
 
   async function updateAutoSavePreferences(updates: Partial<main.AutoSavePreferences>) {
-    if (!state) return
-    const current = state.preferences.autoSave ?? ({} as main.AutoSavePreferences)
+    if (!appState) return
+    const current = appState.preferences.autoSave ?? ({} as main.AutoSavePreferences)
     const next = {
-      enabled: updates.enabled ?? current.enabled ?? state.preferences.autosave ?? false,
+      enabled: updates.enabled ?? current.enabled ?? appState.preferences.autosave ?? false,
       interval: normalizedAutoSaveInterval(updates.interval ?? current.interval)
     } as main.AutoSavePreferences
-    state = await UpdatePreferences({
-      ...state.preferences,
+    appState = await UpdatePreferences({
+      ...appState.preferences,
       autoSave: next,
       autosave: next.enabled
     } as main.Preferences)
@@ -6544,21 +6544,21 @@
   }
 
   async function updateSSLSessionCache(enabled: boolean) {
-    if (!state) return
-    state = await UpdatePreferences({
-      ...state.preferences,
+    if (!appState) return
+    appState = await UpdatePreferences({
+      ...appState.preferences,
       cache: {
-        ...(state.preferences.cache ?? {}),
+        ...(appState.preferences.cache ?? {}),
         sslSession: { enabled } as main.SSLSessionCachePreferences
       } as main.CachePreferences
     } as main.Preferences)
     if (!enabled) {
-      state = await ClearSSLSessionCache()
+      appState = await ClearSSLSessionCache()
     }
   }
 
   async function clearSSLSessionCache() {
-    state = await ClearSSLSessionCache()
+    appState = await ClearSSLSessionCache()
   }
 
   async function refreshFileCacheSize() {
@@ -6570,11 +6570,11 @@
   }
 
   async function updateFileCache(enabled: boolean) {
-    if (!state) return
-    state = await UpdatePreferences({
-      ...state.preferences,
+    if (!appState) return
+    appState = await UpdatePreferences({
+      ...appState.preferences,
       cache: {
-        ...(state.preferences.cache ?? {}),
+        ...(appState.preferences.cache ?? {}),
         file: { enabled } as main.FileCachePreferences
       } as main.CachePreferences
     } as main.Preferences)
@@ -6586,11 +6586,11 @@
   }
 
   function autoSaveIsEnabled() {
-    return state?.preferences?.autoSave?.enabled ?? state?.preferences?.autosave ?? false
+    return appState?.preferences?.autoSave?.enabled ?? appState?.preferences?.autosave ?? false
   }
 
   function autoSaveDelay() {
-    return normalizedAutoSaveInterval(state?.preferences?.autoSave?.interval)
+    return normalizedAutoSaveInterval(appState?.preferences?.autoSave?.interval)
   }
 
   function clearAutoSaveTimer() {
@@ -6612,7 +6612,7 @@
       clearAutoSaveTimer()
       if (!target) return
       try {
-        state = await SaveRequest(target.collectionId, target.requestId)
+        appState = await SaveRequest(target.collectionId, target.requestId)
       } catch (err) {
         error = err instanceof Error ? err.message : String(err)
       }
@@ -6868,14 +6868,14 @@
   }
 
   async function updateKeyBinding(action: string, combo: string) {
-    if (!state) return
+    if (!appState) return
     const os = currentKeyBindingOS()
     const binding = mergedKeyBinding(action)
     if (!binding) return
     const nextBindings = {
-      ...(state.preferences.keyBindings ?? {}),
+      ...(appState.preferences.keyBindings ?? {}),
       [action]: {
-        ...(state.preferences.keyBindings?.[action] ?? {}),
+        ...(appState.preferences.keyBindings?.[action] ?? {}),
         name: binding.name,
         [os]: keyBindingSignature(combo)
       } as main.KeyBinding
@@ -6884,8 +6884,8 @@
   }
 
   async function resetKeyBinding(action: string) {
-    if (!state) return
-    const nextBindings = { ...(state.preferences.keyBindings ?? {}) }
+    if (!appState) return
+    const nextBindings = { ...(appState.preferences.keyBindings ?? {}) }
     delete nextBindings[action]
     await updateAppearancePreferences({ keyBindings: nextBindings })
   }
@@ -6917,26 +6917,26 @@
 
   async function updateDevToolsShellPreferences(updates: Partial<main.DevToolsPreferences>) {
     const next = {
-      ...(state?.preferences?.devTools ?? {}),
+      ...(appState?.preferences?.devTools ?? {}),
       ...updates,
-      activeTab: normalizedDevToolsTab(updates.activeTab ?? state?.preferences?.devTools?.activeTab ?? devToolsTab),
-      drawerHeight: normalizedDevToolsDrawerHeight(updates.drawerHeight ?? state?.preferences?.devTools?.drawerHeight ?? devToolsDrawerHeight),
-      detailsPanelWidth: normalizedDevToolsDetailsPanelWidth(updates.detailsPanelWidth ?? state?.preferences?.devTools?.detailsPanelWidth ?? devToolsDetailsPanelWidth),
-      network: state?.preferences?.devTools?.network ?? devToolsNetworkPreferencePayload(devToolsNetworkSortKey, devToolsNetworkSortDirection, devToolsNetworkColumnWidths)
+      activeTab: normalizedDevToolsTab(updates.activeTab ?? appState?.preferences?.devTools?.activeTab ?? devToolsTab),
+      drawerHeight: normalizedDevToolsDrawerHeight(updates.drawerHeight ?? appState?.preferences?.devTools?.drawerHeight ?? devToolsDrawerHeight),
+      detailsPanelWidth: normalizedDevToolsDetailsPanelWidth(updates.detailsPanelWidth ?? appState?.preferences?.devTools?.detailsPanelWidth ?? devToolsDetailsPanelWidth),
+      network: appState?.preferences?.devTools?.network ?? devToolsNetworkPreferencePayload(devToolsNetworkSortKey, devToolsNetworkSortDirection, devToolsNetworkColumnWidths)
     } as main.DevToolsPreferences
     devToolsOpen = next.open ?? false
     devToolsTab = normalizedDevToolsTab(next.activeTab)
     devToolsDrawerHeight = normalizedDevToolsDrawerHeight(next.drawerHeight)
     devToolsDetailsPanelWidth = normalizedDevToolsDetailsPanelWidth(next.detailsPanelWidth)
-    if (!state) return
-    state = await UpdatePreferences({
-      ...state.preferences,
+    if (!appState) return
+    appState = await UpdatePreferences({
+      ...appState.preferences,
       devTools: next
     } as main.Preferences)
   }
 
   async function recordKeyBinding(action: string, event: KeyboardEvent) {
-    if (!keyBindingCanEdit(action) || !keybindingsAreEnabled(state?.preferences)) return
+    if (!keyBindingCanEdit(action) || !keybindingsAreEnabled(appState?.preferences)) return
     event.preventDefault()
     event.stopPropagation()
     const combo = keyBindingComboFromEvent(event)
@@ -6950,7 +6950,7 @@
   }
 
   function beginRecordKeyBinding(action: string) {
-    if (!keyBindingCanEdit(action) || !keybindingsAreEnabled(state?.preferences)) return
+    if (!keyBindingCanEdit(action) || !keybindingsAreEnabled(appState?.preferences)) return
     recordingKeybindingAction = action
     keybindingDraft = keyBindingValue(action)
     keybindingError = ''
@@ -6975,17 +6975,17 @@
         rows[index].pfxFilePath = ''
       }
     }
-    state = await UpdateCollectionClientCertificates(activeCollection.id, rows)
+    appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
   }
 
   async function updateCollectionPresets(updates: Partial<main.CollectionPresets>) {
     if (!activeCollection) return
-    state = await UpdateCollectionPresets(activeCollection.id, { ...(activeCollection.presets ?? {}), ...updates } as main.CollectionPresets)
+    appState = await UpdateCollectionPresets(activeCollection.id, { ...(activeCollection.presets ?? {}), ...updates } as main.CollectionPresets)
   }
 
   async function updateCollectionProtobuf(protobuf: main.CollectionProtobufConfig) {
     if (!activeCollection) return
-    state = await UpdateCollectionProtobuf(activeCollection.id, protobuf)
+    appState = await UpdateCollectionProtobuf(activeCollection.id, protobuf)
   }
 
   function collectionProtobufConfig() {
@@ -7002,14 +7002,14 @@
       ...(activeCollection.clientCertificates ?? []),
       { domain: '', type: 'cert', certFilePath: '', keyFilePath: '', pfxFilePath: '', passphrase: '' } as main.ClientCertificateConfig
     ]
-    state = await UpdateCollectionClientCertificates(activeCollection.id, rows)
+    appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
   }
 
   async function removeCollectionClientCertificate(index: number) {
     if (!activeCollection) return
     const rows = [...(activeCollection.clientCertificates ?? [])]
     rows.splice(index, 1)
-    state = await UpdateCollectionClientCertificates(activeCollection.id, rows)
+    appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
   }
 
   async function updateCollectionProtoFile(index: number, field: keyof main.CollectionProtoFile, value: string) {
@@ -7094,12 +7094,12 @@
 
   async function updateCollectionDocs(value: string) {
     if (!activeCollection) return
-    state = await UpdateCollectionDocs(activeCollection.id, value)
+    appState = await UpdateCollectionDocs(activeCollection.id, value)
   }
 
   async function updateCollectionScript(field: 'preScript' | 'postScript' | 'tests', value: string) {
     if (!activeCollection) return
-    state = await UpdateCollectionScripts(
+    appState = await UpdateCollectionScripts(
       activeCollection.id,
       field === 'preScript' ? value : activeCollection.preScript,
       field === 'postScript' ? value : activeCollection.postScript,
@@ -7146,7 +7146,7 @@
     folderSettingsSaveQueue = folderSettingsSaveQueue
       .catch(() => {})
       .then(async () => {
-        state = await UpdateFolderSettings(activeCollection.id, targetPath, nextFolder)
+        appState = await UpdateFolderSettings(activeCollection.id, targetPath, nextFolder)
         selectedFolderPath = nextFolder.path
         folderSettingDrafts = { ...folderSettingDrafts, [nextFolder.path]: nextFolder }
       })
@@ -7331,11 +7331,11 @@
     devToolsNetworkSortDirection = payload.sortDirection
     devToolsNetworkColumnWidths = payload.columnWidths
     devToolsNetworkPreferencesKey = JSON.stringify(payload)
-    if (!state) return
-    state = await UpdatePreferences({
-      ...state.preferences,
+    if (!appState) return
+    appState = await UpdatePreferences({
+      ...appState.preferences,
       devTools: {
-        ...(state.preferences.devTools ?? {}),
+        ...(appState.preferences.devTools ?? {}),
         network: payload
       }
     } as main.Preferences)
@@ -7803,7 +7803,7 @@
   }
 
   function requestNameForTransport(target: { collectionId: string; requestId: string }) {
-    for (const workspace of state?.workspaces ?? []) {
+    for (const workspace of appState?.workspaces ?? []) {
       const collection = workspace.collections?.find((candidate) => candidate.id === target.collectionId)
       const request = collection?.items?.find((candidate) => candidate.id === target.requestId)
       if (request) return request.name?.trim() || 'request'
@@ -7864,7 +7864,7 @@
   const groupedItemsMemo = new KeyedMemo<{ folder: string; items: main.RequestItem[] }[]>()
 
   function groupedItems(collection: main.Collection, query = '') {
-    const revision = state?.revision ?? 0
+    const revision = appState?.revision ?? 0
     return groupedItemsMemo.get(`${collection.id}:${revision}:${query}`, () => computeGroupedItems(collection, query))
   }
 
@@ -8193,7 +8193,7 @@
   async function selectNotification(notification: main.Notification) {
     selectedNotificationID = notification.id
     if (!notification.read) {
-      state = await MarkNotificationRead(notification.id)
+      appState = await MarkNotificationRead(notification.id)
     }
   }
 
@@ -8212,14 +8212,14 @@
 
   async function markAllNotificationsRead() {
     await runAction('mark notifications read', async () => {
-      state = await MarkAllNotificationsRead()
+      appState = await MarkAllNotificationsRead()
       if (notificationTab === 'unread') pinnedUnreadNotificationIDs = null
     })
   }
 
   async function clearNotifications() {
     await runAction('clear notifications', async () => {
-      state = await ClearNotifications()
+      appState = await ClearNotifications()
       selectedNotificationID = ''
       pinnedUnreadNotificationIDs = null
     })
@@ -8370,7 +8370,7 @@
       void cancelActiveRequest()
       return
     }
-    if (!state || !keybindingsAreEnabled(state.preferences)) return
+    if (!appState || !keybindingsAreEnabled(appState.preferences)) return
     if (keyBindingEventMatches(event, 'commandPalette')) {
       event.preventDefault()
       openCommandPalette()
@@ -8419,7 +8419,7 @@
     }
     if (keyBindingEventMatches(event, 'switchToLastTab')) {
       event.preventDefault()
-      void switchToOpenTabAt((state.openTabs?.length ?? 0) - 1)
+      void switchToOpenTabAt((appState.openTabs?.length ?? 0) - 1)
       return
     }
     for (let index = 1; index <= 8; index += 1) {
@@ -8515,7 +8515,7 @@
     <div class="loader"></div>
     <p>{loadingStatus}</p>
   </main>
-{:else if state}
+{:else if appState}
   <main class="app-shell" class:sidebar-collapsed={sidebarCollapsed} style={`--sidebar-width: ${sidebarWidth}px;`} >
     <aside class="workspace-rail" aria-label="Collections sidebar">
       <div class="brand">
@@ -8767,8 +8767,8 @@
         <WorkspaceCommandBar
           {sidebarCollapsed}
           workspaceName={activeWorkspace?.name ?? 'Workspace'}
-          workspaceOptions={state.workspaces.map((workspace) => ({ id: workspace.id, name: workspace.name }))}
-          workspaceValue={state.activeWorkspaceId}
+          workspaceOptions={appState.workspaces.map((workspace) => ({ id: workspace.id, name: workspace.name }))}
+          workspaceValue={appState.activeWorkspaceId}
           collectionName={activeCollection?.name ?? 'No collection'}
           requestName={activeRequest?.name ?? 'No request'}
           {activeView}
@@ -8811,10 +8811,10 @@
             {/if}
           {/snippet}
         </WorkspaceCommandBar>
-        {#if (state.openTabs ?? []).length > 0}
+        {#if (appState.openTabs ?? []).length > 0}
           <nav class="tabs" aria-label="Open tabs">
-            {#each state.openTabs as tab (tab.id)}
-              <div class="tab" class:active={tab.id === state.activeTabId}>
+            {#each appState.openTabs as tab (tab.id)}
+              <div class="tab" class:active={tab.id === appState.activeTabId}>
                 <button class="tab-select" title={tabLabel(tab)} on:click={() => setActiveTab(tab.id)}>
                   {#if tabMethod(tab)}
                     <span class="tab-method" data-method={tabMethod(tab)}>{methodLabel(tabMethod(tab))}</span>
@@ -8886,7 +8886,7 @@
                 </div>
               </div>
               {#if devToolsNetworkRows.length === 0}
-                <div class="empty-state devtools-empty">
+                <div class="empty-appState devtools-empty">
                   <strong>No network requests</strong>
                   <span>Requests will appear here as you make API calls</span>
                 </div>
@@ -9374,7 +9374,7 @@
 	                      </div>
 	                    </div>
 	                    {#if (activeRequest.wsMessages ?? []).length === 0}
-	                      <div class="empty-state">No WebSocket messages</div>
+	                      <div class="empty-appState">No WebSocket messages</div>
 	                    {:else}
 	                      <table class="ws-messages">
 	                        <thead>
@@ -9480,7 +9480,7 @@
 	                      onRemove={removeFileBodyRow}
 	                    />
 	                  {:else}
-                    <div class="empty-state">No body payload</div>
+                    <div class="empty-appState">No body payload</div>
                   {/if}
                 {/if}
               {:else if requestPaneTab === 'auth'}
@@ -9654,7 +9654,7 @@
 		                    <span class="field-label">Body hash</span>
 		                    <input type="checkbox" checked={activeRequest.auth.oauth1?.includeBodyHash ?? false} on:change={(e) => updateOAuth1Auth({ includeBodyHash: e.currentTarget.checked })} />
 		                  {:else if activeRequest.auth.mode !== 'none'}
-                    <div class="empty-state wide">This auth mode is marked partial until its full backend signer is implemented.</div>
+                    <div class="empty-appState wide">This auth mode is marked partial until its full backend signer is implemented.</div>
 	                  {/if}
                 </div>
               {:else if requestPaneTab === 'vars'}
@@ -9692,7 +9692,7 @@
               {:else if requestPaneTab === 'docs'}
                 <CodeEditor editorKey={`${activeRequest.id}:docs`} value={activeRequest.docs} language="markdown" ariaLabel="Request documentation" testId="request-docs-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => patchField('docs', value)} />
               {:else if requestPaneTab === 'app'}
-                <div class="empty-state">Request app runtime surface</div>
+                <div class="empty-appState">Request app runtime surface</div>
               {:else if requestPaneTab === 'settings'}
                 <RequestSettingsPanel requestType={activeRequest.type} settings={activeRequest.settings} onChange={updateSettings} />
               {/if}
@@ -9764,7 +9764,7 @@
                   <button class="primary" type="button" on:click={beginCreateResponseExample} disabled={busy !== ''}>New example</button>
                 </div>
                 {#if (activeRequest.examples ?? []).length === 0}
-                  <div class="empty-state">No response examples</div>
+                  <div class="empty-appState">No response examples</div>
                 {:else}
                   <div class="examples-list">
                     {#each activeRequest.examples ?? [] as example (responseExampleIdentifier(example))}
@@ -10263,7 +10263,7 @@
               </div>
             {:else if collectionTab === 'folders'}
               {#if (activeCollection.folders ?? []).length === 0}
-                <div class="empty-state">No folders in this collection</div>
+                <div class="empty-appState">No folders in this collection</div>
               {:else if editableFolder}
                 <div class="settings-stack folder-settings-panel">
                   <div class="field-grid folder-picker">
@@ -10320,7 +10320,7 @@
                       </table>
                     </div>
                     {#if (editableFolder.variables ?? []).length === 0}
-                      <div class="empty-state">No pre-request variables</div>
+                      <div class="empty-appState">No pre-request variables</div>
                     {/if}
 
                     <div class="settings-section-header">
@@ -10352,7 +10352,7 @@
                       </table>
                     </div>
                     {#if (editableFolder.resVariables ?? []).length === 0}
-                      <div class="empty-state">No post-response variables</div>
+                      <div class="empty-appState">No post-response variables</div>
                     {/if}
                   {:else if folderSettingsTab === 'auth'}
                     <div class="field-grid auth-grid">
@@ -10643,7 +10643,7 @@
 		                  <span class="field-label">Body hash</span>
 		                  <input type="checkbox" checked={activeCollection.auth.oauth1?.includeBodyHash ?? false} on:change={(e) => updateCollectionOAuth1Auth({ includeBodyHash: e.currentTarget.checked })} />
 		                {:else if activeCollection.auth?.mode !== 'none'}
-		                  <div class="empty-state wide">This collection auth mode is marked partial until its backend signer is implemented.</div>
+		                  <div class="empty-appState wide">This collection auth mode is marked partial until its backend signer is implemented.</div>
 		                {/if}
               </div>
             {:else if collectionTab === 'docs'}
@@ -10836,7 +10836,7 @@
                   </table>
                 </div>
                 {#if (activeCollection.protobuf?.protoFiles?.length ?? 0) === 0}
-                  <div class="empty-state">No proto files</div>
+                  <div class="empty-appState">No proto files</div>
                 {/if}
 
                 <div class="settings-section-header">
@@ -10866,7 +10866,7 @@
                   </table>
                 </div>
                 {#if (activeCollection.protobuf?.importPaths?.length ?? 0) === 0}
-                  <div class="empty-state">No import paths</div>
+                  <div class="empty-appState">No import paths</div>
                 {/if}
               </div>
             {:else if collectionTab === 'script'}
@@ -10895,11 +10895,11 @@
           </div>
 
           {#if !activeCollection}
-            <div class="empty-state wide">Select a local collection before opening the Git workbench.</div>
+            <div class="empty-appState wide">Select a local collection before opening the Git workbench.</div>
           {:else if gitWorkbenchLoading && !gitWorkbenchSnapshot}
-            <div class="empty-state wide">Loading Git status…</div>
+            <div class="empty-appState wide">Loading Git status…</div>
           {:else if gitWorkbenchSnapshot && !gitWorkbenchSnapshot.available}
-            <div class="empty-state wide">Git is required for this workbench. Install Git, then refresh.</div>
+            <div class="empty-appState wide">Git is required for this workbench. Install Git, then refresh.</div>
           {:else if gitWorkbenchSnapshot && !gitWorkbenchSnapshot.initialized}
             <div class="git-workbench-empty">
               <h3>Initialize this collection</h3>
@@ -10943,7 +10943,7 @@
                   {/each}
                 </div>
               {:else}
-                <div class="empty-state compact">No scoped changes.</div>
+                <div class="empty-appState compact">No scoped changes.</div>
               {/if}
               {#if gitWorkbenchDiff}
                 <article class="git-diff-viewer" aria-label={`Git diff ${gitWorkbenchDiff.path}`}>
@@ -11001,7 +11001,7 @@
             bind:runnerDataFile
             {chooseRunnerDataFile}
             {normalizedRunnerIterations}
-            {state}
+            state={appState}
             {busy}
             {activeCollectionRun}
             {collectionRunCancellationRequested}
@@ -11099,7 +11099,7 @@
                     </tbody>
                   </table>
                 {:else}
-                  <div class="empty-state">{globalEnvironmentVariableQuery ? 'No results found' : `No ${globalEnvironmentVariableTab}`}</div>
+                  <div class="empty-appState">{globalEnvironmentVariableQuery ? 'No results found' : `No ${globalEnvironmentVariableTab}`}</div>
                 {/if}
                 <div class="toolbar">
                   <button on:click={addGlobalEnvironmentVariable}>{environmentVariableAddLabel(globalEnvironmentVariableTab)}</button>
@@ -11119,7 +11119,7 @@
                   bind:value={globalEnvironmentPayload}
                 ></textarea>
               {:else}
-                <div class="empty-state">Create a global environment</div>
+                <div class="empty-appState">Create a global environment</div>
               {/if}
             </article>
             <article>
@@ -11160,11 +11160,11 @@
                     </tbody>
                   </table>
                 {:else}
-                  <div class="empty-state">{environmentVariableQuery ? 'No results found' : `No ${environmentVariableTab}`}</div>
+                  <div class="empty-appState">{environmentVariableQuery ? 'No results found' : `No ${environmentVariableTab}`}</div>
                 {/if}
                 <button on:click={addEnvironmentVariable}>{environmentVariableAddLabel(environmentVariableTab)}</button>
               {:else}
-                <div class="empty-state">Create or select an environment</div>
+                <div class="empty-appState">Create or select an environment</div>
               {/if}
             </article>
             <article>
@@ -11202,7 +11202,7 @@
                   </tbody>
                 </table>
               {:else}
-                <div class="empty-state">No .env files</div>
+                <div class="empty-appState">No .env files</div>
               {/if}
               {#if dotEnvEditorMode === 'table'}
                 {#if dotEnvRows.length > 0}
@@ -11219,7 +11219,7 @@
                     </tbody>
                   </table>
                 {:else}
-                  <div class="empty-state">No .env variables</div>
+                  <div class="empty-appState">No .env variables</div>
                 {/if}
                 <button on:click={addDotEnvRow}>Add variable</button>
               {:else}
@@ -11437,7 +11437,7 @@
             bind:gitCloneRoot
             bind:importApplyButton
             bind:importPickerButton
-            {state}
+            state={appState}
             {busy}
             {importStatus}
             {importReadyRows}
@@ -11471,7 +11471,7 @@
           <table>
             <thead><tr><th>Method</th><th>URL</th><th>Status</th><th>Time</th><th>Error</th></tr></thead>
             <tbody>
-              {#each state.networkLog ?? [] as row (row.id)}
+              {#each appState.networkLog ?? [] as row (row.id)}
                 <tr><td>{row.method}</td><td>{row.url}</td><td>{row.status}</td><td>{row.durationMs} ms</td><td>{row.error}</td></tr>
               {/each}
             </tbody>
@@ -11500,11 +11500,11 @@
 	          <header class="panel-header">
 	            <div>
               <h2>Cookies</h2>
-              <p class="panel-subtitle">{visibleCookieCount}/{state.cookies?.length ?? 0} stored cookies</p>
+              <p class="panel-subtitle">{visibleCookieCount}/{appState.cookies?.length ?? 0} stored cookies</p>
             </div>
             <div class="runner-summary">
               <input aria-label="Search cookies" placeholder="Search cookies" bind:value={cookieSearch} />
-              <button on:click={clearCookies} disabled={(state.cookies?.length ?? 0) === 0 || busy !== ''}>Clear all</button>
+              <button on:click={clearCookies} disabled={(appState.cookies?.length ?? 0) === 0 || busy !== ''}>Clear all</button>
             </div>
           </header>
           <div class="cookie-manager">
@@ -11555,10 +11555,10 @@
             </div>
 
             <div class="cookie-domains">
-              {#if (state.cookies?.length ?? 0) === 0}
-                <div class="empty-state">No stored cookies</div>
+              {#if (appState.cookies?.length ?? 0) === 0}
+                <div class="empty-appState">No stored cookies</div>
               {:else if visibleCookieGroups.length === 0}
-                <div class="empty-state">No matching cookies</div>
+                <div class="empty-appState">No matching cookies</div>
               {:else}
                 {#each visibleCookieGroups as group (group.domain)}
                   <article>
@@ -11601,14 +11601,14 @@
 	          <header class="panel-header">
 	            <div>
 	              <h2>Preferences</h2>
-	              <p class="panel-subtitle">Theme {selectedThemeMode} · Proxy {proxyModeLabel(preferencesProxyMode(state.preferences))}</p>
+	              <p class="panel-subtitle">Theme {selectedThemeMode} · Proxy {proxyModeLabel(preferencesProxyMode(appState.preferences))}</p>
 	            </div>
 	          </header>
 	          <div class="settings-stack">
           {#await import('./lib/views/preferences/AppearanceSection.svelte') then AppearanceSection}
             <svelte:component
               this={AppearanceSection.default}
-              {state}
+              state={appState}
               {selectedThemeMode}
               {themeModes}
               {lightThemeVariants}
@@ -11634,7 +11634,7 @@
 
           {#await import('./lib/views/preferences/GeneralSection.svelte') then GeneralSection}
             <svelte:component this={GeneralSection.default}
-              {state}
+              state={appState}
               {customCaFileName}
               {browseDefaultLocation}
               {clearDefaultLocation}
@@ -11647,14 +11647,14 @@
 	
           {#await import('./lib/views/preferences/OAuth2Section.svelte') then OAuth2Section}
             <svelte:component this={OAuth2Section.default}
-              {state}
+              state={appState}
               {updateAppearancePreferences}
             />
           {/await}
 	
           {#await import('./lib/views/preferences/KeybindingsSection.svelte') then KeybindingsSection}
             <svelte:component this={KeybindingsSection.default}
-              {state}
+              state={appState}
               {keyBindingSections}
               keyBindingPreset={activeKeyBindingPreset}
               {updateKeyBindingPreset}
@@ -11678,7 +11678,7 @@
 
           {#await import('./lib/views/preferences/ProxySection.svelte') then ProxySection}
             <svelte:component this={ProxySection.default}
-              {state}
+              state={appState}
               {preferencesProxyMode}
               {updatePreferencesProxy}
               {updatePreferencesProxyAuth}
@@ -11689,7 +11689,7 @@
 
           {#await import('./lib/views/preferences/CacheSection.svelte') then CacheSection}
             <svelte:component this={CacheSection.default}
-              {state}
+              state={appState}
               {fileCacheSize}
               {formatRuntimeBytes}
               {updateFileCache}
@@ -11712,7 +11712,7 @@
             </div>
           </header>
           <div class="feature-grid">
-            {#each state.featureLedger ?? [] as feature (feature.id)}
+            {#each appState.featureLedger ?? [] as feature (feature.id)}
               <article>
                 <header>
                   <strong>{feature.name}</strong>
@@ -11740,7 +11740,7 @@
   </main>
 {:else}
   <main class="boot">
-    <p>{error || 'LiteAPI could not load state.'}</p>
+    <p>{error || 'LiteAPI could not load appState.'}</p>
     <button on:click={load}>Retry</button>
   </main>
 {/if}
@@ -11759,7 +11759,7 @@
 {#if workspaceWindowPickerOpen}
   <WorkspaceWindowPicker
     targets={workspaceWindowTargets}
-    currentWorkspaceId={state?.activeWorkspaceId ?? ''}
+    currentWorkspaceId={appState?.activeWorkspaceId ?? ''}
     busy={workspaceWindowPickerBusy}
     busyAction={workspaceWindowPickerBusyAction}
     error={workspaceWindowPickerError}
