@@ -119,7 +119,7 @@ evidence for each story; this file carries the cross-story findings.
     startRevision 0 confirming the counter is not persisted. US-021: 13 pushes
     for 6 sends + disconnect, indices contiguous from 0, routing ids correct,
     x-websocket-events header = 13 = push count, echo payload observed.
-    STILL OWED: US-022 (gRPC push) — needs a local gRPC streaming server.
+    US-022 (gRPC push) — NO LONGER OWED. See the US-022 entry at the end.
   DEFERRED BY THE USER:
     US-001 — CI workflow is written, linted and parses; the "a deliberately
              broken PR fails the workflow" criterion needs a real push to the
@@ -3900,3 +3900,37 @@ US-026 - Store layer. DONE. Both named collapses complete.
   The sync.Pool half of the story remains infeasible as written, for the reason
   recorded above: every shim closes over per-request state, so a pooled runtime
   would leak the previous request's url, headers and env on any missed reset.
+
+--- US-022 — gRPC event push. DONE. The blocker was imaginary. ---
+
+  Recorded months of entries ago as "STILL OWED — needs a local gRPC streaming
+  server". It did not. app_test.go has run one the whole time:
+  startReflectedTestService, with a real FullDuplexCall bidi handler already
+  used by three other tests.
+
+  So the blocker was a missing TEST, not missing infrastructure, and I had
+  written it down in a way that made it look like an external dependency. Worth
+  remembering: "blocked on X" deserves re-checking before it is inherited,
+  because the note outlives the condition that produced it.
+
+  Two tests added, mirroring the WebSocket pair that was verified long ago:
+    - every appended event is pushed, with CONTIGUOUS indices anchored to the
+      real slice position (that anchoring is what lets the frontend detect it
+      missed one) and total = index+1
+    - the push count equals the number of events actually appended, so the
+      frontend and the timeline cannot disagree about what went over the wire
+
+  CONTROLS, all landing-checked:
+      grpc push silently dropped (if false)  -> 2 failing
+      index pinned to 0                      -> 2 failing
+      semantically identical rewrite         -> 0 failing
+
+  That last one matters as a control OF the controls: a no-op edit fails
+  nothing, so the two failures above are the tests reacting to real changes
+  rather than to any edit at all.
+
+  Also clean under -race.
+
+  THE PLAN IS NOW COMPLETE except for one thing that is not mine to decide:
+  US-019's 3->1 runtime consolidation changes what post-response and tests
+  scripts can SEE. Measured, recommended, and left for a product call.
