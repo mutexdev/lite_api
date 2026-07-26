@@ -8287,7 +8287,7 @@
         {#if visibleSidebarCollections.length === 0}
           <div class="sidebar-empty">No matching requests</div>
         {/if}
-        {#each visibleSidebarCollections as collection}
+        {#each visibleSidebarCollections as collection (collection.id)}
           {@const groups = groupedItems(collection, searchQuery)}
           {@const collectionCollapsed = !searchQuery && Boolean(collapsedSidebarCollections[collection.id])}
           <article class:active={collection.id === activeCollection?.id}>
@@ -8321,7 +8321,7 @@
               <div class="sidebar-empty">No requests</div>
             {/if}
             {#if !collection.notFoundLocally && !collectionCollapsed}
-              {#each groups as group}
+              {#each groups as group (group.folder)}
                 {@const folderCollapsed = Boolean(group.folder) && !searchQuery && Boolean(collapsedSidebarFolders[sidebarFolderKey(collection.id, group.folder)])}
                 {#if group.folder}
                   <div class="folder-row-shell">
@@ -8392,7 +8392,7 @@
                   </div>
                 {/if}
                 {#if !folderCollapsed}
-                {#each group.items as item}
+                {#each group.items as item (item.id)}
                   <div class="request-row-shell" class:in-folder={Boolean(group.folder)}>
                     <button
                       class="request-row"
@@ -8549,7 +8549,7 @@
         </WorkspaceCommandBar>
         {#if (state.openTabs ?? []).length > 0}
           <nav class="tabs" aria-label="Open tabs">
-            {#each state.openTabs as tab}
+            {#each state.openTabs as tab (tab.id)}
               <div class="tab" class:active={tab.id === state.activeTabId}>
                 <button class="tab-select" title={tabLabel(tab)} on:click={() => setActiveTab(tab.id)}>
                   {#if tabMethod(tab)}
@@ -8593,7 +8593,7 @@
             </div>
           </header>
           <nav class="devtools-tabs" aria-label="Dev Tools tabs">
-            {#each devToolsTabs as tab}
+            {#each devToolsTabs as tab (tab.id)}
               <button type="button" class:active={devToolsTab === tab.id} on:click={() => selectDevToolsTab(tab.id)}>{tab.label}</button>
             {/each}
           </nav>
@@ -8606,7 +8606,7 @@
                 </div>
               {:else}
                 <div class="console-log-list devtools-console-list" aria-label="DevTools console logs">
-                  {#each devToolsConsoleRows as log}
+                  {#each devToolsConsoleRows as log, index (index)}
                     <div class={`console-row ${log.level}`}>
                       <span>{log.level}</span>
                       <div>
@@ -8628,7 +8628,7 @@
                   <button type="button" on:click={() => setAllDevToolsNetworkFilters(true)}>Show All</button>
                 </div>
                 <div class="method-filter-list">
-                  {#each devToolsNetworkMethods as method}
+                  {#each devToolsNetworkMethods as method (method)}
                     <label>
                       <input type="checkbox" checked={devToolsNetworkFilters[method]} on:change={(event) => setDevToolsNetworkFilter(method, event.currentTarget.checked)} />
                       <span>{method} {devToolsNetworkMethodCounts[method] ?? 0}</span>
@@ -8646,13 +8646,13 @@
                   <div class="table-scroll network-table-scroll" class:resizing={devToolsNetworkResizingColumn >= 0}>
                     <table class="devtools-network-table" style={`min-width: ${devToolsNetworkTableWidth}px;`}>
                       <colgroup>
-                        {#each devToolsNetworkColumnWidths as width}
+                        {#each devToolsNetworkColumnWidths as width, index (index)}
                           <col style={`width: ${width}px;`} />
                         {/each}
                       </colgroup>
                       <thead>
                         <tr>
-                          {#each devToolsNetworkColumns as column, index}
+                          {#each devToolsNetworkColumns as column, index (column.key)}
                             <th aria-sort={devToolsNetworkAriaSort[column.key]}>
                               <button type="button" class="network-sort-button" on:click={() => cycleDevToolsNetworkSort(column.key)}>{column.label} {devToolsNetworkSortLabels[column.key]}</button>
                               {#if index < devToolsNetworkColumns.length - 1}
@@ -8669,7 +8669,7 @@
                         </tr>
                       </thead>
                       <tbody>
-                        {#each devToolsNetworkRows as row}
+                        {#each devToolsNetworkRows as row (row.id)}
                           <tr class:selected={selectedDevToolsNetworkRow?.id === row.id}>
                             <td><button class="table-link" type="button" on:click={() => selectDevToolsNetworkRow(row)}>{normalizedNetworkMethod(row)}</button></td>
                             <td>{statusDisplay(row.status)}</td>
@@ -8694,7 +8694,7 @@
                     <header>
                       <h3>Request Details</h3>
                       <div class="subtabs">
-                        {#each devToolsNetworkDetailTabs as detailTab}
+                        {#each devToolsNetworkDetailTabs as detailTab (detailTab.id)}
                           <button type="button" class:active={devToolsNetworkDetailTab === detailTab.id} on:click={() => (devToolsNetworkDetailTab = detailTab.id)}>{detailTab.label}</button>
                         {/each}
                       </div>
@@ -8713,7 +8713,7 @@
                           <table class="details-table">
                             <thead><tr><th>Name</th><th>Value</th></tr></thead>
                             <tbody>
-                              {#each networkHeaderRows(selectedDevToolsNetworkRow.requestHeaders) as [name, value]}
+                              {#each networkHeaderRows(selectedDevToolsNetworkRow.requestHeaders) as [name, value] (name)}
                                 <tr><td>{name}</td><td><code>{value}</code></td></tr>
                               {/each}
                             </tbody>
@@ -8735,7 +8735,7 @@
                           <table class="details-table">
                             <thead><tr><th>Name</th><th>Value</th></tr></thead>
                             <tbody>
-                              {#each networkHeaderRows(selectedDevToolsNetworkRow.responseHeaders) as [name, value]}
+                              {#each networkHeaderRows(selectedDevToolsNetworkRow.responseHeaders) as [name, value] (name)}
                                 <tr><td>{name}</td><td><code>{value}</code></td></tr>
                               {/each}
                             </tbody>
@@ -8755,7 +8755,7 @@
                           <div class="empty-state compact">No network logs available</div>
                         {:else}
                           <div class="progress-log">
-                            {#each networkLogLines(selectedDevToolsNetworkRow) as line}
+                            {#each networkLogLines(selectedDevToolsNetworkRow) as line, index (index)}
                               <div class="progress-row"><span>net</span><code>{line}</code></div>
                             {/each}
                           </div>
@@ -8772,7 +8772,7 @@
                   <span>View:</span>
                   <select aria-label="Performance process view" bind:value={devToolsPerformanceView}>
                     <option value="cumulative">Cumulative (All Processes)</option>
-                    {#each devToolsPerformanceProcesses as process}
+                    {#each devToolsPerformanceProcesses as process (process.pid)}
                       <option value={String(process.pid)}>PID {process.pid} - {process.title || 'LiteAPI'} ({process.type || 'main'})</option>
                     {/each}
                   </select>
@@ -8827,7 +8827,7 @@
                       <div class="empty-state">No active sessions</div>
                     {:else}
                       <div class="terminal-session-list">
-                        {#each terminalSessions as session}
+                        {#each terminalSessions as session (session.id)}
                           <div class:active={terminalActiveSessionId === session.id} class="terminal-session-row">
                             <button type="button" class="terminal-session-button" on:click={() => selectTerminalSession(session.id)}>
                               <strong>{terminalSessionLabel(session)}</strong>
@@ -9047,7 +9047,7 @@
             </div>
 
             <div class="subtabs" role="tablist" aria-label="Request sections" tabindex="-1" on:keydown={requestTabKeydown}>
-              {#each requestTabs as tab}
+              {#each requestTabs as tab (tab.id)}
                 <button
                   class:active={requestPaneTab === tab.id}
                   id={`request-tab-${tab.id}`}
@@ -9148,7 +9148,7 @@
                       <button on:click={loadGrpcMethods} disabled={busy !== ''}>Load methods</button>
                       <select aria-label="Discovered gRPC methods" value={activeRequest.method === 'CALL' ? '' : activeRequest.method} on:change={(e) => selectGrpcMethod(e.currentTarget.value)} disabled={grpcMethods.length === 0}>
                         <option value="">Select method</option>
-                        {#each grpcMethods as method}
+                        {#each grpcMethods as method (method.path)}
                           <option value={method.path}>{method.path} · {method.type || 'unary'}</option>
                         {/each}
                       </select>
@@ -9160,7 +9160,7 @@
                     <div class="field-grid">
                       <span class="field-label">Method type</span>
                       <select value={activeRequest.grpcMethodType} on:change={(e) => patchField('grpcMethodType', e.currentTarget.value)}>
-                        {#each grpcMethodTypes as methodType}
+                        {#each grpcMethodTypes as methodType (methodType)}
                           <option value={methodType}>{methodType || 'unspecified'}</option>
                         {/each}
                       </select>
@@ -9189,7 +9189,7 @@
                         <tr><th>Name</th><th>Content</th><th></th></tr>
                       </thead>
                       <tbody>
-                        {#each activeRequest.grpcMessages ?? [] as message, index}
+                        {#each activeRequest.grpcMessages ?? [] as message, index (index)}
                           <tr>
                             <td><input value={message.name} on:input={(e) => updateGrpcMessage(index, 'name', e.currentTarget.value)} /></td>
                             <td><textarea class="short" spellcheck="false" value={message.content} on:input={(e) => updateGrpcMessage(index, 'content', e.currentTarget.value)}></textarea></td>
@@ -9231,13 +9231,13 @@
 	                          <tr><th>Send</th><th>Name</th><th>Type</th><th>Content</th><th></th></tr>
 	                        </thead>
 	                        <tbody>
-	                          {#each activeRequest.wsMessages ?? [] as message, index}
+	                          {#each activeRequest.wsMessages ?? [] as message, index (index)}
 	                            <tr>
 	                              <td><input type="checkbox" checked={message.selected} on:change={(e) => updateWSMessage(index, 'selected', e.currentTarget.checked)} /></td>
 	                              <td><input value={message.name} on:change={(e) => updateWSMessage(index, 'name', e.currentTarget.value)} /></td>
 	                              <td>
 	                                <select value={message.type || 'text'} on:change={(e) => updateWSMessage(index, 'type', e.currentTarget.value)}>
-	                                  {#each wsMessageTypes as messageType}
+	                                  {#each wsMessageTypes as messageType (messageType)}
 	                                    <option value={messageType}>{messageType}</option>
 	                                  {/each}
 	                                </select>
@@ -9260,7 +9260,7 @@
 	                  <div class="field-row">
                     <span class="field-label">Body mode</span>
                     <select value={activeRequest.body.mode} on:change={(e) => updateBody({ mode: e.currentTarget.value })}>
-                      {#each bodyModes as mode}
+                      {#each bodyModes as mode (mode)}
                         <option value={mode}>{mode}</option>
                       {/each}
                     </select>
@@ -9337,7 +9337,7 @@
                 <div class="field-grid">
                   <span class="field-label">Mode</span>
                   <select value={activeRequest.auth.mode} on:change={(e) => updateAuth({ mode: e.currentTarget.value })}>
-                    {#each authModes as mode}
+                    {#each authModes as mode (mode)}
                       <option value={mode}>{mode}</option>
                     {/each}
                   </select>
@@ -9356,7 +9356,7 @@
                   {:else if activeRequest.auth.mode === 'oauth2'}
                     <span class="field-label">Grant</span>
                     <select value={activeRequest.auth.oauth2?.grantType || 'client_credentials'} on:change={(e) => updateOAuth2Auth({ grantType: e.currentTarget.value })}>
-                      {#each oauth2GrantTypes as grant}
+                      {#each oauth2GrantTypes as grant (grant)}
                         <option value={grant}>{grant}</option>
                       {/each}
                     </select>
@@ -9386,7 +9386,7 @@
                     {/if}
                     <span class="field-label">Credentials</span>
                     <select value={activeRequest.auth.oauth2?.credentialsPlacement || 'basic_auth_header'} on:change={(e) => updateOAuth2Auth({ credentialsPlacement: e.currentTarget.value })}>
-                      {#each oauth2CredentialPlacements as placement}
+                      {#each oauth2CredentialPlacements as placement (placement)}
                         <option value={placement}>{placement}</option>
                       {/each}
                     </select>
@@ -9396,13 +9396,13 @@
                     {/if}
                     <span class="field-label">Token source</span>
                     <select value={activeRequest.auth.oauth2?.tokenSource || 'access_token'} on:change={(e) => updateOAuth2Auth({ tokenSource: e.currentTarget.value })}>
-                      {#each oauth2TokenSources as source}
+                      {#each oauth2TokenSources as source (source)}
                         <option value={source}>{source}</option>
                       {/each}
                     </select>
                     <span class="field-label">Token placement</span>
                     <select value={activeRequest.auth.oauth2?.tokenPlacement || 'header'} on:change={(e) => updateOAuth2Auth({ tokenPlacement: e.currentTarget.value })}>
-                      {#each oauth2TokenPlacements as placement}
+                      {#each oauth2TokenPlacements as placement (placement)}
                         <option value={placement}>{placement}</option>
                       {/each}
                     </select>
@@ -9472,13 +9472,13 @@
 		                    <input type="password" value={activeRequest.auth.oauth1?.accessTokenSecret ?? ''} on:change={(e) => updateOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
 		                    <span class="field-label">Signature</span>
 		                    <select value={activeRequest.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} on:change={(e) => updateOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
-		                      {#each oauth1SignatureMethods as method}
+		                      {#each oauth1SignatureMethods as method (method)}
 		                        <option value={method}>{method}</option>
 		                      {/each}
 		                    </select>
 		                    <span class="field-label">Add params to</span>
 		                    <select value={activeRequest.auth.oauth1?.placement || 'header'} on:change={(e) => updateOAuth1Auth({ placement: e.currentTarget.value })}>
-		                      {#each oauth1Placements as placement}
+		                      {#each oauth1Placements as placement (placement)}
 		                        <option value={placement}>{placement}</option>
 		                      {/each}
 		                    </select>
@@ -9525,7 +9525,7 @@
                     <tr><th></th><th>Expression</th><th>Operator</th><th>Value</th><th></th></tr>
                   </thead>
                   <tbody>
-                    {#each activeRequest.assertions ?? [] as row, index}
+                    {#each activeRequest.assertions ?? [] as row, index (index)}
                       <tr>
                         <td><input type="checkbox" checked={row.enabled} on:change={(e) => updateAssertion(index, 'enabled', e.currentTarget.checked)} /></td>
                         <td><input value={row.expression} on:change={(e) => updateAssertion(index, 'expression', e.currentTarget.value)} /></td>
@@ -9573,7 +9573,7 @@
               <button title="Save response as example" on:click={saveResponseExample} disabled={!activeRequest.response || busy !== ''}>Example</button>
             </div>
             <div class="subtabs" role="tablist" aria-label="Response sections" tabindex="-1" on:keydown={responseTabKeydown}>
-              {#each activeResponseTabs as tab}
+              {#each activeResponseTabs as tab (tab.id)}
                 <button
                   class:active={responseTab === tab.id}
                   id={`response-tab-${tab.id}`}
@@ -9660,7 +9660,7 @@
                             <div class="field-grid example-editor-grid">
                               <span class="field-label">Method</span>
                               <select aria-label="Example request method" value={draft.request?.method || 'GET'} on:change={(event) => updateResponseExampleRequestField(example, 'method', event.currentTarget.value)}>
-                                {#each methods as method}
+                                {#each methods as method (method)}
                                   <option value={method}>{method}</option>
                                 {/each}
                               </select>
@@ -9668,7 +9668,7 @@
                               <input aria-label="Example request URL" value={draft.request?.url ?? ''} on:input={(event) => updateResponseExampleRequestField(example, 'url', event.currentTarget.value)} />
                               <span class="field-label">Body mode</span>
                               <select aria-label="Example request body mode" value={draft.request?.bodyMode || 'none'} on:change={(event) => updateResponseExampleRequestField(example, 'bodyMode', event.currentTarget.value)}>
-                                {#each bodyModes as mode}
+                                {#each bodyModes as mode (mode)}
                                   <option value={mode}>{mode}</option>
                                 {/each}
                               </select>
@@ -9752,7 +9752,7 @@
                               <input aria-label="Example response status text" value={draft.response.statusText} on:input={(event) => updateResponseExampleResponseField(example, 'statusText', event.currentTarget.value)} />
                               <span class="field-label">Body type</span>
                               <select aria-label="Example response body type" value={draft.response.bodyType} on:change={(event) => updateResponseExampleResponseField(example, 'bodyType', event.currentTarget.value)}>
-                                {#each responseExampleBodyTypes as bodyType}
+                                {#each responseExampleBodyTypes as bodyType (bodyType)}
                                   <option value={bodyType}>{bodyType}</option>
                                 {/each}
                               </select>
@@ -9804,7 +9804,7 @@
             <button on:click={refreshCollection}>Refresh active</button>
           </header>
           <nav class="subtabs">
-            {#each collectionTabs as tab}
+            {#each collectionTabs as tab (tab.id)}
               <button class:active={collectionTab === tab.id} on:click={() => (collectionTab = tab.id)}>
                 {tab.label}
               </button>
@@ -9974,7 +9974,7 @@
                         <span>Endpoint</span>
                         <span>Decision</span>
                       </div>
-                      {#each openAPISyncResult.changes as change}
+                      {#each openAPISyncResult.changes as change, index (index)}
                         <div class="openapi-sync-change-row" data-testid="openapi-sync-change-row">
                           <span class="openapi-sync-change-type">{change.change}</span>
                           <span class="openapi-sync-method">{change.method}</span>
@@ -10043,7 +10043,7 @@
                             <span>Endpoint</span>
                             <span>Action</span>
                           </div>
-                          {#each openAPILocalDriftResult.changes as change}
+                          {#each openAPILocalDriftResult.changes as change, index (index)}
                             <div class="openapi-sync-change-row" data-testid="openapi-local-drift-row">
                               <span class="openapi-sync-change-type">{openAPILocalDriftLabel(change.change)}</span>
                               <span class="openapi-sync-method">{change.method}</span>
@@ -10117,7 +10117,7 @@
                   <div class="field-grid folder-picker">
                     <span class="field-label">Folder</span>
                     <select aria-label="Folder settings folder" value={editableFolder.path} on:change={(e) => (selectedFolderPath = e.currentTarget.value)}>
-                      {#each activeCollection.folders ?? [] as folder}
+                      {#each activeCollection.folders ?? [] as folder (folder.path)}
                         <option value={folder.path}>{folder.displayPath || folder.path}</option>
                       {/each}
                     </select>
@@ -10126,7 +10126,7 @@
                   </div>
 
                   <nav class="subtabs compact" aria-label="Folder settings tabs">
-                    {#each folderSettingsTabs as tab}
+                    {#each folderSettingsTabs as tab (tab.id)}
                       <button type="button" class:active={folderSettingsTab === tab.id} on:click={() => (folderSettingsTab = tab.id)}>{tab.label}</button>
                     {/each}
                   </nav>
@@ -10147,7 +10147,7 @@
                       <table>
                         <thead><tr><th>On</th><th>Name</th><th>Value</th><th>Type</th><th>Secret</th><th></th></tr></thead>
                         <tbody>
-                          {#each editableFolder.variables ?? [] as variable, index}
+                          {#each editableFolder.variables ?? [] as variable, index (variable.id)}
                             <tr>
                               <td><input type="checkbox" checked={variable.enabled} on:change={(e) => updateFolderVariable('variables', index, 'enabled', e.currentTarget.checked)} /></td>
                               <td><input aria-label="Folder pre-request variable name" value={variable.name} on:change={(e) => updateFolderVariable('variables', index, 'name', e.currentTarget.value)} /></td>
@@ -10179,7 +10179,7 @@
                       <table>
                         <thead><tr><th>On</th><th>Name</th><th>Expression</th><th>Type</th><th>Secret</th><th></th></tr></thead>
                         <tbody>
-                          {#each editableFolder.resVariables ?? [] as variable, index}
+                          {#each editableFolder.resVariables ?? [] as variable, index (variable.id)}
                             <tr>
                               <td><input type="checkbox" checked={variable.enabled} on:change={(e) => updateFolderVariable('resVariables', index, 'enabled', e.currentTarget.checked)} /></td>
                               <td><input aria-label="Folder post-response variable name" value={variable.name} on:change={(e) => updateFolderVariable('resVariables', index, 'name', e.currentTarget.value)} /></td>
@@ -10207,7 +10207,7 @@
                       <span class="field-label">Mode</span>
                       <select aria-label="Folder auth mode" value={editableFolder.auth?.mode || ''} on:change={(e) => updateFolderAuth({ mode: e.currentTarget.value })}>
                         <option value="">Unset</option>
-                        {#each authModes as mode}
+                        {#each authModes as mode (mode)}
                           <option value={mode}>{mode}</option>
                         {/each}
                       </select>
@@ -10253,14 +10253,14 @@
                         <input type="password" value={editableFolder.auth.oauth1?.accessTokenSecret ?? ''} on:change={(e) => updateFolderOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
                         <span class="field-label">Signature</span>
                         <select value={editableFolder.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} on:change={(e) => updateFolderOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
-                          {#each oauth1SignatureMethods as method}
+                          {#each oauth1SignatureMethods as method (method)}
                             <option value={method}>{method}</option>
                           {/each}
                         </select>
                       {:else if editableFolder.auth?.mode === 'oauth2'}
                         <span class="field-label">Grant type</span>
                         <select value={editableFolder.auth.oauth2?.grantType || 'client_credentials'} on:change={(e) => updateFolderOAuth2Auth({ grantType: e.currentTarget.value })}>
-                          {#each oauth2GrantTypes as grantType}
+                          {#each oauth2GrantTypes as grantType (grantType)}
                             <option value={grantType}>{grantType}</option>
                           {/each}
                         </select>
@@ -10301,7 +10301,7 @@
                   <tr><th></th><th>Name</th><th>Value</th><th>Type</th><th>Secret</th></tr>
                 </thead>
                 <tbody>
-                  {#each activeCollection.variables ?? [] as variable, index}
+                  {#each activeCollection.variables ?? [] as variable, index (variable.id)}
                     <tr>
                       <td><input type="checkbox" checked={variable.enabled} on:change={(e) => updateCollectionVariable(index, 'enabled', e.currentTarget.checked)} /></td>
                       <td><input value={variable.name} on:change={(e) => updateCollectionVariable(index, 'name', e.currentTarget.value)} /></td>
@@ -10324,7 +10324,7 @@
               <div class="field-grid auth-grid">
                 <span class="field-label">Mode</span>
                 <select value={activeCollection.auth?.mode ?? 'none'} on:change={(e) => updateCollectionAuth({ mode: e.currentTarget.value })}>
-                  {#each authModes as mode}
+                  {#each authModes as mode (mode)}
                     <option value={mode}>{mode}</option>
                   {/each}
                 </select>
@@ -10343,7 +10343,7 @@
                 {:else if activeCollection.auth?.mode === 'oauth2'}
                   <span class="field-label">Grant</span>
                   <select value={activeCollection.auth.oauth2?.grantType || 'client_credentials'} on:change={(e) => updateCollectionOAuth2Auth({ grantType: e.currentTarget.value })}>
-                    {#each oauth2GrantTypes as grant}
+                    {#each oauth2GrantTypes as grant (grant)}
                       <option value={grant}>{grant}</option>
                     {/each}
                   </select>
@@ -10373,7 +10373,7 @@
                   {/if}
                   <span class="field-label">Credentials</span>
                   <select value={activeCollection.auth.oauth2?.credentialsPlacement || 'basic_auth_header'} on:change={(e) => updateCollectionOAuth2Auth({ credentialsPlacement: e.currentTarget.value })}>
-                    {#each oauth2CredentialPlacements as placement}
+                    {#each oauth2CredentialPlacements as placement (placement)}
                       <option value={placement}>{placement}</option>
                     {/each}
                   </select>
@@ -10383,13 +10383,13 @@
                   {/if}
                   <span class="field-label">Token source</span>
                   <select value={activeCollection.auth.oauth2?.tokenSource || 'access_token'} on:change={(e) => updateCollectionOAuth2Auth({ tokenSource: e.currentTarget.value })}>
-                    {#each oauth2TokenSources as source}
+                    {#each oauth2TokenSources as source (source)}
                       <option value={source}>{source}</option>
                     {/each}
                   </select>
                   <span class="field-label">Token placement</span>
                   <select value={activeCollection.auth.oauth2?.tokenPlacement || 'header'} on:change={(e) => updateCollectionOAuth2Auth({ tokenPlacement: e.currentTarget.value })}>
-                    {#each oauth2TokenPlacements as placement}
+                    {#each oauth2TokenPlacements as placement (placement)}
                       <option value={placement}>{placement}</option>
                     {/each}
                   </select>
@@ -10459,13 +10459,13 @@
 		                  <input type="password" value={activeCollection.auth.oauth1?.accessTokenSecret ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
 		                  <span class="field-label">Signature</span>
 		                  <select value={activeCollection.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} on:change={(e) => updateCollectionOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
-		                    {#each oauth1SignatureMethods as method}
+		                    {#each oauth1SignatureMethods as method (method)}
 		                      <option value={method}>{method}</option>
 		                    {/each}
 		                  </select>
 		                  <span class="field-label">Add params to</span>
 		                  <select value={activeCollection.auth.oauth1?.placement || 'header'} on:change={(e) => updateCollectionOAuth1Auth({ placement: e.currentTarget.value })}>
-		                    {#each oauth1Placements as placement}
+		                    {#each oauth1Placements as placement (placement)}
 		                      <option value={placement}>{placement}</option>
 		                    {/each}
 		                  </select>
@@ -10552,7 +10552,7 @@
                     </tr>
                   </thead>
                   <tbody>
-                    {#each activeCollection.clientCertificates ?? [] as certificate, index}
+                    {#each activeCollection.clientCertificates ?? [] as certificate, index (index)}
                       <tr>
                         <td><input aria-label="Client certificate domain" placeholder="example.org" value={certificate.domain ?? ''} on:input={(e) => updateCollectionClientCertificate(index, 'domain', e.currentTarget.value)} /></td>
                         <td>
@@ -10589,7 +10589,7 @@
                       </tr>
                     </thead>
                     <tbody>
-                      {#each activeCollection.protobuf?.protoFiles ?? [] as protoFile, index}
+                      {#each activeCollection.protobuf?.protoFiles ?? [] as protoFile, index (protoFile.path)}
                         <tr>
                           <td><input aria-label="Proto file path" placeholder="protos/service.proto" value={protoFile.path ?? ''} on:change={(e) => updateCollectionProtoFile(index, 'path', e.currentTarget.value)} /></td>
                           <td>
@@ -10623,7 +10623,7 @@
                       </tr>
                     </thead>
                     <tbody>
-                      {#each activeCollection.protobuf?.importPaths ?? [] as importPath, index}
+                      {#each activeCollection.protobuf?.importPaths ?? [] as importPath, index (importPath.path)}
                         <tr>
                           <td><input aria-label="Enable proto import path" type="checkbox" checked={importPath.enabled} on:change={(e) => updateCollectionProtoImportPath(index, 'enabled', e.currentTarget.checked)} /></td>
                           <td><input aria-label="Proto import path" placeholder="protos" value={importPath.path ?? ''} on:change={(e) => updateCollectionProtoImportPath(index, 'path', e.currentTarget.value)} /></td>
@@ -10732,7 +10732,7 @@
 
               <section class="git-workbench-section" aria-labelledby="git-branch-title">
                 <h3 id="git-branch-title">Branches</h3>
-                <label>Current or target branch<select aria-label="Git branch" bind:value={gitWorkbenchBranch} disabled={gitWorkbenchBusy !== ''}>{#each gitWorkbenchSnapshot.branches ?? [] as branch}<option value={branch}>{branch}</option>{/each}</select></label>
+                <label>Current or target branch<select aria-label="Git branch" bind:value={gitWorkbenchBranch} disabled={gitWorkbenchBusy !== ''}>{#each gitWorkbenchSnapshot.branches ?? [] as branch (branch)}<option value={branch}>{branch}</option>{/each}</select></label>
                 {#if !canSwitchGitBranch(gitWorkbenchSnapshot)}<p class="muted">Switching is disabled until this collection’s scoped changes and conflicts are resolved.</p>{/if}
                 <button type="button" on:click={checkoutGitWorkbenchBranch} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchBranch || !canSwitchGitBranch(gitWorkbenchSnapshot)}>Switch branch</button>
                 <label>New branch<input aria-label="New Git branch" bind:value={gitWorkbenchNewBranch} placeholder="feature/name" disabled={gitWorkbenchBusy !== ''} /></label>
@@ -10743,7 +10743,7 @@
 
             <section class="git-workbench-section" aria-labelledby="git-remote-title">
               <div class="git-section-heading"><div><h3 id="git-remote-title">Remote sync</h3><p>Use credential-free URLs. Pull is fast-forward only; push never forces.</p></div></div>
-              {#if (gitWorkbenchSnapshot.remotes ?? []).length}<div class="git-remote-list" aria-label="Configured Git remotes">{#each gitWorkbenchSnapshot.remotes ?? [] as remote}<span><strong>{remote.name}</strong><code>{remote.url}</code></span>{/each}</div>{/if}
+              {#if (gitWorkbenchSnapshot.remotes ?? []).length}<div class="git-remote-list" aria-label="Configured Git remotes">{#each gitWorkbenchSnapshot.remotes ?? [] as remote (remote.name)}<span><strong>{remote.name}</strong><code>{remote.url}</code></span>{/each}</div>{/if}
               <div class="git-remote-fields">
                 <label>Name<input aria-label="Git remote name" value={gitWorkbenchRemoteName} on:input={(event) => selectGitWorkbenchRemote(event.currentTarget.value)} placeholder="origin" disabled={gitWorkbenchBusy !== ''} /></label>
                 <label>Credential-free URL<input aria-label="Git remote URL" bind:value={gitWorkbenchRemoteURL} placeholder="https://host/org/repository.git or file:///…" disabled={gitWorkbenchBusy !== ''} /></label>
@@ -10813,7 +10813,7 @@
                 {#if runnerConfigItems.length === 0}
                   <div class="empty-state compact">No runnable requests</div>
                 {:else}
-                  {#each runnerConfigItems as item}
+                  {#each runnerConfigItems as item (item.id)}
                     <label class="runner-request-item" data-testid="runner-request-item">
                       <span class="checkbox-container"><input type="checkbox" checked={runnerItemSelected(item.id)} on:change={(event) => setRunnerItemSelected(item.id, event.currentTarget.checked)} /></span>
                       <span>
@@ -10840,7 +10840,7 @@
               <table>
                 <thead><tr><th>Name</th><th>Status</th><th>Code</th><th>Time</th><th>Error</th></tr></thead>
                 <tbody>
-                  {#each state.runner.results ?? [] as result}
+                  {#each state.runner.results ?? [] as result, index (index)}
                     <tr class:runner-result-cancelled={result.status === 'cancelled'}><td>{result.name}</td><td>{result.status === 'cancelled' ? 'Cancelled' : result.status}</td><td>{result.code}</td><td>{result.durationMs} ms</td><td>{result.error}</td></tr>
                   {/each}
                 </tbody>
@@ -10869,7 +10869,7 @@
                   <span class="field-label">Active</span>
                   <select aria-label="Active global environment" value={activeWorkspace.activeGlobalEnvironmentId ?? ''} on:change={(e) => setActiveGlobalEnvironment(e.currentTarget.value)}>
                     <option value="">No global environment</option>
-                    {#each activeWorkspace.globalEnvironments ?? [] as env}
+                    {#each activeWorkspace.globalEnvironments ?? [] as env (env.id)}
                       <option value={env.id}>{env.name}</option>
                     {/each}
                   </select>
@@ -10895,7 +10895,7 @@
                   <input aria-label="Global environment export path" placeholder="Optional file or folder path" bind:value={globalEnvironmentExportPath} />
                 </div>
                 <nav class="subtabs compact" aria-label="Global environment variable tabs">
-                  {#each environmentVariableTabs as tab}
+                  {#each environmentVariableTabs as tab (tab.id)}
                     <button type="button" class:active={globalEnvironmentVariableTab === tab.id} on:click={() => (globalEnvironmentVariableTab = tab.id)}>{tab.label}</button>
                   {/each}
                 </nav>
@@ -10909,7 +10909,7 @@
                   <table>
                     <thead><tr><th>On</th><th>Name</th><th>Value</th><th>Type</th><th>Secret</th><th></th></tr></thead>
                     <tbody>
-                      {#each visibleGlobalEnvironmentRows as row}
+                      {#each visibleGlobalEnvironmentRows as row (row.variable.id)}
                         <tr>
                           <td><input type="checkbox" checked={row.variable.enabled} on:change={(e) => updateGlobalEnvironmentVariable(row.index, 'enabled', e.currentTarget.checked)} /></td>
                           <td><input aria-label="Global environment variable name" value={row.variable.name} on:input={(e) => updateGlobalEnvironmentVariable(row.index, 'name', e.currentTarget.value)} /></td>
@@ -10956,7 +10956,7 @@
               <h3>{selectedEnvironment?.name ?? 'No environment'} Variables</h3>
               {#if selectedEnvironment}
                 <nav class="subtabs compact" aria-label="Environment variable tabs">
-                  {#each environmentVariableTabs as tab}
+                  {#each environmentVariableTabs as tab (tab.id)}
                     <button type="button" class:active={environmentVariableTab === tab.id} on:click={() => (environmentVariableTab = tab.id)}>{tab.label}</button>
                   {/each}
                 </nav>
@@ -10970,7 +10970,7 @@
                   <table>
                     <thead><tr><th>On</th><th>Name</th><th>Value</th><th>Type</th><th>Secret</th><th></th></tr></thead>
                     <tbody>
-                      {#each visibleEnvironmentRows as row}
+                      {#each visibleEnvironmentRows as row (row.variable.id)}
                         <tr>
                           <td><input type="checkbox" checked={row.variable.enabled} on:change={(e) => updateEnvironmentVariable(row.index, 'enabled', e.currentTarget.checked)} /></td>
                           <td><input aria-label="Environment variable name" value={row.variable.name} on:input={(e) => updateEnvironmentVariable(row.index, 'name', e.currentTarget.value)} /></td>
@@ -11022,7 +11022,7 @@
                 <table>
                   <thead><tr><th>Scope</th><th>File</th><th>Runtime</th></tr></thead>
                   <tbody>
-                    {#each dotEnvFiles as file}
+                    {#each dotEnvFiles as file (file.path)}
                       <tr class:active={dotEnvFileKey(file) === selectedDotEnvKey}>
                         <td>{file.scope}</td>
                         <td><button on:click={() => selectDotEnvFile(file)}>{file.name}</button></td>
@@ -11039,7 +11039,7 @@
                   <table>
                     <thead><tr><th>Name</th><th>Value</th><th></th></tr></thead>
                     <tbody>
-                      {#each dotEnvRows as row}
+                      {#each dotEnvRows as row, index (index)}
                         <tr>
                           <td><input aria-label=".env variable name" value={row.name} on:input={(e) => updateDotEnvRow(row, 'name', e.currentTarget.value)} /></td>
                           <td><input aria-label=".env variable value" value={row.value} on:input={(e) => updateDotEnvRow(row, 'value', e.currentTarget.value)} /></td>
@@ -11060,7 +11060,7 @@
               <h3>Collection Variables</h3>
               <table>
                 <tbody>
-                  {#each activeCollection?.variables ?? [] as variable, index}
+                  {#each activeCollection?.variables ?? [] as variable, index (variable.id)}
                     <tr>
                       <td><input type="checkbox" checked={variable.enabled} on:change={(e) => updateCollectionVariable(index, 'enabled', e.currentTarget.checked)} /></td>
                       <td><input value={variable.name} on:change={(e) => updateCollectionVariable(index, 'name', e.currentTarget.value)} /></td>
@@ -11086,7 +11086,7 @@
               <div class="field-grid">
                 <span class="field-label">Mode</span>
                 <select value={activeCollection?.auth?.mode ?? 'none'} on:change={(e) => updateCollectionAuth({ mode: e.currentTarget.value })}>
-                  {#each authModes as mode}
+                  {#each authModes as mode (mode)}
                     <option value={mode}>{mode}</option>
                   {/each}
                 </select>
@@ -11105,7 +11105,7 @@
                 {:else if activeCollection?.auth?.mode === 'oauth2'}
                   <span class="field-label">Grant</span>
                   <select value={activeCollection.auth.oauth2?.grantType || 'client_credentials'} on:change={(e) => updateCollectionOAuth2Auth({ grantType: e.currentTarget.value })}>
-                    {#each oauth2GrantTypes as grant}
+                    {#each oauth2GrantTypes as grant (grant)}
                       <option value={grant}>{grant}</option>
                     {/each}
                   </select>
@@ -11135,7 +11135,7 @@
                   {/if}
                   <span class="field-label">Credentials</span>
                   <select value={activeCollection.auth.oauth2?.credentialsPlacement || 'basic_auth_header'} on:change={(e) => updateCollectionOAuth2Auth({ credentialsPlacement: e.currentTarget.value })}>
-                    {#each oauth2CredentialPlacements as placement}
+                    {#each oauth2CredentialPlacements as placement (placement)}
                       <option value={placement}>{placement}</option>
                     {/each}
                   </select>
@@ -11145,13 +11145,13 @@
                   {/if}
                   <span class="field-label">Token source</span>
                   <select value={activeCollection.auth.oauth2?.tokenSource || 'access_token'} on:change={(e) => updateCollectionOAuth2Auth({ tokenSource: e.currentTarget.value })}>
-                    {#each oauth2TokenSources as source}
+                    {#each oauth2TokenSources as source (source)}
                       <option value={source}>{source}</option>
                     {/each}
                   </select>
                   <span class="field-label">Token placement</span>
                   <select value={activeCollection.auth.oauth2?.tokenPlacement || 'header'} on:change={(e) => updateCollectionOAuth2Auth({ tokenPlacement: e.currentTarget.value })}>
-                    {#each oauth2TokenPlacements as placement}
+                    {#each oauth2TokenPlacements as placement (placement)}
                       <option value={placement}>{placement}</option>
                     {/each}
                   </select>
@@ -11216,13 +11216,13 @@
 		                  <input type="password" value={activeCollection.auth.oauth1?.accessTokenSecret ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
 		                  <span class="field-label">Signature</span>
 		                  <select value={activeCollection.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} on:change={(e) => updateCollectionOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
-		                    {#each oauth1SignatureMethods as method}
+		                    {#each oauth1SignatureMethods as method (method)}
 		                      <option value={method}>{method}</option>
 		                    {/each}
 		                  </select>
 		                  <span class="field-label">Add params to</span>
 		                  <select value={activeCollection.auth.oauth1?.placement || 'header'} on:change={(e) => updateCollectionOAuth1Auth({ placement: e.currentTarget.value })}>
-		                    {#each oauth1Placements as placement}
+		                    {#each oauth1Placements as placement (placement)}
 		                      <option value={placement}>{placement}</option>
 		                    {/each}
 		                  </select>
@@ -11264,7 +11264,7 @@
             </div>
           </header>
           <nav class="import-source-tabs" aria-label="Import source">
-            {#each [['files', 'Files'], ['url', 'URL'], ['paste', 'Paste'], ['git', 'Git repository']] as [mode, label]}
+            {#each [['files', 'Files'], ['url', 'URL'], ['paste', 'Paste'], ['git', 'Git repository']] as [mode, label] (mode)}
               <button type="button" aria-pressed={importSourceMode === mode} class:active={importSourceMode === mode} on:click={() => selectImportSourceMode(mode as ImportSourceMode)}>{label}</button>
             {/each}
           </nav>
@@ -11307,7 +11307,7 @@
               <div class="import-destination">
                 <label for="import-workspace">Destination workspace</label>
                 <select id="import-workspace" bind:value={importDestinationWorkspaceID} on:change={() => void previewImportSources(importSources)}>
-                  {#each state.workspaces ?? [] as workspace}<option value={workspace.id}>{workspace.name}</option>{/each}
+                  {#each state.workspaces ?? [] as workspace (workspace.id)}<option value={workspace.id}>{workspace.name}</option>{/each}
                 </select>
                 <label for="import-destination-root">Advanced destination root (absolute, optional)</label>
                 <input id="import-destination-root" bind:value={importDestinationRoot} placeholder="Uses the workspace folder" on:change={() => void previewImportSources(importSources)} />
@@ -11335,11 +11335,11 @@
                         {#if row.existingFolder}<p>This is an existing collection folder. It opens as one whole collection; child filtering is unavailable.</p>{:else}
                           <div class="import-hierarchy"><strong>Contents</strong>
                             <div>Environments <button type="button" on:click={() => updateImportDecision(row.candidateId, { environments: (row.environments ?? []).map((entry) => entry.selectionId) })}>All</button> <button type="button" on:click={() => updateImportDecision(row.candidateId, { environments: [] })}>None</button></div>
-                            {#each row.environments ?? [] as entry}<label><input type="checkbox" checked={decision.environments.includes(entry.selectionId)} on:change={(event) => toggleImportChild(row, 'environments', entry.selectionId, event.currentTarget.checked)} /> {entry.name}</label>{/each}
+                            {#each row.environments ?? [] as entry, index (index)}<label><input type="checkbox" checked={decision.environments.includes(entry.selectionId)} on:change={(event) => toggleImportChild(row, 'environments', entry.selectionId, event.currentTarget.checked)} /> {entry.name}</label>{/each}
                             <div>Folders <button type="button" on:click={() => updateImportDecision(row.candidateId, { folders: (row.folders ?? []).map((entry) => entry.selectionId) })}>All</button> <button type="button" on:click={() => updateImportDecision(row.candidateId, { folders: [] })}>None</button></div>
-                            {#each row.folders ?? [] as entry}<label><input type="checkbox" checked={decision.folders.includes(entry.selectionId)} on:change={(event) => toggleImportChild(row, 'folders', entry.selectionId, event.currentTarget.checked)} /> {entry.path || entry.name}</label>{/each}
+                            {#each row.folders ?? [] as entry, index (index)}<label><input type="checkbox" checked={decision.folders.includes(entry.selectionId)} on:change={(event) => toggleImportChild(row, 'folders', entry.selectionId, event.currentTarget.checked)} /> {entry.path || entry.name}</label>{/each}
                             <div>Requests <button type="button" on:click={() => updateImportDecision(row.candidateId, { requests: (row.requests ?? []).map((entry) => entry.selectionId) })}>All</button> <button type="button" on:click={() => updateImportDecision(row.candidateId, { requests: [] })}>None</button></div>
-                            {#each row.requests ?? [] as entry}<label><input type="checkbox" checked={decision.requests.includes(entry.selectionId)} on:change={(event) => toggleImportChild(row, 'requests', entry.selectionId, event.currentTarget.checked)} /> {entry.folderPath ? `${entry.folderPath} / ` : ''}{entry.method || entry.type} {entry.name}</label>{/each}
+                            {#each row.requests ?? [] as entry, index (index)}<label><input type="checkbox" checked={decision.requests.includes(entry.selectionId)} on:change={(event) => toggleImportChild(row, 'requests', entry.selectionId, event.currentTarget.checked)} /> {entry.folderPath ? `${entry.folderPath} / ` : ''}{entry.method || entry.type} {entry.name}</label>{/each}
                           </div>
                         {/if}
                         {/if}
@@ -11350,7 +11350,7 @@
               </div>
               <footer class="import-action-footer"><span>{importReadyRows.length} valid source{importReadyRows.length === 1 ? '' : 's'} selected</span><button class="primary" bind:this={importApplyButton} data-testid="import-apply-selected" type="button" on:click={requestPlannedImport} disabled={busy !== '' || importApplyInFlight || importReadyRows.length === 0}>Apply selected imports</button></footer>
             {/if}
-            {#if importApplyResult}<div class="import-results" aria-live="polite"><strong>{importStatus}</strong>{#each [...(importApplyResult.applied ?? []), ...(importApplyResult.skipped ?? []), ...(importApplyResult.errors ?? [])] as row}<p>{row.sourceName}: {row.error || (importApplyResult.skipped?.some((entry) => entry.candidateId === row.candidateId) ? 'Skipped' : 'Imported')}</p>{/each}</div>{/if}
+            {#if importApplyResult}<div class="import-results" aria-live="polite"><strong>{importStatus}</strong>{#each [...(importApplyResult.applied ?? []), ...(importApplyResult.skipped ?? []), ...(importApplyResult.errors ?? [])] as row, index (index)}<p>{row.sourceName}: {row.error || (importApplyResult.skipped?.some((entry) => entry.candidateId === row.candidateId) ? 'Skipped' : 'Imported')}</p>{/each}</div>{/if}
             <p class="import-live" aria-live="polite">{importStatus}</p>
           </div>
         </section>
@@ -11362,7 +11362,7 @@
           <table>
             <thead><tr><th>Method</th><th>URL</th><th>Status</th><th>Time</th><th>Error</th></tr></thead>
             <tbody>
-              {#each state.networkLog ?? [] as row}
+              {#each state.networkLog ?? [] as row (row.id)}
                 <tr><td>{row.method}</td><td>{row.url}</td><td>{row.status}</td><td>{row.durationMs} ms</td><td>{row.error}</td></tr>
               {/each}
             </tbody>
@@ -11433,7 +11433,7 @@
               {:else if visibleCookieGroups.length === 0}
                 <div class="empty-state">No matching cookies</div>
               {:else}
-                {#each visibleCookieGroups as group}
+                {#each visibleCookieGroups as group (group.domain)}
                   <article>
                     <header>
                       <div>
@@ -11446,7 +11446,7 @@
                     <table>
                       <thead><tr><th>Name</th><th>Value</th><th>Path</th><th>Expires</th><th>Flags</th><th></th></tr></thead>
                       <tbody>
-                        {#each group.cookies as cookie}
+                        {#each group.cookies as cookie (cookie.id)}
                           <tr>
                             <td>{cookie.name}</td>
                             <td>{cookie.value}</td>
@@ -11483,7 +11483,7 @@
 	                <h3>Appearance</h3>
 	              </div>
 	              <div class="theme-mode-selector" aria-label="Theme mode">
-	                {#each themeModes as mode}
+	                {#each themeModes as mode (mode.id)}
 	                  <button
 	                    class:selected={selectedThemeMode === mode.id}
 	                    aria-pressed={selectedThemeMode === mode.id}
@@ -11498,7 +11498,7 @@
 	                <div class="theme-variant-section">
 	                  <span class="field-label">Light Theme</span>
 	                  <div class="theme-variants">
-	                    {#each lightThemeVariants as variant}
+	                    {#each lightThemeVariants as variant (variant.id)}
 	                      <button
 	                        class="theme-variant-card"
 	                        class:selected={(state.preferences.themeVariantLight || 'light') === variant.id}
@@ -11525,7 +11525,7 @@
 	                <div class="theme-variant-section">
 	                  <span class="field-label">Dark Theme</span>
 	                  <div class="theme-variants">
-	                    {#each darkThemeVariants as variant}
+	                    {#each darkThemeVariants as variant (variant.id)}
 	                      <button
 	                        class="theme-variant-card"
 	                        class:selected={(state.preferences.themeVariantDark || 'dark') === variant.id}
@@ -11589,7 +11589,7 @@
 		                  value={appZoomPercentage}
 		                  on:change={(event) => setZoomPercentage(Number(event.currentTarget.value))}
 		                >
-		                  {#each zoomPercentages as percentage}
+		                  {#each zoomPercentages as percentage (percentage)}
 		                    <option value={percentage}>{percentage}%</option>
 		                  {/each}
 		                </select>
@@ -11778,11 +11778,11 @@
 	                    </tr>
 	                  </thead>
 	                  <tbody>
-	                    {#each keyBindingSections as section}
+	                    {#each keyBindingSections as section (section.heading)}
 	                      <tr class="keybinding-section-row">
 	                        <td colspan="3">{section.heading}</td>
 	                      </tr>
-	                      {#each visibleKeyBindingEntries(section) as [action, binding]}
+	                      {#each visibleKeyBindingEntries(section) as [action, binding] (action)}
 	                        {@const value = recordingKeybindingAction === action ? keybindingDraft : keyBindingDisplayValue(action)}
 	                        {@const canEdit = keyBindingCanEdit(action) && keybindingsAreEnabled(state.preferences)}
 	                        <tr>
@@ -11929,7 +11929,7 @@
             </div>
           </header>
           <div class="feature-grid">
-            {#each state.featureLedger ?? [] as feature}
+            {#each state.featureLedger ?? [] as feature (feature.id)}
               <article>
                 <header>
                   <strong>{feature.name}</strong>
@@ -12953,7 +12953,7 @@
                 </label>
               </div>
               <div class="env-list">
-                {#each generateDocsEnvironments as env}
+                {#each generateDocsEnvironments as env (env.id)}
                   <label class="env-row" data-testid="env-row">
                     <input
                       type="checkbox"
@@ -13036,7 +13036,7 @@
 		      <div class="openapi-spec-diff-grid" data-testid="openapi-spec-diff-content">
 		        <div class="openapi-spec-diff-heading">Current Spec</div>
 		        <div class="openapi-spec-diff-heading">Updated Spec</div>
-		        {#each openAPISpecDiffResult.lines ?? [] as line, lineIndex}
+		        {#each openAPISpecDiffResult.lines ?? [] as line, lineIndex (lineIndex)}
 		          <div class={`openapi-spec-diff-cell ${line.kind}`} class:active-change={openAPISpecDiffLineIsActive(lineIndex, line)} data-testid="openapi-spec-diff-current-line" data-openapi-spec-diff-line-index={lineIndex}>
 		            <span class="openapi-spec-diff-line-number">{line.oldNumber || ''}</span>
 		            <code>{line.oldText ?? ''}</code>
@@ -13080,7 +13080,7 @@
 	            <div class="openapi-settings-intervals">
 	              <span>Check interval</span>
 	              <div class="segmented compact" data-testid="openapi-sync-settings-intervals">
-	                {#each openAPISyncCheckIntervals as minutes}
+	                {#each openAPISyncCheckIntervals as minutes (minutes)}
 	                  <button
 	                    type="button"
 	                    class:active={openAPISyncSettingsInterval === minutes}
@@ -13169,7 +13169,7 @@
           <button type="button" class="icon-button" title="Cancel" on:click={cancelPromptDialog}>x</button>
         </header>
         <div class="prompt-fields">
-          {#each promptDialog.prompts as prompt}
+          {#each promptDialog.prompts as prompt, index (index)}
             <label>
               <span>{prompt}</span>
               <input value={promptDialog.values[prompt] ?? ''} on:input={(event) => updatePromptValue(prompt, event.currentTarget.value)} />

@@ -55,10 +55,6 @@ export default tseslint.config(
   {
     // ── Rules disabled repo-wide, each with its measured violation count and owning story ──
     rules: {
-      // 116 violations (95 in App.svelte, 14 in ResponseInspector, 7 across lib/).
-      // Retired by US-030 "Key every {#each}", which keys all 106 blocks.
-      'svelte/require-each-key': 'off',
-
       // 20 violations, all in App.svelte (:974, :1171, :1445, :1449, :5145-:5186).
       // Heuristic rule aimed at the pre-runes `$:` model; these are `$:` blocks that call
       // async functions which reassign variables the block reads. Retired by US-029

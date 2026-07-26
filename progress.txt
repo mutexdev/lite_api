@@ -23,11 +23,11 @@ evidence for each story; this file carries the cross-story findings.
 --- STATUS BOARD (update this every story) ---
   Branch: ralph/postman-switchable-v2   Spec: improvement_v2.md   Stories: 73
 
-  PASSED (23, incl. bug fixes US-075 + US-076):
+  PASSED (24, incl. bug fixes US-075 + US-076):
     Phase 0  US-002 US-003 US-004 US-005 US-006 US-007
     Phase 1  US-008 US-012 US-013 US-014 US-015 US-016 US-017 US-018
              US-020 US-021 US-022 US-023 US-024
-    Phase 2  US-038
+    Phase 2  US-030 US-038
   PHASE 1 REMAINING (4):
     US-009 US-010 US-011  response body store — the highest-risk trio in the
                           whole document; a mistake corrupts saved data rather
@@ -55,37 +55,48 @@ evidence for each story; this file carries the cross-story findings.
     US-077 (internal/ layout) MUST land BEFORE Phase 4 (US-060..US-071), or
     all nine package extractions get moved twice.
 
---- US-030 — ANALYSED, NOT APPLIED. Table in .ralph/plans/US-030.md ---
-  Census measured, not taken from the story: 116 unkeyed {#each} blocks, not the
-  106 the story states. 95 in App.svelte, 14 in ResponseInspector, 7 elsewhere.
-  93 distinct (expression, binding) pairs.
+--- US-030 — key every {#each} block (PASSED) ---
+  116 -> 0 unkeyed blocks. eslint's svelte/require-each-key is RE-ENABLED (the
+  disable US-004 added is deleted), and proven live by negative control:
+  unkeying one block gives 1 error and exit 1.
 
-  WHY THIS WAS NOT APPLIED IN ONE PASS. Svelte throws on DUPLICATE KEYS at
-  RUNTIME, and neither svelte-check nor eslint nor the production build can see
-  it. A wrongly-keyed list is strictly worse than an unkeyed one, so every list
-  needs its element shape established before a key is chosen — about 30 distinct
-  lists across 9 files. Applying 116 edits on guessed keys would have looked
-  green in every gate this program runs and crashed a panel for a user.
+  Census was 116, not the 106 the story claims. 95 App.svelte, 14
+  ResponseInspector, 7 across lib/.
 
-  THE LANDMINE, found while classifying and worth the whole exercise:
-    devToolsNetworkColumnWidths = [80, 70, 180, 300, 110, 100, 80]
-  The value 80 appears TWICE. Keying by value crashes the DevTools network panel
-  on render. That list is positional configuration with no identity other than
-  position, so index IS the correct key there — the story's "stable identities,
-  not array indices" rule is about lists of entities, and this is not one.
-  Same class of trap: HTTP header rows. Repeated header names are legal
-  (Set-Cookie routinely repeats), so those need a composite key, not the name.
+  TWO FINDINGS THAT DECIDED THE KEYS, both established by reading declarations
+  and models.ts rather than assumed:
 
-  The plan file carries the full key-selection table derived from reading the
-  actual declarations: which lists key by value (verified-unique string
-  constants), which by .id, which by a different identity field
-  (devToolsNetworkColumns has `key`, keyBindingSections has `heading`), which
-  need composites, and the ~30 whose shape still has to be established.
+  1. devToolsNetworkColumnWidths = [80, 70, 180, 300, 110, 100, 80] — the value
+     80 appears TWICE, so keying by value would have crashed the DevTools
+     network panel on render.
+  2. SEVEN iterated types carry NO id: KeyValue (params/headers/form rows),
+     Assertion, GrpcMessage, WSMessage, ClientCertificateConfig, ScriptLog,
+     RunResult. A blanket ".id" emits undefined for every row of these, and
+     repeated undefined IS a duplicate key.
 
-  It also records that re-enabling svelte/require-each-key in eslint.config.js
-  is part of this story — US-004 disabled it and named US-030 as the owner —
-  and that browser verification is NON-NEGOTIABLE here rather than a formality,
-  because the failure mode is invisible to every other gate.
+  CONSEQUENCE — the story's rule "keys are stable identities, not array indices"
+  is WRONG for a large minority of these lists, and following it literally would
+  have been the bug. For editable rows with no id, index is the CORRECT key: the
+  only content-derived alternative changes as the user types, so it would
+  destroy and recreate the <input> on every keystroke — strictly worse than
+  leaving the block unkeyed, and the exact opposite of the story's own goal.
+  Read-only display lists rebuilt wholesale (diff rows, console output, timeline
+  metadata, change lists) are index-keyed for the same reason: no identity
+  exists, and nothing is being edited.
+
+  A COLLISION THE FIRST PASS CAUGHT: keying by expression TEXT alone is unsafe
+  across files. `groups` in App.svelte is {folder, items}[]; `groups` in
+  OAuth2AdditionalParams is {id, label}[]. The first pass keyed both on .folder
+  and svelte-check caught it. Two more cross-file collisions existed (`methods`,
+  `rows ?? []`) but were safe by luck — both resolutions happened to suit either
+  shape. Any future bulk edit of this kind must key on (file, expression).
+
+  VERIFIED IN THE BROWSER, which is the only gate that can see a duplicate key
+  (svelte-check, eslint and the production build are all blind to it):
+    0 duplicate-key errors, 0 console errors, 17 tab panels cycled
+    focus retention: input focused -> narrow mutation re-renders the list ->
+      SAME DOM node still focused and still in the document
+  That last one is the story's actual user-facing criterion.
 
 --- US-075 — top toolbar overflow at 1200px (FIXED, verified in browser) ---
   The Phase 0 report reproduced EXACTLY, to the pixel: "Development" ended at

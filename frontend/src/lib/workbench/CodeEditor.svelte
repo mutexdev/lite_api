@@ -291,7 +291,7 @@
   <div class="code-editor-toolbar"><button type="button" data-testid="editor-search-control" on:click={() => view && openSearchPanel(view)}>Search</button>{#if language === 'json' || language === 'xml'}<button type="button" data-testid="editor-format-control" disabled={!valid || large || validation === 'Empty'} on:click={format}>Format</button><button type="button" data-testid="editor-minify-control" disabled={!valid || large || validation === 'Empty'} on:click={minify}>Minify</button>{/if}<span>{fontSize}px</span><span data-testid="editor-validation" aria-live="polite" class:invalid={!valid}>{validation}</span></div>
   {#if large}<div class="editor-large" data-testid="editor-large-mode">Large document: syntax parsing, variable marking, and format controls are disabled; full content remains editable and searchable.</div>{/if}
   <div bind:this={host} data-testid={`${testId}-surface`}></div>
-  {#if editorVariables.length}<details class="editor-variables"><summary>Variables in this editor ({editorVariables.length})</summary>{#each editorVariables as variable}<div class={`editor-variable ${variable.state}`}><strong>{variable.token}</strong> · {variable.scope} · {variable.secret ? 'secret value hidden' : variable.state === 'valid' ? variable.resolvedValue : variable.state}</div>{/each}</details>{/if}
+  {#if editorVariables.length}<details class="editor-variables"><summary>Variables in this editor ({editorVariables.length})</summary>{#each editorVariables as variable, index (index)}<div class={`editor-variable ${variable.state}`}><strong>{variable.token}</strong> · {variable.scope} · {variable.secret ? 'secret value hidden' : variable.state === 'valid' ? variable.resolvedValue : variable.state}</div>{/each}</details>{/if}
 </div>
 
 <style>

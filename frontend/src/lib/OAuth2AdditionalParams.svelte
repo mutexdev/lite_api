@@ -46,7 +46,7 @@
 <div class="oauth2-extra">
   <h4>{title}</h4>
   <div class="oauth2-extra-grid">
-    {#each groups as group}
+    {#each groups as group (group.id)}
       <section class="oauth2-param-group">
         <h5>{group.label}</h5>
         <KeyValueTable

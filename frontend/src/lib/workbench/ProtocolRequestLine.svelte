@@ -25,7 +25,7 @@
       {@render urlField()}
     {:else}
       <select aria-label="Method" data-method={method} value={method} on:change={(event) => onMethodChange(event.currentTarget.value)}>
-        {#each methods as candidate}
+        {#each methods as candidate (candidate)}
           <option value={candidate}>{candidate}</option>
         {/each}
       </select>

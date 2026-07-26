@@ -21,7 +21,7 @@
       {:else}
         <span class="command-saved">Saved</span>
       {/if}
-      {#each command.transportCues as cue}
+      {#each command.transportCues as cue, index (index)}
         <span class="command-cue">{cue}</span>
       {/each}
     </div>

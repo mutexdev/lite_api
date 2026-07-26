@@ -59,7 +59,7 @@
     </tr>
   </thead>
   <tbody>
-    {#each rows ?? [] as row, index}
+    {#each rows ?? [] as row, index (index)}
       <tr
         class:dragging={draggingIndex === index}
         class:drag-over={dragOverIndex === index && draggingIndex !== index}
