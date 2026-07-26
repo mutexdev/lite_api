@@ -382,3 +382,20 @@ frontend/dist/assets/index-*.css        113609
 #
 # Preferences at 24,353 B carries ~60 real props across 448 lines: the largest
 # single extraction left in this story.
+
+# View-panel extraction #1 — Runner (4,818 B of source):
+#   initial chunk 499,918 -> 496,350  (-3,568)
+#   margin below the 500,000 target: 82 bytes -> 3,650 bytes
+#
+# Three corrections from the gates, none of which a text scan would have found:
+#   * normalizedRunnerDelayMs takes a NUMBER, not a string. I inferred "string"
+#     from it being fed by an <input>.
+#   * runnerCompletedCancelled is used in the branch but appears on no attribute
+#     line, so the grep heuristic missed it — same class as the {#if}-condition
+#     props in new-folder.
+#   * lib/views is one level shallower than lib/modals/<sub>, so the wailsjs
+#     import depth differs. Copying the modal boilerplate got it wrong.
+#
+# Runner was the right panel to start with: smallest, self-contained, no
+# {@render}. Remaining: preferences 24,353 B (~60 props), import 10,913 B, and
+# the devToolsPanel snippet 15,912 B which must move as a snippet.
