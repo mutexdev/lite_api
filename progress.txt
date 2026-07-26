@@ -5845,3 +5845,49 @@ US-026 - Store layer. DONE. Both named collapses complete.
   giving the sandbox its own Transport fails 1; removing the nil guard fails 1.
   The comment in that file explains the trap so the next reader does not repeat
   it.
+
+=== RESTRUCTURE PHASE 4 — internal/gitworkbench ===
+
+  The pure half of git_workbench.go: the five bound types, the output-capping
+  buffer, the redaction/sanitisation, the status and name-status parsers, and
+  the branch/remote validators. 314 lines. The 28 App methods that shell out to
+  git stay in main, because they need a.gitWorkbenchExecutable and the state
+  lock; converting them into a Runner is a design change, not motion.
+
+  24 test packages. Method set still 188, App.d.ts unchanged. 24 signature lines
+  now name gitworkbench.CollectionGit* — 4 frontend references updated plus one
+  namespace import. svelte-check 0/0, 254 frontend tests.
+
+  I ALMOST CAUSED A SECURITY REGRESSION, AND THE BUILD IS THE ONLY REASON I DID
+  NOT. There are TWO remote-URL validators and their names read like a base and
+  an alias:
+
+      NormalizeGitRemoteURL            scheme, host, path, no userinfo
+      NormalizeCollectionRemoteURL     the above, THEN also rejects queries,
+                                       fragments, embedded credentials and
+                                       non-local file:// hosts
+
+  A blanket rename pointed git_workbench.go's SetCollectionGitRemote at the
+  PERMISSIVE one. That compiles. Every existing test passes. The only visible
+  consequence would have been that a collection remote could carry a password,
+  which is then persisted into the collection's config on disk and into any
+  export of it. I noticed only because the build failed on an unrelated symbol
+  and I re-read the diff.
+
+  Restored per call site from `git show HEAD:` — git_workbench.go uses the
+  strict one, app_workspace_crud.go's three sites use the base one, exactly as
+  before. Added internal/gitworkbench/remote_url_test.go, whose discriminating
+  cases are the four the two validators disagree on; the shared rejections are
+  marked as NOT discriminating, since a test built only from those would pass
+  with either function substituted.
+
+  FOUND WHILE WRITING THAT TEST — reported, not fixed:
+      git@github.com:owner/repo.git        ACCEPTED
+      ssh://git@github.com/owner/repo.git  REJECTED, "must not embed credentials"
+  The same remote, two spellings. For https the check is right: userinfo there
+  is a password headed for disk. For ssh, "git" is the login name and auth
+  happens over the key agent, so there is nothing embedded — and the scp form
+  being accepted shows banning "git@" was never the intent. Left alone: it is
+  validation on a security-adjacent path, the workaround is the spelling most
+  people already use, and I had just demonstrated what happens when I change
+  one of these on judgement. Pinned as a test so a future change is deliberate.

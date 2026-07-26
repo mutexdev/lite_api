@@ -221,7 +221,7 @@
     WriteTerminalSession,
     UpdateResponseExample
   } from '../wailsjs/go/main/App'
-  import type { history, main, types } from '../wailsjs/go/models'
+  import type { gitworkbench, history, main, types } from '../wailsjs/go/models'
   import { BrowserOpenURL, EventsOn, OnFileDrop, OnFileDropOff, Quit } from '../wailsjs/runtime/runtime'
 
   type View = 'request' | 'collection' | 'git' | 'runner' | 'environments' | 'import' | 'features' | 'network' | 'cookies' | 'history' | 'preferences' | 'devtools'
@@ -596,14 +596,14 @@
   let generateDocsSelectAllInput = $state<HTMLInputElement | undefined>()
   let gitCloneProgress = $state<GitCloneProgress[]>([])
   let gitNotFoundMessage = $state('')
-	let gitWorkbenchSnapshot = $state<main.CollectionGitSnapshot | undefined>()
+	let gitWorkbenchSnapshot = $state<gitworkbench.CollectionGitSnapshot | undefined>()
 	let gitWorkbenchCollectionID = $state('')
 	let gitWorkbenchLoading = $state(false)
 	let gitWorkbenchBusy = $state('')
 	let gitWorkbenchStatus = $state('')
 	let gitWorkbenchError = $state('')
 	let gitWorkbenchSelectedPaths = $state<string[]>([])
-	let gitWorkbenchDiff = $state<main.CollectionGitDiff | undefined>()
+	let gitWorkbenchDiff = $state<gitworkbench.CollectionGitDiff | undefined>()
 	let gitWorkbenchBranch = $state('')
 	let gitWorkbenchNewBranch = $state('')
 	let gitWorkbenchCheckoutNewBranch = $state(true)
@@ -5514,7 +5514,7 @@
     }
   }
 
-  function applyGitWorkbenchSnapshot(snapshot: main.CollectionGitSnapshot) {
+  function applyGitWorkbenchSnapshot(snapshot: gitworkbench.CollectionGitSnapshot) {
 		const previousBranch = gitWorkbenchSnapshot?.branch
     gitWorkbenchSnapshot = snapshot
 		if (!snapshot.available) gitNotFoundMessage = 'Git is not installed or not on PATH.'
@@ -5571,7 +5571,7 @@
     gitWorkbenchHeading?.focus({ preventScroll: true })
   }
 
-  async function runGitWorkbenchAction(label: string, action: () => Promise<main.CollectionGitOperationResult>) {
+  async function runGitWorkbenchAction(label: string, action: () => Promise<gitworkbench.CollectionGitOperationResult>) {
     if (!activeCollection) {
       gitWorkbenchStatus = 'Select a local collection before using Git.'
       return

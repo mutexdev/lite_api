@@ -9,15 +9,17 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/gitworkbench"
 )
 
-func gitSnapshotFile(snapshot CollectionGitSnapshot, path string) (CollectionGitFile, bool) {
+func gitSnapshotFile(snapshot gitworkbench.CollectionGitSnapshot, path string) (gitworkbench.CollectionGitFile, bool) {
 	for _, row := range snapshot.Files {
 		if row.Path == path {
 			return row, true
 		}
 	}
-	return CollectionGitFile{}, false
+	return gitworkbench.CollectionGitFile{}, false
 }
 
 func gitFixtureOutput(t *testing.T, dir string, args ...string) string {
@@ -281,7 +283,7 @@ func TestCollectionGitWorkbenchSafetyAndErrors(t *testing.T) {
 	if _, err := app.CommitCollectionGit(collection.ID, " "); err == nil {
 		t.Fatal("expected empty commit message to fail")
 	}
-	if got := sanitizeCollectionGitDiagnostic("fatal: https://user:secret@example.test/repo.git?token=secret /private/tmp/liteapi"); strings.Contains(got, "secret") || strings.Contains(got, "/private/tmp") {
+	if got := gitworkbench.SanitizeDiagnostic("fatal: https://user:secret@example.test/repo.git?token=secret /private/tmp/liteapi"); strings.Contains(got, "secret") || strings.Contains(got, "/private/tmp") {
 		t.Fatalf("sanitizer leaked sensitive detail: %q", got)
 	}
 
@@ -342,8 +344,8 @@ func TestCollectionGitCommitReportsMissingAuthorWithoutCommitting(t *testing.T) 
 }
 
 func TestCollectionGitStatusParserSupportsRenameAndConflicts(t *testing.T) {
-	repo := collectionGitRepository{repositoryPath: "/repo", collectionPath: "/repo/Api"}
-	rows := collectionGitStatusRows(repo, "RM Api/renamed ü.bru\x00Api/old ü.bru\x00UU Api/conflict.bru\x00?? Other/ignored.bru\x00")
+	repo := gitworkbench.Repository{RepositoryPath: "/repo", CollectionPath: "/repo/Api"}
+	rows := gitworkbench.StatusRows(repo, "RM Api/renamed ü.bru\x00Api/old ü.bru\x00UU Api/conflict.bru\x00?? Other/ignored.bru\x00")
 	if len(rows) != 2 || rows[0].Path != "conflict.bru" || !rows[0].Conflicted || rows[1].Path != "renamed ü.bru" || !rows[1].Staged {
 		t.Fatalf("unexpected porcelain rows: %#v", rows)
 	}
@@ -387,12 +389,12 @@ func TestCollectionGitCommitRejectsCrossCollectionRenames(t *testing.T) {
 }
 
 func TestCollectionGitNameStatusParserHandlesRenameCopyAndMalformedRecords(t *testing.T) {
-	paths, err := parseCollectionGitNameStatusPaths("R100\x00Other/outside.txt\x00Api/moved.txt\x00C075\x00Api/source.txt\x00Api/copy.txt\x00M\x00Api/changed.txt\x00")
+	paths, err := gitworkbench.ParseNameStatusPaths("R100\x00Other/outside.txt\x00Api/moved.txt\x00C075\x00Api/source.txt\x00Api/copy.txt\x00M\x00Api/changed.txt\x00")
 	if err != nil || strings.Join(paths, "|") != "Other/outside.txt|Api/moved.txt|Api/source.txt|Api/copy.txt|Api/changed.txt" {
 		t.Fatalf("unexpected rename/copy parse: %#v, %v", paths, err)
 	}
 	for _, malformed := range []string{"R100\x00Api/only-one\x00", "C\x00\x00Api/target\x00", "Q\x00Api/file\x00", "M\x00"} {
-		if _, err := parseCollectionGitNameStatusPaths(malformed); err == nil {
+		if _, err := gitworkbench.ParseNameStatusPaths(malformed); err == nil {
 			t.Fatalf("malformed name-status record was accepted: %q", malformed)
 		}
 	}
@@ -692,7 +694,7 @@ func TestCollectionGitG2RedactsNetworkDiagnostics(t *testing.T) {
 		}},
 	} {
 		err := operation.run()
-		if err == nil || len(err.Error()) > len("Git "+operation.name+" failed: ")+gitWorkbenchDisplayLimit+1 || strings.Contains(err.Error(), "token") || strings.Contains(err.Error(), "/private/secret") || !strings.Contains(err.Error(), "<path>") {
+		if err == nil || len(err.Error()) > len("Git "+operation.name+" failed: ")+gitworkbench.DisplayLimit+1 || strings.Contains(err.Error(), "token") || strings.Contains(err.Error(), "/private/secret") || !strings.Contains(err.Error(), "<path>") {
 			t.Fatalf("%s did not return a bounded redacted diagnostic: %v", operation.name, err)
 		}
 	}
@@ -705,7 +707,7 @@ func TestCollectionGitDiffIsBoundedAndDetectsBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	large, err := app.GetCollectionGitDiff(collection.ID, "ping.bru", false)
-	if err != nil || large.Truncated || len(large.Text) <= gitWorkbenchDisplayLimit || len(large.Text) > gitWorkbenchOutputLimit || strings.Contains(large.Text, "secret") {
+	if err != nil || large.Truncated || len(large.Text) <= gitworkbench.DisplayLimit || len(large.Text) > gitworkbench.OutputLimit || strings.Contains(large.Text, "secret") {
 		t.Fatalf("large diff was not retained safely: %#v, %v", large, err)
 	}
 	if err := os.WriteFile(filepath.Join(collectionPath, "binary.dat"), []byte{0, 1, 2, 0, 3}, 0o600); err != nil {
@@ -718,12 +720,12 @@ func TestCollectionGitDiffIsBoundedAndDetectsBinary(t *testing.T) {
 	if err != nil || !binary.Binary {
 		t.Fatalf("binary diff was not detected: %#v, %v", binary, err)
 	}
-	if err := collectionGitError("commit", "Author identity unknown\n\n*** Please tell me who you are.", errors.New("exit status 128")); err == nil || !strings.Contains(err.Error(), "author identity") {
+	if err := gitworkbench.Error("commit", "Author identity unknown\n\n*** Please tell me who you are.", errors.New("exit status 128")); err == nil || !strings.Contains(err.Error(), "author identity") {
 		t.Fatalf("missing author error was not actionable: %v", err)
 	}
-	buffer := &limitedGitBuffer{limit: gitWorkbenchOutputLimit}
-	_, _ = buffer.Write([]byte(strings.Repeat("x", gitWorkbenchOutputLimit+1)))
-	if !buffer.truncated || buffer.Len() != gitWorkbenchOutputLimit {
-		t.Fatalf("bounded Git output buffer failed: %d bytes, truncated=%v", buffer.Len(), buffer.truncated)
+	buffer := gitworkbench.NewLimitedBuffer(gitworkbench.OutputLimit)
+	_, _ = buffer.Write([]byte(strings.Repeat("x", gitworkbench.OutputLimit+1)))
+	if !buffer.Truncated() || buffer.Len() != gitworkbench.OutputLimit {
+		t.Fatalf("bounded Git output buffer failed: %d bytes, truncated=%v", buffer.Len(), buffer.Truncated())
 	}
 }

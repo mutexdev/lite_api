@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mutexdev/lite_api/internal/cookiejar"
+	"github.com/mutexdev/lite_api/internal/gitworkbench"
 	"github.com/mutexdev/lite_api/internal/store/bru"
 )
 
@@ -592,7 +593,7 @@ func (a *App) ConnectCollectionGitRemote(collectionID, remoteURL string) (AppSta
 	if err := a.ensureReadyLocked(); err != nil {
 		return AppState{}, err
 	}
-	remote, err := normalizeGitRemoteURL(remoteURL)
+	remote, err := gitworkbench.NormalizeGitRemoteURL(remoteURL)
 	if err != nil {
 		return AppState{}, err
 	}
@@ -664,7 +665,7 @@ func (a *App) ScanGitCollections(rootPath string) ([]GitCollectionCandidate, err
 }
 
 func (a *App) CloneGitRepository(remoteURL, cloneRoot, repoName string) (GitCloneResult, error) {
-	remote, err := normalizeGitRemoteURL(remoteURL)
+	remote, err := gitworkbench.NormalizeGitRemoteURL(remoteURL)
 	if err != nil {
 		return GitCloneResult{}, err
 	}
@@ -798,7 +799,7 @@ func (a *App) OpenGitCollections(workspaceID string, collectionPaths []string, r
 	if err := a.ensureReadyLocked(); err != nil {
 		return AppState{}, err
 	}
-	remote, err := normalizeGitRemoteURL(remoteURL)
+	remote, err := gitworkbench.NormalizeGitRemoteURL(remoteURL)
 	if err != nil {
 		return AppState{}, err
 	}

@@ -557,52 +557,6 @@ func uniqueRequestFilePath(collection Collection, item RequestItem, defaultExt s
 	}
 }
 
-func normalizeGitRemoteURL(raw string) (string, error) {
-	remote := strings.TrimSpace(raw)
-	if remote == "" {
-		return "", errors.New("git remote URL is required")
-	}
-	if strings.ContainsAny(remote, "\r\n\t ") {
-		return "", errors.New("git remote URL cannot contain whitespace")
-	}
-	if strings.Contains(remote, "://") {
-		parsed, err := url.Parse(remote)
-		if err != nil {
-			return "", fmt.Errorf("invalid Git remote URL: %w", err)
-		}
-		switch parsed.Scheme {
-		case "https", "http", "ssh", "git":
-			if parsed.Host == "" || parsed.Path == "" || parsed.Path == "/" {
-				return "", errors.New("git remote URL must include host and repository path")
-			}
-		case "file":
-			if parsed.Path == "" || parsed.Path == "/" {
-				return "", errors.New("file Git remote URL must include a repository path")
-			}
-		default:
-			return "", fmt.Errorf("unsupported Git remote URL scheme %q", parsed.Scheme)
-		}
-		if parsed.User != nil {
-			return "", errors.New("git remote URL must not embed credentials")
-		}
-		return remote, nil
-	}
-	if strings.HasPrefix(remote, "/") || strings.HasPrefix(remote, "./") || strings.HasPrefix(remote, "../") {
-		return "", errors.New("local Git remotes must use file:// URLs")
-	}
-	colon := strings.Index(remote, ":")
-	if colon <= 0 || colon == len(remote)-1 {
-		return "", errors.New("git remote URL must be https://, ssh://, file://, or git@host:path")
-	}
-	userHost := remote[:colon]
-	repoPath := remote[colon+1:]
-	at := strings.Index(userHost, "@")
-	if at <= 0 || at == len(userHost)-1 || strings.Contains(repoPath, ":") || strings.HasPrefix(repoPath, "/") {
-		return "", errors.New("git remote URL must be https://, ssh://, file://, or git@host:path")
-	}
-	return remote, nil
-}
-
 func gitVersion() (string, error) {
 	if _, err := exec.LookPath("git"); err != nil {
 		return "", errors.New("git is not installed or not on PATH")
