@@ -106,6 +106,7 @@
     visibleEnvironmentVariables
   } from './lib/environmentVariables'
   import { resolveNativeMenuCommand } from './lib/nativeMenu'
+  import { withOptimisticPatch } from './lib/optimisticPatch'
   import {
     runnerSelectableItems,
     runnerSelectedCount as runnerSelectedCountOf,
@@ -4946,22 +4947,7 @@
   // detection and make the next real result look like a missed update.
   function applyOptimisticPatch(collectionId: string, itemId: string, patch: types.RequestPatch) {
     if (!appState) return
-    workspaceStore.appState = {
-      ...appState,
-      workspaces: appState.workspaces.map((workspace) => ({
-        ...workspace,
-        collections: (workspace.collections ?? []).map((collection) =>
-          collection.id !== collectionId
-            ? collection
-            : {
-                ...collection,
-                items: (collection.items ?? []).map((item) =>
-                  item.id !== itemId ? item : ({ ...item, ...patch, draft: true } as types.RequestItem),
-                ),
-              },
-        ),
-      })),
-    } as types.AppState
+    workspaceStore.appState = withOptimisticPatch(appState, collectionId, itemId, patch)
   }
 
   function patchRequest(patch: types.RequestPatch) {

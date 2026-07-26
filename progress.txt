@@ -7505,3 +7505,35 @@ US-026 - Store layer. DONE. Both named collapses complete.
       whose only symptom is a handle that feels backwards. Control fails 2.
 
   Seven controls, seven failures.
+
+=== PHASE 6 — the optimistic patch ===
+
+  New src/lib/optimisticPatch.ts, 10 tests. App.svelte 10,774 -> 10,760.
+  Suite 726 -> 736.
+
+  This runs on EVERY KEYSTROKE in the request editor: the edit is written into
+  the state tree first and persisted asynchronously behind the coalescer.
+
+  Pinned:
+    - `draft: true` IS NOT COSMETIC. The tab strip reads it to show the unsaved
+      dot and the close guard reads it before letting a tab go. An edit applied
+      without it LOOKS SAVED, and closing the tab discards it with no prompt.
+      Control fails 3.
+    - and it is set AFTER the patch spread, so a patch carrying draft:false
+      cannot unmark the request mid-edit — the one value it must never take
+      here. Control fails 1.
+    - COLLECTIONS AND ITEMS WITHOUT THE TARGET ARE RETURNED BY IDENTITY, not
+      copied. Per keystroke, every $derived and {#each} keyed on a collection
+      would re-run for all of them otherwise — one character becoming a
+      re-render of the whole sidebar. Controls fail 1 and 1.
+    - EVERY workspace is searched, not just the first. A collection id is unique
+      across the tree, and a request can be patched from a window whose active
+      workspace is not the one that owns it. Control fails 3.
+    - the original tree is never mutated. Assigning in place would make the
+      "before" and "after" the same object, and Svelte would see no change at
+      all. Control fails 1.
+
+  Seven controls, seven failures.
+
+  Go side re-verified this round: 25 packages ok, golangci-lint 0 issues,
+  binding surface 188.
