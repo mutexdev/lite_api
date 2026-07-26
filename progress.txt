@@ -6239,3 +6239,33 @@ US-026 - Store layer. DONE. Both named collapses complete.
   ADDED THE GATE THAT DID NOT EXIST. ci.yml now cross-compiles windows/amd64 and
   darwin/arm64. The go job only ever built Linux, which is why four untagged
   unix imports could sit there while every check stayed green.
+
+=== RESTRUCTURE PHASE 6 — seventh slice, sidebar filtering ===
+
+  src/lib/sidebarFilter.ts — 72 lines, 15 tests. App.svelte 11,689 -> 11,653.
+  Frontend suite 345 -> 360.
+
+  THE RULE THAT SHAPES EVERYTHING HERE: a query matching the COLLECTION shows
+  every request inside it. Someone typing a collection name is asking to see
+  that collection, and narrowing to the few requests that happen to repeat the
+  name in their own title would hide most of the answer.
+
+  A CONTROL AT 0 THAT TAUGHT ME WHICH TEST WAS REAL. Removing the
+  collectionMatches shortcut from filteredItems failed nothing, because
+  requestMatches ALREADY includes collection.name in its candidate list — so a
+  NAME query keeps everything with or without the shortcut. Testing that proved
+  nothing at all.
+
+  The shortcut also covers the collection's FORMAT and PATH, which requestMatches
+  does not. Those are the queries it actually decides. Added
+  filteredItems(collection, 'bru') and filteredItems(collection, '/repos/billing')
+  as the discriminating cases; the control now fails 1.
+
+  This is the same shape as the gitworkbench validators and the requestScanning
+  scanners: two overlapping predicates where the obvious test exercises the
+  overlap and proves nothing. Worth a habit — when a control comes back 0, ask
+  what the two paths have IN COMMON before assuming the test is missing.
+
+  Also recorded: searchHit lowercases the CANDIDATE, not the query, so callers
+  must lowercase first. Written down because it is exactly the asymmetry that
+  reads as a bug until you find the call site.

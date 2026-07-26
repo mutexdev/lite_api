@@ -266,6 +266,15 @@
     requestCommandState as buildRequestCommandState,
     requestIsTransient as isRequestTransient
   } from './lib/workbench/commandState'
+  import {
+    collectionMatches,
+    computeGroupedItems,
+    filteredFolders,
+    filteredItems,
+    folderMatches,
+    requestMatches,
+    searchHit
+  } from './lib/sidebarFilter'
   import { BrowserOpenURL, EventsOn, OnFileDrop, OnFileDropOff, Quit } from '../wailsjs/runtime/runtime'
 
   type View = 'request' | 'collection' | 'git' | 'runner' | 'environments' | 'import' | 'features' | 'network' | 'cookies' | 'history' | 'preferences' | 'devtools'
@@ -7486,34 +7495,7 @@
     return groupedItemsMemo.get(`${collection.id}:${revision}:${query}`, () => computeGroupedItems(collection, query))
   }
 
-  function computeGroupedItems(collection: types.Collection, query = '') {
-    const groups: { folder: string; items: types.RequestItem[] }[] = []
-    const indexByFolder = new Map<string, number>()
-    const addGroup = (folder: string) => {
-      let index = indexByFolder.get(folder)
-      if (index === undefined) {
-        index = groups.length
-        indexByFolder.set(folder, index)
-        groups.push({ folder, items: [] })
-      }
-      return index
-    }
-    for (const folder of filteredFolders(collection, query)) {
-      addGroup(folder.displayPath || folder.path)
-    }
-    for (const item of filteredItems(collection, query)) {
-      const folder = item.folderPath || ''
-      const index = addGroup(folder)
-      groups[index].items.push(item)
-    }
-    return groups
-  }
 
-  function filteredFolders(collection: types.Collection, query = '') {
-    const folders = collection.folders ?? []
-    if (!query.trim()) return folders
-    return folders.filter((folder) => folderMatches(folder, query))
-  }
 
   function sidebarCollections(workspace: types.Workspace | undefined, query: string) {
     const collections = workspace?.collections ?? []
@@ -7526,11 +7508,6 @@
   }
 
 
-  function filteredItems(collection: types.Collection, query: string) {
-    const items = collection.items ?? []
-    if (!query || collectionMatches(collection, query)) return items
-    return items.filter((item) => requestMatches(collection, item, query))
-  }
 
   function normalizedSearch(value: string) {
     return value.trim().toLowerCase()
@@ -7585,22 +7562,9 @@
     }
   }
 
-  function collectionMatches(collection: types.Collection, query: string) {
-    return [collection.name, collection.format, collection.path].some((value) => searchHit(value, query))
-  }
 
-  function folderMatches(folder: types.FolderConfig, query: string) {
-    return [folder.displayPath, folder.path, folder.name].some((value) => searchHit(value, query))
-  }
 
-  function requestMatches(collection: types.Collection, item: types.RequestItem, query: string) {
-    const exampleValues = (item.examples ?? []).flatMap((example) => [example.name, example.description, example.request?.url])
-    return [collection.name, item.folderPath, item.name, item.method, item.type, item.url, ...exampleValues].some((value) => searchHit(value, query))
-  }
 
-  function searchHit(value: unknown, query: string) {
-    return String(value ?? '').toLowerCase().includes(query)
-  }
 
   function emptyCookieForm(): CookieForm {
     return {
