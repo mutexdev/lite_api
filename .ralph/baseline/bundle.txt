@@ -344,28 +344,40 @@ frontend/dist/assets/index-*.css        113609
 # ===========================================================================
 
 # ---------------------------------------------------------------------------
-# THE FOUR VIEW PANELS — measured, not yet extracted. This is US-036's
-# remaining criterion ("DevTools, Runner, Import, Preferences ... dynamically
-# imported"), distinct from the 27 DIALOG bodies already done.
+# THE FOUR VIEW PANELS — NOT RELIABLY MEASURED. Read this before trusting any
+# number for them.
 #
-#   runner       lines ~10745-11236   ~35,622 B of source
-#   import       lines ~11237-11338   ~10,953 B
-#   devtools     lines ~11339-11453    ~6,016 B
-#   preferences  lines ~11454-11503    ~2,465 B
-#                                    ~55,000 B total
+# US-036's remaining criterion is dynamic-importing the DevTools, Runner,
+# Import and Preferences PANELS, distinct from the 27 dialog bodies already
+# extracted. I measured them twice and got two contradictory answers, so BOTH
+# are wrong and neither should be quoted:
 #
-# Extracting these would give real headroom above the current 82-byte margin —
-# far more than the dialogs did — but they are harder in a specific way, and an
-# attempt on the SMALLEST of them (preferences) failed and was reverted:
+#   attempt 1, slicing between {:else if} marker lines:
+#     runner 35,622 B | import 10,953 | devtools 6,016 | preferences 2,465
+#   attempt 2, tracking Svelte block depth:
+#     runner  4,818 B | import 10,913 | devtools     33 | preferences 24,353
 #
-#   They are {:else if activeView === '...'} branches in one long chain, not
-#   self-contained {#if} blocks. Slicing "from the branch line to the next
-#   branch line" cuts through nested {#if}/{#each} blocks that open inside the
-#   branch and close after the slice boundary — svelte-check reported
-#   "Block was left open". The bounds have to be found by tracking block depth
-#   across {#if}/{#each}/{#await} and their closers, the way the dialog
-#   extractions tracked <Modal> depth, NOT by line ranges between branches.
+# devtools at 33 bytes is self-evidently wrong, which is what exposed the rest.
+# The faults, so the next attempt does not repeat them:
 #
-# The runner panel at 35 KB will also carry a large prop surface; expect it to
-# need the most care of anything remaining in this story.
-# ---------------------------------------------------------------------------
+#   Attempt 1 assumed each branch ends where the next {:else if} begins. That is
+#   false for the LAST branch (preferences), which runs to the chain's {/if} —
+#   which is why it read 2,465 B when it is really an order of magnitude larger.
+#   It also cuts through nested blocks that open inside a branch and close after
+#   the boundary; extracting on those bounds produced "Block was left open".
+#
+#   Attempt 2 tracked {#if}/{#each}/{#await}/{#key} depth but processed a line's
+#   CLOSERS before testing whether that same line starts an {:else if}. A line
+#   that closes a nested block and opens a branch marker is then mis-attributed,
+#   terminating the branch early.
+#
+# A correct measurement has to treat {:else if}, {:else}, {:then} and {:catch}
+# as CONTINUATIONS of the enclosing block rather than as openers or closers, and
+# must evaluate the branch-marker test against the depth BEFORE that line's
+# closers are applied.
+#
+# What is known and trustworthy: preferences alone is ~24-25 KB of source and
+# carries roughly 60 real props across 470 lines. It is not a small extraction,
+# and the panels as a group are much larger than any dialog. Do this with the
+# bounds computed correctly and verified by eye on at least one panel before
+# extracting anything.
