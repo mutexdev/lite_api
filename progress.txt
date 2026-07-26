@@ -3322,3 +3322,47 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Gates: go build, go vet, go test ok across 12 packages; svelte-check 209/0/0;
   eslint 0; npm test 223/223.
+
+--- US-070 (rest) — internal/store/yamlstore (DONE) + dead wrapper cleanup ---
+
+  649 lines of LiteAPI's own YAML request format out of app.go.
+  app.go: 35,580 -> 34,890.
+
+  Named yamlstore, not yaml: a package called yaml collides with
+  gopkg.in/yaml.v3 at every call site importing both, which is most of them.
+
+  12 DEAD WRAPPERS REMOVED. The compatibility shims left behind by earlier
+  extractions had lost their last callers as later passes rewrote call sites to
+  the packages directly. Worth noting HOW: my first check counted only CALLS
+  (`name(`), which would have deleted four that are still referenced as bare
+  function values. The stricter check - any word-boundary occurrence - kept
+  those. A "find unused functions" regex that only looks for calls is wrong in
+  Go, where a function name is also a value.
+
+  !!! THE NEAREST MISS OF THE WHOLE SESSION !!!
+
+  The mechanical rewrite pointed this package's normalizeBodyMode call sites at
+  codegen.NormalizedBodyMode, because the names are nearly identical. They are
+  NOT the same function:
+
+    yamlstore's  ""            -> "none"     four urlencoded spellings -> one
+                 unknown       -> "text"     "binary" -> "file"
+    codegen's    two form modes rewritten, EVERYTHING ELSE PASSED THROUGH
+
+  The redirect COMPILED. It was caught only because the same rewrite also
+  renamed the declaration and produced a syntax error. Had it renamed one fewer
+  thing, a request with no body would have loaded with mode "" instead of
+  "none", silently, and the suite would have stayed green - I verified that by
+  making exactly that change afterwards: 0 tests failed.
+
+  So: three tests added pinning the full canonicalisation. Controls now: "" not
+  becoming "none" fails 2, dropping the urlencoded aliases fails 1, "binary" not
+  mapping to "file" fails 1.
+
+  THE LESSON IS ABOUT SIMILAR NAMES, NOT ABOUT REGEXES. Two functions in
+  different packages with near-identical names and DIFFERENT behaviour is a trap
+  that survives compilation. Before redirecting any call to a similarly-named
+  function in another package, read both bodies. The compiler will not help.
+
+  Gates: go build, go vet, go test ok across 14 packages; svelte-check 209/0/0;
+  eslint 0; npm test 223/223.

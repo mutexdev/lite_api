@@ -178,3 +178,26 @@ func LooksLikeJSON(value string) bool {
 	trimmed := strings.TrimSpace(value)
 	return strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")
 }
+
+func IntValue(raw interface{}, fallback int) int {
+	if value, ok := IntValueOK(raw); ok {
+		return value
+	}
+	return fallback
+}
+
+func IntValueOK(raw interface{}) (int, bool) {
+	switch value := raw.(type) {
+	case int:
+		return value, true
+	case int64:
+		return int(value), true
+	case float64:
+		return int(value), true
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(value))
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
+}

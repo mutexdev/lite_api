@@ -11,6 +11,7 @@ import (
 	"LiteAPI/internal/interp"
 	"LiteAPI/internal/scalar"
 	"LiteAPI/internal/store/bru"
+	"LiteAPI/internal/store/yamlstore"
 	"LiteAPI/internal/transport"
 	"LiteAPI/internal/types"
 	"LiteAPI/internal/wsexec"
@@ -30696,7 +30697,7 @@ func readCollectionFromDisk(collectionPath string) (Collection, error) {
 				return fmt.Errorf("parse %s: %w", path, err)
 			}
 		case ".yml", ".yaml":
-			item, err = parseYAMLRequest(string(content))
+			item, err = yamlstore.ParseRequest(string(content))
 			if err != nil {
 				return fmt.Errorf("parse %s: %w", path, err)
 			}
@@ -30819,11 +30820,11 @@ func applyYAMLFolderDefaults(config *FolderConfig, root map[string]interface{}) 
 		config.Headers = parseYAMLKeyValues(headers, false)
 	}
 	if variables, ok := request["variables"]; ok {
-		config.Variables = parseYAMLVariables(variables)
+		config.Variables = yamlstore.ParseVariables(variables)
 	}
-	config.ResVariables = append(config.ResVariables, parseYAMLPostResponseActions(request["actions"])...)
+	config.ResVariables = append(config.ResVariables, yamlstore.ParsePostResponseActions(request["actions"])...)
 	if auth, ok := request["auth"]; ok {
-		config.Auth = parseYAMLAuth(auth, config.Auth)
+		config.Auth = yamlstore.ParseAuth(auth, config.Auth)
 	}
 	if scripts, ok := listValue(request["scripts"]); ok {
 		for _, scriptValue := range scripts {
@@ -30878,11 +30879,11 @@ func hydrateYAMLCollectionMetadata(collection *Collection, path string) error {
 		collection.Headers = parseYAMLKeyValues(headers, false)
 	}
 	if variables, ok := request["variables"]; ok {
-		collection.Variables = parseYAMLVariables(variables)
+		collection.Variables = yamlstore.ParseVariables(variables)
 	}
-	collection.ResVariables = append(collection.ResVariables, parseYAMLPostResponseActions(request["actions"])...)
+	collection.ResVariables = append(collection.ResVariables, yamlstore.ParsePostResponseActions(request["actions"])...)
 	if auth, ok := request["auth"]; ok {
-		collection.Auth = parseYAMLAuth(auth, collection.Auth)
+		collection.Auth = yamlstore.ParseAuth(auth, collection.Auth)
 	}
 	if scripts, ok := listValue(request["scripts"]); ok {
 		for _, scriptValue := range scripts {
@@ -30908,7 +30909,7 @@ func hydrateYAMLCollectionMetadata(collection *Collection, path string) error {
 	}
 	config, _ := mapValue(root["config"])
 	if environments, ok := config["environments"]; ok {
-		collection.Environments = parseYAMLEnvironments(environments)
+		collection.Environments = yamlstore.ParseEnvironments(environments)
 	}
 	if proxy, ok := parseYAMLProxyConfig(config["proxy"]); ok {
 		collection.Proxy = transport.NormalizeProxyConfig(proxy)
@@ -31034,6 +31035,10 @@ func itemFolderPhysicalPath(collection Collection, item RequestItem) string {
 }
 
 // OpenAPI, Postman and Insomnia import moved to internal/importers.
+func intValue(raw interface{}, fallback int) int { return scalar.IntValue(raw, fallback) }
+
+func intValueOK(raw interface{}) (int, bool) { return scalar.IntValueOK(raw) }
+
 func selectedFileBodyFields(entries []FileBodyEntry) (string, string) {
 	return types.SelectedFileBodyFields(entries)
 }
@@ -31046,25 +31051,9 @@ func normalizeOAuth2AdditionalPlacement(value string) string {
 
 func looksLikeJSON(value string) bool { return scalar.LooksLikeJSON(value) }
 
-func cloneVariables(values []Variable) []Variable { return types.CloneVariables(values) }
-
 func cloneOAuth2AdditionalParams(values []OAuth2AdditionalParam) []OAuth2AdditionalParam {
 	return types.CloneOAuth2AdditionalParams(values)
 }
-
-func cloneAuthConfig(auth AuthConfig) AuthConfig { return types.CloneAuthConfig(auth) }
-
-func cloneRequestVars(vars RequestVars) RequestVars { return types.CloneRequestVars(vars) }
-
-func cloneRequestBody(body RequestBody) RequestBody { return types.CloneRequestBody(body) }
-
-func cloneAssertions(values []Assertion) []Assertion { return types.CloneAssertions(values) }
-
-func cloneGrpcMessages(values []GrpcMessage) []GrpcMessage { return types.CloneGrpcMessages(values) }
-
-func cloneWSMessages(values []WSMessage) []WSMessage { return types.CloneWSMessages(values) }
-
-func cloneTags(values []string) []string { return types.CloneTags(values) }
 
 func cloneResponseExamples(values []ResponseExample) []ResponseExample {
 	return types.CloneResponseExamples(values)
@@ -31086,13 +31075,9 @@ func applyWSSEHeader(headers http.Header, username, password string, now time.Ti
 	wsse.ApplyHeader(headers, username, password, now)
 }
 
-func enabledKeyValues(rows []KeyValue) []KeyValue { return types.EnabledKeyValues(rows) }
-
 func grpcMethodStorageType(method protoreflect.MethodDescriptor) string {
 	return grpcexec.GRPCMethodStorageType(method)
 }
-
-func shellSingleQuote(value string) string { return scalar.ShellSingleQuote(value) }
 
 func getKeyValue(values []KeyValue, name string) string { return types.GetKeyValue(values, name) }
 
@@ -31153,655 +31138,7 @@ func newID(prefix string) string {
 	return scalar.NewID(prefix)
 }
 
-func parseYAMLRequest(content string) (RequestItem, error) {
-	var raw map[string]interface{}
-	if err := yaml.Unmarshal([]byte(content), &raw); err != nil {
-		return RequestItem{}, err
-	}
-	info, ok := mapValue(raw["info"])
-	if !ok {
-		return RequestItem{}, errors.New("yaml info is required")
-	}
-	name := strings.TrimSpace(yamlScalarString(info["name"]))
-	if name == "" {
-		name = "Imported request"
-	}
-	requestType := strings.ToLower(strings.TrimSpace(yamlScalarString(info["type"])))
-	if requestType == "" {
-		requestType = "http"
-	}
-	seq := intValue(info["seq"], 1)
-	item := types.NewRequestItem(name, requestType, seq)
-	item.Auth = AuthConfig{Mode: "none", APILocation: "header"}
-
-	switch requestType {
-	case "graphql":
-		if section, ok := mapValue(raw["graphql"]); ok {
-			applyYAMLGraphQL(&item, section)
-		}
-	case "websocket":
-		if section, ok := mapValue(raw["websocket"]); ok {
-			applyYAMLWebSocket(&item, section)
-		}
-	case "grpc":
-		if section, ok := mapValue(raw["grpc"]); ok {
-			applyYAMLGrpc(&item, section)
-		}
-	default:
-		if section, ok := mapValue(raw["http"]); ok {
-			applyYAMLHTTP(&item, section)
-		}
-	}
-
-	if runtime, ok := mapValue(raw["runtime"]); ok {
-		if variables, ok := runtime["variables"]; ok {
-			item.Vars.Req = parseYAMLVariables(variables)
-		}
-		item.Vars.Res = append(item.Vars.Res, parseYAMLPostResponseActions(runtime["actions"])...)
-		if scripts, ok := listValue(runtime["scripts"]); ok {
-			for _, scriptValue := range scripts {
-				script, ok := mapValue(scriptValue)
-				if !ok {
-					continue
-				}
-				code := yamlScalarString(script["code"])
-				switch strings.ToLower(yamlScalarString(script["type"])) {
-				case "before-request", "pre-request":
-					item.PreScript = scalar.AppendScript(item.PreScript, code)
-				case "after-response", "post-response":
-					item.PostScript = scalar.AppendScript(item.PostScript, code)
-				case "tests", "test":
-					item.Tests = scalar.AppendScript(item.Tests, code)
-				}
-			}
-		}
-	}
-	if settings, ok := mapValue(raw["settings"]); ok {
-		applyYAMLSettings(&item, settings)
-	}
-	if docs := strings.TrimSpace(yamlScalarString(raw["docs"])); docs != "" {
-		item.Docs = docs
-	}
-	return item, nil
-}
-
-func applyYAMLHTTP(item *RequestItem, section map[string]interface{}) {
-	if method := strings.TrimSpace(yamlScalarString(section["method"])); method != "" {
-		item.Method = strings.ToUpper(method)
-	}
-	if targetURL := strings.TrimSpace(yamlScalarString(section["url"])); targetURL != "" {
-		item.URL = targetURL
-	}
-	if headers, ok := section["headers"]; ok {
-		item.Headers = parseYAMLKeyValues(headers, false)
-	}
-	if params, ok := section["params"]; ok {
-		item.Params, item.PathParams = parseYAMLParams(params)
-	}
-	if body, ok := section["body"]; ok {
-		item.Body = parseYAMLBody(body)
-	}
-	if auth, ok := section["auth"]; ok {
-		item.Auth = parseYAMLAuth(auth, item.Auth)
-	}
-}
-
-func applyYAMLGraphQL(item *RequestItem, section map[string]interface{}) {
-	if method := strings.TrimSpace(yamlScalarString(section["method"])); method != "" {
-		item.Method = strings.ToUpper(method)
-	}
-	if targetURL := strings.TrimSpace(yamlScalarString(section["url"])); targetURL != "" {
-		item.URL = targetURL
-	}
-	item.Body.Mode = "graphql"
-	if body, ok := mapValue(section["body"]); ok {
-		item.Body.GraphQLQuery = yamlScalarString(body["query"])
-		item.Body.GraphQLVariables = yamlScalarString(body["variables"])
-	}
-	if headers, ok := section["headers"]; ok {
-		item.Headers = parseYAMLKeyValues(headers, false)
-	}
-	if auth, ok := section["auth"]; ok {
-		item.Auth = parseYAMLAuth(auth, item.Auth)
-	}
-}
-
-func applyYAMLWebSocket(item *RequestItem, section map[string]interface{}) {
-	item.Body.Mode = "ws"
-	if targetURL := strings.TrimSpace(yamlScalarString(section["url"])); targetURL != "" {
-		item.URL = targetURL
-	}
-	if headers, ok := section["headers"]; ok {
-		item.Headers = parseYAMLKeyValues(headers, false)
-	}
-	if rawMessage := firstMapValue(section, "message", "messages"); rawMessage != nil {
-		item.WSMessages = parseYAMLWSMessages(rawMessage)
-		if len(item.WSMessages) == 0 {
-			if message, ok := mapValue(rawMessage); ok {
-				mode := normalizeBodyMode(yamlScalarString(message["type"]))
-				item.Body.Mode = mode
-				assignYAMLBodyData(&item.Body, mode, message["data"])
-			}
-		}
-	}
-	if auth, ok := section["auth"]; ok {
-		item.Auth = parseYAMLAuth(auth, item.Auth)
-	}
-}
-
-func applyYAMLGrpc(item *RequestItem, section map[string]interface{}) {
-	item.Type = "grpc"
-	item.Body.Mode = "grpc"
-	if method := strings.TrimSpace(yamlScalarString(section["method"])); method != "" {
-		item.Method = method
-	}
-	if targetURL := strings.TrimSpace(yamlScalarString(section["url"])); targetURL != "" {
-		item.URL = targetURL
-	}
-	item.GrpcMethodType = firstYAMLString(section, "methodType", "method_type")
-	item.ProtoPath = firstYAMLString(section, "protoFilePath", "protoPath", "proto_file_path")
-	if metadata, ok := section["metadata"]; ok {
-		item.Headers = parseYAMLKeyValues(metadata, false)
-	} else if headers, ok := section["headers"]; ok {
-		item.Headers = parseYAMLKeyValues(headers, false)
-	}
-	item.GrpcMessages = parseYAMLGrpcMessages(firstMapValue(section, "message", "messages"))
-	if auth, ok := section["auth"]; ok {
-		item.Auth = parseYAMLAuth(auth, item.Auth)
-	}
-}
-
-func parseYAMLBody(raw interface{}) RequestBody {
-	body := RequestBody{Mode: "none"}
-	bodyMap, ok := mapValue(raw)
-	if !ok {
-		body.Mode = "text"
-		body.Text = yamlScalarString(raw)
-		return body
-	}
-	mode := normalizeBodyMode(yamlScalarString(bodyMap["type"]))
-	body.Mode = mode
-	assignYAMLBodyData(&body, mode, bodyMap["data"])
-	return body
-}
-
-func normalizeBodyMode(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "none":
-		return "none"
-	case "json":
-		return "json"
-	case "xml":
-		return "xml"
-	case "sparql":
-		return "sparql"
-	case "grpc":
-		return "grpc"
-	case "form-urlencoded", "formurlencoded", "urlencoded", "x-www-form-urlencoded":
-		return "formUrlEncoded"
-	case "multipart-form", "multipartform", "multipart":
-		return "multipartForm"
-	case "file", "binary":
-		return "file"
-	default:
-		return "text"
-	}
-}
-
-func parseYAMLParams(raw interface{}) ([]KeyValue, []KeyValue) {
-	values, ok := listValue(raw)
-	if !ok {
-		return nil, nil
-	}
-	queryParams := []KeyValue{}
-	pathParams := []KeyValue{}
-	for _, entry := range values {
-		valueMap, ok := mapValue(entry)
-		if !ok {
-			continue
-		}
-		name := strings.TrimSpace(yamlScalarString(valueMap["name"]))
-		if name == "" {
-			continue
-		}
-		param := KeyValue{
-			Name:        name,
-			Value:       yamlScalarString(valueMap["value"]),
-			Enabled:     yamlEnabled(valueMap),
-			Secret:      boolValue(valueMap["secret"], false),
-			Description: yamlScalarString(valueMap["description"]),
-		}
-		switch strings.ToLower(yamlScalarString(valueMap["type"])) {
-		case "path":
-			pathParams = append(pathParams, param)
-		default:
-			queryParams = append(queryParams, param)
-		}
-	}
-	return queryParams, pathParams
-}
-
-func parseYAMLWSMessages(raw interface{}) []WSMessage {
-	if raw == nil {
-		return nil
-	}
-	if values, ok := listValue(raw); ok {
-		result := make([]WSMessage, 0, len(values))
-		for index, entry := range values {
-			message, ok := parseYAMLWSMessage(entry, index)
-			if ok {
-				result = append(result, message)
-			}
-		}
-		return result
-	}
-	if message, ok := parseYAMLWSMessage(raw, 0); ok {
-		return []WSMessage{message}
-	}
-	return nil
-}
-
-func parseYAMLWSMessage(raw interface{}, index int) (WSMessage, bool) {
-	valueMap, ok := mapValue(raw)
-	if !ok {
-		content := yamlScalarString(raw)
-		if strings.TrimSpace(content) == "" {
-			return WSMessage{}, false
-		}
-		return WSMessage{Name: fmt.Sprintf("message %d", index+1), Type: "text", Content: content}, true
-	}
-	name := firstYAMLString(valueMap, "title", "name")
-	selected := boolValue(valueMap["selected"], false)
-	messageMap := valueMap
-	fromVariant := false
-	if nested, ok := mapValue(valueMap["message"]); ok {
-		messageMap = nested
-		fromVariant = true
-	}
-	content := firstYAMLString(messageMap, "data", "content", "message", "value")
-	messageType := normalizeWSMessageType(firstYAMLString(messageMap, "type"))
-	if strings.TrimSpace(name) == "" && strings.TrimSpace(content) == "" {
-		return WSMessage{}, false
-	}
-	if strings.TrimSpace(name) == "" && fromVariant {
-		name = fmt.Sprintf("message %d", index+1)
-	}
-	return WSMessage{Name: name, Type: messageType, Content: content, Selected: selected}, true
-}
-
-func parseYAMLGrpcMessages(raw interface{}) []GrpcMessage {
-	if raw == nil {
-		return nil
-	}
-	if values, ok := listValue(raw); ok {
-		result := make([]GrpcMessage, 0, len(values))
-		for index, entry := range values {
-			if valueMap, ok := mapValue(entry); ok {
-				name := firstYAMLString(valueMap, "title", "name")
-				content := firstYAMLString(valueMap, "message", "content", "value")
-				if strings.TrimSpace(name) == "" && strings.TrimSpace(content) == "" {
-					continue
-				}
-				if strings.TrimSpace(name) == "" {
-					name = fmt.Sprintf("message %d", index+1)
-				}
-				result = append(result, GrpcMessage{Name: name, Content: content})
-				continue
-			}
-			content := yamlScalarString(entry)
-			if strings.TrimSpace(content) != "" {
-				result = append(result, GrpcMessage{Name: fmt.Sprintf("message %d", index+1), Content: content})
-			}
-		}
-		return result
-	}
-	if valueMap, ok := mapValue(raw); ok {
-		name := firstYAMLString(valueMap, "title", "name")
-		content := firstYAMLString(valueMap, "message", "content", "value")
-		if strings.TrimSpace(name) == "" && strings.TrimSpace(content) == "" {
-			return nil
-		}
-		return []GrpcMessage{{Name: name, Content: content}}
-	}
-	content := yamlScalarString(raw)
-	if strings.TrimSpace(content) == "" {
-		return nil
-	}
-	return []GrpcMessage{{Content: content}}
-}
-
-func parseYAMLOAuth2AdditionalGroup(raw interface{}) []OAuth2AdditionalParam {
-	if valueMap, ok := mapValue(raw); ok {
-		result := []OAuth2AdditionalParam{}
-		result = append(result, parseYAMLOAuth2AdditionalParams(firstMapValue(valueMap, "headers", "header"), "headers")...)
-		result = append(result, parseYAMLOAuth2AdditionalParams(firstMapValue(valueMap, "queryparams", "queryParams", "query", "params"), "queryparams")...)
-		result = append(result, parseYAMLOAuth2AdditionalParams(firstMapValue(valueMap, "body", "form", "formData"), "body")...)
-		return result
-	}
-	return parseYAMLOAuth2AdditionalParams(raw, "body")
-}
-
-func parseYAMLOAuth2AdditionalParams(raw interface{}, fallbackSendIn string) []OAuth2AdditionalParam {
-	values, ok := listValue(raw)
-	if !ok {
-		return nil
-	}
-	result := make([]OAuth2AdditionalParam, 0, len(values))
-	for _, entry := range values {
-		valueMap, ok := mapValue(entry)
-		if !ok {
-			continue
-		}
-		name := strings.TrimSpace(yamlScalarString(valueMap["name"]))
-		if name == "" {
-			continue
-		}
-		sendIn := firstYAMLString(valueMap, "sendIn", "send_in", "placement", "type")
-		if sendIn == "" {
-			sendIn = fallbackSendIn
-		}
-		result = append(result, OAuth2AdditionalParam{
-			Name:        name,
-			Value:       yamlScalarString(valueMap["value"]),
-			SendIn:      normalizeOAuth2AdditionalPlacement(sendIn),
-			Enabled:     yamlEnabled(valueMap),
-			Secret:      boolValue(valueMap["secret"], false),
-			Description: yamlScalarString(valueMap["description"]),
-		})
-	}
-	return result
-}
-
-func parseYAMLVariables(raw interface{}) []Variable {
-	values, ok := listValue(raw)
-	if !ok {
-		return nil
-	}
-	variables := make([]Variable, 0, len(values))
-	for _, entry := range values {
-		valueMap, ok := mapValue(entry)
-		if !ok {
-			continue
-		}
-		name := strings.TrimSpace(yamlScalarString(valueMap["name"]))
-		if name == "" {
-			continue
-		}
-		value, dataType := parseYAMLTypedValue(valueMap["value"])
-		if dataType == "string" {
-			if topLevelType := strings.ToLower(strings.TrimSpace(yamlScalarString(valueMap["type"]))); topLevelType != "" {
-				dataType = topLevelType
-			}
-		}
-		variables = append(variables, Variable{
-			ID:       newID("var"),
-			Name:     name,
-			Value:    value,
-			DataType: dataType,
-			Type:     dataType,
-			Enabled:  yamlEnabled(valueMap),
-			Secret:   boolValue(valueMap["secret"], false),
-		})
-	}
-	return variables
-}
-
-func parseYAMLPostResponseActions(raw interface{}) []Variable {
-	actions, ok := listValue(raw)
-	if !ok {
-		return nil
-	}
-	variables := make([]Variable, 0, len(actions))
-	for _, actionValue := range actions {
-		action, ok := mapValue(actionValue)
-		if !ok {
-			continue
-		}
-		if !strings.EqualFold(yamlScalarString(action["type"]), "set-variable") {
-			continue
-		}
-		phase := strings.ToLower(strings.TrimSpace(yamlScalarString(action["phase"])))
-		if phase != "after-response" && phase != "post-response" {
-			continue
-		}
-		name := strings.TrimSpace(yamlScalarString(action["name"]))
-		secret := boolValue(action["secret"], false)
-		if variable, ok := mapValue(action["variable"]); ok {
-			if variableName := strings.TrimSpace(yamlScalarString(variable["name"])); variableName != "" {
-				name = variableName
-			}
-			secret = boolValue(variable["secret"], secret)
-		}
-		if name == "" {
-			continue
-		}
-		valueRaw := action["value"]
-		if selector, ok := mapValue(action["selector"]); ok {
-			if expression, ok := selector["expression"]; ok {
-				valueRaw = expression
-			}
-		}
-		value, dataType := parseYAMLTypedValue(valueRaw)
-		if dataType == "string" {
-			dataType = "response"
-		}
-		variables = append(variables, Variable{
-			ID:       newID("var"),
-			Name:     responseVariableRuntimeName(name),
-			Value:    value,
-			DataType: dataType,
-			Type:     dataType,
-			Enabled:  yamlEnabled(action),
-			Secret:   secret,
-		})
-	}
-	return variables
-}
-
-func parseYAMLEnvironments(raw interface{}) []Environment {
-	values, ok := listValue(raw)
-	if !ok {
-		return nil
-	}
-	environments := make([]Environment, 0, len(values))
-	for _, entry := range values {
-		valueMap, ok := mapValue(entry)
-		if !ok {
-			continue
-		}
-		name := strings.TrimSpace(yamlScalarString(valueMap["name"]))
-		if name == "" {
-			continue
-		}
-		environments = append(environments, Environment{
-			ID:        newID("env"),
-			Name:      name,
-			Color:     yamlScalarString(valueMap["color"]),
-			Variables: parseYAMLVariables(valueMap["variables"]),
-		})
-	}
-	return environments
-}
-
-func parseYAMLTypedValue(raw interface{}) (interface{}, string) {
-	if valueMap, ok := mapValue(raw); ok {
-		dataType := strings.ToLower(strings.TrimSpace(yamlScalarString(valueMap["type"])))
-		data := valueMap["data"]
-		switch dataType {
-		case "number":
-			text := yamlScalarString(data)
-			if strings.ContainsAny(text, ".eE") {
-				if parsed, err := strconv.ParseFloat(text, 64); err == nil {
-					return parsed, "number"
-				}
-			}
-			if parsed, err := strconv.Atoi(text); err == nil {
-				return parsed, "number"
-			}
-			return text, "number"
-		case "boolean":
-			if parsed, err := strconv.ParseBool(yamlScalarString(data)); err == nil {
-				return parsed, "boolean"
-			}
-			return yamlScalarString(data), "boolean"
-		case "object":
-			return yamlScalarString(data), "object"
-		case "":
-			return yamlScalarString(data), "string"
-		default:
-			return yamlScalarString(data), dataType
-		}
-	}
-	switch v := raw.(type) {
-	case bool:
-		return v, "boolean"
-	case int, int8, int16, int32, int64, float32, float64:
-		return v, "number"
-	case nil:
-		return "", "string"
-	default:
-		return yamlScalarString(v), "string"
-	}
-}
-
-func parseYAMLAuth(raw interface{}, fallback AuthConfig) AuthConfig {
-	auth := fallback
-	if auth.Mode == "" {
-		auth.Mode = "none"
-	}
-	if auth.APILocation == "" {
-		auth.APILocation = "header"
-	}
-	if valueMap, ok := mapValue(raw); ok {
-		mode := strings.ToLower(firstYAMLString(valueMap, "mode", "type", "auth"))
-		if mode != "" {
-			auth.Mode = mode
-		}
-		auth.Username = firstYAMLString(valueMap, "username", "user")
-		auth.Password = firstYAMLString(valueMap, "password", "pass")
-		auth.Domain = firstYAMLString(valueMap, "domain")
-		if nested, ok := mapValue(valueMap["wsse"]); ok {
-			auth.Username = firstYAMLString(nested, "username", "user")
-			auth.Password = firstYAMLString(nested, "password", "pass")
-		}
-		if nested, ok := mapValue(valueMap["ntlm"]); ok {
-			auth.Username = firstYAMLString(nested, "username", "user")
-			auth.Password = firstYAMLString(nested, "password", "pass")
-			auth.Domain = firstYAMLString(nested, "domain")
-		}
-		auth.Token = firstYAMLString(valueMap, "token", "bearerToken", "accessToken")
-		auth.APIKey = firstYAMLString(valueMap, "key", "apiKey", "name")
-		auth.APIValue = firstYAMLString(valueMap, "value", "apiValue")
-		if location := firstYAMLString(valueMap, "location", "placement"); location != "" {
-			auth.APILocation = strings.ToLower(location)
-		}
-		oauth2Map := valueMap
-		if nested, ok := mapValue(valueMap["oauth2"]); ok {
-			oauth2Map = nested
-		}
-		auth.OAuth2.GrantType = firstYAMLString(oauth2Map, "grantType", "grant_type", "flow")
-		auth.OAuth2.CallbackURL = firstYAMLString(oauth2Map, "callbackUrl", "callback_url")
-		auth.OAuth2.AuthorizationURL = firstYAMLString(oauth2Map, "authorizationUrl", "authorization_url", "authUrl", "auth_url")
-		auth.OAuth2.AccessTokenURL = firstYAMLString(oauth2Map, "accessTokenUrl", "access_token_url", "tokenUrl", "token_url")
-		auth.OAuth2.RefreshTokenURL = firstYAMLString(oauth2Map, "refreshTokenUrl", "refresh_token_url")
-		auth.OAuth2.Username = firstYAMLString(oauth2Map, "username", "user")
-		auth.OAuth2.Password = firstYAMLString(oauth2Map, "password", "pass")
-		auth.OAuth2.ClientID = firstYAMLString(oauth2Map, "clientId", "client_id")
-		auth.OAuth2.ClientSecret = firstYAMLString(oauth2Map, "clientSecret", "client_secret")
-		auth.OAuth2.Scope = firstYAMLString(oauth2Map, "scope")
-		auth.OAuth2.State = firstYAMLString(oauth2Map, "state")
-		if pkce, ok := boolValueOK(oauth2Map["pkce"]); ok {
-			auth.OAuth2.PKCE = pkce
-		}
-		auth.OAuth2.CredentialsPlacement = firstYAMLString(oauth2Map, "credentialsPlacement", "credentials_placement")
-		auth.OAuth2.CredentialsID = firstYAMLString(oauth2Map, "credentialsId", "credentials_id")
-		auth.OAuth2.TokenSource = firstYAMLString(oauth2Map, "tokenSource", "token_source")
-		auth.OAuth2.TokenPlacement = firstYAMLString(oauth2Map, "tokenPlacement", "token_placement")
-		auth.OAuth2.TokenHeaderPrefix = firstYAMLString(oauth2Map, "tokenHeaderPrefix", "token_header_prefix")
-		auth.OAuth2.TokenQueryKey = firstYAMLString(oauth2Map, "tokenQueryKey", "token_query_key")
-		if autoFetchToken, ok := boolValueOK(oauth2Map["autoFetchToken"]); ok {
-			auth.OAuth2.AutoFetchToken = autoFetchToken
-		} else if autoFetchToken, ok := boolValueOK(oauth2Map["auto_fetch_token"]); ok {
-			auth.OAuth2.AutoFetchToken = autoFetchToken
-		}
-		if autoRefreshToken, ok := boolValueOK(oauth2Map["autoRefreshToken"]); ok {
-			auth.OAuth2.AutoRefreshToken = autoRefreshToken
-		} else if autoRefreshToken, ok := boolValueOK(oauth2Map["auto_refresh_token"]); ok {
-			auth.OAuth2.AutoRefreshToken = autoRefreshToken
-		}
-		if rows := parseYAMLKeyValues(firstMapValue(oauth2Map, "additionalParams", "additional_params"), false); len(rows) > 0 {
-			auth.OAuth2.AdditionalParams = rows
-		}
-		if additionalMap, ok := mapValue(firstMapValue(oauth2Map, "additionalParameters", "additional_parameters")); ok {
-			auth.OAuth2.AuthorizationAdditionalParams = parseYAMLOAuth2AdditionalGroup(firstMapValue(additionalMap, "authorization", "authorizationRequest", "authRequest", "auth_req"))
-			auth.OAuth2.TokenAdditionalParams = parseYAMLOAuth2AdditionalGroup(firstMapValue(additionalMap, "token", "accessTokenRequest", "access_token_req"))
-			auth.OAuth2.RefreshAdditionalParams = parseYAMLOAuth2AdditionalGroup(firstMapValue(additionalMap, "refresh", "refreshTokenRequest", "refresh_token_req"))
-		}
-		awsMap := valueMap
-		if nested, ok := mapValue(valueMap["awsv4"]); ok {
-			awsMap = nested
-		}
-		auth.AWSV4.AccessKeyID = firstYAMLString(awsMap, "accessKeyId", "accessKey")
-		auth.AWSV4.SecretAccessKey = firstYAMLString(awsMap, "secretAccessKey", "secretKey")
-		auth.AWSV4.SessionToken = firstYAMLString(awsMap, "sessionToken")
-		auth.AWSV4.Service = firstYAMLString(awsMap, "service")
-		auth.AWSV4.Region = firstYAMLString(awsMap, "region")
-		auth.AWSV4.ProfileName = firstYAMLString(awsMap, "profileName")
-		oauth1Map := valueMap
-		if nested, ok := mapValue(valueMap["oauth1"]); ok {
-			oauth1Map = nested
-		}
-		auth.OAuth1.ConsumerKey = firstYAMLString(oauth1Map, "consumerKey", "consumer_key")
-		auth.OAuth1.ConsumerSecret = firstYAMLString(oauth1Map, "consumerSecret", "consumer_secret")
-		auth.OAuth1.AccessToken = firstYAMLString(oauth1Map, "accessToken", "access_token")
-		auth.OAuth1.AccessTokenSecret = firstYAMLString(oauth1Map, "accessTokenSecret", "token_secret")
-		auth.OAuth1.CallbackURL = firstYAMLString(oauth1Map, "callbackUrl", "callback_url")
-		auth.OAuth1.Verifier = firstYAMLString(oauth1Map, "verifier")
-		auth.OAuth1.SignatureMethod = firstYAMLString(oauth1Map, "signatureMethod", "signature_method")
-		auth.OAuth1.PrivateKey = firstYAMLString(oauth1Map, "privateKey", "private_key")
-		auth.OAuth1.PrivateKeyType = firstYAMLString(oauth1Map, "privateKeyType", "private_key_type")
-		auth.OAuth1.Timestamp = firstYAMLString(oauth1Map, "timestamp")
-		auth.OAuth1.Nonce = firstYAMLString(oauth1Map, "nonce")
-		auth.OAuth1.Version = firstYAMLString(oauth1Map, "version")
-		auth.OAuth1.Realm = firstYAMLString(oauth1Map, "realm")
-		auth.OAuth1.Placement = firstYAMLString(oauth1Map, "placement")
-		if includeBodyHash, ok := boolValueOK(oauth1Map["includeBodyHash"]); ok {
-			auth.OAuth1.IncludeBodyHash = includeBodyHash
-		} else if includeBodyHash, ok := boolValueOK(oauth1Map["include_body_hash"]); ok {
-			auth.OAuth1.IncludeBodyHash = includeBodyHash
-		}
-		return auth
-	}
-	mode := strings.ToLower(strings.TrimSpace(yamlScalarString(raw)))
-	if mode != "" {
-		auth.Mode = mode
-	}
-	return auth
-}
-
-func applyYAMLSettings(item *RequestItem, settings map[string]interface{}) {
-	if encodeURL, ok := boolValueOK(settings["encodeUrl"]); ok {
-		item.Settings.EncodeURL = encodeURL
-	}
-	if timeout, ok := intValueOK(settings["timeout"]); ok {
-		item.Settings.TimeoutMs = timeout
-	}
-	if follow, ok := boolValueOK(settings["followRedirects"]); ok {
-		item.Settings.FollowRedirects = follow
-	}
-	if maxRedirects, ok := intValueOK(settings["maxRedirects"]); ok {
-		item.Settings.MaxRedirects = maxRedirects
-	}
-	if storeCookies, ok := boolValueOK(settings["storeCookies"]); ok {
-		item.Settings.StoreCookies = storeCookies
-	}
-	if verifyTLS, ok := boolValueOK(settings["verifyTls"]); ok {
-		item.Settings.VerifyTLS = verifyTLS
-	}
-	if keepAliveInterval, ok := intValueOK(settings["keepAliveInterval"]); ok {
-		item.Settings.KeepAliveInterval = keepAliveInterval
-	}
-}
+// YAML request reading moved to internal/store/yamlstore.
 
 func collectionShareSnapshot(collection Collection) Collection {
 	snapshot := collection
@@ -33611,37 +32948,10 @@ func firstMapValue(raw map[string]interface{}, keys ...string) interface{} {
 	return nil
 }
 
-func intValue(raw interface{}, fallback int) int {
-	if value, ok := intValueOK(raw); ok {
-		return value
-	}
-	return fallback
-}
-
-func intValueOK(raw interface{}) (int, bool) {
-	switch value := raw.(type) {
-	case int:
-		return value, true
-	case int64:
-		return int(value), true
-	case float64:
-		return int(value), true
-	case string:
-		parsed, err := strconv.Atoi(strings.TrimSpace(value))
-		return parsed, err == nil
-	default:
-		return 0, false
-	}
-}
-
 func yamlEnabled(raw map[string]interface{}) bool { return bru.YAMLEnabled(raw) }
 
 // Bruno .bru parsing moved to internal/store/bru, along with the YAML body
 // readers it shares with the YAML request reader still here.
-
-func parseYAMLMultipart(raw interface{}) []FormPart { return bru.ParseYAMLMultipart(raw) }
-
-func parseYAMLFileBody(raw interface{}) []FileBodyEntry { return bru.ParseYAMLFileBody(raw) }
 
 func parseYAMLKeyValues(raw interface{}, queryOnly bool) []KeyValue {
 	return bru.ParseYAMLKeyValues(raw, queryOnly)
@@ -33887,7 +33197,7 @@ func environmentFromYAMLMap(root map[string]interface{}, fallbackName string) En
 		ID:        newID("env"),
 		Name:      name,
 		Color:     yamlScalarString(root["color"]),
-		Variables: parseYAMLVariables(root["variables"]),
+		Variables: yamlstore.ParseVariables(root["variables"]),
 	}
 }
 

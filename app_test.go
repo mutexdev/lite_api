@@ -8,6 +8,7 @@ import (
 	"LiteAPI/internal/grpcexec"
 	"LiteAPI/internal/importers"
 	brustore "LiteAPI/internal/store/bru"
+	"LiteAPI/internal/store/yamlstore"
 	"LiteAPI/internal/transport"
 	"LiteAPI/internal/types"
 	"archive/zip"
@@ -3024,7 +3025,7 @@ func TestRequestSettingsEncodeURLRoundTrip(t *testing.T) {
 			t.Fatalf("stringified yaml missing %q:\n%s", want, yamlContent)
 		}
 	}
-	parsedYAML, err := parseYAMLRequest(yamlContent)
+	parsedYAML, err := yamlstore.ParseRequest(yamlContent)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -13534,7 +13535,7 @@ func TestYAMLFileBodyRoundTrip(t *testing.T) {
 	if !strings.Contains(content, "type: file") || !strings.Contains(content, "filePath: fixtures/selected.json") || !strings.Contains(content, "selected: true") || !strings.Contains(content, "selected: false") {
 		t.Fatalf("YAML file body rows were not written:\n%s", content)
 	}
-	roundTrip, err := parseYAMLRequest(content)
+	roundTrip, err := yamlstore.ParseRequest(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -13845,7 +13846,7 @@ func TestGrpcYAMLRoundTrip(t *testing.T) {
 			t.Fatalf("gRPC YAML did not preserve %q:\n%s", expected, content)
 		}
 	}
-	parsed, err := parseYAMLRequest(content)
+	parsed, err := yamlstore.ParseRequest(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -15852,7 +15853,7 @@ func TestWebSocketMessagesBruAndYAMLRoundTrip(t *testing.T) {
 			t.Fatalf("websocket YAML missing %q:\n%s", expected, yamlContent)
 		}
 	}
-	parsedYAML, err := parseYAMLRequest(yamlContent)
+	parsedYAML, err := yamlstore.ParseRequest(yamlContent)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21321,7 +21322,7 @@ func TestOAuth2BrowserGrantFieldsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parsedYAML, err := parseYAMLRequest(yamlContent)
+	parsedYAML, err := yamlstore.ParseRequest(yamlContent)
 	if err != nil {
 		t.Fatal(err)
 	}
