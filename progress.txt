@@ -5421,3 +5421,50 @@ US-026 - Store layer. DONE. Both named collapses complete.
   Verified: gofmt clean, build OK, vet clean, 0 lint issues, 19 packages ok,
   bindings identical (188 via go doc). GOOS=windows still fails — that is
   Phase 0, which is blocked on a design decision about symlink semantics.
+
+=== RESTRUCTURE PHASE 2 — splitting app.go, waves 0 and 1 ===
+
+  Working BOTTOM-UP. Every extraction shifts the line numbers of everything
+  below the cut, so starting at the end of the file means every not-yet-moved
+  region keeps its numbers for the whole campaign. It also happens that the
+  purest, receiver-free, lock-free code lives at the bottom, so "safest first"
+  and "least churn first" are the same order here.
+
+  Wave 0:  app_type_aliases.go   91 decls, 209 lines
+  Wave 1:  app_yaml_codec.go     41 decls, 987 lines
+           app_export_build.go   23 decls, 569 lines
+           app_env_files.go      13 decls, 311 lines
+           app_docs_build.go     11 decls, 255 lines
+
+  app.go: 17,244 -> 15,044 lines (-2,200, -13%).
+
+  THE ALIAS QUESTION IS SETTLED EMPIRICALLY. wails generate module after moving
+  all 91 aliases produces a BYTE-IDENTICAL frontend/wailsjs tree. A Go type
+  alias IS the aliased type, so reflect reports types.Y regardless of which file
+  the alias sits in. The plan's original claim — that these aliases are what
+  keep Wails emitting main.* names — was wrong, and this is the measurement that
+  disproves it.
+
+  BOTH GATES WERE CHECKED FOR TEETH, NOT ASSUMED.
+  Unexporting one bound method (CancelRequest):
+    - go doc -all . | grep -cE '^func \(a \*App\) [A-Z]'  ->  188 becomes 187
+    - wails generate module  ->  App.d.ts and App.js change, 6 deletions
+  So the cheap gate and the expensive gate both fire. The cheap one runs on
+  every slice; the expensive one confirms it.
+
+  "TIMEOUT" IS NOT ON macOS, AND A COMMAND THAT NEVER RAN REPORTS NO DIFF.
+  I wrapped `wails generate module` in `timeout 170` out of habit; zsh said
+  "command not found", nothing regenerated, and the follow-up diff check
+  dutifully reported ZERO CHANGES. I nearly recorded that as proof the aliases
+  had no frontend effect. It was proof of nothing. Same shape as the blank-vs-
+  zero grep count earlier: an absent result and a negative result look identical
+  unless you check that the thing actually ran.
+
+  A TOOL THAT REFUSES IS NOT A TOOL THAT SUCCEEDED. goimports (older build)
+  cannot parse generics and declined to write app_test.go during the module
+  rename, printing three parse errors. Safe failure, but the file kept its
+  imports merged into the stdlib group until they were fixed by hand.
+
+  Gap found in tools/extraction/decls.go: it moves declarations but not the
+  imports they need, so every move is followed by goimports on both files.
+  Acceptable — goimports is exact and the build catches any miss immediately.
