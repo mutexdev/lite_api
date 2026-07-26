@@ -85,3 +85,25 @@ frontend/dist/assets/index-*.css        113609
 # So US-036 remains PARTIAL. The 54% reduction from deferring CodeMirror stands;
 # the <500 KB criterion needs the modal bodies extracted, which is the natural
 # continuation of US-025 rather than a separate technique.
+
+
+# ---------------------------------------------------------------------------
+# First modal-body extraction, to establish the exchange rate before committing
+# to 28 more of them.
+#
+#   openapi-spec-diff body: 3,336 B of source moved out of App.svelte
+#   initial chunk: 532,602 -> 529,719  (-2,883)
+#   new deferred chunk: SpecDiffModal 3,865 B
+#
+# So roughly 0.86 bytes come off the initial chunk per byte of source moved.
+#
+# PROJECTION for the remaining 28 bodies (~54 KB of source): ~46 KB off the
+# initial chunk, landing near 484,000 — under the 500,000 target with ~16 KB of
+# headroom. So the approach does close US-036; it is a question of grinding
+# through the props, not of finding a different technique.
+#
+# The dynamic import has to sit INSIDE the {#if} that gates the dialog. Moving
+# markup to a new file and importing it statically changes nothing — the
+# bundler still puts it in the initial graph. That is the whole trick here and
+# it is easy to get wrong in a way that measures as zero.
+# ---------------------------------------------------------------------------
