@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/mutexdev/lite_api/internal/atomicfile"
 )
 
 const workspaceMigrationVersion = 1
@@ -28,7 +30,7 @@ type WorkspaceMigrationMarker struct {
 var (
 	// Test seams. Production keeps both at their private atomic/read-back
 	// implementations; tests may inject a deterministic failure.
-	workspacePersistenceWriteAtomic = writePrivateAtomic
+	workspacePersistenceWriteAtomic = atomicfile.WritePrivate
 	workspaceMigrationVerifyOutputs = verifyWorkspaceMigrationOutputs
 )
 

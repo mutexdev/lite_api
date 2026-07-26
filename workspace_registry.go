@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/atomicfile"
 )
 
 const workspaceRegistryVersion = 1
@@ -63,7 +65,7 @@ func WriteWorkspaceRegistry(dataDir string, r WorkspaceRegistry) error {
 	if err != nil {
 		return err
 	}
-	return writePrivateAtomic(workspaceRegistryPath(dataDir), data)
+	return atomicfile.WritePrivate(workspaceRegistryPath(dataDir), data)
 }
 func ReadWorkspaceRegistry(dataDir string) (WorkspaceRegistry, error) {
 	data, err := os.ReadFile(workspaceRegistryPath(dataDir))

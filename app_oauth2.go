@@ -21,6 +21,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/atomicfile"
 )
 
 type oauth2TokenResponse struct {
@@ -174,7 +176,7 @@ func (a *App) storeOAuth2Credentials() error {
 		if err != nil {
 			return err
 		}
-		if err := writePrivateAtomic(a.oauth2CredentialsPath(), data); err != nil {
+		if err := atomicfile.WritePrivate(a.oauth2CredentialsPath(), data); err != nil {
 			return err
 		}
 	}

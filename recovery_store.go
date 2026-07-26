@@ -20,6 +20,8 @@ import (
 
 	googleuuid "github.com/google/uuid"
 	"golang.org/x/sys/unix"
+
+	"github.com/mutexdev/lite_api/internal/atomicfile"
 )
 
 const (
@@ -147,50 +149,6 @@ func ensureRecoveryRoot(dataDir, workspaceID string) error {
 		return err
 	}
 	return os.Chmod(root, 0o700)
-}
-
-// writePrivateAtomic is shared by the workspace stores. It always creates
-// private parents and replaces the destination only after the new bytes have
-// reached the filesystem.
-func writePrivateAtomic(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(dir, ".tmp-")
-	if err != nil {
-		return err
-	}
-	tmp := f.Name()
-	// Best-effort: on the success path the temp file has already been renamed away.
-	defer func() { _ = os.Remove(tmp) }()
-	if err := f.Chmod(0o600); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return err
-	}
-	d, err := os.Open(dir)
-	if err != nil {
-		return nil
-	}
-	defer func() { _ = d.Close() }()
-	return d.Sync()
 }
 
 func withRecoveryWorkspaceLock(dataDir, workspaceID string, fn func() error) error {
@@ -1182,4 +1140,12 @@ func cleanupLegacyRecoveryOrphans(dataDir string, legacy recoveryManifest) error
 		return err
 	}
 	return os.Remove(root)
+}
+
+// writePrivateAtomic now lives in internal/atomicfile, which is where the five
+// other callers outside this file reach it. Kept as a one-line alias because
+// recovery_store.go names it in several places and the indirection costs
+// nothing.
+func writePrivateAtomic(path string, data []byte) error {
+	return atomicfile.WritePrivate(path, data)
 }

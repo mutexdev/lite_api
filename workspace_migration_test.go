@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/mutexdev/lite_api/internal/atomicfile"
 )
 
 const migrationSecretSentinel = "migration-environment-secret-sentinel"
@@ -139,7 +141,7 @@ func TestExecuteWorkspaceMigrationFailureLeavesNoCompleteMarkerAndRetryRepairs(t
 		if writes == 3 {
 			return errors.New("injected write failure")
 		}
-		return writePrivateAtomic(path, data)
+		return atomicfile.WritePrivate(path, data)
 	}
 	err := ExecuteWorkspaceMigration(dir, legacy, "retry-session")
 	workspacePersistenceWriteAtomic = oldWrite

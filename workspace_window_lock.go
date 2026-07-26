@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/unix"
+
+	"github.com/mutexdev/lite_api/internal/atomicfile"
 )
 
 type WorkspaceWindowOwner struct {
@@ -229,7 +232,7 @@ func (s WorkspaceWindowLockStore) write(path string, owner WorkspaceWindowOwner)
 	if err != nil {
 		return err
 	}
-	return writePrivateAtomic(path, data)
+	return atomicfile.WritePrivate(path, data)
 }
 func (s WorkspaceWindowLockStore) stale(owner WorkspaceWindowOwner, now time.Time) bool {
 	after := s.StaleAfter

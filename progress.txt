@@ -5632,3 +5632,40 @@ US-026 - Store layer. DONE. Both named collapses complete.
   (19 packages), the go doc binding invariant (188, byte-identical list), and
   wails generate module producing no change to frontend/wailsjs. Cold-cache
   build and vet re-run at the end.
+
+=== RESTRUCTURE PHASE 3a — internal/atomicfile ===
+
+  writePrivateAtomic was defined in recovery_store.go but consumed from five
+  other files: app_oauth2.go (credential storage), workspace_registry.go,
+  window_session.go, workspace_window_lock.go, workspace_migration.go. Moving
+  recovery_store.go first would have made all five — and app.go — import
+  internal/recovery to write a file atomically, a dependency that says nothing
+  true about the design. So this goes first and unblocks the rest of Phase 3.
+
+  20 test packages now (was 19).
+
+  SIX TESTS FOR A 40-LINE FUNCTION, BECAUSE IT WRITES THE SECRETS. Each step of
+  the sequence is load-bearing and each failure is silent:
+    - parent is created AND re-chmodded: MkdirAll no-ops on an existing
+      directory, so a pre-existing world-readable parent would keep its mode and
+      expose everything written into it. This control fails 1.
+    - temp file chmodded before the write, not after.
+    - Sync before Rename: rename is ordered, the data is not.
+
+  A SKIPPED TEST IS WORTH NO MORE THAN NO TEST. My first failure-injection made
+  the parent directory 0500 — and WritePrivate chmods its parent to 0700 on the
+  way in, which is exactly what the neighbouring test asserts. So the function
+  repaired my setup and succeeded, the test skipped on every run, and it looked
+  green. Re-injected with a parent that is a regular FILE, which MkdirAll cannot
+  repair.
+
+  A CONTROL FOUND A REAL GAP, TWO DID NOT.
+    - "temp file left behind" reported 0 failing. The deferred Remove only
+      matters on the FAILURE path — on success the temp has already been renamed
+      away — and I had only tested success. A write that fills the temp and then
+      fails to rename leaves a FULL PLAINTEXT COPY OF THE SECRET under a dotfile
+      name. Added a test that puts a directory at the destination so the rename
+      fails after the content is written; the control now fails 1.
+    - "file mode left at default" and "parent created world-readable" are
+      equivalent mutations: os.CreateTemp already creates 0600, and the explicit
+      Chmod(dir, 0700) tightens whatever mode MkdirAll used. Not test gaps.

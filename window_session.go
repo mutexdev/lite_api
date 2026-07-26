@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/atomicfile"
 )
 
 const windowSessionVersion = 1
@@ -119,7 +121,7 @@ func WriteWindowSession(path string, session WindowSession) error {
 	if err != nil {
 		return err
 	}
-	return writePrivateAtomic(filepath.Clean(path), data)
+	return atomicfile.WritePrivate(filepath.Clean(path), data)
 }
 func ReadWindowSession(path string) (WindowSession, error) {
 	data, err := os.ReadFile(filepath.Clean(path))
