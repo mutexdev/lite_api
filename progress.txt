@@ -5301,3 +5301,27 @@ US-026 - Store layer. DONE. Both named collapses complete.
   returned raw digest bytes, so grep saw binary and stopped reporting matches;
   with -a it shows 2 failing. A blank is not a zero, and I nearly filed it as
   one.
+
+--- Two tables describing the same shortcuts (frontend, 7 new tests) ---
+
+  The command palette renders commandPaletteCommandIDs and labels each entry
+  from commandMetadata, while the keys that actually DO anything live in a
+  separate table in keybindings.ts. Two tables describing the same thing drift,
+  and when they do the palette advertises a shortcut bound to nothing: the user
+  presses it, nothing happens, and the palette keeps telling them it should.
+
+  TypeScript already guarantees every command id has metadata — the record is
+  keyed by the union. It cannot check any of: that the advertised combo exists
+  in the binding table, that no two commands claim one combo, that no two
+  bindings do, or that the palette lists nothing twice.
+
+  ONE COMMAND IS LEGITIMATELY UNBOUND on the web side. toggle-devtools is
+  ⌘⌥I, which opens the webview's own inspector before any JavaScript runs, so
+  it is bound in the NATIVE menu (native_menu.go:124) instead. The allowlist is
+  asserted EXACTLY — adding another unbound shortcut means writing down why,
+  rather than a test that quietly widens.
+
+  One control came back 0 and was right to: renaming a binding's internal id
+  does not change its combo, and the palette hint depends on the combo, not the
+  id. Removing the binding outright fails 1, which is the sensitivity that
+  matters.
