@@ -147,3 +147,16 @@ frontend/dist/assets/index-*.css        113609
 #    {version?: string} & Record<string, unknown>. Collection has no index
 #    signature, so the structural type does not accept it.
 # Running total: 1,159,933 -> 527,277 (54.5% smaller). 27,277 above target.
+
+# Hand extraction #3 — notifications (2,696 B of source):
+#   initial chunk 527,277 -> 525,321  (-1,956); new chunk NotificationsModal 3,468 B
+#
+# Third case of svelte-check catching something a generated `any` prop would
+# have swallowed: setNotificationTab takes App.svelte's local
+# NotificationTab = 'all' | 'unread'. Typing the prop as `string` made it accept
+# a value the handler cannot take, and the error surfaced at the CALL SITE in
+# App.svelte. The union is mirrored in the component instead.
+#
+# Running total: 1,159,933 -> 525,321 (54.7% smaller). 25,321 above target.
+# Three extractions have averaged ~2,400 B off the initial chunk each, so the
+# remaining ~26 bodies comfortably cover the gap.

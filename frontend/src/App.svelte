@@ -12068,61 +12068,27 @@
 {/if}
 
 {#if notificationsOpen}
-  <Modal labelledBy="notifications-title" onClose={closeNotifications} dialogClass="notification-modal">
-      <header>
-        <div>
-          <h2 id="notifications-title">Notifications</h2>
-          <p>{unreadNotificationCount} unread</p>
-        </div>
-        <button type="button" class="icon-button" title="Close notifications" on:click={closeNotifications}>x</button>
-      </header>
-      <div class="notification-tabs">
-        <div class="segmented compact">
-          <button type="button" class:active={notificationTab === 'all'} on:click={() => setNotificationTab('all')}>All</button>
-          <button type="button" class:active={notificationTab === 'unread'} on:click={() => setNotificationTab('unread')}>
-            Unread
-            {#if unreadNotificationCount > 0}
-              <span class="notification-tab-count">{unreadNotificationCount}</span>
-            {/if}
-          </button>
-        </div>
-        <div class="button-row compact">
-          <button type="button" on:click={markAllNotificationsRead} disabled={unreadNotificationCount === 0 || busy !== ''}>Mark all as read</button>
-          <button type="button" on:click={clearNotifications} disabled={visibleNotifications.length === 0 || busy !== ''}>Clear all</button>
-        </div>
-      </div>
-      <div class="notification-content">
-        <div class="notification-list" aria-label="Notifications list">
-          {#if listedNotifications.length === 0}
-            <div class="notification-empty">No notifications to show.</div>
-          {:else}
-            {#each listedNotifications as notification (notification.id)}
-              <button
-                type="button"
-                class:active={selectedNotification?.id === notification.id}
-                class:unread={!notification.read}
-                on:click={() => selectNotification(notification)}
-              >
-                <span class="notification-list-title">{notificationTitle(notification)}</span>
-                <span>{notificationDate(notification)}</span>
-              </button>
-            {/each}
-          {/if}
-        </div>
-        <article class="notification-detail">
-          {#if selectedNotification}
-            <div class="notification-detail-meta">
-              <span class={`notification-type ${notificationLevelClass(selectedNotification)}`}>{notificationType(selectedNotification)}</span>
-              <span>{notificationDate(selectedNotification)}</span>
-            </div>
-            <h3>{notificationTitle(selectedNotification)}</h3>
-            <p>{notificationDescription(selectedNotification)}</p>
-          {:else}
-            <div class="notification-empty">You are all caught up!</div>
-          {/if}
-        </article>
-      </div>
-  </Modal>
+  {#await import('./lib/modals/NotificationsModal.svelte') then NotificationsModal}
+    <svelte:component
+      this={NotificationsModal.default}
+      {unreadNotificationCount}
+      {notificationTab}
+      {visibleNotifications}
+      {listedNotifications}
+      {selectedNotification}
+      {busy}
+      {setNotificationTab}
+      {markAllNotificationsRead}
+      {clearNotifications}
+      {selectNotification}
+      {notificationTitle}
+      {notificationDate}
+      {notificationType}
+      {notificationDescription}
+      {notificationLevelClass}
+      {closeNotifications}
+    />
+  {/await}
 {/if}
 
 {#if oauth2AuthorizationRequest}
