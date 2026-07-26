@@ -14238,10 +14238,6 @@ func scriptProcessEnv(overrides map[string]string) map[string]string {
 	return interp.ScriptProcessEnv(overrides)
 }
 
-func interpolateDynamicVariables(input string) string {
-	return interp.InterpolateDynamicVariables(input)
-}
-
 func installPostmanVisualizer(runtime *goja.Runtime, pm *goja.Object, reqState *RequestState) {
 	visualizer := runtime.NewObject()
 	_ = visualizer.Set("set", func(call goja.FunctionCall) goja.Value {

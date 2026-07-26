@@ -4686,3 +4686,43 @@ US-026 - Store layer. DONE. Both named collapses complete.
   them and false of everything above those lines. Reading beats categorising,
   and I had already learned that this session from the "blocked on a gRPC
   server" note that was also wrong.
+
+--- The last three, and a CORRECTION to every coverage number I reported ---
+
+  I dismissed three functions as blocked. Reading them — which is what I should
+  have done the first time, and the second — showed all three were testable:
+
+    interpolateDynamicVariables  DEAD CODE. A one-line wrapper left behind by my
+                                 own extraction, with exactly two references:
+                                 its declaration and a COMMENT. Removed.
+    pacLocalIPAddress            attempts a UDP dial but has a GUARANTEED
+                                 fallback, so "always returns a parseable
+                                 address" holds with or without a network.
+    transportWithPACProxy        takes a RoundTripper and a PAC source string;
+                                 resolution happens in goja, no socket needed.
+
+  transportWithPACProxy turned out to carry a real safety property: it clears
+  Proxy BEFORE consulting the PAC result. Without that, a PAC file whose whole
+  purpose is "go direct for internal hosts" would keep routing them through an
+  inherited proxy — and so would a PAC file that fails to parse. Both are now
+  pinned; not clearing fails 2 tests.
+
+  0%-covered functions across internal/: 0.
+
+  !!! AND THE COVERAGE PERCENTAGES I HAVE BEEN QUOTING WERE ARTIFACTS !!!
+
+  The total moved 78.2 -> 79.9 -> 77.8 while I only ever ADDED tests. Coverage
+  cannot fall when tests are added, so the number was wrong, not the code.
+
+  CAUSE: `go test -coverprofile` without -count=1. A CACHED package result
+  contributes NO coverage data, so the figure depends on which packages happened
+  to be cached at that moment. With -count=1 it is a stable 80.9% across runs.
+
+  Every coverage percentage earlier in this file should be read as unreliable.
+  The counts of 0%-covered FUNCTIONS were unaffected — those came from the same
+  profiles but a cached package reports its functions as 0%, which if anything
+  OVERSTATED the gaps I was chasing rather than hiding any.
+
+  The lesson is the session's own, again: a number that moves the wrong way is
+  telling you something about the instrument. I nearly wrote "coverage dipped
+  slightly" and moved on.

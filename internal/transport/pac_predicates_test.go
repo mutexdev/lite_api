@@ -21,6 +21,9 @@ import (
 	"time"
 
 	"github.com/dop251/goja"
+	"net"
+	"net/http"
+	"net/url"
 )
 
 func TestPacWeekdayIndexMapsTheThreeLetterNames(t *testing.T) {
@@ -270,5 +273,102 @@ func TestPacDateRangeAcceptsATrailingGMT(t *testing.T) {
 	}
 	if !pacDateRange(now, v(20), v(28), v("gmt")) {
 		t.Error("the GMT marker must be case-insensitive and not consume a bound")
+	}
+}
+
+// The last two functions I had written off as needing a live network. Reading
+// them showed otherwise — twice now I have dismissed a function by its shape
+// rather than its body, so this time I read first.
+//
+// pacLocalIPAddress does attempt a UDP dial, but it has a GUARANTEED fallback,
+// so "always returns a parseable address" holds with or without a network.
+// transportWithPACProxy takes a RoundTripper and a PAC source string, and the
+// resolution happens in goja — no socket is opened to decide the answer.
+
+func TestPacLocalIPAddressAlwaysReturnsAParseableAddress(t *testing.T) {
+	got := pacLocalIPAddress()
+	if got == "" {
+		t.Fatal("returned empty; a PAC script calling myIpAddress() would compare against nothing")
+	}
+	if net.ParseIP(got) == nil {
+		t.Fatalf("returned %q, which is not a parseable IP", got)
+	}
+}
+
+// The safety property: Proxy is cleared BEFORE the PAC result is consulted, so a
+// script returning DIRECT cannot leave an inherited proxy in place. Without that
+// clear, a PAC file whose whole purpose is "go direct for internal hosts" would
+// keep routing them through the proxy it inherited.
+func TestPACTransportClearsAnInheritedProxyWhenTheScriptSaysDIRECT(t *testing.T) {
+	base := &http.Transport{Proxy: http.ProxyURL(&url.URL{Scheme: "http", Host: "inherited.test:3128"})}
+	script := `function FindProxyForURL(url, host) { return "DIRECT"; }`
+
+	got, err := transportWithPACProxy(base, script, "https://internal.test/x", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, ok := got.(*http.Transport)
+	if !ok {
+		t.Fatalf("got %T, want *http.Transport", got)
+	}
+	if transport.Proxy != nil {
+		proxyURL, _ := transport.Proxy(&http.Request{URL: &url.URL{Scheme: "https", Host: "internal.test"}})
+		t.Fatalf("DIRECT left a proxy in place: %v", proxyURL)
+	}
+}
+
+func TestPACTransportAppliesTheScriptsProxy(t *testing.T) {
+	script := `function FindProxyForURL(url, host) { return "PROXY 10.0.0.1:8080"; }`
+
+	got, err := transportWithPACProxy(http.DefaultTransport, script, "https://example.test/x", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := got.(*http.Transport)
+	if transport.Proxy == nil {
+		t.Fatal("the script named a proxy but none was installed")
+	}
+	proxyURL, err := transport.Proxy(&http.Request{URL: &url.URL{Scheme: "https", Host: "example.test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proxyURL == nil || proxyURL.Host != "10.0.0.1:8080" {
+		t.Fatalf("proxy = %v, want 10.0.0.1:8080", proxyURL)
+	}
+}
+
+// The PAC source itself may carry template variables, since it can be a URL or
+// a path the user parameterised.
+func TestPACTransportInterpolatesThePACSource(t *testing.T) {
+	script := `function FindProxyForURL(url, host) { return "PROXY {{proxyHost}}:8080"; }`
+
+	got, err := transportWithPACProxy(http.DefaultTransport, script, "https://example.test/x",
+		map[string]string{"proxyHost": "10.0.0.9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := got.(*http.Transport)
+	if transport.Proxy == nil {
+		t.Fatal("no proxy installed")
+	}
+	proxyURL, _ := transport.Proxy(&http.Request{URL: &url.URL{Scheme: "https", Host: "example.test"}})
+	if proxyURL == nil || proxyURL.Host != "10.0.0.9:8080" {
+		t.Fatalf("proxy = %v; the {{proxyHost}} variable was not expanded", proxyURL)
+	}
+}
+
+// A PAC script that cannot be evaluated must not leave the inherited proxy
+// either — failing open would route traffic through a proxy the user's current
+// configuration no longer names.
+func TestPACTransportClearsTheProxyWhenTheScriptIsUnusable(t *testing.T) {
+	base := &http.Transport{Proxy: http.ProxyURL(&url.URL{Scheme: "http", Host: "inherited.test:3128"})}
+
+	got, err := transportWithPACProxy(base, "this is not javascript at all", "https://example.test/x", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transport := got.(*http.Transport); transport.Proxy != nil {
+		proxyURL, _ := transport.Proxy(&http.Request{URL: &url.URL{Scheme: "https", Host: "example.test"}})
+		t.Fatalf("an unusable PAC script left the inherited proxy in place: %v", proxyURL)
 	}
 }
