@@ -1,4 +1,4 @@
-package main
+package importers
 
 // US-051 — HAR import.
 //
@@ -29,6 +29,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/scalar"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 type harFile struct {
@@ -89,25 +92,25 @@ var harSkippedHeaders = map[string]bool{
 	"host":              true,
 }
 
-func importHAR(content, fallbackName string) (Collection, []string, error) {
+func ImportHAR(content, fallbackName string) (types.Collection, []string, error) {
 	var file harFile
 	if err := json.Unmarshal([]byte(content), &file); err != nil {
-		return Collection{}, nil, fmt.Errorf("HAR document is not valid JSON: %w", err)
+		return types.Collection{}, nil, fmt.Errorf("HAR document is not valid JSON: %w", err)
 	}
 	if len(file.Log.Entries) == 0 {
-		return Collection{}, nil, errors.New("HAR document has no entries")
+		return types.Collection{}, nil, errors.New("HAR document has no entries")
 	}
 
 	name := strings.TrimSpace(fallbackName)
 	if name == "" {
 		name = "Imported HAR"
 	}
-	collection := Collection{
-		ID:             newID("collection"),
+	collection := types.Collection{
+		ID:             scalar.NewID("collection"),
 		Name:           name,
 		Format:         "har",
-		Auth:           AuthConfig{Mode: "none"},
-		SecurityConfig: CollectionSecurityConfig{JSSandboxMode: "safe"},
+		Auth:           types.AuthConfig{Mode: "none"},
+		SecurityConfig: types.CollectionSecurityConfig{JSSandboxMode: "safe"},
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
 	}
@@ -141,7 +144,7 @@ func importHAR(content, fallbackName string) (Collection, []string, error) {
 	}
 
 	if len(collection.Items) == 0 {
-		return Collection{}, nil, errors.New("HAR document has no importable requests")
+		return types.Collection{}, nil, errors.New("HAR document has no importable requests")
 	}
 
 	return collection, harImportWarnings(credentialHeaders, duplicates, skipped), nil
@@ -177,7 +180,7 @@ func harImportWarnings(credentialHeaders map[string]bool, duplicates, skipped in
 // login POST and a logout POST to the same endpoint with different bodies, or
 // two reads of the same resource with different Accept headers — losing exactly
 // the difference the recording was made to capture.
-func harEntryFingerprint(item RequestItem) string {
+func harEntryFingerprint(item types.RequestItem) string {
 	var builder strings.Builder
 	builder.WriteString(item.Method)
 	builder.WriteString(" ")
@@ -213,7 +216,7 @@ func harEntryFingerprint(item RequestItem) string {
 	return builder.String()
 }
 
-func harRequestItem(request harRequest, seq int) (RequestItem, map[string]bool) {
+func harRequestItem(request harRequest, seq int) (types.RequestItem, map[string]bool) {
 	method := strings.ToUpper(strings.TrimSpace(request.Method))
 	if method == "" {
 		method = "GET"
@@ -221,13 +224,13 @@ func harRequestItem(request harRequest, seq int) (RequestItem, map[string]bool) 
 
 	baseURL, params := harSplitURL(request.URL, request.QueryString)
 
-	item := RequestItem{
-		ID:     newID("request"),
+	item := types.RequestItem{
+		ID:     scalar.NewID("request"),
 		Type:   "http",
 		Method: method,
 		URL:    baseURL,
 		Params: params,
-		Auth:   AuthConfig{Mode: "none"},
+		Auth:   types.AuthConfig{Mode: "none"},
 		Seq:    seq,
 	}
 	item.Name = harRequestName(method, baseURL)
@@ -247,7 +250,7 @@ func harRequestItem(request harRequest, seq int) (RequestItem, map[string]bool) 
 		if harCredentialHeaders[lower] {
 			credentials[lower] = true
 		}
-		item.Headers = append(item.Headers, KeyValue{Name: name, Value: header.Value, Enabled: true})
+		item.Headers = append(item.Headers, types.KeyValue{Name: name, Value: header.Value, Enabled: true})
 	}
 
 	item.Body = harRequestBody(request.PostData)
@@ -261,7 +264,7 @@ func harRequestItem(request harRequest, seq int) (RequestItem, map[string]bool) 
 // The URL's own query is authoritative over the HAR's queryString array: the
 // array is the recorder's parse of the same data, and when the two disagree
 // (repeated keys, unusual encoding) the raw URL is what actually went out.
-func harSplitURL(raw string, queryString []harNameValue) (string, []KeyValue) {
+func harSplitURL(raw string, queryString []harNameValue) (string, []types.KeyValue) {
 	trimmed := strings.TrimSpace(raw)
 	parsed, err := url.Parse(trimmed)
 	if err != nil {
@@ -271,7 +274,7 @@ func harSplitURL(raw string, queryString []harNameValue) (string, []KeyValue) {
 		return trimmed, harQueryStringParams(queryString)
 	}
 
-	var params []KeyValue
+	var params []types.KeyValue
 	if parsed.RawQuery != "" {
 		// Split manually rather than with url.ParseQuery: ParseQuery returns a
 		// map, which loses both the order and any repeated key, and repeated
@@ -289,7 +292,7 @@ func harSplitURL(raw string, queryString []harNameValue) (string, []KeyValue) {
 			if valueErr != nil {
 				decodedValue = value
 			}
-			params = append(params, KeyValue{Name: decodedName, Value: decodedValue, Enabled: true})
+			params = append(params, types.KeyValue{Name: decodedName, Value: decodedValue, Enabled: true})
 		}
 	}
 	if len(params) == 0 {
@@ -301,13 +304,13 @@ func harSplitURL(raw string, queryString []harNameValue) (string, []KeyValue) {
 	return parsed.String(), params
 }
 
-func harQueryStringParams(queryString []harNameValue) []KeyValue {
-	var params []KeyValue
+func harQueryStringParams(queryString []harNameValue) []types.KeyValue {
+	var params []types.KeyValue
 	for _, entry := range queryString {
 		if strings.TrimSpace(entry.Name) == "" {
 			continue
 		}
-		params = append(params, KeyValue{Name: entry.Name, Value: entry.Value, Enabled: true})
+		params = append(params, types.KeyValue{Name: entry.Name, Value: entry.Value, Enabled: true})
 	}
 	return params
 }
@@ -336,9 +339,9 @@ func harRequestName(method, rawURL string) string {
 	return method + " " + last
 }
 
-func harRequestBody(postData *harPostData) RequestBody {
+func harRequestBody(postData *harPostData) types.RequestBody {
 	if postData == nil {
-		return RequestBody{Mode: "none"}
+		return types.RequestBody{Mode: "none"}
 	}
 
 	mimeType := strings.TrimSpace(postData.MimeType)
@@ -349,9 +352,9 @@ func harRequestBody(postData *harPostData) RequestBody {
 
 	switch {
 	case strings.Contains(mimeType, "json"):
-		return RequestBody{Mode: "json", JSON: postData.Text}
+		return types.RequestBody{Mode: "json", JSON: postData.Text}
 	case strings.Contains(mimeType, "xml"):
-		return RequestBody{Mode: "xml", XML: postData.Text}
+		return types.RequestBody{Mode: "xml", XML: postData.Text}
 	case mimeType == "application/x-www-form-urlencoded":
 		fields := harFormFields(postData)
 		if len(fields) == 0 {
@@ -359,32 +362,32 @@ func harRequestBody(postData *harPostData) RequestBody {
 			// falling back to text keeps the body rather than importing an
 			// empty form.
 			if strings.TrimSpace(postData.Text) != "" {
-				return RequestBody{Mode: "text", Text: postData.Text}
+				return types.RequestBody{Mode: "text", Text: postData.Text}
 			}
-			return RequestBody{Mode: "none"}
+			return types.RequestBody{Mode: "none"}
 		}
-		return RequestBody{Mode: "formUrlEncoded", FormURLEncoded: fields}
+		return types.RequestBody{Mode: "formUrlEncoded", FormURLEncoded: fields}
 	case strings.HasPrefix(mimeType, "multipart/"):
-		parts := make([]FormPart, 0, len(postData.Params))
+		parts := make([]types.FormPart, 0, len(postData.Params))
 		for _, param := range postData.Params {
-			parts = append(parts, FormPart{Name: param.Name, Value: param.Value, Enabled: true})
+			parts = append(parts, types.FormPart{Name: param.Name, Value: param.Value, Enabled: true})
 		}
 		if len(parts) == 0 {
-			return RequestBody{Mode: "none"}
+			return types.RequestBody{Mode: "none"}
 		}
-		return RequestBody{Mode: "multipartForm", Multipart: parts}
+		return types.RequestBody{Mode: "multipartForm", Multipart: parts}
 	default:
 		if strings.TrimSpace(postData.Text) == "" {
-			return RequestBody{Mode: "none"}
+			return types.RequestBody{Mode: "none"}
 		}
-		return RequestBody{Mode: "text", Text: postData.Text}
+		return types.RequestBody{Mode: "text", Text: postData.Text}
 	}
 }
 
 // harFormFields prefers the parsed params and falls back to parsing the raw
 // text, because recorders disagree about which they populate.
-func harFormFields(postData *harPostData) []KeyValue {
-	var fields []KeyValue
+func harFormFields(postData *harPostData) []types.KeyValue {
+	var fields []types.KeyValue
 	for _, param := range postData.Params {
 		if strings.TrimSpace(param.Name) == "" {
 			continue
@@ -393,7 +396,7 @@ func harFormFields(postData *harPostData) []KeyValue {
 		if decoded, err := url.QueryUnescape(value); err == nil {
 			value = decoded
 		}
-		fields = append(fields, KeyValue{Name: param.Name, Value: value, Enabled: true})
+		fields = append(fields, types.KeyValue{Name: param.Name, Value: value, Enabled: true})
 	}
 	if len(fields) > 0 {
 		return fields
@@ -414,7 +417,7 @@ func harFormFields(postData *harPostData) []KeyValue {
 		if strings.TrimSpace(decodedName) == "" {
 			continue
 		}
-		fields = append(fields, KeyValue{Name: decodedName, Value: decodedValue, Enabled: true})
+		fields = append(fields, types.KeyValue{Name: decodedName, Value: decodedValue, Enabled: true})
 	}
 	return fields
 }

@@ -5669,3 +5669,37 @@ US-026 - Store layer. DONE. Both named collapses complete.
     - "file mode left at default" and "parent created world-readable" are
       equivalent mutations: os.CreateTemp already creates 0600, and the explicit
       Chmod(dir, 0700) tightens whatever mode MkdirAll used. Not test gaps.
+
+=== RESTRUCTURE PHASE 3b — HAR and Swagger 2 into internal/importers ===
+
+  har_import.go    -> internal/importers/har.go       (420 lines)
+  swagger2_import.go -> internal/importers/swagger2.go (631 lines)
+
+  These were direct siblings of the postman/insomnia/openapi importers already
+  in that package and had zero App coupling. internal/importers is now 4,593
+  lines and holds every format the app can read.
+
+  Exported the two entry points (ImportHAR, ConvertSwagger2ToOpenAPI3) plus
+  IsSwagger2Document, which the detection dispatch in collection_import.go
+  needs. Everything else stayed unexported — the package's surface grew by three
+  names, not by the ~35 declarations that moved.
+
+  TESTS DO NOT ALWAYS BELONG WITH THE CODE THEY WERE FILED UNDER. Four tests in
+  the two files exercised detectCollectionImport, which lives in
+  collection_import.go and stays in package main because it is entangled with
+  App state. They moved BACK to the root as collection_import_har_test.go and
+  collection_import_swagger2_test.go. Their subject was the detection dispatch,
+  not the importer; the filename had just put them next to the fixture they
+  happened to use.
+
+  Two consequences of a package move that the compiler catches loudly and that
+  are worth naming because both are easy to fix wrongly:
+    - FIXTURE PATHS ARE RELATIVE TO THE TEST'S PACKAGE DIRECTORY. The moved
+      tests read docs/qa/import-fixtures/*, which is now ../../ away. The
+      root-side tests keep the original path. Two copies of a four-line helper
+      is the honest answer here; sharing it would mean exporting a test helper
+      across a package boundary to save nothing.
+    - swagger2String, an unexported stringifier, was used by one relocated
+      assertion. Replaced with scalar.YAMLString rather than exported — a
+      helper does not become part of a package's API because one test outside it
+      wanted it.

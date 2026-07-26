@@ -1,4 +1,4 @@
-package main
+package importers
 
 // US-051 — tests for HAR import.
 //
@@ -12,22 +12,24 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 func harFixture(t *testing.T) string {
 	t.Helper()
-	content, err := os.ReadFile(filepath.Join("docs", "qa", "import-fixtures", "session.har"))
+	content, err := os.ReadFile(filepath.Join("..", "..", "docs", "qa", "import-fixtures", "session.har"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
 	return string(content)
 }
 
-func harImportedItems(t *testing.T) (Collection, []string) {
+func harImportedItems(t *testing.T) (types.Collection, []string) {
 	t.Helper()
-	collection, warnings, err := importHAR(harFixture(t), "session")
+	collection, warnings, err := ImportHAR(harFixture(t), "session")
 	if err != nil {
-		t.Fatalf("importHAR: %v", err)
+		t.Fatalf("ImportHAR: %v", err)
 	}
 	return collection, warnings
 }
@@ -124,7 +126,7 @@ func TestHARImportStripsRecordingArtefacts(t *testing.T) {
 func TestHARImportKeepsRepeatedQueryKeys(t *testing.T) {
 	collection, _ := harImportedItems(t)
 
-	var target *RequestItem
+	var target *types.RequestItem
 	for i := range collection.Items {
 		if collection.Items[i].Method == "GET" {
 			target = &collection.Items[i]
@@ -212,53 +214,9 @@ func TestHARImportRejectsBadInput(t *testing.T) {
 		{"entries without urls", `{"log":{"version":"1.2","entries":[{"request":{"method":"GET","url":""}}]}}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, _, err := importHAR(tc.content, "bad"); err == nil {
+			if _, _, err := ImportHAR(tc.content, "bad"); err == nil {
 				t.Error("expected an error")
 			}
 		})
-	}
-}
-
-// TestHARIsDetectedByShapeNotOnlyExtension. Browsers routinely save a HAR as
-// plain .json from the network panel; one that reached the generic fallbacks
-// would be reported as "ambiguous" rather than imported.
-func TestHARIsDetectedByShapeNotOnlyExtension(t *testing.T) {
-	content := harFixture(t)
-
-	for _, name := range []string{"session.har", "network-log.json"} {
-		t.Run(name, func(t *testing.T) {
-			kind, collection, warnings, err := detectCollectionImport(content, name, "")
-			if err != nil {
-				t.Fatalf("detectCollectionImport: %v", err)
-			}
-			if kind != "har" {
-				t.Errorf("detected kind = %q, want har", kind)
-			}
-			if len(collection.Items) != 4 {
-				t.Errorf("got %d items, want 4", len(collection.Items))
-			}
-			if len(warnings) == 0 {
-				t.Error("detection dropped the importer's warnings; the credential notice would never reach the user")
-			}
-		})
-	}
-}
-
-// TestHARManualOverrideCarriesWarnings. The override path is a separate branch
-// from detection, and warnings are easy to drop there — the import would work
-// and the credential notice would silently vanish.
-func TestHARManualOverrideCarriesWarnings(t *testing.T) {
-	kind, collection, warnings, err := detectCollectionImport(harFixture(t), "anything.txt", "har")
-	if err != nil {
-		t.Fatalf("detectCollectionImport: %v", err)
-	}
-	if kind != "har" {
-		t.Errorf("kind = %q, want har", kind)
-	}
-	if len(collection.Items) != 4 {
-		t.Errorf("got %d items, want 4", len(collection.Items))
-	}
-	if len(warnings) == 0 {
-		t.Error("the manual override path dropped the warnings")
 	}
 }

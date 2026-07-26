@@ -1,4 +1,4 @@
-package main
+package importers
 
 // US-052 — Swagger 2 import, by conversion to OpenAPI 3.
 //
@@ -48,13 +48,13 @@ var swagger2RefPrefixes = []struct {
 	{"#/responses/", "#/components/responses/", "responses", "responses"},
 }
 
-// isSwagger2Document reports whether raw is a Swagger 2 document.
+// IsSwagger2Document reports whether raw is a Swagger 2 document.
 //
 // Checks the version value, not merely the presence of the key: a Swagger 1.x
 // document also has "swagger", and converting one as if it were 2.0 would
 // produce a plausible-looking document with the wrong shape rather than a clear
 // rejection.
-func isSwagger2Document(raw map[string]interface{}) bool {
+func IsSwagger2Document(raw map[string]interface{}) bool {
 	version, ok := raw["swagger"]
 	if !ok {
 		return false
@@ -62,8 +62,8 @@ func isSwagger2Document(raw map[string]interface{}) bool {
 	return strings.HasPrefix(strings.TrimSpace(fmt.Sprintf("%v", version)), "2.")
 }
 
-// convertSwagger2ToOpenAPI3 returns an equivalent OpenAPI 3 document as JSON.
-func convertSwagger2ToOpenAPI3(content string) (string, error) {
+// ConvertSwagger2ToOpenAPI3 returns an equivalent OpenAPI 3 document as JSON.
+func ConvertSwagger2ToOpenAPI3(content string) (string, error) {
 	var raw map[string]interface{}
 	if err := yaml.Unmarshal([]byte(content), &raw); err != nil {
 		return "", fmt.Errorf("swagger 2 document is not valid JSON or YAML: %w", err)
@@ -71,7 +71,7 @@ func convertSwagger2ToOpenAPI3(content string) (string, error) {
 	if raw == nil {
 		return "", errors.New("swagger 2 document is empty")
 	}
-	if !isSwagger2Document(raw) {
+	if !IsSwagger2Document(raw) {
 		return "", errors.New("document does not declare swagger: 2.0")
 	}
 

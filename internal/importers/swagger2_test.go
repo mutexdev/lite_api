@@ -1,4 +1,4 @@
-package main
+package importers
 
 // US-052 — tests for Swagger 2 import.
 //
@@ -21,7 +21,7 @@ import (
 
 func swagger2Fixture(t *testing.T) string {
 	t.Helper()
-	content, err := os.ReadFile(filepath.Join("docs", "qa", "import-fixtures", "swagger2.json"))
+	content, err := os.ReadFile(filepath.Join("..", "..", "docs", "qa", "import-fixtures", "swagger2.json"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
@@ -30,9 +30,9 @@ func swagger2Fixture(t *testing.T) string {
 
 func convertedSwagger2(t *testing.T) map[string]interface{} {
 	t.Helper()
-	converted, err := convertSwagger2ToOpenAPI3(swagger2Fixture(t))
+	converted, err := ConvertSwagger2ToOpenAPI3(swagger2Fixture(t))
 	if err != nil {
-		t.Fatalf("convertSwagger2ToOpenAPI3: %v", err)
+		t.Fatalf("ConvertSwagger2ToOpenAPI3: %v", err)
 	}
 	var document map[string]interface{}
 	if err := json.Unmarshal([]byte(converted), &document); err != nil {
@@ -91,9 +91,9 @@ func TestSwagger2ConvertsVersionAndServers(t *testing.T) {
 // resolves to nothing, the schema comes back empty, and the imported request
 // has no example body — which reads as an API with no documented payload.
 func TestSwagger2RewritesEveryRef(t *testing.T) {
-	converted, err := convertSwagger2ToOpenAPI3(swagger2Fixture(t))
+	converted, err := ConvertSwagger2ToOpenAPI3(swagger2Fixture(t))
 	if err != nil {
-		t.Fatalf("convertSwagger2ToOpenAPI3: %v", err)
+		t.Fatalf("ConvertSwagger2ToOpenAPI3: %v", err)
 	}
 
 	if strings.Contains(converted, "#/definitions/") {
@@ -282,7 +282,7 @@ func TestSwagger2ConversionRejectsBadInput(t *testing.T) {
 		{"swagger 1", `{"swagger":"1.2","apis":[]}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := convertSwagger2ToOpenAPI3(tc.content); err == nil {
+			if _, err := ConvertSwagger2ToOpenAPI3(tc.content); err == nil {
 				t.Error("expected an error")
 			}
 		})
@@ -293,86 +293,13 @@ func TestIsSwagger2Document(t *testing.T) {
 	// Version-checked rather than key-presence: a Swagger 1.x document also has
 	// the key, and converting one as 2.0 gives a plausible document with the
 	// wrong shape instead of a clear rejection.
-	if !isSwagger2Document(map[string]interface{}{"swagger": "2.0"}) {
+	if !IsSwagger2Document(map[string]interface{}{"swagger": "2.0"}) {
 		t.Error("2.0 was not recognised")
 	}
-	if isSwagger2Document(map[string]interface{}{"swagger": "1.2"}) {
+	if IsSwagger2Document(map[string]interface{}{"swagger": "1.2"}) {
 		t.Error("1.2 was treated as Swagger 2")
 	}
-	if isSwagger2Document(map[string]interface{}{"openapi": "3.0.0"}) {
+	if IsSwagger2Document(map[string]interface{}{"openapi": "3.0.0"}) {
 		t.Error("an OpenAPI 3 document was treated as Swagger 2")
-	}
-}
-
-// TestSwagger2IsDetectedAndImported is the end-to-end claim: the conversion is
-// consumed by the real importer, not merely well-formed. Before this story the
-// same input returned "imports from Swagger 2 are not supported".
-func TestSwagger2IsDetectedAndImported(t *testing.T) {
-	kind, collection, _, err := detectCollectionImport(swagger2Fixture(t), "swagger2.json", "")
-	if err != nil {
-		t.Fatalf("detectCollectionImport: %v", err)
-	}
-	if kind != "swagger-2" {
-		t.Errorf("detected kind = %q, want swagger-2", kind)
-	}
-	if len(collection.Items) != 4 {
-		var names []string
-		for _, item := range collection.Items {
-			names = append(names, item.Method+" "+item.Name)
-		}
-		t.Fatalf("got %d items %v, want 4", len(collection.Items), names)
-	}
-
-	byName := map[string]RequestItem{}
-	for _, item := range collection.Items {
-		byName[item.Name] = item
-	}
-
-	list, ok := byName["List users"]
-	if !ok {
-		t.Fatalf("the listUsers operation was not imported: %v", byName)
-	}
-	// The importer parameterises the server as a {{baseUrl}} collection
-	// variable rather than inlining it, so that is where host and basePath have
-	// to land. Without them the variable is empty and every request resolves to
-	// a bare path — an import that looks perfect and 404s.
-	if !strings.Contains(list.URL, "/users") {
-		t.Errorf("imported URL %q does not carry the path", list.URL)
-	}
-	var baseURL string
-	for _, variable := range collection.Variables {
-		if variable.Name == "baseUrl" {
-			baseURL = swagger2String(variable.Value)
-		}
-	}
-	if baseURL != "https://api.example.test/v2" {
-		t.Errorf("baseUrl = %q, want https://api.example.test/v2 — host and basePath did not survive", baseURL)
-	}
-
-	create, ok := byName["Create a user"]
-	if !ok {
-		t.Fatal("the createUser operation was not imported")
-	}
-	if create.Method != "POST" {
-		t.Errorf("method = %q, want POST", create.Method)
-	}
-	if create.Body.Mode == "none" || strings.TrimSpace(create.Body.JSON) == "" {
-		t.Errorf("the body parameter did not become a request body: mode=%q json=%q", create.Body.Mode, create.Body.JSON)
-	}
-}
-
-// TestSwagger2ManualOverrideImports covers the explicit-kind path, which is a
-// separate branch from detection.
-func TestSwagger2ManualOverrideImports(t *testing.T) {
-	collection, err := collectionFromImport(ImportPayload{
-		Kind:    "swagger-2",
-		Name:    "manual",
-		Content: swagger2Fixture(t),
-	})
-	if err != nil {
-		t.Fatalf("collectionFromImport: %v", err)
-	}
-	if len(collection.Items) != 4 {
-		t.Errorf("got %d items, want 4", len(collection.Items))
 	}
 }

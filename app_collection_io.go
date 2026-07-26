@@ -836,12 +836,12 @@ func collectionFromImport(payload ImportPayload) (Collection, error) {
 	case "postman":
 		return importers.ImportPostman(payload.Content, name, payload.TranslatePostmanScripts)
 	case "har":
-		collection, _, err := importHAR(payload.Content, name)
+		collection, _, err := importers.ImportHAR(payload.Content, name)
 		return collection, err
 	case "insomnia":
 		return importers.ImportInsomnia(payload.Content, name)
 	case "swagger-2", "swagger2", "swagger":
-		converted, err := convertSwagger2ToOpenAPI3(payload.Content)
+		converted, err := importers.ConvertSwagger2ToOpenAPI3(payload.Content)
 		if err != nil {
 			return Collection{}, err
 		}

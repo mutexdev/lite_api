@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mutexdev/lite_api/internal/importers"
 	"github.com/mutexdev/lite_api/internal/openapisync"
 	"github.com/mutexdev/lite_api/internal/types"
 
@@ -543,7 +544,7 @@ func detectCollectionImport(content, name, override string) (string, Collection,
 	kind := strings.ToLower(strings.TrimSpace(override))
 	if kind != "" {
 		if kind == "har" {
-			collection, warnings, err := importHAR(content, strings.TrimSuffix(name, filepath.Ext(name)))
+			collection, warnings, err := importers.ImportHAR(content, strings.TrimSuffix(name, filepath.Ext(name)))
 			return kind, collection, warnings, err
 		}
 		if kind == "curl" {
@@ -572,7 +573,7 @@ func detectCollectionImport(content, name, override string) (string, Collection,
 		return "bru", collection, nil, err
 	}
 	if strings.HasSuffix(lowerName, ".har") {
-		collection, warnings, err := importHAR(content, strings.TrimSuffix(name, filepath.Ext(name)))
+		collection, warnings, err := importers.ImportHAR(content, strings.TrimSuffix(name, filepath.Ext(name)))
 		return "har", collection, warnings, err
 	}
 	var raw map[string]interface{}
@@ -585,16 +586,16 @@ func detectCollectionImport(content, name, override string) (string, Collection,
 	// rather than imported.
 	if log, ok := raw["log"].(map[string]interface{}); ok {
 		if _, hasEntries := log["entries"]; hasEntries {
-			collection, warnings, err := importHAR(content, strings.TrimSuffix(name, filepath.Ext(name)))
+			collection, warnings, err := importers.ImportHAR(content, strings.TrimSuffix(name, filepath.Ext(name)))
 			return "har", collection, warnings, err
 		}
 	}
-	if isSwagger2Document(raw) {
+	if importers.IsSwagger2Document(raw) {
 		// US-052. Converted to OpenAPI 3 and handed to that importer, rather
 		// than taught as a second dialect: the OpenAPI 3 path already handles
 		// servers, parameters, request bodies, security schemes and $ref
 		// resolution, and a parallel implementation would drift from it.
-		converted, err := convertSwagger2ToOpenAPI3(content)
+		converted, err := importers.ConvertSwagger2ToOpenAPI3(content)
 		if err != nil {
 			return "swagger-2", Collection{}, nil, err
 		}
