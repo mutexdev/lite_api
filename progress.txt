@@ -34,14 +34,47 @@ evidence for each story; this file carries the cross-story findings.
     its surface opens: 29 dialogs, the Runner panel, all 7 Preferences sections,
     all 4 DevTools tabs, the Import panel, and CodeMirror.
 
-  REMAINING (4 stories + carried debts):
-    US-009 US-010 US-011  response body store — the highest-risk trio in the
-                          document; a mistake corrupts saved data rather than
-                          merely being slow. US-009 must go first.
-    US-019                goja runtime pool. Analysis in this log: the
-                          sync.Pool criterion is not achievable as written
-                          (shims close over per-request state); the 4->2
-                          runtime sharing is, with the TimelinePhase hazard.
+  US-010 + US-011 COMPLETE. US-009 is at step 4 of 5.
+
+--- US-009/010/011 — the response body trio ---
+  US-011 DONE. io.ReadAll on the response body replaced with a bounded read,
+    100 MB default, configurable via preferences.Request.MaxResponseBytes.
+    The subtle half: io.LimitReader alone cannot tell "body was exactly the
+    limit" from "body was longer and we stopped", so a body landing on the cap
+    would be truncated and reported complete. Reading limit+1 distinguishes
+    them; the naive version fails the exactly-at-limit case. Truncation is
+    surfaced via x-liteapi-body-truncated / x-liteapi-body-limit headers, so it
+    travels into saved examples and exports and is never later mistaken for a
+    complete body.
+
+  US-010 Go half DONE — ReadResponseBody(handle, offset, length). The slicing
+    rules are the substance: a UTF-8 slice must not split a rune (removing the
+    alignment fails at offset 1 with invalid UTF-8) and a base64 slice must be
+    quartet-aligned. Start aligns FORWARD, end aligns BACKWARD — aligning the
+    start backward would re-send bytes and could return the same offset forever,
+    a paging loop that never advances. Offset/Length describe what was actually
+    returned, so a caller must advance by those.
+    REMAINING: response.ts moving Render full / Load more onto the binding.
+
+  US-009 at step 4 of 5, every step so far ADDITIVE and reversible:
+    1  responseStore, standalone. Memory is a front for the spill dir; every
+       Put writes to disk before returning. Negative control: removing the
+       durable write fails only the 2 durability tests — the other 6 pass, which
+       is exactly why a memory-only store would have looked fine.
+    2a store reachable from App, lazily (newAppBase runs for every test App;
+       eager creation would litter empty responses/ dirs).
+    2b BodyHandle + BodyHead added ALONGSIDE Body/BodyBase64, both populated.
+       Head truncates on a UTF-8 boundary — a naive slice splits a rune and
+       json rewrites it as U+FFFD.
+    3  migration backfills handles for pre-US-009 state.json files. Fixture
+       hand-built in the OLD shape, because generating it from today's structs
+       would test nothing.
+    4  handles attached on the live request path at all 3 response sites.
+    5  NOT DONE — delete Body/BodyBase64. THE ONLY IRREVERSIBLE STEP, and where
+       migrateResponseBodiesLocked must change from best-effort to fallible: a
+       missing handle stops being harmless and becomes data loss. The 69
+       existing Response.Body assertions and response.ts change together here.
+
   THEN: Phase 3 (US-039..US-059), Phase 4 (US-060..US-071) — with US-077 FIRST —
   and Phase 5 (US-072..US-074), all untouched.
 
