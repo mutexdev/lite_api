@@ -4810,3 +4810,37 @@ US-026 - Store layer. DONE. Both named collapses complete.
   load-bearing.
 
   Coverage 81.2%; expectContains 8.3% -> 84.0%.
+
+!!! A FOURTH REAL BUG: expect(...).to.have.property() PASSED FOR ANY NAME !!!
+
+  After the contain() bug I checked the whole expect* family rather than
+  assuming it was isolated. expectProperty sat at 50%.
+
+      value := object.Get(name)
+      if !goja.IsUndefined(value) { return value, true }
+
+  goja returns a NIL goja.Value for a property that does not exist — and
+  goja.IsUndefined(nil) is FALSE. So the guard passed for every missing key:
+
+      expect(body).to.have.property('anything')   -> PASSED, for any name
+
+  Verified with a probe before touching anything: Get on a missing key returns
+  <nil>, IsUndefined(nil) is false, expectProperty returns true.
+
+  FIXED with a nil check. The Keys() loop below it stays and now does the job it
+  was written for — telling a key explicitly set to undefined (present) apart
+  from a key that does not exist (absent). Both directions are pinned.
+
+  Controls: restoring the bug fails 2, breaking the explicit-undefined case
+  fails 1.
+
+  THE PATTERN IS NOW UNDENIABLE. Four defects this session, all in assertions,
+  all of the same species — a check that reports PASS while verifying nothing:
+      the four signer tautologies       (verified against themselves)
+      endsWith behaving as startsWith   (operators interchangeable)
+      contain() on any two objects      ([object Object] substring)
+      property() for any name           (nil vs undefined)
+
+  Assertions are where this codebase's defects live, and the reason is
+  structural: a broken assertion PASSES, so the test suite that would catch it
+  is the very thing it disables. Every other subsystem fails loudly.

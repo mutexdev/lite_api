@@ -11030,13 +11030,23 @@ func expectProperty(runtime *goja.Runtime, actual goja.Value, name string) (goja
 	}
 	object := actual.ToObject(runtime)
 	value := object.Get(name)
-	if !goja.IsUndefined(value) {
+	// goja returns a NIL goja.Value for a property that does not exist, and
+	// goja.IsUndefined(nil) is false — so checking only for undefined reported
+	// every missing property as present, and
+	// expect(body).to.have.property('anything') passed for any name at all.
+	if value != nil && !goja.IsUndefined(value) {
 		return value, true
 	}
+	// A property explicitly set to undefined IS present, and Get returns the
+	// undefined singleton rather than nil for it. Keys() is what tells the two
+	// apart.
 	for _, key := range object.Keys() {
 		if key == name {
 			return value, true
 		}
+	}
+	if value == nil {
+		return goja.Undefined(), false
 	}
 	return value, false
 }
