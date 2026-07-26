@@ -3441,3 +3441,39 @@ US-026 - Store layer. DONE. Both named collapses complete.
   PACKAGES STILL WITHOUT THEIR OWN TESTS: grpcexec, importers, store/bru.
   All three are exercised heavily through package main's suite - bru's controls
   failed 44 and 33 tests - so they are covered, just not locally.
+
+--- Assertion evaluation tests — the worst gap of the session ---
+
+  Control: making endsWith behave as startsWith failed NO test. The individual
+  assertion operators were unverified.
+
+  This is the worst shape of bug this codebase can have, and it is worth being
+  precise about why. LiteAPI is an API TESTING tool. An operator that silently
+  behaves as a different operator makes a user's assertion report PASSED when
+  the response did not satisfy it. There is nothing to notice: no error, no
+  warning, a green run. A tool that reports green wrongly is worse than one
+  that crashes, because the crash gets fixed.
+
+  Nine cases added covering every operator, plus the pairs that actually
+  DISTINGUISH them - "hello" starts with "hel" but does not end with it, and
+  vice versa. A test that only asserts endsWith("hello","llo") is true cannot
+  tell endsWith from a broken implementation that checks the prefix.
+
+  Also pinned: an UNKNOWN operator must fail, not pass. A typo in the operator
+  field defaulting to true would report success forever.
+
+  And: a DISABLED assertion is passed through untouched, not marked passed - a
+  row the user switched off must not count towards a green run.
+
+  Controls now: endsWith->startsWith fails 8, notEquals inverted fails 7,
+  unknown operator passing fails 7.
+
+  RUNNING TALLY of untested contracts found by negative control this session:
+    SigV4 verification tautology          PAC DIRECT branch
+    OAuth 1.0a tautology + constant nonce  Digest MD5 tautology
+    WSSE tautology                         clone* deep-copy contract
+    WebSocket binary frame opcode          5 cookie security rules
+    ShellSingleQuote escaping              assertion operators
+    YAML body-mode canonicalisation
+
+  Sixteen, in code that was fully green the whole time.
