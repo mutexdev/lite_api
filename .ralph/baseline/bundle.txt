@@ -624,3 +624,17 @@ frontend/dist/assets/index-*.css        113609
 #   DevTools: Performance + Console done; Network and Terminal remain
 #   Import: needs one deliberate ~39-prop pass, does not decompose
 # ---------------------------------------------------------------------------
+
+# DevTools Terminal tab: 2,892 B of source, 13 props.
+#   initial chunk 478,226 -> 476,497  (-1,729). Margin 23,503 bytes.
+#
+# terminalDisplayOutput is a FUNCTION taking the raw output — the SIXTH
+# function-shaped name in this story read as a value (after preferencesProxyMode,
+# formattedOpenAPISpecContent, normalizedRunnerDelayMs, customCaFileName,
+# keybindingsAreEnabled). Six occurrences is not bad luck. In this codebase a
+# name that describes a rendered value is as likely to be the derivation as the
+# value, and the prop type must be read from the declaration.
+#
+# DevTools now: Performance, Console, Terminal extracted. Network remains — the
+# largest tab, with its own nested request-details <section>, which by the same
+# decomposition argument may itself be separable.
