@@ -284,6 +284,11 @@
     proxyConfigWithDefaults
   } from './lib/authDefaults'
   import { contentTypeForFilePath, responseExampleBodyTypeForContentType } from './lib/contentTypes'
+  import {
+    applyResponseExampleFileRow,
+    applyResponseExampleHeader,
+    applyResponseExampleRequestField
+  } from './lib/responseExampleEdits'
   import { BrowserOpenURL, EventsOn, OnFileDrop, OnFileDropOff, Quit } from '../wailsjs/runtime/runtime'
 
   type View = 'request' | 'collection' | 'git' | 'runner' | 'environments' | 'import' | 'features' | 'network' | 'cookies' | 'history' | 'preferences' | 'devtools'
@@ -2290,25 +2295,7 @@
 
   function updateResponseExampleRequestField(example: types.ResponseExample, field: keyof types.ResponseExampleRequest, value: string) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
-      if (field === 'method') {
-        request.method = value.toUpperCase()
-      } else {
-        request[field] = value as never
-      }
-      if (field === 'url') {
-        request.params = queryParamsForURL(value, request.params ?? [])
-      }
-      if (field === 'bodyMode' && value === 'formUrlEncoded') {
-        request.formUrlEncoded = request.formUrlEncoded ?? []
-      }
-      if (field === 'bodyMode' && value === 'multipartForm') {
-        request.multipartForm = request.multipartForm ?? []
-      }
-      if (field === 'bodyMode' && value === 'file') {
-        request.file = request.file ?? []
-      }
-      draft.request = request
+      draft.request = applyResponseExampleRequestField(draft.request, field, value)
       return draft
     })
   }
@@ -2530,20 +2517,7 @@
 
   function updateResponseExampleRequestFileRow(example: types.ResponseExample, index: number, field: keyof types.FileBodyEntry, value: string | boolean) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
-      const rows = [...(request.file ?? [])]
-      const current = rows[index] ?? ({ filePath: '', contentType: '', selected: rows.length === 0 } as types.FileBodyEntry)
-      rows[index] = { ...current, [field]: value } as types.FileBodyEntry
-      if (field === 'filePath') {
-        rows[index].contentType = contentTypeForFilePath(String(value))
-      }
-      if (field === 'selected' && value === true) {
-        for (let i = 0; i < rows.length; i += 1) {
-          rows[i].selected = i === index
-        }
-      }
-      request.file = rows
-      draft.request = request
+      draft.request = applyResponseExampleFileRow(draft.request, index, field, value)
       return draft
     })
   }
@@ -2649,18 +2623,9 @@
 
   function updateResponseExampleHeader(example: types.ResponseExample, index: number, field: keyof types.KeyValue, value: string | boolean) {
     updateResponseExampleDraft(example, (draft) => {
-      const rows = [...(draft.response.headers ?? [])]
-      const oldContentTypeHeader = rows.find((row) => row.name?.toLowerCase() === 'content-type')
-      const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue)
-      rows[index] = { ...current, [field]: value } as types.KeyValue
-      const contentTypeHeader = rows.find((row) => row.name?.toLowerCase() === 'content-type')
-      if (contentTypeHeader && oldContentTypeHeader && contentTypeHeader.value !== oldContentTypeHeader.value) {
-        const nextBodyType = responseExampleBodyTypeForContentType(contentTypeHeader.value ?? '')
-        if (nextBodyType !== (draft.response.bodyType || 'text')) {
-          draft.response.bodyType = nextBodyType
-        }
-      }
-      draft.response.headers = rows
+      const result = applyResponseExampleHeader(draft.response.headers, draft.response.bodyType, index, field, value)
+      draft.response.headers = result.headers
+      if (result.bodyType !== undefined) draft.response.bodyType = result.bodyType
       return draft
     })
   }

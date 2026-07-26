@@ -6595,3 +6595,36 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   That is the fourth vacuous test this restructure, and every one was found the
   same way: a control reporting 0, then asking what the two paths have in common.
+
+=== PHASE 6 — response-example edit transforms ===
+
+  src/lib/responseExampleEdits.ts — 122 lines, 18 tests.
+  App.svelte 11,561 -> 11,526. Frontend suite 386 -> 404.
+
+  A RESHAPE rather than motion, and the first one this phase. The three
+  updateResponseExample* functions wrap a mutable draft, so they could not move
+  as-is. What moved is the part that DECIDES something; the draft plumbing
+  stayed. Each wrapper is now four lines.
+
+  An example is what "copy as curl" regenerates from AND what the mock server
+  answers with, so an edit that quietly drops a field produces a mock that
+  behaves differently from the request that was saved.
+
+  Behaviours pinned, each of which a user would notice going wrong:
+    - the method is upper-cased: "get" and "GET" are one verb
+    - editing the URL re-derives the query table, so the params panel and the
+      URL cannot disagree about what will be sent — while KEEPING rows the user
+      disabled
+    - switching body mode initialises that mode's collection, or the editor
+      binds a table to undefined and the first row typed is lost
+    - `selected` on a file row is a RADIO: exactly one attachment is sent, so
+      leaving two selected makes the choice depend on iteration order
+    - editing a file path re-derives its content type, because the old one
+      described the old file
+    - the body type is re-derived ONLY when the Content-Type header's VALUE
+      changed. Retyping the same value must not clobber a body type the user
+      picked by hand, and RENAMING a header is not a statement about the body.
+
+  That last one needed three separate controls to pin, because there are three
+  ways to get it wrong: react to any header edit, react to an unchanged value,
+  or report a change when the derived type is the same. All three fail a test.
