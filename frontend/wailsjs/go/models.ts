@@ -1,11 +1,11 @@
-export namespace main {
+export namespace codegen {
 	
-	export class CodeGenerationTarget {
+	export class Target {
 	    id: string;
 	    label: string;
 	
 	    static createFrom(source: any = {}) {
-	        return new CodeGenerationTarget(source);
+	        return new Target(source);
 	    }
 	
 	    constructor(source: any = {}) {
@@ -14,6 +14,11 @@ export namespace main {
 	        this.label = source["label"];
 	    }
 	}
+
+}
+
+export namespace main {
+	
 	export class CollectionGitDiff {
 	    path: string;
 	    staged: boolean;

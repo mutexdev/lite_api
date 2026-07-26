@@ -3714,3 +3714,56 @@ US-026 - Store layer. DONE. Both named collapses complete.
   changed is that cookies, interp, scalar, types and codegen had moved out from
   under it, so its external-need count fell from 22 to a handful. Ordering was
   the whole trick: extract the leaves first and the trunk becomes movable.
+
+--- US-031 (partial) — MEASURED IN A REAL BROWSER AT LAST ---
+
+  The blocker on this story was never the code, it was verification: the
+  criterion names a 500-request fixture, a DOM node count and keyboard nav, and
+  none of that can be checked by reading. It turns out `wails dev` serves the
+  app on localhost:34115 WITH the Go bridge attached, so an ordinary browser can
+  drive the real application - 188 bound methods, live state, real collections.
+  That unblocked it.
+
+  METHOD: generated a 500-request fixture on disk (20 folders x 25, the same
+  shape as the sidebarTree unit tests use, so the two agree on what "500
+  requests" means), opened it through the app's own OpenCollection (441ms), and
+  measured.
+
+  BASELINE, all folders expanded:
+      6,251 sidebar DOM nodes
+      3,154 sidebar buttons
+  Of those buttons, ~3,000 were per-row CONTEXT MENUS. Every request row keeps
+  its Reveal/Code/Info/Rename/Clone/Delete buttons mounted, because <details>
+  does NOT remove its children when closed - it hides them. Half the sidebar's
+  DOM was menus nobody could see.
+
+  AFTER rendering the menu body only while its disclosure is open:
+      3,239 nodes   (-48%)
+        687 buttons (-78%)
+          0 menu buttons present while closed
+
+  VERIFIED IN THE BROWSER, not inferred:
+    500 request rows still render
+    opening a menu yields exactly the 6 actions; closing removes them again
+    clicking a row opens the request (URL became https://example.test/f3/i7)
+    tab order is row -> its disclosure -> next row
+    Enter on a row activates it
+    the disclosure is focusable and opens from the keyboard with all 6 actions
+
+  So the story's "keyboard nav + context menus still work" is now MEASURED.
+
+  WHAT IS NOT DONE, PLAINLY: the node count is REDUCED, not BOUNDED. 3,239 is
+  still O(number of requests). Truly bounding it needs the row-window
+  virtualization - flattenSidebar and computeWindow exist and are unit-tested,
+  but wiring them means flattening ~198 lines of three-level nested markup
+  (collection -> folder -> request, each with its own header, drag targets and
+  menus). That is a large rewrite and I did not attempt it in the same pass as
+  a change I could verify cleanly.
+
+  Fixture and dev server were both removed afterwards; the workspace is back to
+  just Sample API.
+
+  ONE REAL FINDING ON THE SIDE: the regenerated Wails bindings had drifted.
+  CodeGenerationTarget became codegen.Target when internal/codegen was
+  extracted, and I had not regenerated since. `wails dev` did it, svelte-check
+  passes against the new shape, and the corrected binding is committed.

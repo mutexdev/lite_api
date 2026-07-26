@@ -2187,6 +2187,11 @@
     document.querySelectorAll<HTMLDetailsElement>('details.request-actions[open]').forEach((menu) => {
       menu.open = false
     })
+    // Clearing the record as well, rather than trusting the toggle event to
+    // propagate back through bind:open. The record is what the {#if} reads, so
+    // a menu whose buttons stayed mounted after closing would quietly undo the
+    // saving this change exists for.
+    openRequestMenus = {}
   }
 
   function patchURLField(event: Event) {
@@ -7933,6 +7938,10 @@
   // changes whenever anything the grouping reads has changed. Keying on the
   // collection object alone would go stale on an in-place edit; keying on its
   // item count would miss a rename.
+  // US-031: which per-row disclosure menus are open, keyed collection:item.
+  // Only an open menu renders its buttons; see the note at the <details>.
+  let openRequestMenus = $state<Record<string, boolean>>({})
+
   const groupedItemsMemo = new KeyedMemo<{ folder: string; items: types.RequestItem[] }[]>()
 
   function groupedItems(collection: types.Collection, query = '') {
@@ -8741,8 +8750,13 @@
                       {#if requestIsTransient(collection, item)}<em>temp</em>{/if}
                       {#if item.draft}<em>draft</em>{/if}
                     </button>
-                    <details class="request-actions" data-testid="request-actions-menu">
+                    <!-- US-031: the menu body renders only while the disclosure is
+                         open. <details> keeps its children in the DOM when closed, so a
+                         500-request collection was carrying ~3,000 buttons nobody could
+                         see. bind:open is what makes the {#if} track the real state. -->
+                    <details class="request-actions" data-testid="request-actions-menu" bind:open={openRequestMenus[`${collection.id}:${item.id}`]}>
                       <summary data-testid="request-actions-menu-toggle" aria-label={`More actions for ${item.name}`} title={`More actions for ${item.name}`}>More</summary>
+                    {#if openRequestMenus[`${collection.id}:${item.id}`]}
                     <button
                       class="request-action"
                       type="button"
@@ -8793,6 +8807,7 @@
                       data-testid="collection-item-menu-delete"
                       onclick={() => { closeRequestActionMenus(); openDeleteRequestModal(collection, item) }}
                     >Delete</button>
+                    {/if}
                     </details>
                   </div>
                   {#if (item.examples ?? []).length > 0}
