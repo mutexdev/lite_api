@@ -4589,3 +4589,34 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Frontend: 223 -> 242 tests. All lib files 100% functions except the aggregate
   99.90% lines / 97.08% branches, with the remainder in test helpers.
+
+--- Bulk-edit backslash handling — the last uncovered branch on the frontend ---
+
+  The bulk editor is a text form, one row per line, so a literal newline in a
+  value has to survive as \n and read back. That means decoding escapes — and
+  the question is what happens to an escape the reader does not know.
+
+  It preserves it EXACTLY, and the source says why: a Windows path typed as
+  C:\Users must come back unchanged. Swallowing the backslash rewrites the
+  user's value into C:Users — a path that does not exist — with nothing on
+  screen to show it happened.
+
+  5 tests, including the property that actually matters: a value must
+  ROUND-TRIP through render-then-parse unchanged. Opening bulk edit and closing
+  it again must not alter data, and testing decode alone would miss an encoder
+  that escapes something the decoder does not.
+
+  Controls: swallowing the unknown escape fails 1, not decoding \n fails 4.
+
+=== BOTH COVERAGE SWEEPS ARE NOW COMPLETE ===
+
+  Go        30 -> 8 functions at 0%; the remainder need real DNS, a live
+            network interface, a full transport chain, or are one-line setters.
+  Frontend  223 -> 247 tests; every lib module at 100% functions,
+            99.98% lines / 97.20% branches overall.
+
+  The sweeps found, in total: 2 real bugs, 7 self-inflicted string regressions
+  plus a permanent tripwire, 11 sets of tests over silent-failure paths, and 4
+  occasions where a control corrected ME rather than the code — a wrong
+  expectation about timeRange's end bound, about drift ordering, about
+  credential precedence, and a test whose NAME pointed at the wrong mechanism.

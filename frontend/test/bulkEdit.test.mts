@@ -174,3 +174,46 @@ test('repeated round trips are stable', () => {
   assert.equal(rowsToBulkText(current), first, 'the text drifted across round trips')
   assert.deepEqual(current, rows)
 })
+
+// Backslash handling in bulk-edit values, the last uncovered branch in this file.
+//
+// The bulk editor is a text form: one row per line, so a literal newline in a
+// value has to survive as \n and be read back. That means the reader must decode
+// escapes — and the question is what it does with an escape it does not know.
+//
+// It leaves it EXACTLY as written, and the reason is in the source: a Windows
+// path typed as C:\Users must come back unchanged. Swallowing the backslash
+// would silently rewrite the user's value into C:Users, a path that does not
+// exist, with nothing to show it happened.
+test('an unknown escape is preserved verbatim so Windows paths survive', () => {
+  const rows = parseBulkText('path: C:\\Users\\ada')
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].value, 'C:\\Users\\ada', 'the backslashes must survive a round trip through the bulk editor')
+})
+
+test('a known escape still decodes', () => {
+  const rows = parseBulkText('body: line one\\nline two')
+  assert.equal(rows[0].value, 'line one\nline two', '\\n must become a real newline, or multi-line values cannot be edited here')
+})
+
+test('an escaped backslash collapses to one', () => {
+  const rows = parseBulkText('value: a\\\\b')
+  assert.equal(rows[0].value, 'a\\b')
+})
+
+// A trailing backslash has no next character to inspect. It must not read past
+// the end of the string or drop the character.
+test('a trailing backslash is preserved', () => {
+  const rows = parseBulkText('value: ends with\\')
+  assert.equal(rows[0].value, 'ends with\\')
+})
+
+// The round trip is the property that matters: what the editor renders must
+// read back as the same value, or opening bulk edit and closing it changes data.
+test('values round-trip through render and parse unchanged', () => {
+  for (const value of ['C:\\Users\\ada', 'line one\nline two', 'a\\b', 'plain', 'ends with\\']) {
+    const rendered = rowsToBulkText([{ name: 'k', value, enabled: true }])
+    const parsed = parseBulkText(rendered)
+    assert.equal(parsed[0].value, value, `round trip changed ${JSON.stringify(value)}`)
+  }
+})
