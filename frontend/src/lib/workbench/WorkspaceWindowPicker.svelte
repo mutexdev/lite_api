@@ -1,4 +1,4 @@
-<script context="module" lang="ts">
+<script module lang="ts">
   export type WorkspaceWindowTarget = {
     id: string
     name: string
@@ -10,33 +10,64 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
 
-  export let targets: WorkspaceWindowTarget[] = []
-  export let currentWorkspaceId = ''
-  export let busy = false
-  export let busyAction: WorkspaceWindowBusyAction = ''
-  export let error = ''
-  export let onOpen: (target: WorkspaceWindowTarget) => void | Promise<void>
-  export let onCreate: (name: string) => WorkspaceWindowTarget | void | Promise<WorkspaceWindowTarget | void>
-  export let onCancel: () => void
+  // US-028 — runes.
+  type Props = {
+    targets?: WorkspaceWindowTarget[]
+    currentWorkspaceId?: string
+    busy?: boolean
+    busyAction?: WorkspaceWindowBusyAction
+    error?: string
+    onOpen: (target: WorkspaceWindowTarget) => void | Promise<void>
+    onCreate: (name: string) => WorkspaceWindowTarget | void | Promise<WorkspaceWindowTarget | void>
+    onCancel: () => void
+  }
 
-  let dialogElement: HTMLElement
-  let cancelButton: HTMLButtonElement
-  let selectedId = ''
-  let workspaceName = ''
-  let createNameError = ''
-  let createSubmitting = false
+  let {
+    targets = [],
+    currentWorkspaceId = '',
+    busy = false,
+    busyAction = '',
+    error = '',
+    onOpen,
+    onCreate,
+    onCancel
+  }: Props = $props()
 
-  $: eligibleTargets = targets.filter((target) => target.id !== currentWorkspaceId)
-  $: suggestedTarget = eligibleTargets[0]
-  $: if (!eligibleTargets.some((target) => target.id === selectedId)) selectedId = suggestedTarget?.id ?? ''
-  $: selectedTarget = eligibleTargets.find((target) => target.id === selectedId)
-  $: canOpen = Boolean(selectedTarget && !busy)
-  $: normalizedWorkspaceName = workspaceName.trim()
-  $: duplicateWorkspaceName = Boolean(normalizedWorkspaceName) && targets.some(
-    (target) => target.name.trim().toLocaleLowerCase() === normalizedWorkspaceName.toLocaleLowerCase()
+  let dialogElement = $state<HTMLElement | undefined>(undefined)
+  let cancelButton = $state<HTMLButtonElement | undefined>(undefined)
+  // All four drive the template. As plain lets the selection would never move,
+  // the typed name would never appear and the submit button would never
+  // re-enable, while the component kept rendering as though nothing was wrong.
+  let selectedId = $state('')
+  let workspaceName = $state('')
+  let createNameError = $state('')
+  let createSubmitting = $state(false)
+
+  const eligibleTargets = $derived(targets.filter((target) => target.id !== currentWorkspaceId))
+  const suggestedTarget = $derived(eligibleTargets[0])
+
+  // The one genuine EFFECT in this block: it WRITES selectedId rather than
+  // producing a value. As a $derived it would never run, and the selection
+  // would keep pointing at a workspace that is no longer in the list.
+  $effect(() => {
+    if (!eligibleTargets.some((target) => target.id === selectedId)) {
+      selectedId = suggestedTarget?.id ?? ''
+    }
+  })
+
+  const selectedTarget = $derived(eligibleTargets.find((target) => target.id === selectedId))
+  const canOpen = $derived(Boolean(selectedTarget && !busy))
+  const normalizedWorkspaceName = $derived(workspaceName.trim())
+  const duplicateWorkspaceName = $derived(
+    Boolean(normalizedWorkspaceName) &&
+      targets.some((target) => target.name.trim().toLocaleLowerCase() === normalizedWorkspaceName.toLocaleLowerCase())
   )
-  $: workspaceNameError = createNameError || (duplicateWorkspaceName ? 'A workspace with this name already exists.' : '')
-  $: canCreate = Boolean(normalizedWorkspaceName && !duplicateWorkspaceName && !busy && !createSubmitting)
+  const workspaceNameError = $derived(
+    createNameError || (duplicateWorkspaceName ? 'A workspace with this name already exists.' : '')
+  )
+  const canCreate = $derived(
+    Boolean(normalizedWorkspaceName && !duplicateWorkspaceName && !busy && !createSubmitting)
+  )
 
   onMount(() => {
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -59,26 +90,28 @@
   }
 
   function focusableElements() {
-    return Array.from(dialogElement.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    )).filter((element) => !element.hasAttribute('hidden') && element.getAttribute('aria-hidden') !== 'true')
+    return Array.from(
+      dialogElement?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ) ?? []
+    ).filter((element) => !element.hasAttribute('hidden') && element.getAttribute('aria-hidden') !== 'true')
   }
 
   function trapTab(event: KeyboardEvent) {
     const focusable = focusableElements()
     if (focusable.length === 0) {
       event.preventDefault()
-      dialogElement.focus()
+      dialogElement?.focus()
       return
     }
 
     const first = focusable[0]
     const last = focusable[focusable.length - 1]
     const active = document.activeElement
-    if (event.shiftKey && (active === first || !dialogElement.contains(active))) {
+    if (event.shiftKey && (active === first || !dialogElement?.contains(active))) {
       event.preventDefault()
       last.focus()
-    } else if (!event.shiftKey && (active === last || !dialogElement.contains(active))) {
+    } else if (!event.shiftKey && (active === last || !dialogElement?.contains(active))) {
       event.preventDefault()
       first.focus()
     }
@@ -171,7 +204,7 @@
     aria-busy={busy}
     tabindex="-1"
     bind:this={dialogElement}
-    on:keydown={handleDialogKeydown}
+    onkeydown={handleDialogKeydown}
   >
     <header>
       <div class="heading-copy">
@@ -184,7 +217,7 @@
         type="button"
         aria-label="Cancel opening workspace"
         title="Cancel"
-        on:click={onCancel}
+        onclick={onCancel}
       >×</button>
     </header>
 
@@ -230,8 +263,8 @@
                 tabindex={target.id !== currentWorkspaceId && target.id === selectedId ? 0 : -1}
                 data-workspace-option
                 data-workspace-id={target.id}
-                on:click={() => selectTarget(target)}
-                on:dblclick={() => openTarget(target)}
+                onclick={() => selectTarget(target)}
+                ondblclick={() => openTarget(target)}
               >
                 <span class="workspace-mark" aria-hidden="true">{target.name.trim().charAt(0).toUpperCase() || 'W'}</span>
                 <span class="workspace-copy">
@@ -249,7 +282,7 @@
         </ul>
       {/if}
 
-      <form class="create-workspace" on:submit|preventDefault={createWorkspace}>
+      <form class="create-workspace" onsubmit={(event) => { event.preventDefault(); createWorkspace() }}>
         <label for="new-workspace-name">Create another workspace</label>
         <div class="create-workspace-row">
           <input
@@ -261,7 +294,7 @@
             aria-invalid={Boolean(workspaceNameError)}
             aria-describedby={workspaceNameError ? 'new-workspace-name-error' : 'new-workspace-name-hint'}
             disabled={busy}
-            on:input={(event) => updateWorkspaceName(event.currentTarget.value)}
+            oninput={(event) => updateWorkspaceName(event.currentTarget.value)}
           />
           <button type="submit" disabled={!canCreate} aria-label="Create workspace">
             {#if createSubmitting || busyAction === 'creating'}<span class="spinner" aria-hidden="true"></span>Creating…{:else}Create{/if}
@@ -282,14 +315,14 @@
           type="button"
           aria-label="Cancel opening workspace"
           bind:this={cancelButton}
-          on:click={onCancel}
+          onclick={onCancel}
         >Cancel</button>
         <button
           class="open-button"
           type="button"
           aria-label={selectedTarget ? `Open ${selectedTarget.name} in a new window` : 'Open workspace in a new window'}
           disabled={!canOpen}
-          on:click={() => openTarget(selectedTarget)}
+          onclick={() => openTarget(selectedTarget)}
         >
           {#if busyAction === 'opening'}<span class="spinner" aria-hidden="true"></span>Opening…{:else}Open in New Window{/if}
         </button>

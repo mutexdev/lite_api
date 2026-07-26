@@ -24,14 +24,28 @@
   type Language = 'json' | 'xml' | 'javascript' | 'markdown' | 'text' | 'graphql'
   type VariableInfo = { name: string; scope: string; resolvedValue: string; secret: boolean; found: boolean; validName: boolean }
 
-  export let value = ''
-  export let editorKey = ''
-  export let language: Language = 'text'
-  export let ariaLabel = 'Code editor'
-  export let testId = 'code-editor'
-  export let fontSize = 13
-  export let onChange: (value: string) => void
-  export let variableInfo: VariableInfo[] = []
+  // US-028 — runes. Nothing here is bound by a parent.
+  type Props = {
+    value?: string
+    editorKey?: string
+    language?: Language
+    ariaLabel?: string
+    testId?: string
+    fontSize?: number
+    onChange: (value: string) => void
+    variableInfo?: VariableInfo[]
+  }
+
+  let {
+    value = '',
+    editorKey = '',
+    language = 'text',
+    ariaLabel = 'Code editor',
+    testId = 'code-editor',
+    fontSize = 13,
+    onChange,
+    variableInfo = []
+  }: Props = $props()
 
   const editorModule = import('./CodeEditor.svelte')
 </script>
@@ -42,8 +56,8 @@
        rather than an empty editor. -->
   <div class="code-editor-loading" data-testid={testId} aria-label={ariaLabel} aria-busy="true"></div>
 {:then module}
-  <svelte:component
-    this={module.default}
+  {@const Editor = module.default}
+  <Editor
     {value}
     {editorKey}
     {language}

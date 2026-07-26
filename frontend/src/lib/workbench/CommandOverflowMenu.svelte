@@ -2,17 +2,25 @@
   import { onMount, tick } from 'svelte'
   import type { WorkbenchCommandID, WorkbenchCommandItem } from './workbenchCommands'
 
-  export let label: string
-  export let items: WorkbenchCommandItem[] = []
-  export let icon: 'add' | 'more' = 'more'
-  export let align: 'left' | 'right' = 'right'
-  export let testId = ''
-  export let onSelect: (id: WorkbenchCommandID, invoker: HTMLElement | null) => void | Promise<void>
+  // US-028 — runes.
+  type Props = {
+    label: string
+    items?: WorkbenchCommandItem[]
+    icon?: 'add' | 'more'
+    align?: 'left' | 'right'
+    testId?: string
+    onSelect: (id: WorkbenchCommandID, invoker: HTMLElement | null) => void | Promise<void>
+  }
+
+  let { label, items = [], icon = 'more', align = 'right', testId = '', onSelect }: Props = $props()
 
   let root: HTMLDivElement
   let trigger: HTMLButtonElement
-  let panel: HTMLDivElement
-  let open = false
+  // $state: `open` is what the dropdown's visibility reads. As a plain let it
+  // would still be assigned and the menu would simply never appear — the
+  // component compiles and renders either way.
+  let panel = $state<HTMLDivElement | undefined>(undefined)
+  let open = $state(false)
 
   function enabledItems() {
     return Array.from(panel?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? [])
@@ -97,8 +105,8 @@
     aria-haspopup="menu"
     aria-expanded={open}
     data-testid={testId || undefined}
-    on:click={toggle}
-    on:keydown={triggerKeydown}
+    onclick={toggle}
+    onkeydown={triggerKeydown}
   >
     {#if icon === 'add'}
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v14M3 10h14" /></svg>
@@ -110,7 +118,7 @@
   </button>
 
   {#if open}
-    <div class:align-left={align === 'left'} class:align-right={align === 'right'} class="command-menu-panel" role="menu" tabindex="-1" aria-label={label} bind:this={panel} on:keydown={panelKeydown}>
+    <div class:align-left={align === 'left'} class:align-right={align === 'right'} class="command-menu-panel" role="menu" tabindex="-1" aria-label={label} bind:this={panel} onkeydown={panelKeydown}>
       {#each items as item, index (item.id)}
         {#if index === 0 || items[index - 1]?.group !== item.group}
           <div class="command-menu-group" class:with-separator={index > 0}>{item.group}</div>
@@ -123,7 +131,7 @@
           aria-disabled={item.disabled}
           title={item.disabled ? item.disabledReason : item.label}
           data-testid={item.testId || undefined}
-          on:click={() => void choose(item)}
+          onclick={() => void choose(item)}
         >
           <span>{item.label}</span>
           {#if item.shortcut}<kbd>{item.shortcut}</kbd>{/if}

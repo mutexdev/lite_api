@@ -1,4 +1,4 @@
-<script context="module" lang="ts">
+<script module lang="ts">
   const responseScrollCache = new Map<string, { top: number; left: number }>()
   const responseScrollLimit = 100
 </script>
@@ -8,62 +8,86 @@
   import { automaticPreviewLimit, base64ByteLength, compareHeaders, compareJsonStructure, contentDispositionFilename, contentType, embeddedPreviewLimit, findMatches, formatResponseBody, fullRenderLimit, lineDiff, normalizeResponseView, previewKind, responseTextForView, sliceBase64Bytes, sliceUtf8, utf8ByteLength } from './response'
   import { resolveLiveSessionEvents, type LiveSessionLog } from '../liveSessionEvents'
 
-  export let request: main.RequestItem
-  export let selectedTab = 'response'
-  export let selectedView = 'pretty'
-  export let timeline: main.TimelineItem[] = []
-  export let scriptLogs: Array<{ level: string; message: string }> = []
-  // US-058. The document is built in Go so the CSP and escaping are covered by
-  // Go tests; this component supplies only the sandbox attribute.
-  export let visualizerDocument = ''
-  export let visualizerSandbox = 'allow-scripts'
-  // US-021/US-022. The accumulated live-session log, pushed event by event.
-  // The response body now carries only a trailing window, so this is what makes
-  // a long session's full history visible while it is open.
-  export let liveLog: LiveSessionLog | undefined = undefined
-  export let onViewChange: (view: string) => void
-  export let onCopy: (value: string) => Promise<boolean>
-  export let onDownloadBody: () => void | Promise<void>
-  export let onExportTimeline: () => void | Promise<void>
+  // US-028 — runes. None of these are bound by the parent.
+  type Props = {
+    request: main.RequestItem
+    selectedTab?: string
+    selectedView?: string
+    timeline?: main.TimelineItem[]
+    scriptLogs?: Array<{ level: string; message: string }>
+    // US-058. The document is built in Go so the CSP and escaping are covered
+    // by Go tests; this component supplies only the sandbox attribute.
+    visualizerDocument?: string
+    visualizerSandbox?: string
+    // US-021/US-022. The accumulated live-session log, pushed event by event.
+    // The response body now carries only a trailing window, so this is what
+    // makes a long session's full history visible while it is open.
+    liveLog?: LiveSessionLog
+    onViewChange: (view: string) => void
+    onCopy: (value: string) => Promise<boolean>
+    onDownloadBody: () => void | Promise<void>
+    onExportTimeline: () => void | Promise<void>
+  }
 
-  let renderFull = false
-  let visibleLimit = automaticPreviewLimit
-  let jsonTreeMode = false
-  let search = ''
-  let matchIndex = 0
-  let timelineSearch = ''
-  let timelineFilter = 'all'
-  let compareId = 'current'
-  let expandedTimelineID = ''
-  let responseIdentity = ''
-  let previewViewIdentity = ''
-  let bodyElement: HTMLElement | null = null
-  let copyStatus = ''
-  let showUnchanged = false
-  let headerSearch = ''
-  let responseScrollKey = ''
-  let restoredScrollKey = ''
+  let {
+    request,
+    selectedTab = 'response',
+    selectedView = 'pretty',
+    timeline = [],
+    scriptLogs = [],
+    visualizerDocument = '',
+    visualizerSandbox = 'allow-scripts',
+    liveLog = undefined,
+    onViewChange,
+    onCopy,
+    onDownloadBody,
+    onExportTimeline
+  }: Props = $props()
+
+  // US-028 — every one of these is written from a handler or an effect and read
+  // by the template, so all of them must be $state. As plain lets the search
+  // box, the view toggles, the comparison selector and the scroll restoration
+  // would each silently stop responding while the component kept rendering.
+  let renderFull = $state(false)
+  let visibleLimit = $state(automaticPreviewLimit)
+  let jsonTreeMode = $state(false)
+  let search = $state('')
+  let matchIndex = $state(0)
+  let timelineSearch = $state('')
+  let timelineFilter = $state('all')
+  let compareId = $state('current')
+  let expandedTimelineID = $state('')
+  let responseIdentity = $state('')
+  let previewViewIdentity = $state('')
+  let bodyElement = $state<HTMLElement | null>(null)
+  let copyStatus = $state('')
+  let showUnchanged = $state(false)
+  let headerSearch = $state('')
+  let responseScrollKey = $state('')
+  let restoredScrollKey = $state('')
   const jsonTreeBudget = 96 * 1024
 
-  $: response = request.response
-  $: headers = response?.headers ?? {}
-  $: rawBody = response?.body ?? ''
-  $: rawBase64 = response?.bodyBase64 ?? ''
-  $: retainedBase64Bytes = base64ByteLength(rawBase64)
-  $: bytes = (response?.size ?? 0) > 0
-    ? response?.size ?? 0
-    : rawBase64
-      ? retainedBase64Bytes
-      : utf8ByteLength(rawBody)
-  $: boundedBody = sliceUtf8(rawBody, fullRenderLimit)
-  $: boundedBase64 = sliceBase64Bytes(rawBase64, automaticPreviewLimit)
-  $: pretty = bytes <= fullRenderLimit ? formatResponseBody(rawBody, headers) : formatResponseBody(boundedBody, headers)
-  $: renderableFull = bytes <= fullRenderLimit && (!rawBase64 || retainedBase64Bytes >= bytes)
-  $: visibleBase64 = renderFull && renderableFull ? rawBase64 : boundedBase64
-  $: display = responseTextForView(boundedBody, visibleBase64, selectedView, pretty)
-  $: isLarge = bytes > automaticPreviewLimit
-  $: byteEncodedView = selectedView === 'base64' || selectedView === 'hex'
-  $: safeDisplay = byteEncodedView ? display : sliceUtf8(display, renderFull && renderableFull ? fullRenderLimit : Math.min(visibleLimit, fullRenderLimit))
+  const response = $derived(request.response)
+  const headers = $derived(response?.headers ?? {})
+  const rawBody = $derived(response?.body ?? '')
+  const rawBase64 = $derived(response?.bodyBase64 ?? '')
+  const retainedBase64Bytes = $derived(base64ByteLength(rawBase64))
+  const bytes = $derived(
+    (response?.size ?? 0) > 0
+      ? response?.size ?? 0
+      : rawBase64
+        ? retainedBase64Bytes
+        : utf8ByteLength(rawBody)
+  )
+  const boundedBody = $derived(sliceUtf8(rawBody, fullRenderLimit))
+  const boundedBase64 = $derived(sliceBase64Bytes(rawBase64, automaticPreviewLimit))
+  const pretty = $derived(bytes <= fullRenderLimit ? formatResponseBody(rawBody, headers) : formatResponseBody(boundedBody, headers))
+  const renderableFull = $derived(bytes <= fullRenderLimit && (!rawBase64 || retainedBase64Bytes >= bytes))
+  const visibleBase64 = $derived(renderFull && renderableFull ? rawBase64 : boundedBase64)
+  const display = $derived(responseTextForView(boundedBody, visibleBase64, selectedView, pretty))
+  const isLarge = $derived(bytes > automaticPreviewLimit)
+  const byteEncodedView = $derived(selectedView === 'base64' || selectedView === 'hex')
+  const safeDisplay = $derived(byteEncodedView ? display : sliceUtf8(display, renderFull && renderableFull ? fullRenderLimit : Math.min(visibleLimit, fullRenderLimit)))
   // `size` is a byte count while JavaScript strings are UTF-16. Truncation is
   // therefore determined from actual preview/source clipping, never by comparing
   // those incomparable lengths. `safeDisplay` and `display` are valid UTF-8
@@ -72,52 +96,77 @@
   // this avoids falsely flagging UTF-8 text whose byte count exceeds its JS
   // UTF-16 length. Larger responses remain governed by the existing bounded
   // preview/full-render safeguards.
-  $: bodyTruncated = bytes > automaticPreviewLimit && (!renderFull || !renderableFull)
-  $: matches = findMatches(safeDisplay, search)
-  $: if (matchIndex >= matches.length) matchIndex = Math.max(0, matches.length - 1)
-  $: kind = previewKind(headers)
-  $: canIncrementTextPreview = (selectedView === 'pretty' || selectedView === 'raw') && (kind === 'text' || kind === 'json' || kind === 'xml')
-  $: canRenderFull = isLarge && !renderFull && (canIncrementTextPreview || byteEncodedView)
-  $: binaryFilename = contentDispositionFilename(headers)
-  $: headerEntries = response?.headerEntries
-  $: headerRows = headerEntries?.length ? headerEntries.map((entry) => [entry.name, entry.value] as [string, string]) : Object.entries(headers)
-  $: filteredHeaders = headerRows.filter(([name, value]) => `${name} ${value}`.toLowerCase().includes(headerSearch.trim().toLowerCase()))
-  // `liveLog` is named inside each statement so both really do track it; see
-  // the note on websocketEvents below about `$:` and function arguments.
-  $: wsEvents = resolveLiveSessionEvents(liveLog, websocketEvents(response, bytes))
-  $: grpcEventsParsed = resolveLiveSessionEvents(liveLog, grpcEvents(response, bytes))
-  $: jsonValue = parsedJson(response, bytes)
-  $: jsonTree = boundedJsonTree(jsonValue)
-  $: canEmbed = bytes <= embeddedPreviewLimit
-  $: compareOptions = [{ id: 'current', name: 'Current response', body: display, status: response?.status ?? 0, duration: response?.durationMs ?? 0, headers }, ...(request.examples ?? []).map((example) => ({ id: example.id || example.name, name: example.name, body: example.response?.body ?? '', status: example.response?.status ?? 0, duration: example.response?.durationMs ?? 0, headers: Object.fromEntries((example.response?.headers ?? []).map((header) => [header.name, header.value])) }))]
-  $: compareTarget = compareOptions.find((option) => option.id === compareId) ?? compareOptions[0]
-  $: diff = compareId === 'current' ? { rows: [], truncated: false } : lineDiff(display.slice(0, fullRenderLimit), (compareTarget?.body ?? '').slice(0, fullRenderLimit))
-  $: headerComparison = compareId === 'current' ? [] : compareHeaders(headers, compareTarget?.headers ?? {})
-  $: jsonComparison = compareId === 'current' ? null : compareJsonStructure(rawBody, compareTarget?.body ?? '')
-  $: timelineFilterCounts = Object.fromEntries(['all', 'pre', 'post', 'oauth', 'main'].map((filter) => [filter, timeline.filter((entry) => timelineMatchesFilter(entry, filter)).length]))
-  $: filteredTimeline = timeline.filter((entry) => timelineMatchesFilter(entry, timelineFilter) && (!timelineSearch.trim() || timelineSearchText(entry).includes(timelineSearch.trim().toLowerCase())))
-  $: if (`${request.id}:${response?.sentAt ?? ''}:${response?.size ?? 0}` !== responseIdentity) {
-    responseIdentity = `${request.id}:${response?.sentAt ?? ''}:${response?.size ?? 0}`
-    renderFull = false; visibleLimit = automaticPreviewLimit; search = ''; matchIndex = 0; compareId = 'current'; jsonTreeMode = false
-  }
-  $: currentScrollKey = `${request.id}:${response?.sentAt ?? ''}:${selectedView}`
+  const bodyTruncated = $derived(bytes > automaticPreviewLimit && (!renderFull || !renderableFull))
+  const matches = $derived(findMatches(safeDisplay, search))
+  // An EFFECT, not a derivation: it writes matchIndex. A search that narrows
+  // the result list must pull the cursor back inside it, or the highlight
+  // points past the end and Next wraps to nothing.
+  $effect(() => {
+    if (matchIndex >= matches.length) matchIndex = Math.max(0, matches.length - 1)
+  })
+  const kind = $derived(previewKind(headers))
+  const canIncrementTextPreview = $derived((selectedView === 'pretty' || selectedView === 'raw') && (kind === 'text' || kind === 'json' || kind === 'xml'))
+  const canRenderFull = $derived(isLarge && !renderFull && (canIncrementTextPreview || byteEncodedView))
+  const binaryFilename = $derived(contentDispositionFilename(headers))
+  const headerEntries = $derived(response?.headerEntries)
+  const headerRows = $derived(headerEntries?.length ? headerEntries.map((entry) => [entry.name, entry.value] as [string, string]) : Object.entries(headers))
+  const filteredHeaders = $derived(headerRows.filter(([name, value]) => `${name} ${value}`.toLowerCase().includes(headerSearch.trim().toLowerCase())))
+  // `liveLog` is named inside each derivation so both really do track it; see
+  // the note on websocketEvents below about reactive tracking and function
+  // arguments. US-028 kept this shape: $derived tracks what it READS, so a
+  // value reached only through a closure is still not a dependency.
+  const wsEvents = $derived(resolveLiveSessionEvents(liveLog, websocketEvents(response, bytes)))
+  const grpcEventsParsed = $derived(resolveLiveSessionEvents(liveLog, grpcEvents(response, bytes)))
+  const jsonValue = $derived(parsedJson(response, bytes))
+  const jsonTree = $derived(boundedJsonTree(jsonValue))
+  const canEmbed = $derived(bytes <= embeddedPreviewLimit)
+  const compareOptions = $derived([{ id: 'current', name: 'Current response', body: display, status: response?.status ?? 0, duration: response?.durationMs ?? 0, headers }, ...(request.examples ?? []).map((example) => ({ id: example.id || example.name, name: example.name, body: example.response?.body ?? '', status: example.response?.status ?? 0, duration: example.response?.durationMs ?? 0, headers: Object.fromEntries((example.response?.headers ?? []).map((header) => [header.name, header.value])) }))])
+  const compareTarget = $derived(compareOptions.find((option) => option.id === compareId) ?? compareOptions[0])
+  const diff = $derived(compareId === 'current' ? { rows: [], truncated: false } : lineDiff(display.slice(0, fullRenderLimit), (compareTarget?.body ?? '').slice(0, fullRenderLimit)))
+  const headerComparison = $derived(compareId === 'current' ? [] : compareHeaders(headers, compareTarget?.headers ?? {}))
+  const jsonComparison = $derived(compareId === 'current' ? null : compareJsonStructure(rawBody, compareTarget?.body ?? ''))
+  const timelineFilterCounts = $derived(Object.fromEntries(['all', 'pre', 'post', 'oauth', 'main'].map((filter) => [filter, timeline.filter((entry) => timelineMatchesFilter(entry, filter)).length])))
+  const filteredTimeline = $derived(timeline.filter((entry) => timelineMatchesFilter(entry, timelineFilter) && (!timelineSearch.trim() || timelineSearchText(entry).includes(timelineSearch.trim().toLowerCase()))))
+  // Resets the view when a NEW response arrives. Silent if lost: the next
+  // response would inherit the previous one's full-render decision, search term
+  // and comparison target.
+  $effect(() => {
+    const identity = `${request.id}:${response?.sentAt ?? ''}:${response?.size ?? 0}`
+    if (identity !== responseIdentity) {
+      responseIdentity = identity
+      renderFull = false
+      visibleLimit = automaticPreviewLimit
+      search = ''
+      matchIndex = 0
+      compareId = 'current'
+      jsonTreeMode = false
+    }
+  })
+  const currentScrollKey = $derived(`${request.id}:${response?.sentAt ?? ''}:${selectedView}`)
   // A response view is always opened at its automatic bounded preview. This
   // prevents a Base64/Hex view from inheriting a full-render decision made in a
   // different representation of the same response.
-  $: if (`${responseIdentity}:${selectedView}` !== previewViewIdentity) {
-    previewViewIdentity = `${responseIdentity}:${selectedView}`
-    renderFull = false
-    visibleLimit = automaticPreviewLimit
-  }
-  $: if (responseScrollKey !== currentScrollKey) {
-    rememberResponseScroll()
-    responseScrollKey = currentScrollKey
-    restoredScrollKey = ''
-  }
-  $: if (bodyElement && restoredScrollKey !== responseScrollKey) {
-    restoredScrollKey = responseScrollKey
-    requestAnimationFrame(() => restoreResponseScroll(responseScrollKey))
-  }
+  $effect(() => {
+    const identity = `${responseIdentity}:${selectedView}`
+    if (identity !== previewViewIdentity) {
+      previewViewIdentity = identity
+      renderFull = false
+      visibleLimit = automaticPreviewLimit
+    }
+  })
+  $effect(() => {
+    if (responseScrollKey !== currentScrollKey) {
+      rememberResponseScroll()
+      responseScrollKey = currentScrollKey
+      restoredScrollKey = ''
+    }
+  })
+  $effect(() => {
+    if (bodyElement && restoredScrollKey !== responseScrollKey) {
+      restoredScrollKey = responseScrollKey
+      requestAnimationFrame(() => restoreResponseScroll(responseScrollKey))
+    }
+  })
 
   function nextMatch(direction: number) {
     if (matches.length === 0) return
@@ -160,10 +209,17 @@
     return `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline';"><base href="about:blank">${body}`
   }
 
-  // `response` and `size` are taken as parameters (not closed over) so that the `$:` statements
-  // calling these functions declare real reactive dependencies. Closing over them made the
-  // statements depend only on the immutable function bindings, so they ran once at mount and
-  // went stale on every subsequent response (svelte/no-immutable-reactive-statements).
+  // `response` and `size` are taken as parameters (not closed over) so the
+  // derivations calling these functions declare real reactive dependencies.
+  // Closing over them made the statements depend only on the immutable function
+  // bindings, so they ran once at mount and went stale on every subsequent
+  // response (svelte/no-immutable-reactive-statements).
+  //
+  // US-028 did not change this. $derived tracks values READ during evaluation,
+  // and a value reached through a closure rather than an argument is read
+  // inside the function body — which is tracked — but the original bug was that
+  // the ARGUMENT list was empty, so the statement had no dependency to
+  // invalidate on. Passing them explicitly is still what makes it correct.
   function websocketEvents(response: main.Response | undefined, size: number) {
     if (size > fullRenderLimit || response?.previewMode !== 'websocket' || !response.body) return [] as Array<Record<string, string>>
     try { return JSON.parse(response.body) as Array<Record<string, string>> } catch { return [] }
@@ -236,26 +292,26 @@
       </section>
     {:else}
     <div class="response-inspector-toolbar">
-      <select aria-label="Response view" data-testid="response-view-select" value={selectedView} on:input={selectResponseView} on:change={selectResponseView}>
+      <select aria-label="Response view" data-testid="response-view-select" value={selectedView} oninput={selectResponseView} onchange={selectResponseView}>
         <option value="pretty">Pretty</option><option value="raw">Raw</option><option value="base64">Base64</option><option value="hex">Hex</option>
       </select>
       <span aria-live="polite">{bytes.toLocaleString()} bytes{bodyTruncated ? ' · preview truncated' : ''}</span>
-      <button type="button" aria-label="Copy visible response preview" on:click={() => void copyResponse(safeDisplay)}>Copy preview</button><span aria-live="polite">{copyStatus}</span>
-      <button type="button" aria-label="Download exact response body" on:click={() => void onDownloadBody()}>Download</button>
+      <button type="button" aria-label="Copy visible response preview" onclick={() => void copyResponse(safeDisplay)}>Copy preview</button><span aria-live="polite">{copyStatus}</span>
+      <button type="button" aria-label="Download exact response body" onclick={() => void onDownloadBody()}>Download</button>
       {#if canRenderFull}
-        <button type="button" on:click={() => (renderFull = true)} disabled={!renderableFull} title={!renderableFull ? 'This response exceeds the 1 MB safe render limit; download it instead.' : undefined}>Render full</button>
+        <button type="button" onclick={() => (renderFull = true)} disabled={!renderableFull} title={!renderableFull ? 'This response exceeds the 1 MB safe render limit; download it instead.' : undefined}>Render full</button>
       {/if}
-      {#if canIncrementTextPreview && bodyTruncated && !renderFull && visibleLimit < fullRenderLimit}<button type="button" on:click={() => (visibleLimit = Math.min(fullRenderLimit, visibleLimit + automaticPreviewLimit))}>Load more</button>{/if}
-      {#if selectedView === 'pretty' && kind === 'json' && jsonValue}<button type="button" aria-pressed={jsonTreeMode} on:click={() => (jsonTreeMode = !jsonTreeMode)}>JSON tree</button>{/if}
+      {#if canIncrementTextPreview && bodyTruncated && !renderFull && visibleLimit < fullRenderLimit}<button type="button" onclick={() => (visibleLimit = Math.min(fullRenderLimit, visibleLimit + automaticPreviewLimit))}>Load more</button>{/if}
+      {#if selectedView === 'pretty' && kind === 'json' && jsonValue}<button type="button" aria-pressed={jsonTreeMode} onclick={() => (jsonTreeMode = !jsonTreeMode)}>JSON tree</button>{/if}
     </div>
     {#if bytes > fullRenderLimit}
       <div class="response-warning">Large response: automatic rendering is bounded to {Math.round(automaticPreviewLimit / 1024)} KB. Download for the full payload.</div>
     {/if}
     <div class="response-search">
-      <input aria-label="Search response body" bind:value={search} on:keydown={searchKeydown} placeholder="Search response" />
+      <input aria-label="Search response body" bind:value={search} onkeydown={searchKeydown} placeholder="Search response" />
       <span aria-live="polite">{matches.length === 0 ? 'No matches' : `${matchIndex + 1} of ${matches.length}`}</span>
-      <button type="button" aria-label="Previous response match" on:click={() => nextMatch(-1)}>Previous</button>
-      <button type="button" aria-label="Next response match" on:click={() => nextMatch(1)}>Next</button>
+      <button type="button" aria-label="Previous response match" onclick={() => nextMatch(-1)}>Previous</button>
+      <button type="button" aria-label="Next response match" onclick={() => nextMatch(1)}>Next</button>
     </div>
     {#if selectedView === 'pretty' && kind === 'image' && canEmbed && response?.bodyBase64}
       <img class="response-media" alt="Response preview" src={`data:${contentType(headers)};base64,${response.bodyBase64}`} />
@@ -302,18 +358,18 @@
     {/if}
     {/if}
   {:else if selectedTab === 'headers'}
-    <div class="response-search"><input aria-label="Search headers" bind:value={headerSearch} placeholder="Search headers" /><span aria-live="polite">{filteredHeaders.length === 0 ? 'No matching headers' : `${filteredHeaders.length} of ${headerRows.length}`}</span><button type="button" on:click={() => void copyResponse(filteredHeaders.map(([name, value]) => `${name}: ${value}`).join('\n'))}>Copy headers</button><span aria-live="polite">{copyStatus}</span></div>
+    <div class="response-search"><input aria-label="Search headers" bind:value={headerSearch} placeholder="Search headers" /><span aria-live="polite">{filteredHeaders.length === 0 ? 'No matching headers' : `${filteredHeaders.length} of ${headerRows.length}`}</span><button type="button" onclick={() => void copyResponse(filteredHeaders.map(([name, value]) => `${name}: ${value}`).join('\n'))}>Copy headers</button><span aria-live="polite">{copyStatus}</span></div>
     {#if filteredHeaders.length === 0}<div class="empty-state">No headers match this search.</div>{:else}<table><tbody>{#each filteredHeaders as [name, value] (name)}<tr><td>{name}</td><td>{value}</td></tr>{/each}</tbody></table>{/if}
   {:else if selectedTab === 'metadata' || selectedTab === 'trailers'}
     {@const rows = selectedTab === 'metadata' ? response?.metadata ?? [] : response?.trailers ?? []}
-    <div class="response-search"><span>{rows.length} {selectedTab}</span><button type="button" on:click={() => void copyResponse(rows.map((row) => `${row.name}: ${row.value}`).join('\n'))} disabled={rows.length === 0}>Copy {selectedTab}</button><span aria-live="polite">{copyStatus}</span></div>
+    <div class="response-search"><span>{rows.length} {selectedTab}</span><button type="button" onclick={() => void copyResponse(rows.map((row) => `${row.name}: ${row.value}`).join('\n'))} disabled={rows.length === 0}>Copy {selectedTab}</button><span aria-live="polite">{copyStatus}</span></div>
     {#if rows.length === 0}<div class="empty-state">No {selectedTab}</div>{:else}<table><tbody>{#each rows as row, index (index)}<tr><td>{row.name}</td><td>{row.value}</td></tr>{/each}</tbody></table>{/if}
   {:else if selectedTab === 'timeline'}
-    <div class="timeline-tools"><input aria-label="Search timeline" bind:value={timelineSearch} placeholder="Search phase, kind, source, payload, metadata…" /><select aria-label="Timeline phase filter" bind:value={timelineFilter}><option value="all">All ({timelineFilterCounts.all})</option><option value="pre">Pre-request ({timelineFilterCounts.pre})</option><option value="post">Post-response ({timelineFilterCounts.post})</option><option value="oauth">OAuth ({timelineFilterCounts.oauth})</option><option value="main">Request ({timelineFilterCounts.main})</option></select><span aria-live="polite">{filteredTimeline.length} of {timeline.length}</span><button type="button" on:click={() => void copyResponse(JSON.stringify(filteredTimeline, null, 2))}>Copy</button><button type="button" on:click={() => void onExportTimeline()}>Export</button></div>
+    <div class="timeline-tools"><input aria-label="Search timeline" bind:value={timelineSearch} placeholder="Search phase, kind, source, payload, metadata…" /><select aria-label="Timeline phase filter" bind:value={timelineFilter}><option value="all">All ({timelineFilterCounts.all})</option><option value="pre">Pre-request ({timelineFilterCounts.pre})</option><option value="post">Post-response ({timelineFilterCounts.post})</option><option value="oauth">OAuth ({timelineFilterCounts.oauth})</option><option value="main">Request ({timelineFilterCounts.main})</option></select><span aria-live="polite">{filteredTimeline.length} of {timeline.length}</span><button type="button" onclick={() => void copyResponse(JSON.stringify(filteredTimeline, null, 2))}>Copy</button><button type="button" onclick={() => void onExportTimeline()}>Export</button></div>
     {#if filteredTimeline.length === 0}
       <div class="empty-state">No timeline entries match this filter.</div>
     {:else}
-      <div class="timeline">{#each filteredTimeline as entry, index (`${entry.id}:${entry.phase ?? ''}:${entry.at ?? ''}:${index}`)}<article class="timeline-entry"><button type="button" aria-expanded={expandedTimelineID === entry.id} on:click={() => expandedTimelineID = expandedTimelineID === entry.id ? '' : entry.id}><span>{entry.status || entry.statusText || '-'}</span><strong>{entry.method || entry.kind}</strong><span>{entry.url || entry.message}</span><small>{timelinePhase(entry)} · {entry.duration || 0} ms</small></button>{#if expandedTimelineID === entry.id}<div class="timeline-detail">{#if entry.sourceFile}<small>Source: {entry.sourceFile}</small>{/if}{#if entry.source}<small>Kind/source: {entry.kind} · {entry.source}</small>{/if}<code>{entry.error || entry.payload || entry.message}</code>{#if (entry.metadata?.length ?? 0) > 0}<table data-testid="timeline-grpc-metadata"><tbody>{#each entry.metadata ?? [] as row, index (index)}<tr><td>{row.name}</td><td>{row.value}</td></tr>{/each}</tbody></table>{/if}{#if (entry.trailers?.length ?? 0) > 0}<table data-testid="timeline-grpc-trailers"><tbody>{#each entry.trailers ?? [] as row, index (index)}<tr><td>{row.name}</td><td>{row.value}</td></tr>{/each}</tbody></table>{/if}</div>{/if}</article>{/each}</div>
+      <div class="timeline">{#each filteredTimeline as entry, index (`${entry.id}:${entry.phase ?? ''}:${entry.at ?? ''}:${index}`)}<article class="timeline-entry"><button type="button" aria-expanded={expandedTimelineID === entry.id} onclick={() => expandedTimelineID = expandedTimelineID === entry.id ? '' : entry.id}><span>{entry.status || entry.statusText || '-'}</span><strong>{entry.method || entry.kind}</strong><span>{entry.url || entry.message}</span><small>{timelinePhase(entry)} · {entry.duration || 0} ms</small></button>{#if expandedTimelineID === entry.id}<div class="timeline-detail">{#if entry.sourceFile}<small>Source: {entry.sourceFile}</small>{/if}{#if entry.source}<small>Kind/source: {entry.kind} · {entry.source}</small>{/if}<code>{entry.error || entry.payload || entry.message}</code>{#if (entry.metadata?.length ?? 0) > 0}<table data-testid="timeline-grpc-metadata"><tbody>{#each entry.metadata ?? [] as row, index (index)}<tr><td>{row.name}</td><td>{row.value}</td></tr>{/each}</tbody></table>{/if}{#if (entry.trailers?.length ?? 0) > 0}<table data-testid="timeline-grpc-trailers"><tbody>{#each entry.trailers ?? [] as row, index (index)}<tr><td>{row.name}</td><td>{row.value}</td></tr>{/each}</tbody></table>{/if}</div>{/if}</article>{/each}</div>
     {/if}
   {:else if selectedTab === 'visualizer'}
     {#if !visualizerDocument}

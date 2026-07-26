@@ -2263,3 +2263,45 @@ US-027 - Runes migration, lib/. DONE.
 
   Gates: go test 38.8s 0, svelte-check 205 files 0/0, eslint 0,
   npm test 197/197, vite build succeeds (initial chunk 478 KB).
+
+US-028 - Runes migration, workbench/. DONE.
+  All TEN components migrated (the story says nine; LazyCodeEditor was added
+  later by US-036). 88 props, 66 reactive statements, 88 event handlers.
+  svelte-check 205/0/0.
+
+  THE SPLIT THAT MATTERS: $: is one syntax for two different things, and runes
+  make you choose.
+    $: x = expr        a DERIVATION  -> $derived
+    $: if (…) y = …    an EFFECT     -> $effect
+  ResponseInspector alone had 37 derivations and 5 effects. Getting one wrong
+  in the effect->derived direction is SILENT: a derivation is only evaluated
+  when something reads it, and nothing reads these, so the code simply never
+  runs. NC1 proves it - converting the matchIndex clamp to a $derived leaves
+  svelte-check at 0/0 while the search cursor would point past the end of a
+  narrowed result list forever.
+
+  FOUR MORE THINGS RUNES MODE SURFACES, all silent:
+    local `let` stops being reactive        24 variables across the ten
+    on:event is deprecated                  88 handlers
+    event modifiers are gone                on:submit|preventDefault in
+                                            WorkspaceWindowPicker - without the
+                                            explicit call the form submits and
+                                            the whole app navigates away
+    <slot> and <svelte:component> deprecated  2 slots became snippets (which
+                                            also had to change in App.svelte),
+                                            1 dynamic component became {@const}
+
+  MY AUTOMATION WAS WRONG AGAIN, IN A NEW WAY. I wrote a depth-aware scanner to
+  wrap `$: name = expr` in $derived(...), tracking brackets and string literals
+  so multi-line expressions closed in the right place. It still mis-split
+  `bytes`, because BALANCED PARENS ARE NOT A COMPLETE EXPRESSION - the ternary
+  continued onto the next line after its parens closed. One case out of 37.
+  Found by svelte-check, fixed by hand, and I checked the other 36 for the same
+  shape rather than assuming.
+
+  That is the second time this story that generated code cost more than typing
+  it (US-027's regex split function types at the `=` in `=>`). The props blocks
+  here were all written by hand for exactly that reason.
+
+  Gates: go test 38.9s 0, svelte-check 205 files 0/0, eslint 0,
+  npm test 197/197, vite build succeeds.

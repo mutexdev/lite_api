@@ -8789,7 +8789,7 @@
           onGlobalEnvironmentChange={setActiveGlobalEnvironment}
           onEnvironmentChange={(environmentID) => { selectedEnvironmentId = environmentID }}
         >
-          <svelte:fragment slot="recovery">
+          {#snippet recovery()}
             {#if recoveryEntries.length > 0}
               <details class="recovery-center" aria-live="polite">
                 <summary aria-label={`${recoveryEntries.length} recoverable deletion${recoveryEntries.length === 1 ? '' : 's'}`}>Recovery ({recoveryEntries.length})</summary>
@@ -8809,7 +8809,7 @@
                 </div>
               </details>
             {/if}
-          </svelte:fragment>
+          {/snippet}
         </WorkspaceCommandBar>
         {#if (state.openTabs ?? []).length > 0}
           <nav class="tabs" aria-label="Open tabs">
@@ -9029,7 +9029,7 @@
             disabled={busy !== '' || hasActiveHTTPTransport}
             orientation={responsePaneOrientation}
           >
-            <svelte:fragment slot="request-line">
+            {#snippet requestLine()}
               {#snippet variableURLField()}
                 <div class="url-variable-editor">
                   <input
@@ -9125,7 +9125,7 @@
                 onMethodChange={(method) => patchField('method', method)}
                 onGenerateGrpcurl={beginGenerateGrpcurlCommand}
               />
-            </svelte:fragment>
+            {/snippet}
           </RequestCommandStrip>
           <div class="request-side">
             <div class="request-variable-region">

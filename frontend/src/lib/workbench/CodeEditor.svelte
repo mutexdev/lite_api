@@ -21,14 +21,28 @@
   const largeDocumentBytes = 1024 * 1024
   const configurationCompartment = new Compartment()
 
-  export let value = ''
-  export let editorKey = ''
-  export let language: Language = 'text'
-  export let ariaLabel = 'Code editor'
-  export let testId = 'code-editor'
-  export let fontSize = 13
-  export let onChange: (value: string) => void
-  export let variableInfo: VariableInfo[] = []
+  // US-028 — runes.
+  type Props = {
+    value?: string
+    editorKey?: string
+    language?: Language
+    ariaLabel?: string
+    testId?: string
+    fontSize?: number
+    onChange: (value: string) => void
+    variableInfo?: VariableInfo[]
+  }
+
+  let {
+    value = '',
+    editorKey = '',
+    language = 'text',
+    ariaLabel = 'Code editor',
+    testId = 'code-editor',
+    fontSize = 13,
+    onChange,
+    variableInfo = []
+  }: Props = $props()
 
   let host: HTMLDivElement
   let view: EditorView | null = null
@@ -36,9 +50,12 @@
   let appliedValue = ''
   let emittedValue = ''
   let suppressChange = false
-  let validation = 'Empty'
-  let valid = true
-  let editorVariables: EditorVariable[] = []
+  // $state: these three are read by the template. As plain lets the validation
+  // message and the variable chips would freeze at their initial values while
+  // the editor kept working — visible only as stale UI.
+  let validation = $state('Empty')
+  let valid = $state(true)
+  let editorVariables = $state<EditorVariable[]>([])
   let configuredKey = ''
 
   // US-033. Both of these ran on every keystroke: the encode allocated a
@@ -48,22 +65,42 @@
   let documentSizeMemo: DocumentSizeMemo | null = null
   let signatureMemo: SignatureMemo | null = null
 
-  $: large = (() => {
+  // $derived.by, not $derived: these need a function body to thread the memo
+  // through. The memos are plain lets rather than $state precisely so writing
+  // them here is a cache update and not a reactive mutation — assigning to
+  // $state inside a derivation is what Svelte rejects.
+  const large = $derived.by(() => {
     const result = isLargeDocument(value, largeDocumentBytes, documentSizeMemo)
     documentSizeMemo = result.memo
     return result.large
-  })()
+  })
 
-  $: currentVariableSignature = (() => {
+  const currentVariableSignature = $derived.by(() => {
     const result = variableSignature(variableInfo, signatureMemo)
     signatureMemo = result.memo
     return result.signature
-  })()
+  })
 
-  $: configurationKey = `${language}:${large}:${fontSize}:${ariaLabel}:${currentVariableSignature}`
-  $: if (view && configurationKey !== configuredKey) configureEditor()
-  $: if (view) synchronizeEditor()
-  $: if (!view) updateLocalPresentation(value)
+  const configurationKey = $derived(
+    `${language}:${large}:${fontSize}:${ariaLabel}:${currentVariableSignature}`
+  )
+
+  // These three are SIDE EFFECTS, not derivations: they reach into CodeMirror
+  // rather than producing a value. Converting them to $derived would silently
+  // never run them — a derivation is only evaluated when something reads it,
+  // and nothing reads these.
+  //
+  // configureEditor sets configuredKey, which the guard reads, so the effect
+  // settles after one pass rather than looping.
+  $effect(() => {
+    if (view && configurationKey !== configuredKey) configureEditor()
+  })
+  $effect(() => {
+    if (view) synchronizeEditor()
+  })
+  $effect(() => {
+    if (!view) updateLocalPresentation(value)
+  })
 
   function makeState(doc: string) {
     return EditorState.create({ doc, extensions: editorExtensions() })
@@ -309,7 +346,7 @@
 </script>
 
   <div class="code-editor" data-testid={testId}>
-  <div class="code-editor-toolbar"><button type="button" data-testid="editor-search-control" on:click={() => view && openSearchPanel(view)}>Search</button>{#if language === 'json' || language === 'xml'}<button type="button" data-testid="editor-format-control" disabled={!valid || large || validation === 'Empty'} on:click={format}>Format</button><button type="button" data-testid="editor-minify-control" disabled={!valid || large || validation === 'Empty'} on:click={minify}>Minify</button>{/if}<span>{fontSize}px</span><span data-testid="editor-validation" aria-live="polite" class:invalid={!valid}>{validation}</span></div>
+  <div class="code-editor-toolbar"><button type="button" data-testid="editor-search-control" onclick={() => view && openSearchPanel(view)}>Search</button>{#if language === 'json' || language === 'xml'}<button type="button" data-testid="editor-format-control" disabled={!valid || large || validation === 'Empty'} onclick={format}>Format</button><button type="button" data-testid="editor-minify-control" disabled={!valid || large || validation === 'Empty'} onclick={minify}>Minify</button>{/if}<span>{fontSize}px</span><span data-testid="editor-validation" aria-live="polite" class:invalid={!valid}>{validation}</span></div>
   {#if large}<div class="editor-large" data-testid="editor-large-mode">Large document: syntax parsing, variable marking, and format controls are disabled; full content remains editable and searchable.</div>{/if}
   <div bind:this={host} data-testid={`${testId}-surface`}></div>
   {#if editorVariables.length}<details class="editor-variables"><summary>Variables in this editor ({editorVariables.length})</summary>{#each editorVariables as variable, index (index)}<div class={`editor-variable ${variable.state}`}><strong>{variable.token}</strong> · {variable.scope} · {variable.secret ? 'secret value hidden' : variable.state === 'valid' ? variable.resolvedValue : variable.state}</div>{/each}</details>{/if}

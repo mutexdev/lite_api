@@ -2,20 +2,38 @@
   import { onMount, tick } from 'svelte'
   import type { CommandOption } from './workbenchCommands'
 
-  export let globalOptions: CommandOption[] = []
-  export let environmentOptions: CommandOption[] = []
-  export let globalValue = ''
-  export let environmentValue = ''
-  export let globalName = 'none'
-  export let environmentName = 'No environment'
-  export let onGlobalChange: (id: string) => void | Promise<void>
-  export let onEnvironmentChange: (id: string) => void | Promise<void>
-  export let onManage: () => void | Promise<void>
+  // US-028 — runes.
+  type Props = {
+    globalOptions?: CommandOption[]
+    environmentOptions?: CommandOption[]
+    globalValue?: string
+    environmentValue?: string
+    globalName?: string
+    environmentName?: string
+    onGlobalChange: (id: string) => void | Promise<void>
+    onEnvironmentChange: (id: string) => void | Promise<void>
+    onManage: () => void | Promise<void>
+  }
+
+  let {
+    globalOptions = [],
+    environmentOptions = [],
+    globalValue = '',
+    environmentValue = '',
+    globalName = 'none',
+    environmentName = 'No environment',
+    onGlobalChange,
+    onEnvironmentChange,
+    onManage
+  }: Props = $props()
 
   let root: HTMLDivElement
   let trigger: HTMLButtonElement
-  let panel: HTMLDivElement
-  let open = false
+  // $state: `open` is what the dropdown's visibility reads. As a plain let it
+  // would still be assigned and the menu would simply never appear — the
+  // component compiles and renders either way.
+  let panel = $state<HTMLDivElement | undefined>(undefined)
+  let open = $state(false)
 
   async function show() {
     open = true
@@ -64,8 +82,8 @@
     aria-label={`Environment context. Global: ${globalName}. Collection: ${environmentName}`}
     title={`Global: ${globalName} · Collection: ${environmentName}`}
     data-testid="environment-context-menu"
-    on:click={() => open ? close(true) : void show()}
-    on:keydown={keydown}
+    onclick={() => open ? close(true) : void show()}
+    onkeydown={keydown}
   >
     <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m10 2.5 7 4-7 4-7-4zM3 10l7 4 7-4M3 13.5l7 4 7-4" /></svg>
     <span>{environmentName}</span>
@@ -73,22 +91,22 @@
   </button>
 
   {#if open}
-    <div class="environment-panel" role="dialog" tabindex="-1" aria-label="Environment context" bind:this={panel} on:keydown={keydown}>
+    <div class="environment-panel" role="dialog" tabindex="-1" aria-label="Environment context" bind:this={panel} onkeydown={keydown}>
       <label>
         <span>Global environment</span>
-        <select aria-label="Global environment" value={globalValue} on:change={(event) => void onGlobalChange(event.currentTarget.value)}>
+        <select aria-label="Global environment" value={globalValue} onchange={(event) => void onGlobalChange(event.currentTarget.value)}>
           <option value="">None</option>
           {#each globalOptions as option (option.id)}<option value={option.id}>{option.name}</option>{/each}
         </select>
       </label>
       <label>
         <span>Collection environment</span>
-        <select aria-label="Active environment" value={environmentValue} on:change={(event) => void onEnvironmentChange(event.currentTarget.value)}>
+        <select aria-label="Active environment" value={environmentValue} onchange={(event) => void onEnvironmentChange(event.currentTarget.value)}>
           <option value="">No environment</option>
           {#each environmentOptions as option (option.id)}<option value={option.id}>{option.name}</option>{/each}
         </select>
       </label>
-      <button type="button" on:click={() => { close(false); void onManage() }}>Manage environments…</button>
+      <button type="button" onclick={() => { close(false); void onManage() }}>Manage environments…</button>
     </div>
   {/if}
 </div>

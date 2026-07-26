@@ -1,33 +1,66 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte'
   import CommandOverflowMenu from './CommandOverflowMenu.svelte'
   import EnvironmentContextMenu from './EnvironmentContextMenu.svelte'
   import type { CommandOption, WorkbenchCommandID, WorkbenchCommandItem } from './workbenchCommands'
 
-  export let sidebarCollapsed = false
-  export let workspaceName = 'Workspace'
-  export let workspaceOptions: CommandOption[] = []
-  export let workspaceValue = ''
-  export let collectionName = 'Collection'
-  export let requestName = 'Request'
-  export let activeView = 'request'
-  export let globalEnvironmentOptions: CommandOption[] = []
-  export let environmentOptions: CommandOption[] = []
-  export let globalEnvironmentValue = ''
-  export let environmentValue = ''
-  export let globalEnvironmentName = 'none'
-  export let environmentName = 'No environment'
-  export let notificationCount = 0
-  export let gitConnected = false
-  export let runningCollectionName = ''
-  export let cancellingRun = false
-  export let canCreateFolder = false
-  export let canCreateRequest = false
-  export let onCommand: (id: WorkbenchCommandID, invoker: HTMLElement | null) => void | Promise<void>
-  export let onWorkspaceChange: (id: string) => void | Promise<void>
-  export let onGlobalEnvironmentChange: (id: string) => void | Promise<void>
-  export let onEnvironmentChange: (id: string) => void | Promise<void>
+  // US-028 — runes. 23 props, none bound by the parent.
+  type Props = {
+    sidebarCollapsed?: boolean
+    workspaceName?: string
+    workspaceOptions?: CommandOption[]
+    workspaceValue?: string
+    collectionName?: string
+    requestName?: string
+    activeView?: string
+    globalEnvironmentOptions?: CommandOption[]
+    environmentOptions?: CommandOption[]
+    globalEnvironmentValue?: string
+    environmentValue?: string
+    globalEnvironmentName?: string
+    environmentName?: string
+    notificationCount?: number
+    gitConnected?: boolean
+    runningCollectionName?: string
+    cancellingRun?: boolean
+    canCreateFolder?: boolean
+    canCreateRequest?: boolean
+    onCommand: (id: WorkbenchCommandID, invoker: HTMLElement | null) => void | Promise<void>
+    onWorkspaceChange: (id: string) => void | Promise<void>
+    onGlobalEnvironmentChange: (id: string) => void | Promise<void>
+    onEnvironmentChange: (id: string) => void | Promise<void>
+    // Replaces <slot name="recovery">, deprecated in runes mode.
+    recovery?: Snippet
+  }
 
-  $: newItems = [
+  let {
+    sidebarCollapsed = false,
+    workspaceName = 'Workspace',
+    workspaceOptions = [],
+    workspaceValue = '',
+    collectionName = 'Collection',
+    requestName = 'Request',
+    activeView = 'request',
+    globalEnvironmentOptions = [],
+    environmentOptions = [],
+    globalEnvironmentValue = '',
+    environmentValue = '',
+    globalEnvironmentName = 'none',
+    environmentName = 'No environment',
+    notificationCount = 0,
+    gitConnected = false,
+    runningCollectionName = '',
+    cancellingRun = false,
+    canCreateFolder = false,
+    canCreateRequest = false,
+    onCommand,
+    onWorkspaceChange,
+    onGlobalEnvironmentChange,
+    onEnvironmentChange,
+    recovery
+  }: Props = $props()
+
+  const newItems = $derived([
     { id: 'new-http', label: 'HTTP', group: 'Request', disabled: !canCreateRequest, disabledReason: 'Open a collection first' },
     { id: 'new-graphql', label: 'GraphQL', group: 'Request', disabled: !canCreateRequest, disabledReason: 'Open a collection first' },
     { id: 'new-grpc', label: 'gRPC', group: 'Request', disabled: !canCreateRequest, disabledReason: 'Open a collection first' },
@@ -36,9 +69,9 @@
     { id: 'new-collection', label: 'Collection', group: 'Organize' },
     { id: 'import', label: 'Import collection…', group: 'Workspace', shortcut: '⌘O' },
     { id: 'open-workspace', label: 'Open workspace in new window…', group: 'Workspace' }
-  ] as WorkbenchCommandItem[]
+  ] as WorkbenchCommandItem[])
 
-  $: moreItems = [
+  const moreItems = $derived([
     { id: 'workspace-search', label: 'Search workspace', group: 'Workspace', shortcut: '⌘K' },
     { id: 'open-environments', label: 'Manage environments', group: 'Workspace', shortcut: '⌘E' },
     { id: 'open-collection-settings', label: 'Collection settings', group: 'Workspace', disabled: !canCreateRequest },
@@ -48,7 +81,7 @@
     { id: 'import', label: 'Import', group: 'App', shortcut: '⌘O' },
     { id: 'open-keyboard-shortcuts', label: 'Keyboard shortcuts', group: 'App' },
     { id: 'open-preferences', label: 'Preferences', group: 'App', shortcut: '⌘,' }
-  ] as WorkbenchCommandItem[]
+  ] as WorkbenchCommandItem[])
 </script>
 
 <div class="workspace-command-bar" role="toolbar" aria-label="Workspace command bar">
@@ -59,7 +92,7 @@
       aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
       title={sidebarCollapsed ? 'Show sidebar (⌘\\)' : 'Hide sidebar (⌘\\)'}
       data-testid="toggle-sidebar-button"
-      on:click={(event) => void onCommand('toggle-sidebar', event.currentTarget)}
+      onclick={(event) => void onCommand('toggle-sidebar', event.currentTarget)}
     >
       <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3" width="15" height="14" rx="2" /><path d="M7 3v14" />{#if sidebarCollapsed}<path d="m10 7 3 3-3 3" />{:else}<path d="m13 7-3 3 3 3" />{/if}</svg>
     </button>
@@ -67,11 +100,11 @@
     <CommandOverflowMenu label="Add resource" icon="add" align="left" items={newItems} onSelect={onCommand} testId="command-new-menu" />
 
     {#if workspaceOptions.length > 1}
-      <select class="workspace-select" aria-label="Workspace" title="Workspace" value={workspaceValue} on:change={(event) => void onWorkspaceChange(event.currentTarget.value)}>
+      <select class="workspace-select" aria-label="Workspace" title="Workspace" value={workspaceValue} onchange={(event) => void onWorkspaceChange(event.currentTarget.value)}>
         {#each workspaceOptions as option (option.id)}<option value={option.id}>{option.name}</option>{/each}
       </select>
     {:else}
-      <button class="workspace-button" type="button" aria-label={`Open another workspace in a new window. Current workspace: ${workspaceName}`} title="Open workspace in a new window" on:click={(event) => void onCommand('open-workspace', event.currentTarget)}>
+      <button class="workspace-button" type="button" aria-label={`Open another workspace in a new window. Current workspace: ${workspaceName}`} title="Open workspace in a new window" onclick={(event) => void onCommand('open-workspace', event.currentTarget)}>
         <span>{workspaceName}</span><span aria-hidden="true">↗</span>
       </button>
     {/if}
@@ -88,16 +121,16 @@
       onManage={() => onCommand('open-environments', null)}
     />
 
-    <button class="command-icon cookie-button" type="button" aria-label="Open cookie jar" title="Cookie jar" on:click={(event) => void onCommand('open-cookies', event.currentTarget)}>
+    <button class="command-icon cookie-button" type="button" aria-label="Open cookie jar" title="Cookie jar" onclick={(event) => void onCommand('open-cookies', event.currentTarget)}>
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.7 10.2A7 7 0 1 1 9.8 3.3a3.2 3.2 0 0 0 3.5 3.5 3.2 3.2 0 0 0 3.4 3.4Z" /><circle cx="7" cy="8" r=".8" /><circle cx="9.5" cy="13" r=".8" /><circle cx="5.8" cy="12.5" r=".8" /></svg>
       <span>Cookies</span>
     </button>
   </div>
 
   <div class="command-context" aria-label="Active context">
-    <button type="button" class:active={activeView === 'collection'} title={`Open collection settings for ${collectionName}`} on:click={(event) => void onCommand('open-collection-settings', event.currentTarget)}>{collectionName}</button>
+    <button type="button" class:active={activeView === 'collection'} title={`Open collection settings for ${collectionName}`} onclick={(event) => void onCommand('open-collection-settings', event.currentTarget)}>{collectionName}</button>
     <span aria-hidden="true">/</span>
-    <button type="button" class:active={activeView === 'request'} title={`Open request ${requestName}`} on:click={(event) => void onCommand('open-request', event.currentTarget)}>{requestName}</button>
+    <button type="button" class:active={activeView === 'request'} title={`Open request ${requestName}`} onclick={(event) => void onCommand('open-request', event.currentTarget)}>{requestName}</button>
   </div>
 
   <div class="command-trailing">
@@ -108,7 +141,7 @@
       aria-label={runningCollectionName ? (cancellingRun ? `Cancelling collection run: ${runningCollectionName}` : `Cancel collection run: ${runningCollectionName}`) : 'Open collection runner'}
       title={runningCollectionName ? (cancellingRun ? 'Cancelling run…' : `Cancel ${runningCollectionName}`) : 'Collection runner'}
       disabled={cancellingRun}
-      on:click={(event) => void onCommand(runningCollectionName ? 'cancel-run' : 'open-runner', event.currentTarget)}
+      onclick={(event) => void onCommand(runningCollectionName ? 'cancel-run' : 'open-runner', event.currentTarget)}
     >
       {#if runningCollectionName}
         <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="5" y="5" width="10" height="10" rx="1.5" /></svg><span>{cancellingRun ? 'Cancelling' : 'Running'}</span>
@@ -117,22 +150,22 @@
       {/if}
     </button>
 
-    <button class:connected={gitConnected} class="command-status git-status" type="button" aria-label={gitConnected ? `Git connected for ${collectionName}` : 'Local collection. Open collection settings'} title={gitConnected ? 'Git connected' : 'Local collection'} on:click={(event) => void onCommand('open-collection-settings', event.currentTarget)}>
+    <button class:connected={gitConnected} class="command-status git-status" type="button" aria-label={gitConnected ? `Git connected for ${collectionName}` : 'Local collection. Open collection settings'} title={gitConnected ? 'Git connected' : 'Local collection'} onclick={(event) => void onCommand('open-collection-settings', event.currentTarget)}>
       <span class="status-dot" aria-hidden="true"></span><span>{gitConnected ? 'Git' : 'Local'}</span>
     </button>
 
-    <slot name="recovery" />
+    {@render recovery?.()}
 
-    <button class="command-icon notification-button" type="button" aria-label={`Notifications${notificationCount ? `, ${notificationCount} unread` : ''}`} title="Notifications" on:click={(event) => void onCommand('open-notifications', event.currentTarget)}>
+    <button class="command-icon notification-button" type="button" aria-label={`Notifications${notificationCount ? `, ${notificationCount} unread` : ''}`} title="Notifications" onclick={(event) => void onCommand('open-notifications', event.currentTarget)}>
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 14h11l-1.3-1.8V8a4.2 4.2 0 0 0-8.4 0v4.2zM8 16h4" /></svg>
       {#if notificationCount > 0}<strong>{notificationCount}</strong>{/if}
     </button>
 
-    <button class="command-icon" type="button" aria-label="Change response orientation" title="Change response orientation (⌘J)" data-testid="command-layout-button" on:click={(event) => void onCommand('change-orientation', event.currentTarget)}>
+    <button class="command-icon" type="button" aria-label="Change response orientation" title="Change response orientation (⌘J)" data-testid="command-layout-button" onclick={(event) => void onCommand('change-orientation', event.currentTarget)}>
       <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3" width="15" height="14" rx="2" /><path d="M10 3v14" /></svg>
     </button>
 
-    <button class="command-icon command-palette-button" type="button" aria-label="Open command palette" title="Command palette (⌘⇧P)" on:click={(event) => void onCommand('command-palette', event.currentTarget)}>
+    <button class="command-icon command-palette-button" type="button" aria-label="Open command palette" title="Command palette (⌘⇧P)" onclick={(event) => void onCommand('command-palette', event.currentTarget)}>
       <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5" /><path d="m12.2 12.2 4 4" /></svg><span>Commands</span>
     </button>
 

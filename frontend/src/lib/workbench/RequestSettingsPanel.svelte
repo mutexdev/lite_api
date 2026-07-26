@@ -1,12 +1,19 @@
 <script lang="ts">
   import type { main } from '../../../wailsjs/go/models'
 
-  export let requestType = 'http'
-  export let settings: main.RequestSettings
-  export let onChange: (updates: Partial<main.RequestSettings>) => void
+  // US-028 — runes.
+  type Props = {
+    requestType?: string
+    settings: main.RequestSettings
+    onChange: (updates: Partial<main.RequestSettings>) => void
+  }
 
-  $: isHTTPFamily = requestType === 'http' || requestType === 'graphql'
-  $: protocolName = requestType === 'grpc' ? 'gRPC' : requestType === 'websocket' ? 'WebSocket' : requestType === 'graphql' ? 'GraphQL' : 'HTTP'
+  let { requestType = 'http', settings, onChange }: Props = $props()
+
+  const isHTTPFamily = $derived(requestType === 'http' || requestType === 'graphql')
+  const protocolName = $derived(
+    requestType === 'grpc' ? 'gRPC' : requestType === 'websocket' ? 'WebSocket' : requestType === 'graphql' ? 'GraphQL' : 'HTTP'
+  )
 
   function numberChange(field: keyof main.RequestSettings, event: Event) {
     const value = Number((event.currentTarget as HTMLInputElement).value)
@@ -21,44 +28,44 @@
   <div class="settings-fields">
     {#if isHTTPFamily}
       <label class="setting-toggle">
-        <input type="checkbox" checked={settings.encodeUrl} on:change={(event) => onChange({ encodeUrl: event.currentTarget.checked })} />
+        <input type="checkbox" checked={settings.encodeUrl} onchange={(event) => onChange({ encodeUrl: event.currentTarget.checked })} />
         <span>Encode URL</span>
       </label>
     {/if}
 
     <label class="setting-number">
       <span>Timeout (ms)</span>
-      <input aria-label="Request timeout in milliseconds" type="number" min="0" value={settings.timeoutMs} on:input={(event) => numberChange('timeoutMs', event)} />
+      <input aria-label="Request timeout in milliseconds" type="number" min="0" value={settings.timeoutMs} oninput={(event) => numberChange('timeoutMs', event)} />
     </label>
 
     {#if isHTTPFamily}
       <label class="setting-toggle">
-        <input type="checkbox" checked={settings.followRedirects} on:change={(event) => onChange({ followRedirects: event.currentTarget.checked })} />
+        <input type="checkbox" checked={settings.followRedirects} onchange={(event) => onChange({ followRedirects: event.currentTarget.checked })} />
         <span>Follow redirects</span>
       </label>
 
       {#if settings.followRedirects}
         <label class="setting-number">
           <span>Maximum redirects</span>
-          <input aria-label="Maximum redirects" type="number" min="0" value={settings.maxRedirects} on:input={(event) => numberChange('maxRedirects', event)} />
+          <input aria-label="Maximum redirects" type="number" min="0" value={settings.maxRedirects} oninput={(event) => numberChange('maxRedirects', event)} />
         </label>
       {/if}
 
       <label class="setting-toggle">
-        <input type="checkbox" checked={settings.storeCookies} on:change={(event) => onChange({ storeCookies: event.currentTarget.checked })} />
+        <input type="checkbox" checked={settings.storeCookies} onchange={(event) => onChange({ storeCookies: event.currentTarget.checked })} />
         <span>Store cookies</span>
       </label>
     {/if}
 
     <label class="setting-toggle">
-      <input type="checkbox" checked={settings.verifyTls} on:change={(event) => onChange({ verifyTls: event.currentTarget.checked })} />
+      <input type="checkbox" checked={settings.verifyTls} onchange={(event) => onChange({ verifyTls: event.currentTarget.checked })} />
       <span>Verify TLS certificates</span>
     </label>
 
     {#if requestType === 'websocket'}
       <label class="setting-number">
         <span>Keep-alive interval (ms)</span>
-        <input aria-label="WebSocket keep-alive interval in milliseconds" type="number" min="0" value={settings.keepAliveInterval ?? 0} on:input={(event) => numberChange('keepAliveInterval', event)} />
+        <input aria-label="WebSocket keep-alive interval in milliseconds" type="number" min="0" value={settings.keepAliveInterval ?? 0} oninput={(event) => numberChange('keepAliveInterval', event)} />
       </label>
     {/if}
   </div>

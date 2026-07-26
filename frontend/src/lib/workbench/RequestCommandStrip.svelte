@@ -1,15 +1,24 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte'
   import type { RequestCommandActions, RequestCommandState } from './types'
 
-  export let command: RequestCommandState
-  export let actions: RequestCommandActions
-  export let disabled = false
-  export let orientation: 'horizontal' | 'vertical' = 'horizontal'
+  // US-028 — runes. App.svelte uses bind:this on this component, which is an
+  // instance reference rather than a prop binding and needs no $bindable.
+  type Props = {
+    command: RequestCommandState
+    actions: RequestCommandActions
+    disabled?: boolean
+    orientation?: 'horizontal' | 'vertical'
+    // Replaces <slot name="request-line">, which is deprecated in runes mode.
+    requestLine?: Snippet
+  }
+
+  let { command, actions, disabled = false, orientation = 'horizontal', requestLine }: Props = $props()
 </script>
 
 <section class="request-command-strip" aria-label="Request command center" aria-busy={Boolean(command.runningLabel) || Boolean(command.backgroundCancellation)}>
   <div class="request-command-entry">
-    <slot name="request-line" />
+    {@render requestLine?.()}
   </div>
 
   <div class="request-command-meta">
@@ -27,16 +36,16 @@
     </div>
 
     <div class="request-command-actions">
-      <button type="button" on:click={() => void actions.onSave()} disabled={disabled}>
+      <button type="button" onclick={() => void actions.onSave()} disabled={disabled}>
         {command.saveLabel}
         <kbd>⌘S</kbd>
       </button>
-      <button type="button" on:click={() => void actions.onRun()} disabled={disabled}>Run</button>
+      <button type="button" onclick={() => void actions.onRun()} disabled={disabled}>Run</button>
       {#if command.canCancel && actions.onCancel}
         <button
           type="button"
           class="command-cancel"
-          on:click={() => void actions.onCancel?.()}
+          onclick={() => void actions.onCancel?.()}
           disabled={command.cancellationPending || (disabled && !command.cancelDuringBusy)}
           title={disabled && !command.cancelDuringBusy && command.backgroundCancellation
             ? `Cancel ${command.backgroundCancellation.requestName} before ${command.cancelLabel.toLowerCase()}`
@@ -53,7 +62,7 @@
           {/if}
         </button>
       {:else}
-        <button type="button" class="primary" on:click={() => void actions.onSend()} disabled={disabled}>
+        <button type="button" class="primary" onclick={() => void actions.onSend()} disabled={disabled}>
           {command.runningLabel ? 'Sending…' : 'Send'}
           <kbd>⌘↵</kbd>
         </button>
@@ -66,7 +75,7 @@
           aria-label={command.backgroundCancellation.pending
             ? `Cancelling background request: ${command.backgroundCancellation.requestName}`
             : `Cancel background request: ${command.backgroundCancellation.requestName}`}
-          on:click={() => void actions.onCancelBackground?.()}
+          onclick={() => void actions.onCancelBackground?.()}
           disabled={command.backgroundCancellation.pending}
         >
           {command.backgroundCancellation.pending ? 'Cancelling…' : `Cancel ${command.backgroundCancellation.requestName}`}
@@ -80,7 +89,7 @@
       data-testid="response-layout-toggle-btn"
       title="Change response orientation"
       aria-label="Change response orientation"
-      on:click={() => void actions.onToggleOrientation()}
+      onclick={() => void actions.onToggleOrientation()}
     >
       <span aria-hidden="true">{orientation === 'horizontal' ? '⇄' : '⇅'}</span>
       <span class="sr-only">{orientation === 'horizontal' ? 'Split vertically' : 'Split horizontally'}</span>
