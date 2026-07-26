@@ -4160,3 +4160,31 @@ US-026 - Store layer. DONE. Both named collapses complete.
   client id that must not overwrite the user's.
 
   0%-covered functions across internal/: 30 -> 27. Coverage 78.5%.
+
+--- .bru assertion parsing — the parser/evaluator contract nobody checked ---
+
+  parseBruAssertions and bruAssertionOperator were both at 0%. They sit on a
+  CROSS-MODULE contract that nothing verified: whatever operator the parser
+  emits has to be one the evaluator understands, or the assertion silently
+  evaluates FALSE.
+
+  That path is real. A Bruno collection imported into LiteAPI carries assertions
+  written in Bruno's vocabulary, and an operator that survives the parse but
+  means nothing to the evaluator becomes a check the user wrote that ALWAYS
+  fails, with nothing saying it was never understood.
+
+  Six tests added, including one that asserts the contract directly: every
+  shorthand the parser claims to translate must land on an operator the
+  evaluator accepts. The evaluator's vocabulary is duplicated in the test rather
+  than imported, because bru must not depend on scripting — and that test is
+  precisely what catches the copy drifting.
+
+  Controls: dropping the eq translation fails 3, mapping neq to equals fails 2,
+  truncating a multi-word value to its first token fails 2, loading assertions
+  disabled fails 2.
+
+  The multi-word case is the one worth having. `contains hello world` truncated
+  to `contains hello` still PASSES on a response the user meant to reject — a
+  green check that verifies less than it claims.
+
+  0%-covered functions: 30 -> 25. Coverage 78.6%. 18 packages green.
