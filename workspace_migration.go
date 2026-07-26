@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/sys/unix"
-
 	"github.com/mutexdev/lite_api/internal/atomicfile"
 	"github.com/mutexdev/lite_api/internal/workspacestate"
 )
@@ -171,11 +169,12 @@ func withWorkspaceMigrationGuard(dataDir string, fn func() error) error {
 		return err
 	}
 	defer func() { _ = file.Close() }()
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX); err != nil {
+	unlock, err := lockFileExclusive(file)
+	if err != nil {
 		return err
 	}
-	// Best-effort: the deferred file close already releases this flock.
-	defer func() { _ = unix.Flock(int(file.Fd()), unix.LOCK_UN) }()
+	// Best-effort: the deferred file close already releases this lock.
+	defer unlock()
 	return fn()
 }
 

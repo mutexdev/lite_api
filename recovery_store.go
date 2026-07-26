@@ -165,11 +165,12 @@ func withRecoveryWorkspaceLock(dataDir, workspaceID string, fn func() error) err
 		return err
 	}
 	defer func() { _ = f.Close() }()
-	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX); err != nil {
+	unlockF, err := lockFileExclusive(f)
+	if err != nil {
 		return err
 	}
-	// Best-effort: the deferred file close already releases this flock.
-	defer func() { _ = unix.Flock(int(f.Fd()), unix.LOCK_UN) }()
+	// Best-effort: the deferred file close already releases this lock.
+	defer unlockF()
 	if err := migrateLegacyRecovery(dataDir, workspaceID); err != nil {
 		return err
 	}
@@ -194,11 +195,12 @@ func migrateLegacyRecovery(dataDir, workspaceID string) error {
 	if err := lock.Chmod(0o600); err != nil {
 		return err
 	}
-	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
+	unlockLock, err := lockFileExclusive(lock)
+	if err != nil {
 		return err
 	}
-	// Best-effort: the deferred file close already releases this flock.
-	defer func() { _ = unix.Flock(int(lock.Fd()), unix.LOCK_UN) }()
+	// Best-effort: the deferred file close already releases this lock.
+	defer unlockLock()
 	return migrateLegacyRecoveryLocked(dataDir, workspaceID)
 }
 

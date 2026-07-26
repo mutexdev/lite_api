@@ -17,7 +17,6 @@ import (
 	"github.com/mutexdev/lite_api/internal/workspacestate"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
-	"golang.org/x/sys/unix"
 )
 
 var (
@@ -936,10 +935,11 @@ func withSharedWorkspacePersistenceGuard(dataDir string, fn func() error) error 
 		return err
 	}
 	defer func() { _ = file.Close() }()
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX); err != nil {
+	unlockFile, err := lockFileExclusive(file)
+	if err != nil {
 		return err
 	}
-	// Best-effort: the deferred file close already releases this flock.
-	defer func() { _ = unix.Flock(int(file.Fd()), unix.LOCK_UN) }()
+	// Best-effort: the deferred file close already releases this lock.
+	defer unlockFile()
 	return fn()
 }

@@ -163,11 +163,12 @@ func (s WorkspaceWindowLockStore) withGuard(workspace string, fn func() (Workspa
 		return WorkspaceWindowOwner{}, err
 	}
 	defer func() { _ = file.Close() }()
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX); err != nil {
+	unlockFile, err := lockFileExclusive(file)
+	if err != nil {
 		return WorkspaceWindowOwner{}, err
 	}
-	// Best-effort: the deferred file close already releases this flock.
-	defer func() { _ = unix.Flock(int(file.Fd()), unix.LOCK_UN) }()
+	// Best-effort: the deferred file close already releases this lock.
+	defer unlockFile()
 	return fn()
 }
 func (s WorkspaceWindowLockStore) read(path string) (WorkspaceWindowOwner, error) {
