@@ -23,23 +23,21 @@ evidence for each story; this file carries the cross-story findings.
 --- STATUS BOARD (update this every story) ---
   Branch: ralph/postman-switchable-v2   Spec: improvement_v2.md   Stories: 73
 
-  PASSED (19):
+  PASSED (20):
     Phase 0  US-002 US-003 US-004 US-005 US-006 US-007
-    Phase 1  US-008 US-012 US-013 US-016 US-017 US-018 US-020 US-021
-             US-022 US-023 US-024
+    Phase 1  US-008 US-012 US-013 US-015 US-016 US-017 US-018 US-020
+             US-021 US-022 US-023 US-024
     Phase 2  US-038
-  PHASE 1 REMAINING (6):
+  PHASE 1 REMAINING (5):
     US-009 US-010 US-011  response body store — the highest-risk trio in the
                           whole document; a mistake corrupts saved data rather
                           than merely being slow. US-009 must go first.
     US-014                narrow-return mutators. US-008 has already landed the
                           Revision it depends on, so this is now unblocked.
-    US-015                dirty-set collection file writes. Self-contained and
-                          has a baseline benchmark to prove it (4.16 ms/op for
-                          ONE 50-request collection).
     US-019                goja runtime pool.
-  NEXT UP, recommended order: US-015 (cheap, measurable), US-014 (unblocked),
-  then US-009/010/011 as a deliberate unit.
+  NEXT UP, recommended order: US-014 (unblocked by US-008), US-019, then
+  US-009/010/011 as a deliberate unit. After Phase 1: Phase 2 (US-025..US-037),
+  and US-077 BEFORE Phase 4.
   DEFERRED BY THE USER:
     US-001 — CI workflow is written, linted and parses; the "a deliberately
              broken PR fails the workflow" criterion needs a real push to the
@@ -51,6 +49,58 @@ evidence for each story; this file carries the cross-story findings.
   SEQUENCING CONSTRAINT:
     US-077 (internal/ layout) MUST land BEFORE Phase 4 (US-060..US-071), or
     all nine package extractions get moved twice.
+
+!!! UNRESOLVED — ONE UNREPRODUCED -race FAILURE, seen after US-015 !!!
+  `go test -race -count=1 ./...` failed ONCE immediately after the US-015 edit.
+  The command was piped through `tail -5`, so the failing test name was lost;
+  all that survives is that the qa/ subpackages passed and the aggregate was
+  FAIL, which places it in the root LiteAPI package.
+
+  NOT REPRODUCED in 7 subsequent runs:
+    3x  go test -race -count=1 ./...      (full output captured, all clean)
+    4x  go test -race -count=1 .
+    1x  -count=5 over every test added by US-008/013/015/021/022
+  So it is NOT being reported as fixed, and NOT as a US-015 defect — there is
+  no evidence either way. It is recorded here because a flake seen once and
+  chased zero times is how the US-012 "directory not empty" flake survived
+  three stories.
+
+  If it recurs: capture the FULL output (redirect to a file, never `| tail`),
+  and start from the two known flake-prone areas — the background persist
+  writer's interaction with t.TempDir() removal (fixed once already, see the
+  US-012 entry below) and the live-session goroutines added by US-021/US-022.
+  DO NOT re-pipe a -race run through tail; that is what cost the diagnosis here.
+
+--- US-015 — dirty-set collection file writes (PASSED) ---
+  All six write sites in writeCollectionFilesLocked now route through
+  writeCollectionFileLocked, which skips the write when the bytes already match.
+
+  MEASURED same-host, same-settings (-benchtime=200x -count=3), by stashing:
+    BenchmarkWriteCollectionFilesLocked
+      before 4,690,322 ns/op  268,377 B/op  2,648 allocs/op
+      after  1,784,256 ns/op  262,881 B/op  2,648 allocs/op    2.63x
+  Allocations are UNCHANGED, and that is the informative part: the entire win
+  is I/O. The residual 1.78 ms is stringifyBru / stringifyYAMLRequest CPU, which
+  this story does not target — a later story wanting more must cache the
+  rendering, not the write.
+
+  NEGATIVE CONTROL (gate removed, then restored) — the story's own wording,
+  measured rather than asserted:
+    changing ONE request rewrote 10 of 10 files   -> now exactly 1
+    ten identical saves rewrote 8 files           -> now 0
+
+  BEHAVIOUR CHANGE, deliberate: a collection file edited outside LiteAPI is now
+  left alone when our content has not changed. Previously any unrelated save
+  silently clobbered it. The collection watcher is what reconciles external
+  edits and is unaffected, because skipping a write leaves the bytes exactly as
+  the watcher last saw them.
+
+  TEST-WRITING NOTE for later stories: CreateRequest leaves a request as an
+  unsaved DRAFT. SaveRequest is what materialises it on disk and therefore what
+  runs writeCollectionFilesLocked. A test that only calls CreateRequest/
+  UpdateRequest touches no collection file at all — which is also why the
+  earlier DeleteRequest probe in revision_test.go failed with "the file does
+  not exist".
 
 --- US-013 — independent dirty scopes for secrets and OAuth2 (PASSED) ---
   Half of this story was already done: US-012 had added a content compare to

@@ -147,6 +147,12 @@ type App struct {
 	httpClient                  *http.Client
 	tlsSessionCache             tls.ClientSessionCache
 	collectionWatchFingerprints map[string]string
+	// collectionFileFingerprints (US-015) records the SHA-256 of what this App
+	// last wrote to each collection file, so saving one request stops
+	// rewriting bruno.json, collection.bru, every environment file and every
+	// other request file. Keyed by absolute path, guarded by a.mu, and lazily
+	// populated — see writeCollectionFileLocked.
+	collectionFileFingerprints map[string]string
 	oauth2OpenURL               func(context.Context, string) error
 	oauth2OpenInAppURL          func(context.Context, oauth2AuthorizationBrowserRequest) error
 	revealInFolder              func(string) error
@@ -32767,6 +32773,47 @@ func fileExists(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
+// writeCollectionFileLocked writes one collection file, skipping the write when
+// the bytes on disk already match (US-015).
+//
+// Saving a single request previously rewrote bruno.json, collection.bru, every
+// environment file and every request file in the collection — 4.16 ms/op for
+// one 50-request collection at the Phase 0 baseline, on every save.
+//
+// The gate is a fingerprint of what THIS App last wrote, falling back to
+// reading the file when it has no record. Two consequences worth stating:
+//
+//   - The first save after startup pays one read per file and then nothing.
+//   - A file edited outside LiteAPI is left alone when our content has not
+//     changed. That is a deliberate improvement, not an oversight: the previous
+//     behaviour silently clobbered an external edit whenever the user saved any
+//     unrelated request. The collection watcher is what brings external edits
+//     back into the app, and it is unaffected — skipping a write leaves the
+//     bytes on disk exactly as the watcher last saw them.
+//
+// a.mu must be held.
+func (a *App) writeCollectionFileLocked(path string, data []byte) error {
+	fingerprint := fmt.Sprintf("%x", sha256.Sum256(data))
+	if a.collectionFileFingerprints == nil {
+		a.collectionFileFingerprints = map[string]string{}
+	}
+	if known, ok := a.collectionFileFingerprints[path]; ok {
+		if known == fingerprint {
+			return nil
+		}
+	} else if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, data) {
+		a.collectionFileFingerprints[path] = fingerprint
+		return nil
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		// Do not record on failure; the next save must retry rather than
+		// conclude the file is already correct.
+		return err
+	}
+	a.collectionFileFingerprints[path] = fingerprint
+	return nil
+}
+
 func (a *App) writeCollectionFilesLocked(collection *Collection) error {
 	if collection.Path == "" {
 		return errors.New("collection path is empty")
@@ -32779,7 +32826,7 @@ func (a *App) writeCollectionFilesLocked(collection *Collection) error {
 		return err
 	}
 	if collection.Format == "yml" {
-		if err := os.WriteFile(filepath.Join(collection.Path, "opencollection.yml"), []byte(stringifyYAMLCollection(*collection)), 0o600); err != nil {
+		if err := a.writeCollectionFileLocked(filepath.Join(collection.Path, "opencollection.yml"), []byte(stringifyYAMLCollection(*collection))); err != nil {
 			return err
 		}
 		for _, item := range collection.Items {
@@ -32791,7 +32838,7 @@ func (a *App) writeCollectionFilesLocked(collection *Collection) error {
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
-			if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+			if err := a.writeCollectionFileLocked(target, []byte(content)); err != nil {
 				return err
 			}
 		}
@@ -32820,10 +32867,10 @@ func (a *App) writeCollectionFilesLocked(collection *Collection) error {
 		config["openapi"] = jsonOpenAPISyncConfigs(collection.OpenAPI)
 	}
 	configData, _ := json.MarshalIndent(config, "", "  ")
-	if err := os.WriteFile(filepath.Join(collection.Path, "bruno.json"), configData, 0o600); err != nil {
+	if err := a.writeCollectionFileLocked(filepath.Join(collection.Path, "bruno.json"), configData); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(collection.Path, "collection.bru"), []byte(stringifyBruCollection(*collection)), 0o600); err != nil {
+	if err := a.writeCollectionFileLocked(filepath.Join(collection.Path, "collection.bru"), []byte(stringifyBruCollection(*collection))); err != nil {
 		return err
 	}
 	if len(collection.Environments) > 0 {
@@ -32836,7 +32883,7 @@ func (a *App) writeCollectionFilesLocked(collection *Collection) error {
 			if filename == "" {
 				filename = env.ID
 			}
-			if err := os.WriteFile(filepath.Join(envPath, filename+".bru"), []byte(stringifyBruEnvironment(env)), 0o600); err != nil {
+			if err := a.writeCollectionFileLocked(filepath.Join(envPath, filename+".bru"), []byte(stringifyBruEnvironment(env))); err != nil {
 				return err
 			}
 		}
@@ -32847,7 +32894,7 @@ func (a *App) writeCollectionFilesLocked(collection *Collection) error {
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+		if err := a.writeCollectionFileLocked(target, []byte(content)); err != nil {
 			return err
 		}
 	}
