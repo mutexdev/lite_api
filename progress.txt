@@ -6925,3 +6925,33 @@ US-026 - Store layer. DONE. Both named collapses complete.
   STRING comparison, which still produces a deterministic — and wrong — order,
   so one column proves nothing about the others. Now looped over size, status
   and duration; the control fails.
+
+=== PHASE 6 — workbench layout: the two draggable dividers ===
+
+  New src/lib/workbench/layout.ts, 16 tests. App.svelte 11,302 -> 11,280.
+  Frontend suite 495 -> 511.
+
+  Pinned:
+    - AN UNKNOWN SCOPE PRODUCES NO KEY. The scope arrives from an async
+      GetWebStorageScope(), so it is "" for the first frames of startup. An
+      unscoped fallback key would be SHARED BY EVERY WORKSPACE WINDOW, and their
+      layouts would overwrite each other on every drag. Control fails 1.
+    - AN ABSENT ENTRY IS NOT A NUMBER. Number(null) and Number('') are both 0,
+      which is finite — so treating a missing entry as a number clamps it to the
+      MINIMUM, and a window that never saved a layout opens with the narrowest
+      possible sidebar instead of the default. Control fails 2.
+    - a non-finite width clamps instead of propagating. Math.max returns NaN for
+      a NaN argument, so the clamp does not stop it on its own, and a NaN width
+      is dropped by CSS — the shell renders with NO SIDEBAR. Control fails 1.
+    - the split is NOT rounded, unlike the width. Rounding a fraction collapses
+      every divider position to 0 or 1. Control fails 9.
+    - the two orientations read different axes. Compact CSS always stacks the
+      panes whatever the persisted preference says, so both branches are live.
+      Control fails 2.
+    - a zero-sized workbench leaves the split alone. Measured before layout it
+      has height 0, and the NaN from dividing by it sticks in the flex-basis
+      until the next successful drag. Control fails 1.
+    - restore takes the CURRENT values, not the defaults, so half a saved layout
+      leaves the other divider where the user just dragged it. Control fails 2.
+
+  Seven controls, seven failures. No vacuous test this round.

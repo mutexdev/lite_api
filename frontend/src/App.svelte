@@ -28,6 +28,15 @@
     normalizedNetworkMethod,
     sortNetworkRows as sortedDevToolsNetworkRows
   } from './lib/networkSort'
+  import {
+    DEFAULT_RESPONSE_SPLIT,
+    DEFAULT_SIDEBAR_WIDTH,
+    clampResponseSplit,
+    clampSidebarWidth,
+    readWorkbenchLayout,
+    splitFractionAt,
+    writeWorkbenchLayout
+  } from './lib/workbench/layout'
   import { workspaceStore } from './lib/stores/workspaceStore.svelte'
   import { variableTooltips } from './lib/stores/variableTooltipStore.svelte'
   import {
@@ -535,8 +544,8 @@
   let requestSearchInput = $state<HTMLInputElement | undefined>()
   let requestURLInput = $state<HTMLInputElement | undefined>()
   let sidebarCollapsed = $state(false)
-  let sidebarWidth = $state(312)
-  let responseSplit = $state(0.52)
+  let sidebarWidth = $state(DEFAULT_SIDEBAR_WIDTH)
+  let responseSplit = $state(DEFAULT_RESPONSE_SPLIT)
 	let workbenchStorageScope = $state('')
   let creationOpen = $state(false)
   let creationReturnFocus = $state<HTMLElement | null>(null)
@@ -6091,45 +6100,15 @@
     sidebarCollapsed = !sidebarCollapsed
   }
 
-  function clampSidebarWidth(value: number) {
-    return Math.max(220, Math.min(420, Math.round(value)))
-  }
-
-  function clampResponseSplit(value: number) {
-    return Math.max(0.3, Math.min(0.7, value))
-  }
-
   function persistWorkbenchLayout() {
-	  const sidebarKey = workbenchStorageKey('sidebar-width')
-	  const splitKey = workbenchStorageKey('response-split')
-	  if (!sidebarKey || !splitKey) return
-    try {
-      localStorage.setItem(sidebarKey, String(sidebarWidth))
-      localStorage.setItem(splitKey, String(responseSplit))
-    } catch {
-      // Layout persistence is an enhancement; a restrictive WebView must not block API work.
-    }
+    writeWorkbenchLayout(workbenchStorageScope, { sidebarWidth, responseSplit })
   }
 
   function restoreWorkbenchLayout() {
-	  const sidebarKey = workbenchStorageKey('sidebar-width')
-	  const splitKey = workbenchStorageKey('response-split')
-	  if (!sidebarKey || !splitKey) return
-    try {
-      const storedSidebar = localStorage.getItem(sidebarKey)
-      const storedSplit = localStorage.getItem(splitKey)
-      const savedSidebar = storedSidebar === null ? Number.NaN : Number(storedSidebar)
-      const savedSplit = storedSplit === null ? Number.NaN : Number(storedSplit)
-      if (Number.isFinite(savedSidebar)) sidebarWidth = clampSidebarWidth(savedSidebar)
-      if (Number.isFinite(savedSplit)) responseSplit = clampResponseSplit(savedSplit)
-    } catch {
-      // Use safe defaults when local storage is unavailable or corrupt.
-    }
+    const restored = readWorkbenchLayout(workbenchStorageScope, { sidebarWidth, responseSplit })
+    sidebarWidth = restored.sidebarWidth
+    responseSplit = restored.responseSplit
   }
-
-	function workbenchStorageKey(name: 'sidebar-width' | 'response-split') {
-	  return workbenchStorageScope ? `liteapi.workbench.v3.${workbenchStorageScope}.${name}` : ''
-	}
 
   function startSidebarResize(event: MouseEvent) {
     event.preventDefault()
@@ -6149,8 +6128,7 @@
     // Compact CSS always stacks the panes, regardless of the persisted wide-layout preference.
     const isVertical = compactWorkbench || responsePaneOrientation === 'vertical'
     const move = (next: MouseEvent) => {
-      const fraction = isVertical ? (next.clientY - bounds.top) / bounds.height : (next.clientX - bounds.left) / bounds.width
-      responseSplit = clampResponseSplit(fraction)
+      responseSplit = splitFractionAt(bounds, next, isVertical, responseSplit)
     }
     const finish = () => { persistWorkbenchLayout(); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', finish) }
     window.addEventListener('mousemove', move)
@@ -7908,7 +7886,7 @@
       value={sidebarWidth}
       title="Drag to resize sidebar; double-click to reset"
       onmousedown={startSidebarResize}
-      ondblclick={() => { sidebarWidth = 312; persistWorkbenchLayout() }}
+      ondblclick={() => { sidebarWidth = DEFAULT_SIDEBAR_WIDTH; persistWorkbenchLayout() }}
       oninput={(event) => (sidebarWidth = clampSidebarWidth(Number(event.currentTarget.value)))}
       onchange={persistWorkbenchLayout}
     />
@@ -8801,7 +8779,7 @@
             value={Math.round(responseSplit * 100)}
             title="Drag to resize panes; double-click to reset"
             onmousedown={startResponseSplitResize}
-            ondblclick={() => { responseSplit = 0.52; persistWorkbenchLayout() }}
+            ondblclick={() => { responseSplit = DEFAULT_RESPONSE_SPLIT; persistWorkbenchLayout() }}
             oninput={(event) => (responseSplit = clampResponseSplit(Number(event.currentTarget.value) / 100))}
             onchange={persistWorkbenchLayout}
           />
