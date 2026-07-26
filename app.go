@@ -3445,17 +3445,34 @@ func nextCollectionRequestSeq(collection Collection, folderPath string) int {
 func (a *App) UpdateRequest(collectionID, itemID string, patch RequestPatch) (AppState, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if err := a.ensureReadyLocked(); err != nil {
+	item, err := a.updateRequestLocked(collectionID, itemID, patch)
+	if item == nil {
 		return AppState{}, err
+	}
+	return a.state, err
+}
+
+// updateRequestLocked is the body shared by UpdateRequest and its narrow
+// variant (US-014). Extracted rather than duplicated so the two cannot drift:
+// a patch applied one way by the wide binding and another by the narrow one is
+// a bug that only shows up as the frontend and the backend disagreeing about
+// what the user typed.
+//
+// A nil item means the mutation did not happen and err says why. A non-nil item
+// with a non-nil err means the mutation DID happen and err is markDirty's
+// parked background-write failure from an earlier persist.
+func (a *App) updateRequestLocked(collectionID, itemID string, patch RequestPatch) (*RequestItem, error) {
+	if err := a.ensureReadyLocked(); err != nil {
+		return nil, err
 	}
 	item, err := a.findItemLocked(collectionID, itemID)
 	if err != nil {
-		return AppState{}, err
+		return nil, err
 	}
 	applyPatch(item, patch)
 	item.Draft = true
 	item.UpdatedAt = time.Now()
-	return a.state, a.markDirty(persistScopeState)
+	return item, a.markDirty(persistScopeState)
 }
 
 func (a *App) ListGRPCMethods(collectionID, itemID, environmentID string) ([]GRPCMethodInfo, error) {
@@ -5322,31 +5339,48 @@ func sameSiteString(value http.SameSite) string {
 func (a *App) SetActiveTab(tabID string) (AppState, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	found, err := a.setActiveTabLocked(tabID)
+	if !found {
+		return AppState{}, err
+	}
+	return a.state, err
+}
+
+// setActiveTabLocked is shared with SetActiveTabNarrow (US-014). found=false
+// means no such tab and err says so; found=true with a non-nil err is a parked
+// background-write failure, not a failure to switch tabs.
+func (a *App) setActiveTabLocked(tabID string) (bool, error) {
 	for _, tab := range a.state.OpenTabs {
 		if tab.ID == tabID {
 			a.state.ActiveTabID = tabID
-			return a.state, a.markDirty(persistScopeState)
+			return true, a.markDirty(persistScopeState)
 		}
 	}
-	return AppState{}, fmt.Errorf("tab %s not found", tabID)
+	return false, fmt.Errorf("tab %s not found", tabID)
 }
 
 func (a *App) UpdateOpenTabPanes(tabID, requestPaneTab, responseTab string) (AppState, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	found, err := a.updateOpenTabPanesLocked(tabID, requestPaneTab, responseTab)
+	if !found {
+		return AppState{}, err
+	}
+	return a.state, err
+}
+
+// updateOpenTabPanesLocked is shared with UpdateOpenTabPanesNarrow (US-014).
+// A rejected pane name reports found=false, because nothing was mutated.
+func (a *App) updateOpenTabPanesLocked(tabID, requestPaneTab, responseTab string) (bool, error) {
 	for i := range a.state.OpenTabs {
 		if a.state.OpenTabs[i].ID != tabID {
 			continue
 		}
-		if requestPaneTab != "" {
-			if !validRequestPaneTab(requestPaneTab) {
-				return AppState{}, fmt.Errorf("invalid request pane tab %q", requestPaneTab)
-			}
+		if requestPaneTab != "" && !validRequestPaneTab(requestPaneTab) {
+			return false, fmt.Errorf("invalid request pane tab %q", requestPaneTab)
 		}
-		if responseTab != "" {
-			if !validResponsePaneTab(responseTab) {
-				return AppState{}, fmt.Errorf("invalid response pane tab %q", responseTab)
-			}
+		if responseTab != "" && !validResponsePaneTab(responseTab) {
+			return false, fmt.Errorf("invalid response pane tab %q", responseTab)
 		}
 		if requestPaneTab != "" {
 			a.state.OpenTabs[i].RequestPaneTab = requestPaneTab
@@ -5354,9 +5388,9 @@ func (a *App) UpdateOpenTabPanes(tabID, requestPaneTab, responseTab string) (App
 		if responseTab != "" {
 			a.state.OpenTabs[i].ResponseTab = responseTab
 		}
-		return a.state, a.markDirty(persistScopeState)
+		return true, a.markDirty(persistScopeState)
 	}
-	return AppState{}, fmt.Errorf("tab %s not found", tabID)
+	return false, fmt.Errorf("tab %s not found", tabID)
 }
 
 func (a *App) OpenRequestTab(collectionID, itemID string) (AppState, error) {
@@ -5473,9 +5507,22 @@ func (a *App) ReopenLastClosedTab(collectionID string) (AppState, error) {
 func (a *App) MoveOpenTab(tabID string, offset int) (AppState, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if offset == 0 {
-		return a.state, nil
+	found, err := a.moveOpenTabLocked(tabID, offset)
+	if !found {
+		return AppState{}, err
 	}
+	return a.state, err
+}
+
+// moveOpenTabLocked is shared with MoveOpenTabNarrow (US-014).
+//
+// A no-op move — offset 0, or a move that clamps back to where the tab already
+// is — reports found=true with no error and does NOT mark state dirty. That
+// matches the original behaviour and is worth preserving explicitly: marking
+// dirty here would bump the revision for a mutation that changed nothing, and
+// the narrow callers use revision continuity to decide whether they are in
+// sync.
+func (a *App) moveOpenTabLocked(tabID string, offset int) (bool, error) {
 	index := -1
 	for i, tab := range a.state.OpenTabs {
 		if tab.ID == tabID {
@@ -5484,11 +5531,14 @@ func (a *App) MoveOpenTab(tabID string, offset int) (AppState, error) {
 		}
 	}
 	if index < 0 {
-		return AppState{}, fmt.Errorf("tab %s not found", tabID)
+		return false, fmt.Errorf("tab %s not found", tabID)
+	}
+	if offset == 0 {
+		return true, nil
 	}
 	target := clampInt(index+offset, 0, len(a.state.OpenTabs)-1)
 	if target == index {
-		return a.state, nil
+		return true, nil
 	}
 	tab := a.state.OpenTabs[index]
 	if target < index {
@@ -5497,7 +5547,7 @@ func (a *App) MoveOpenTab(tabID string, offset int) (AppState, error) {
 		copy(a.state.OpenTabs[index:target], a.state.OpenTabs[index+1:target+1])
 	}
 	a.state.OpenTabs[target] = tab
-	return a.state, a.markDirty(persistScopeState)
+	return true, a.markDirty(persistScopeState)
 }
 
 func (a *App) CreateEnvironment(collectionID, name string) (AppState, error) {

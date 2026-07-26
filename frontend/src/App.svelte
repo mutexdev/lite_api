@@ -14,6 +14,7 @@
     type LiveSessionLog,
     type LiveSessionPush,
   } from './lib/liveSessionEvents'
+  import { applyRequestMutation, applyTabsMutation, type MergeOutcome } from './lib/narrowMutations'
   import CodeEditor from './lib/workbench/CodeEditor.svelte'
   import RequestSettingsPanel from './lib/workbench/RequestSettingsPanel.svelte'
   import ProtocolRequestLine from './lib/workbench/ProtocolRequestLine.svelte'
@@ -149,6 +150,10 @@
 		UnstageCollectionGitPaths,
 		FetchCollectionGit,
     FlushPendingWrites,
+    MoveOpenTabNarrow,
+    SetActiveTabNarrow,
+    UpdateOpenTabPanesNarrow,
+    UpdateRequestNarrow,
     SaveGlobalEnvironmentExport,
     SaveRequest,
     SaveResponseBody,
@@ -4224,7 +4229,8 @@
     requestPaneTab = tabId
     if (!activeTab) return
     await runAction('update tab pane', async () => {
-      state = await UpdateOpenTabPanes(activeTab.id, tabId, responseTab)
+      const result = await UpdateOpenTabPanesNarrow(activeTab.id, tabId, responseTab)
+      await applyNarrow((current, held) => applyTabsMutation(current, held, result))
     })
   }
 
@@ -4247,14 +4253,19 @@
     responseTab = tabId
     if (!activeTab) return
     await runAction('update tab pane', async () => {
-      state = await UpdateOpenTabPanes(activeTab.id, requestPaneTab, tabId)
+      const result = await UpdateOpenTabPanesNarrow(activeTab.id, requestPaneTab, tabId)
+      await applyNarrow((current, held) => applyTabsMutation(current, held, result))
     })
   }
 
   async function setActiveTab(tabId: string) {
     await runAction('switch tab', async () => {
-      state = await SetActiveTab(tabId)
-      const nextTab = state.openTabs?.find((tab) => tab.id === tabId)
+      const result = await SetActiveTabNarrow(tabId)
+      await applyNarrow((current, held) => applyTabsMutation(current, held, result))
+      // Read the tab out of the mutation result rather than back out of state:
+      // it is the authoritative list the backend just produced, and it is
+      // correct even on the path where applyNarrow had to refetch.
+      const nextTab = result.openTabs?.find((tab) => tab.id === tabId)
       selectedCollectionId = nextTab?.collectionId ?? selectedCollectionId
       activeView = 'request'
       if (nextTab?.kind === 'response-example') responseTab = 'examples'
@@ -4461,7 +4472,8 @@
     if (!activeTab) return
     const tabID = activeTab.id
     await runAction('move tab', async () => {
-      state = await MoveOpenTab(tabID, offset)
+      const result = await MoveOpenTabNarrow(tabID, offset)
+      await applyNarrow((current, held) => applyTabsMutation(current, held, result))
     })
   }
 
@@ -5406,11 +5418,41 @@
       : selectedGitCollectionPaths.filter((candidatePath) => candidatePath !== path)
   }
 
+  // US-014. Applies a narrow mutator result, or refetches the whole AppState
+  // when the revision says we missed an update.
+  //
+  // `state.revision` is read directly rather than through a `$:` derivation
+  // because a reactive statement does not run until Svelte's next update tick,
+  // so two mutations dispatched inside one tick would both compare against the
+  // same stale revision — making the second look like a gap and refetch for
+  // nothing.
+  async function applyNarrow(merge: (current: main.AppState, held: number) => MergeOutcome): Promise<void> {
+    if (!state) {
+      // Nothing to patch onto. Only reachable before the boot fetch has landed.
+      state = await GetState()
+      return
+    }
+    const outcome = merge(state, state.revision ?? 0)
+    if (outcome.kind === 'applied') {
+      state = outcome.state
+      return
+    }
+    // Not silent. A refetch means something mutated state behind our back, and
+    // while recovery is automatic, a run of these is a real signal that some
+    // mutator still needs migrating.
+    console.warn(`[US-014] refetching full state: ${outcome.reason}`)
+    state = await GetState()
+  }
+
   async function patchRequest(patch: main.RequestPatch) {
     if (!activeCollection || !activeRequest) return
     const collectionId = activeCollection.id
     const requestId = activeRequest.id
-    state = await UpdateRequest(collectionId, requestId, patch)
+    // The keystroke path: this fires per typed character, and before US-014 it
+    // shipped the whole workspace back for each one. Measured on the
+    // 500-request fixture: 4,348,018 bytes of AppState -> 8,515 bytes.
+    const result = await UpdateRequestNarrow(collectionId, requestId, patch)
+    await applyNarrow((current, held) => applyRequestMutation(current, held, result))
     scheduleRequestAutoSave(collectionId, requestId)
   }
 

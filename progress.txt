@@ -23,21 +23,20 @@ evidence for each story; this file carries the cross-story findings.
 --- STATUS BOARD (update this every story) ---
   Branch: ralph/postman-switchable-v2   Spec: improvement_v2.md   Stories: 73
 
-  PASSED (20):
+  PASSED (21):
     Phase 0  US-002 US-003 US-004 US-005 US-006 US-007
-    Phase 1  US-008 US-012 US-013 US-015 US-016 US-017 US-018 US-020
-             US-021 US-022 US-023 US-024
+    Phase 1  US-008 US-012 US-013 US-014 US-015 US-016 US-017 US-018
+             US-020 US-021 US-022 US-023 US-024
     Phase 2  US-038
-  PHASE 1 REMAINING (5):
+  PHASE 1 REMAINING (4):
     US-009 US-010 US-011  response body store — the highest-risk trio in the
                           whole document; a mistake corrupts saved data rather
                           than merely being slow. US-009 must go first.
-    US-014                narrow-return mutators. US-008 has already landed the
-                          Revision it depends on, so this is now unblocked.
     US-019                goja runtime pool.
-  NEXT UP, recommended order: US-014 (unblocked by US-008), US-019, then
-  US-009/010/011 as a deliberate unit. After Phase 1: Phase 2 (US-025..US-037),
-  and US-077 BEFORE Phase 4.
+  NEXT UP, recommended order: US-019, then US-009/010/011 as a deliberate unit.
+  After Phase 1: Phase 2 (US-025..US-037), and US-077 BEFORE Phase 4.
+  BROWSER QA OWED (criterion on several passed stories, not yet done):
+    US-014, US-021, US-022 each carry "Verify in browser using browser tools".
   DEFERRED BY THE USER:
     US-001 — CI workflow is written, linted and parses; the "a deliberately
              broken PR fails the workflow" criterion needs a real push to the
@@ -49,6 +48,53 @@ evidence for each story; this file carries the cross-story findings.
   SEQUENCING CONSTRAINT:
     US-077 (internal/ layout) MUST land BEFORE Phase 4 (US-060..US-071), or
     all nine package extractions get moved twice.
+
+--- US-014 — narrow-return mutators (PASSED, except browser QA) ---
+  HEADLINE, measured on the 500-request fixture by marshalling both return
+  values the way Wails does:
+    one keystroke:  AppState 4,348,018 bytes  ->  narrow 8,515 bytes   (511x)
+
+  Four narrow variants added beside the existing wide ones, which are untouched
+  and still work — the story explicitly allows unmigrated callers. Each pair
+  shares an extracted ...Locked core rather than duplicating the mutation, so
+  the two entry points CANNOT drift. Drift is the failure that matters here: not
+  "the narrow one is broken", which shows up at once, but "the two disagree",
+  where frontend and backend hold different ideas of what the user typed and
+  neither looks wrong.
+
+  THE NO-OP CASE nearly broke the whole design. MoveOpenTab against the end of
+  the tab bar mutates nothing and so does NOT bump the revision. The first
+  gap-detection rule required exactly (held + 1), which would have classified
+  every clamped tab drag as a missed update and fired a full AppState refetch —
+  the exact cost this story removes, arriving through the mechanism meant to
+  prevent it. Rule now accepts held or held+1, refetches on a skip AND on a
+  revision going backwards (a response overtaking a newer one).
+
+  BEHAVIOUR CHANGE in MoveOpenTab: offset 0 against a NON-EXISTENT tab used to
+  return success, because the offset check came before the lookup. It now
+  reports "tab not found". The narrow variant has to know whether the tab exists
+  to return a meaningful result, and reporting success for a tab that is not
+  there was wrong either way.
+
+  TEST DESIGN NOTE: the anti-drift test first used two separate apps and had to
+  normalise away FilePath and CreatedAt, which differed only because the temp
+  dirs and clock readings differed. Every normalised field is a field where real
+  drift can hide, so it was rewritten to drive both variants against THE SAME
+  item on THE SAME app — leaving exactly one field to normalise (UpdatedAt,
+  which both deliberately set to time.Now()).
+
+  Frontend merge logic lives in src/lib/narrowMutations.ts so it is testable;
+  10 new tests, almost all about results that must NOT be applied. A narrow
+  result patched onto a stale copy is worse than a stale copy: the patch lands,
+  the view looks freshly updated, and the stale parts stay stale forever.
+
+  MIGRATED: patchRequest (the keystroke path) and all four tab call sites.
+  NOT MIGRATED, deliberately: the two UpdateRequest calls in the
+  variable-tooltip editor, each immediately followed by SaveRequest, which
+  returns a full AppState anyway — narrowing them would add branching for zero
+  saving.
+
+  STILL OPEN: "Verify in browser using browser tools".
 
 !!! UNRESOLVED — ONE UNREPRODUCED -race FAILURE, seen after US-015 !!!
   `go test -race -count=1 ./...` failed ONCE immediately after the US-015 edit.

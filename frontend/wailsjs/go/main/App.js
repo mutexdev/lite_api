@@ -374,6 +374,10 @@ export function MoveOpenTab(arg1, arg2) {
   return window['go']['main']['App']['MoveOpenTab'](arg1, arg2);
 }
 
+export function MoveOpenTabNarrow(arg1, arg2) {
+  return window['go']['main']['App']['MoveOpenTabNarrow'](arg1, arg2);
+}
+
 export function OpenCollection(arg1, arg2) {
   return window['go']['main']['App']['OpenCollection'](arg1, arg2);
 }
@@ -574,6 +578,10 @@ export function SetActiveTab(arg1) {
   return window['go']['main']['App']['SetActiveTab'](arg1);
 }
 
+export function SetActiveTabNarrow(arg1) {
+  return window['go']['main']['App']['SetActiveTabNarrow'](arg1);
+}
+
 export function SetActiveWorkspace(arg1) {
   return window['go']['main']['App']['SetActiveWorkspace'](arg1);
 }
@@ -658,12 +666,20 @@ export function UpdateOpenTabPanes(arg1, arg2, arg3) {
   return window['go']['main']['App']['UpdateOpenTabPanes'](arg1, arg2, arg3);
 }
 
+export function UpdateOpenTabPanesNarrow(arg1, arg2, arg3) {
+  return window['go']['main']['App']['UpdateOpenTabPanesNarrow'](arg1, arg2, arg3);
+}
+
 export function UpdatePreferences(arg1) {
   return window['go']['main']['App']['UpdatePreferences'](arg1);
 }
 
 export function UpdateRequest(arg1, arg2, arg3) {
   return window['go']['main']['App']['UpdateRequest'](arg1, arg2, arg3);
+}
+
+export function UpdateRequestNarrow(arg1, arg2, arg3) {
+  return window['go']['main']['App']['UpdateRequestNarrow'](arg1, arg2, arg3);
 }
 
 export function UpdateResponseExample(arg1, arg2, arg3, arg4) {

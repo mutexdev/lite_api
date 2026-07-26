@@ -188,6 +188,8 @@ export function MarkNotificationRead(arg1:string):Promise<main.AppState>;
 
 export function MoveOpenTab(arg1:string,arg2:number):Promise<main.AppState>;
 
+export function MoveOpenTabNarrow(arg1:string,arg2:number):Promise<main.TabsMutation>;
+
 export function OpenCollection(arg1:string,arg2:string):Promise<main.AppState>;
 
 export function OpenGitCollections(arg1:string,arg2:Array<string>,arg3:string):Promise<main.AppState>;
@@ -288,6 +290,8 @@ export function SetActiveGlobalEnvironment(arg1:string,arg2:string):Promise<main
 
 export function SetActiveTab(arg1:string):Promise<main.AppState>;
 
+export function SetActiveTabNarrow(arg1:string):Promise<main.TabsMutation>;
+
 export function SetActiveWorkspace(arg1:string):Promise<main.AppState>;
 
 export function SetCollectionGitRemote(arg1:string,arg2:string,arg3:string):Promise<main.CollectionGitOperationResult>;
@@ -330,9 +334,13 @@ export function UpdateOpenAPISyncConfig(arg1:string,arg2:main.OpenAPISyncConfig)
 
 export function UpdateOpenTabPanes(arg1:string,arg2:string,arg3:string):Promise<main.AppState>;
 
+export function UpdateOpenTabPanesNarrow(arg1:string,arg2:string,arg3:string):Promise<main.TabsMutation>;
+
 export function UpdatePreferences(arg1:main.Preferences):Promise<main.AppState>;
 
 export function UpdateRequest(arg1:string,arg2:string,arg3:main.RequestPatch):Promise<main.AppState>;
+
+export function UpdateRequestNarrow(arg1:string,arg2:string,arg3:main.RequestPatch):Promise<main.RequestMutation>;
 
 export function UpdateResponseExample(arg1:string,arg2:string,arg3:string,arg4:main.ResponseExample):Promise<main.AppState>;
 
