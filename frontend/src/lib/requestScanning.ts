@@ -254,3 +254,26 @@ export function queryParamsForURL(rawURL: string, currentRows: types.KeyValue[] 
   }
   return [...rows, ...disabledRows]
 }
+
+/**
+ * Rebuilds the path-parameter rows for a URL, keeping what the user already
+ * typed.
+ *
+ * This runs on every keystroke in the URL bar, so the preservation is the
+ * point: rebuilding from scratch would clear every path-parameter value the
+ * moment any other part of the URL was edited. A row whose name is still in the
+ * URL keeps its whole row — value, enabled flag and description.
+ *
+ * Rows for names no longer in the URL are dropped, because the result is
+ * ordered by the URL rather than merged into the old list: a stale parameter
+ * would sit in the table with nowhere to go, and be sent as nothing.
+ */
+export function syncPathParamsForURL(
+  rawURL: string,
+  currentRows: readonly types.KeyValue[] = []
+): types.KeyValue[] {
+  return pathParamNamesFromURL(rawURL).map((name) => {
+    const existing = currentRows.find((row) => row.name === name)
+    return existing ?? ({ name, value: '', enabled: true, secret: false, description: '' } as types.KeyValue)
+  })
+}

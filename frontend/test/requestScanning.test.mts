@@ -10,6 +10,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   collectVariableNames,
+  syncPathParamsForURL,
   fileBodyRows,
   scanBodyVariables,
   scanBodyPrompts,
@@ -18,6 +19,7 @@ import {
   pathParamNamesFromURL,
   queryParamsForURL
 } from '../src/lib/requestScanning.ts'
+import type { types } from '../wailsjs/go/models'
 
 const body = (o: Record<string, unknown>) => o as never
 const kv = (name: string, value: string, extra: Record<string, unknown> = {}) =>
@@ -242,4 +244,52 @@ test('collectPromptNames skips unselected websocket messages', () => {
     undefined
   )
   assert.deepEqual(prompts, ['sent'])
+})
+
+// This runs on every keystroke in the URL bar, so preservation is the point:
+// rebuilding from scratch would clear every path-parameter value the moment any
+// other part of the URL was edited.
+test('editing an unrelated part of the URL keeps the path param values', () => {
+  const current = [
+    { name: 'id', value: '42', enabled: true, secret: false, description: 'the user' }
+  ] as types.KeyValue[]
+  const next = syncPathParamsForURL('https://api.test/users/:id?page=2', current)
+  assert.equal(next.length, 1)
+  assert.equal(next[0].value, '42')
+  assert.equal(next[0].description, 'the user')
+})
+
+test('a new path parameter arrives empty and enabled', () => {
+  const next = syncPathParamsForURL('https://api.test/users/:id/posts/:postId', [])
+  assert.deepEqual(next.map((row) => row.name), ['id', 'postId'])
+  assert.equal(next[1].value, '')
+  assert.equal(next[1].enabled, true)
+})
+
+// A stale parameter would sit in the table with nowhere to go and be sent as
+// nothing, so the result is ordered by the URL rather than merged into the old
+// list.
+test('a parameter removed from the URL is dropped', () => {
+  const current = [
+    { name: 'id', value: '42', enabled: true } as types.KeyValue,
+    { name: 'gone', value: 'x', enabled: true } as types.KeyValue
+  ]
+  const next = syncPathParamsForURL('https://api.test/users/:id', current)
+  assert.deepEqual(next.map((row) => row.name), ['id'])
+})
+
+test('a URL with no path parameters yields no rows', () => {
+  assert.deepEqual(syncPathParamsForURL('https://api.test/users', [{ name: 'id' } as types.KeyValue]), [])
+  assert.deepEqual(syncPathParamsForURL('', []), [])
+})
+
+// The rows follow the URL's order, so reordering the path reorders the table
+// rather than leaving the old positions in place.
+test('the rows follow the order of the URL', () => {
+  const current = [
+    { name: 'b', value: '2' } as types.KeyValue,
+    { name: 'a', value: '1' } as types.KeyValue
+  ]
+  const next = syncPathParamsForURL('https://api.test/:a/:b', current)
+  assert.deepEqual(next.map((row) => [row.name, row.value]), [['a', '1'], ['b', '2']])
 })

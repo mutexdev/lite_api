@@ -7245,3 +7245,41 @@ US-026 - Store layer. DONE. Both named collapses complete.
   each time; the three rewiring controls fail 1, 1 and 2.
 
   Fourteen controls, fourteen failures after the fix.
+
+=== PHASE 6 — the environment editor and path params ===
+
+  New src/lib/environmentVariables.ts (8 tests), normalizedSearch onto
+  sidebarFilter.ts beside searchHit, syncPathParamsForURL onto
+  requestScanning.ts beside pathParamNamesFromURL (+5 tests).
+  App.svelte 10,917 -> 10,897. Suite 629 -> 642.
+
+  THE PROPERTY THE MODULE EXISTS FOR: THE ROW INDEX IS THE POSITION IN THE
+  UNFILTERED LIST. Every edit handler in the editor writes back by index, so an
+  index taken after filtering renumbers the rows to their filtered positions —
+  and editing a row while a search or the secrets tab is active would silently
+  modify a DIFFERENT variable. Control fails 3.
+
+  Also pinned:
+    - the two tabs PARTITION the list. Showing a secret in the plain tab puts
+      its value on screen in a field with no masking. Control fails 2.
+    - the search covers the VALUE, not just the name. Control fails 1.
+    - normalizedSearch moved next to searchHit, which was the point: searchHit
+      lowercases the CANDIDATE but not the NEEDLE, so an uppercase query passed
+      straight in matches nothing and reads as an empty result rather than a
+      bug. The pairing makes the requirement findable, and a test now asserts
+      it. Control fails 2.
+    - path params PRESERVE what the user typed. This runs on every keystroke in
+      the URL bar; rebuilding from scratch clears every value the moment any
+      other part of the URL is edited. Control fails 2.
+    - and the result is ORDERED BY THE URL rather than merged into the old list,
+      so a parameter removed from the URL is dropped instead of sitting in the
+      table with nowhere to go. Control fails 3.
+
+  A BUG THAT ONLY THE REAL RUNNER FOUND. I wrote `from './sidebarFilter'` with
+  no extension. tsc accepted it, svelte-check accepted it, vite built it, and
+  the file passed under tsx — but `node --test`, which is what `npm test`
+  actually runs, could not resolve it. Every other lib module in the repo uses
+  the explicit '.ts'; mine was the only one that did not. Running the slice's
+  own test file with the convenient runner would have missed it entirely.
+
+  Eight controls, eight failures.

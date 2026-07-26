@@ -70,3 +70,15 @@ export function computeGroupedItems(collection: types.Collection, query = '') {
   }
   return groups
 }
+
+/**
+ * Prepares a raw search box value for `searchHit`.
+ *
+ * `searchHit` lowercases the candidate but not the needle, so every query must
+ * come through here — an uppercase query passed straight in matches nothing and
+ * looks like an empty result set rather than a bug. Keeping the two together
+ * is what makes that requirement findable.
+ */
+export function normalizedSearch(value: string): string {
+  return value.trim().toLowerCase()
+}

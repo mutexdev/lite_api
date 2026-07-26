@@ -96,6 +96,11 @@
     proxyPreferencesWithDefaults as proxyPreferencesWithDefaultsOf
   } from './lib/authDefaults'
   import { certificateFileName as customCaFileName } from './lib/filesystemNames'
+  import {
+    environmentVariableAddLabel,
+    environmentVariableMatches,
+    visibleEnvironmentVariables
+  } from './lib/environmentVariables'
   import { resolveNativeMenuCommand } from './lib/nativeMenu'
   import { resolveShortcut, shortcutTabNumber } from './lib/shortcuts'
   import { workspaceStore } from './lib/stores/workspaceStore.svelte'
@@ -336,6 +341,7 @@
     queryParamsForURL,
     scanBodyPrompts,
     scanBodyVariables,
+    syncPathParamsForURL,
     variableNamesForRequest
   } from './lib/requestScanning'
   import {
@@ -363,6 +369,7 @@
     filteredFolders,
     filteredItems,
     folderMatches,
+    normalizedSearch,
     requestMatches,
     searchHit
   } from './lib/sidebarFilter'
@@ -1736,22 +1743,6 @@
     dotEnvRefreshTimer = undefined
   }
 
-  function visibleEnvironmentVariables(vars: types.Variable[] | undefined, tab: EnvironmentVariableTab, query: string): IndexedVariable[] {
-    return (vars ?? [])
-      .map((variable, index) => ({ variable, index }))
-      .filter(({ variable }) => (tab === 'secrets' ? Boolean(variable.secret) : !variable.secret))
-      .filter(({ variable }) => environmentVariableMatches(variable, query))
-  }
-
-  function environmentVariableMatches(variable: types.Variable, query: string) {
-    if (!query) return true
-    return [variable.name, variable.value, variable.type, variable.dataType].some((value) => searchHit(value, query))
-  }
-
-  function environmentVariableAddLabel(tab: EnvironmentVariableTab) {
-    return tab === 'secrets' ? 'Add secret' : 'Add variable'
-  }
-
   async function loadProcessEnvTooltipValues(collectionId: string, names: string[], key: string) {
     try {
       const values = await ResolveProcessEnvValues(collectionId, names)
@@ -1776,13 +1767,6 @@
 
 
 
-
-  function syncPathParamsForURL(rawURL: string, currentRows: types.KeyValue[] = []) {
-    return pathParamNamesFromURL(rawURL).map((name) => {
-      const existing = currentRows.find((row) => row.name === name)
-      return existing ?? ({ name, value: '', enabled: true, secret: false, description: '' } as types.KeyValue)
-    })
-  }
 
 
 
@@ -7043,10 +7027,6 @@
   }
 
 
-
-  function normalizedSearch(value: string) {
-    return value.trim().toLowerCase()
-  }
 
 
 
