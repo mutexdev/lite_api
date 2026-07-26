@@ -107,3 +107,60 @@ export function keepIndexVisible(
   if (rowBottom > scrollTop + viewportHeight) return Math.max(0, rowBottom - viewportHeight)
   return scrollTop
 }
+
+export type GroupWindow = {
+  start: number
+  end: number
+  padTop: number
+  padBottom: number
+}
+
+/**
+ * sidebarGroupWindow is computeWindow for ONE GROUP inside a single scrolling
+ * list.
+ *
+ * The sidebar is not one flat list: each collection and folder renders its own
+ * {#each}, but they share one scroll container. So a group needs to know how
+ * many rows precede it — `offset` — to translate the container's scrollTop into
+ * its own coordinate space.
+ *
+ * IT DIFFERS FROM computeWindow IN ONE WAY THAT MATTERS, and the difference is
+ * deliberate rather than an oversight to fix blindly. computeWindow clamps
+ * scrollTop against the content height so a stale scroll position — exactly
+ * what filtering a longer list leaves behind — cannot put the window past the
+ * end. This cannot do the same, because a group legitimately sits outside the
+ * viewport: clamping per group would drag every off-screen group's window back
+ * to its own content and render rows nobody can see.
+ *
+ * Instead the window is clamped to [0, count] after the offset is applied,
+ * which for a group above the viewport yields start === end === count and for
+ * one below yields start === end === 0. Both render nothing, which is right.
+ * The scroll container's own height keeps the aggregate honest.
+ */
+export function sidebarGroupWindow(
+  count: number,
+  offset: number,
+  rowHeight: number,
+  viewportHeight: number,
+  scrollTop: number,
+  overscan = 8
+): GroupWindow {
+  if (viewportHeight <= 0 || rowHeight <= 0 || count === 0) {
+    // Before layout the row height measures zero. Rendering everything is the
+    // safe fallback: a virtualised list that renders nothing looks broken,
+    // while one that renders too much is merely slow for one frame.
+    return { start: 0, end: count, padTop: 0, padBottom: 0 }
+  }
+
+  const firstVisible = Math.floor(scrollTop / rowHeight) - offset - overscan
+  const lastVisible = Math.ceil((scrollTop + viewportHeight) / rowHeight) - offset + overscan
+  const start = Math.max(0, Math.min(count, firstVisible))
+  const end = Math.max(start, Math.min(count, lastVisible))
+
+  return {
+    start,
+    end,
+    padTop: start * rowHeight,
+    padBottom: (count - end) * rowHeight
+  }
+}

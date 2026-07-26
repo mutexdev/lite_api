@@ -8,7 +8,7 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { computeWindow, keepIndexVisible } from '../src/lib/virtualList.ts'
+import { computeWindow, sidebarGroupWindow, keepIndexVisible } from '../src/lib/virtualList.ts'
 
 const ROW = 24
 const VIEWPORT = 480
@@ -151,4 +151,84 @@ test('keepIndexVisible clamps an out-of-range index instead of scrolling past th
 test('keepIndexVisible is inert for an empty list or an unmeasured row height', () => {
   assert.equal(keepIndexVisible(3, { total: 0, rowHeight: ROW, viewportHeight: VIEWPORT, scrollTop: 55 }), 55)
   assert.equal(keepIndexVisible(3, { total: 10, rowHeight: 0, viewportHeight: VIEWPORT, scrollTop: 55 }), 55)
+})
+
+// sidebarGroupWindow — computeWindow for one group inside a shared scroller.
+//
+// The sidebar renders a separate {#each} per collection and folder but scrolls
+// as one container, so each group translates the shared scrollTop through its
+// own row offset. Getting that wrong renders the wrong slice of the wrong
+// group, which reads as requests appearing under the wrong folder.
+
+test('a group at the top renders from its first row', () => {
+  const w = sidebarGroupWindow(50, 0, 20, 400, 0)
+  assert.equal(w.start, 0)
+  assert.ok(w.end >= 20, 'the viewport holds 20 rows plus overscan')
+  assert.equal(w.padTop, 0)
+})
+
+// The padding invariant: spacers plus rendered rows must equal the full content
+// height, or the group's height changes as it scrolls and everything below it
+// jumps.
+test('padding plus rendered rows always equals the full height', () => {
+  for (const scrollTop of [0, 137, 400, 1000, 5000]) {
+    for (const offset of [0, 5, 40]) {
+      const count = 60
+      const rowHeight = 20
+      const w = sidebarGroupWindow(count, offset, rowHeight, 400, scrollTop)
+      const total = w.padTop + (w.end - w.start) * rowHeight + w.padBottom
+      assert.equal(total, count * rowHeight, `scrollTop=${scrollTop} offset=${offset}`)
+    }
+  }
+})
+
+// A group scrolled far above the viewport should render nothing, not its tail.
+test('a group entirely above the viewport renders nothing', () => {
+  const w = sidebarGroupWindow(10, 0, 20, 400, 100000)
+  assert.equal(w.start, w.end, 'start and end collapse')
+  assert.equal(w.end, 10, 'collapsed at the end of the group')
+  assert.equal(w.padBottom, 0)
+})
+
+test('a group entirely below the viewport renders nothing', () => {
+  const w = sidebarGroupWindow(10, 5000, 20, 400, 0)
+  assert.equal(w.start, w.end, 'start and end collapse')
+  assert.equal(w.start, 0, 'collapsed at the start of the group')
+  assert.equal(w.padTop, 0)
+})
+
+// The offset is what places a group in the shared scroll space. Ignoring it
+// would render every group the same slice.
+test('the offset shifts which rows are visible', () => {
+  const atTop = sidebarGroupWindow(100, 0, 20, 400, 2000)
+  const shifted = sidebarGroupWindow(100, 50, 20, 400, 2000)
+  assert.notDeepEqual([atTop.start, atTop.end], [shifted.start, shifted.end])
+  assert.ok(shifted.start < atTop.start, 'a group further down sees an earlier slice of itself')
+})
+
+// Row height is measured from the DOM and is zero before layout. Dividing by it
+// would produce Infinity indices.
+test('an unmeasured row height renders everything rather than nothing', () => {
+  const w = sidebarGroupWindow(30, 0, 0, 400, 0)
+  assert.deepEqual([w.start, w.end], [0, 30], 'a list that renders nothing looks broken; too much is one slow frame')
+
+  const noViewport = sidebarGroupWindow(30, 0, 20, 0, 0)
+  assert.deepEqual([noViewport.start, noViewport.end], [0, 30])
+})
+
+test('an empty group is an empty window', () => {
+  const w = sidebarGroupWindow(0, 0, 20, 400, 0)
+  assert.deepEqual([w.start, w.end, w.padTop, w.padBottom], [0, 0, 0, 0])
+})
+
+// A stale scrollTop is what filtering leaves behind — the search box shortens
+// the list while the container keeps its position. Every group must still
+// produce a coherent window rather than negative padding or inverted indices.
+test('a scroll position left over from a longer list stays coherent', () => {
+  for (const offset of [0, 10, 100]) {
+    const w = sidebarGroupWindow(3, offset, 20, 400, 9999)
+    assert.ok(w.start >= 0 && w.end >= w.start, `offset=${offset}: indices inverted`)
+    assert.ok(w.padTop >= 0 && w.padBottom >= 0, `offset=${offset}: negative padding`)
+    assert.equal(w.padTop + (w.end - w.start) * 20 + w.padBottom, 60, `offset=${offset}: height changed`)
+  }
 })

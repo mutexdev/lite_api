@@ -17,7 +17,7 @@
   import { applyRequestMutation, applyTabsMutation, type MergeOutcome } from './lib/narrowMutations'
   import { filterCommands } from './lib/commandPalette'
   import { memoized, KeyedMemo, type Memo } from './lib/memo'
-  import { computeWindow } from './lib/virtualList'
+  import { computeWindow, sidebarGroupWindow } from './lib/virtualList'
   import { workspaceStore } from './lib/stores/workspaceStore.svelte'
   import { variableTooltips } from './lib/stores/variableTooltipStore.svelte'
   import {
@@ -7364,22 +7364,16 @@
   }
 
   /** Which of a group's items fall inside the viewport, plus the padding. */
+  // The offset and the viewport metrics are reactive; the arithmetic is not,
+  // and lives in lib/virtualList beside computeWindow.
   function sidebarItemWindow(collectionId: string, folder: string, count: number) {
-    if (sidebarViewportHeight <= 0 || sidebarRowHeight <= 0 || count === 0) {
-      return { start: 0, end: count, padTop: 0, padBottom: 0 }
-    }
-    const offset = sidebarGroupOffset(collectionId, folder)
-    const overscan = 8
-    const firstVisible = Math.floor(sidebarScrollTop / sidebarRowHeight) - offset - overscan
-    const lastVisible = Math.ceil((sidebarScrollTop + sidebarViewportHeight) / sidebarRowHeight) - offset + overscan
-    const start = Math.max(0, Math.min(count, firstVisible))
-    const end = Math.max(start, Math.min(count, lastVisible))
-    return {
-      start,
-      end,
-      padTop: start * sidebarRowHeight,
-      padBottom: (count - end) * sidebarRowHeight
-    }
+    return sidebarGroupWindow(
+      count,
+      sidebarGroupOffset(collectionId, folder),
+      sidebarRowHeight,
+      sidebarViewportHeight,
+      sidebarScrollTop
+    )
   }
 
   // US-031: which per-row disclosure menus are open, keyed collection:item.

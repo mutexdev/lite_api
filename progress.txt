@@ -6628,3 +6628,42 @@ US-026 - Store layer. DONE. Both named collapses complete.
   That last one needed three separate controls to pin, because there are three
   ways to get it wrong: react to any header edit, react to an unchanged value,
   or report a change when the derived type is the same. All three fail a test.
+
+=== PHASE 6 — sidebar virtualisation, and a THIRD implementation of one idea ===
+
+  sidebarGroupWindow joins computeWindow in lib/virtualList.ts. 8 tests.
+  App.svelte 11,526 -> 11,520. Frontend suite 404 -> 412.
+
+  sidebarItemWindow was a SECOND virtualisation implementation: computeWindow
+  (tested, used by the devtools network table) and this one (untested, used by
+  the sidebar). Found by the same habit as keyBindingSignature — reading the
+  target module before extracting into it.
+
+  BUT THE DIFFERENCE BETWEEN THEM IS DELIBERATE, and I nearly "fixed" it.
+  computeWindow CLAMPS scrollTop against the content height, with a comment
+  explaining exactly why: "a scrollTop left from a longer list — exactly what a
+  filter produces — would otherwise put the window past the end and render
+  nothing." The sidebar version does not clamp, and the sidebar IS filtered by
+  the search box, so this looked like the documented bug sitting unfixed in a
+  second copy.
+
+  It is not. computeWindow describes ONE list filling its scroller. The sidebar
+  is many groups sharing one scroller, and a group legitimately sits outside the
+  viewport. Clamping per group would drag every off-screen group's window back
+  onto its own content and render rows nobody can see. The correct behaviour is
+  the [0, count] clamp AFTER applying the offset, which collapses start and end
+  for a group above or below the viewport — rendering nothing, which is right.
+
+  Tested both collapse directions explicitly, plus the stale-scrollTop case that
+  filtering produces: every group still yields non-negative padding, non-
+  inverted indices, and a constant total height.
+
+  THE INVARIANT WORTH HAVING: padTop + rendered*rowHeight + padBottom always
+  equals count*rowHeight. If it ever fails the group's height changes as it
+  scrolls and everything below it jumps. Asserted across 15 scroll/offset
+  combinations; dropping either spacer fails.
+
+  Two same-shaped findings now, opposite conclusions: keyBindingSignature was a
+  duplicate that had DIVERGED and needed collapsing; this one is a variant that
+  SHOULD differ and needed documenting. Reading the neighbour found both; only
+  reading the comment told them apart.
