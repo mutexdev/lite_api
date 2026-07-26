@@ -4521,3 +4521,38 @@ US-026 - Store layer. DONE. Both named collapses complete.
       environment loading, OAuth2 additional params, scope determinism
     3 occasions where MY TEST was wrong and the code was right — each caught by
       reading the code instead of assuming, and each recorded as such
+
+--- FRONTEND coverage, measured for the first time ---
+
+  The Go sweep was worth repeating on the frontend, and node's
+  --experimental-test-coverage does it without adding a dependency.
+
+  The lib modules were already excellent — most at 100%. ONE real gap:
+
+      tabLifecycle.ts    61% lines, 33% FUNCTIONS
+
+  planUnsavedClose was entirely untested. The existing test file covered only
+  requestDeletionAction beside it.
+
+  THAT FUNCTION DECIDES WHETHER CLOSING TABS WARNS THE USER. If it reports
+  requiresConfirmation: false while a draft is open, the tabs close silently and
+  the edits are gone — no error, no undo prompt. The user finds out on reopening
+  the request. It is the frontend counterpart of the draft-guard validation
+  tested on the Go side, and it had the same shape of gap.
+
+  13 tests. The ones that earn their place:
+    - transience carried by the TAB rather than the request still counts; a
+      scratch request opened into a tab would otherwise close unasked
+    - the same request in two tabs is ONE piece of unsaved work, not two rows
+      naming it twice
+    - matching is on collection AND item, so a draft in another collection
+      cannot be attributed to this one
+    - a response-example tab must NOT prompt: closing it discards nothing, and a
+      spurious dialog trains people to dismiss the real one
+
+  Controls: never warning fails 6, ignoring tab-level transience fails 1,
+  listing duplicates fails 1, matching on item id alone fails 6, not defaulting
+  a blank name fails 1.
+
+  Frontend: 223 -> 235 tests. tabLifecycle 61% -> 100% lines and functions.
+  All files 99.89% lines, 97.70% functions.
