@@ -5062,3 +5062,37 @@ US-026 - Store layer. DONE. Both named collapses complete.
   one is what imported collections use), and GraphQL is snapshotted as the JSON
   envelope rather than the bare query — a curl built from the query alone posts
   something the server rejects as malformed, and that control fails 3 tests.
+
+--- Loosely-typed Postman values — 20-36% -> 100% ---
+
+  A .postman_collection.json is not schema-checked. The same field is a bool in
+  one export, the string "true" in another, and an array of strings in a third,
+  because the values came from a UI that never normalised them. Each helper
+  fails by producing a plausible wrong answer rather than an error.
+
+  Pinned: the auth values block is read in BOTH document shapes (object, and
+  Postman's list-of-{key,value}) — reading only one silently loses every auth
+  setting from the other, and that control fails 2. Every spelling of yes and no
+  seen in real exports is accepted; misreading one flips a switch like "add
+  token to header" without saying so. An unrecognised value takes the setting's
+  Postman DEFAULT rather than guessing, since a guess changes behaviour the
+  export never asked to change. A multi-file form src is an ARRAY of paths, and
+  a plain string conversion yields Go's "[a b]" rendering — a path that cannot
+  exist.
+
+  The two body-type functions prefer OPPOSITE sources, and that is deliberate.
+  For a REQUEST the editor language wins over the Content-Type header: it is
+  what the user picked in Postman's body editor, and the header is often absent
+  or stale. For a RESPONSE the header wins: it is what the server actually
+  declared, while the preview language is only how Postman displayed it. Both
+  orderings now have a control.
+
+  A TEST CAN PASS THROUGH THE FALLBACK IT IS SUPPOSED TO BE BYPASSING.
+  Three controls came back 0 failing. Two were equivalent mutations — a nil-map
+  index behaves exactly as the explicit skip does, and the early return is
+  reached by fall-through anyway — so they measured a difference that does not
+  exist. The third was a real insensitive test: I checked the language mapping
+  with an EMPTY raw body, and with an empty body every language reaches "text"
+  through the content-sniffing fallback, so the assertion held whether or not
+  the language was recognised at all. Re-run with a body that is valid JSON, so
+  a dropped "html" case now returns "json", it fires.
