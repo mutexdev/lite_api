@@ -15,6 +15,7 @@
     type LiveSessionPush,
   } from './lib/liveSessionEvents'
   import { applyRequestMutation, applyTabsMutation, type MergeOutcome } from './lib/narrowMutations'
+  import { PatchCoalescer } from './lib/patchQueue'
   import CodeEditor from './lib/workbench/CodeEditor.svelte'
   import RequestSettingsPanel from './lib/workbench/RequestSettingsPanel.svelte'
   import ProtocolRequestLine from './lib/workbench/ProtocolRequestLine.svelte'
@@ -1230,7 +1231,9 @@
     // switches away (or whose machine sleeps) within that window loses the
     // last edit. visibilitychange covers the sleep/hide case that blur misses.
     const flushPendingWrites = () => {
-      void FlushPendingWrites().catch(() => {
+      // Drain the in-memory patch queue before asking Go to write: otherwise
+      // the write lands without the character typed in the last 120 ms.
+      void flushPendingRequestPatch().then(() => FlushPendingWrites()).catch(() => {
         // A failed background write is surfaced to the user by the Go side's
         // notification path on the next mutation; there is nothing useful to
         // do from a blur handler, and throwing here would be unhandled.
@@ -3150,6 +3153,9 @@
     if (cancellableTransport && activeHTTPTransport) return
     const collectionId = collection.id
     const requestId = request.id
+    // US-035: drain any patch still inside the debounce window, so Send uses
+    // what the user actually typed rather than the last flushed value.
+    await flushPendingRequestPatch()
     await runAction('send request', async () => {
       if (cancellableTransport) {
         activeHTTPTransport = { collectionId, requestId }
@@ -4259,6 +4265,7 @@
   }
 
   async function setActiveTab(tabId: string) {
+    await flushPendingRequestPatch()
     await runAction('switch tab', async () => {
       const result = await SetActiveTabNarrow(tabId)
       await applyNarrow((current, held) => applyTabsMutation(current, held, result))
@@ -5444,16 +5451,68 @@
     state = await GetState()
   }
 
-  async function patchRequest(patch: main.RequestPatch) {
+  // US-035. The keystroke path. US-014 made each round trip 511x smaller
+  // (4,348,018 -> 8,515 bytes on the 500-request fixture); this stops most of
+  // them happening at all, by coalescing a burst of typing into one call.
+  //
+  // The backend call is deferred, but the UI is NOT: applyOptimisticPatch below
+  // updates local state synchronously, so the input never lags behind the
+  // keyboard. The authoritative result overwrites it when the flush lands.
+  const requestPatchCoalescer = new PatchCoalescer<main.RequestPatch>(
+    async ({ collectionId, itemId }, patch) => {
+      const result = await UpdateRequestNarrow(collectionId, itemId, patch)
+      await applyNarrow((current, held) => applyRequestMutation(current, held, result))
+      // The authoritative result describes the request as of when this call was
+      // MADE. Anything typed while it was on the wire is queued but not in it,
+      // so applying the result alone rewinds the input and silently drops those
+      // characters — measured in the browser as 36 typed becoming
+      // "coalesed.example/abcefghij". Re-apply what is still queued on top.
+      const stillQueued = requestPatchCoalescer.pendingPatch
+      const queuedFor = requestPatchCoalescer.pendingTarget
+      if (stillQueued && queuedFor?.collectionId === collectionId && queuedFor.itemId === itemId) {
+        applyOptimisticPatch(collectionId, itemId, stillQueued)
+      }
+      scheduleRequestAutoSave(collectionId, itemId)
+    },
+  )
+
+  // Applies a patch to the local copy without touching the revision: no server
+  // mutation has happened yet, so claiming one would desynchronise US-014's gap
+  // detection and make the next real result look like a missed update.
+  function applyOptimisticPatch(collectionId: string, itemId: string, patch: main.RequestPatch) {
+    if (!state) return
+    state = {
+      ...state,
+      workspaces: state.workspaces.map((workspace) => ({
+        ...workspace,
+        collections: (workspace.collections ?? []).map((collection) =>
+          collection.id !== collectionId
+            ? collection
+            : {
+                ...collection,
+                items: (collection.items ?? []).map((item) =>
+                  item.id !== itemId ? item : ({ ...item, ...patch, draft: true } as main.RequestItem),
+                ),
+              },
+        ),
+      })),
+    } as main.AppState
+  }
+
+  function patchRequest(patch: main.RequestPatch) {
     if (!activeCollection || !activeRequest) return
     const collectionId = activeCollection.id
     const requestId = activeRequest.id
-    // The keystroke path: this fires per typed character, and before US-014 it
-    // shipped the whole workspace back for each one. Measured on the
-    // 500-request fixture: 4,348,018 bytes of AppState -> 8,515 bytes.
-    const result = await UpdateRequestNarrow(collectionId, requestId, patch)
-    await applyNarrow((current, held) => applyRequestMutation(current, held, result))
-    scheduleRequestAutoSave(collectionId, requestId)
+    applyOptimisticPatch(collectionId, requestId, patch)
+    void requestPatchCoalescer.queue({ collectionId, itemId: requestId }, patch)
+  }
+
+  // Every path that reads server-side request state has to drain the queue
+  // first and WAIT for it, or it races the edit the user just made. A
+  // fire-and-forget flush would be worse than none: it looks correct and loses
+  // the last keystroke exactly when the user is watching for it.
+  function flushPendingRequestPatch(): Promise<void> {
+    return requestPatchCoalescer.flush()
   }
 
   function patchRequestWithURL(url: string) {

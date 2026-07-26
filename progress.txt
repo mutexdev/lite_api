@@ -23,11 +23,11 @@ evidence for each story; this file carries the cross-story findings.
 --- STATUS BOARD (update this every story) ---
   Branch: ralph/postman-switchable-v2   Spec: improvement_v2.md   Stories: 73
 
-  PASSED (24, incl. bug fixes US-075 + US-076):
+  PASSED (25, incl. bug fixes US-075 + US-076):
     Phase 0  US-002 US-003 US-004 US-005 US-006 US-007
     Phase 1  US-008 US-012 US-013 US-014 US-015 US-016 US-017 US-018
              US-020 US-021 US-022 US-023 US-024
-    Phase 2  US-030 US-038
+    Phase 2  US-030 US-035 US-038
   PHASE 1 REMAINING (4):
     US-009 US-010 US-011  response body store — the highest-risk trio in the
                           whole document; a mistake corrupts saved data rather
@@ -54,6 +54,45 @@ evidence for each story; this file carries the cross-story findings.
   SEQUENCING CONSTRAINT:
     US-077 (internal/ layout) MUST land BEFORE Phase 4 (US-060..US-071), or
     all nine package extractions get moved twice.
+
+--- US-035 — debounce patchRequest with optimistic state (PASSED) ---
+  MEASURED in the browser against the real Wails endpoint:
+    36 characters typed -> 3 IPC calls   (12x fewer round trips)
+    input showed every character immediately (optimistic path works)
+    backend converged on the exact typed string — no keystroke lost
+
+  BROWSER QA CAUGHT A REAL BUG THAT THE UNIT TESTS DID NOT. First run stored
+  "https://coalesed.example/abcefghij" for 36 characters of
+  "https://coalesced.example/abcdefghij" — characters silently dropped.
+
+  CAUSE: the in-flight overwrite. While a flush is on the wire the user keeps
+  typing; the result that comes back describes the request as of when the call
+  was MADE, so applying it verbatim REWINDS the input and discards everything
+  typed in the meantime. Neither the coalescer's own tests nor svelte-check can
+  see this — it needs a real round trip with real latency.
+  FIX: PatchCoalescer exposes pendingPatch, and the flusher re-applies it over
+  the authoritative result. Regression test added, written against the measured
+  before/after strings so it documents the actual failure rather than a
+  hypothesis.
+
+  METHOD NOTE, worth repeating: my first "Send" check reported the criterion
+  satisfied when it had NOT exercised Send at all — the selector /^send$/i
+  missed the button because its label is "Send ⌘↵", and the URL landing in the
+  backend was just the debounce firing during the 900 ms wait. A criterion is
+  only verified when the thing under test actually ran; sendWasInvoked is now
+  asserted explicitly rather than inferred from a side effect.
+
+  Send, tab switch and window blur all await the flush. Fire-and-forget would be
+  worse than nothing: it looks right and loses the last keystroke precisely when
+  the user is watching for it.
+
+  The disk autosave debounce is untouched — separate timer, separate delay,
+  still invoked from the same point in the flow (criterion: "remains
+  independent and unchanged").
+
+  NODE HARNESS CONSTRAINT worth knowing for future frontend modules: `node
+  --test` runs strip-only TypeScript and REJECTS parameter properties
+  (ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX). Declare and assign fields explicitly.
 
 --- US-030 — key every {#each} block (PASSED) ---
   116 -> 0 unkeyed blocks. eslint's svelte/require-each-key is RE-ENABLED (the
