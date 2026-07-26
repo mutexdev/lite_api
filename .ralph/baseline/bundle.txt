@@ -107,3 +107,30 @@ frontend/dist/assets/index-*.css        113609
 # bundler still puts it in the initial graph. That is the whole trick here and
 # it is easy to get wrong in a way that measures as zero.
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# ATTEMPTED and REVERTED: automating the remaining 28 body extractions.
+#
+# The wrapper conversion in US-025 automated cleanly because the structure
+# supplied everything a script needed. Body extraction does not, and the reason
+# is worth writing down so nobody re-attempts the same shortcut.
+#
+# The hard part is deriving each dialog's PROPS. A first attempt collected every
+# identifier in the block that App.svelte also declares. That over-collects: it
+# picked up `source` and `value` for the openapi-settings dialog, which are
+# bound LOCALLY inside the block (an {#each} destructuring) and merely happen to
+# share a name with an App.svelte local. The generated component then declared
+# them as props, and App.svelte tried to forward variables that do not exist in
+# its scope — 8 errors, reverted.
+#
+# Doing it properly means excluding every identifier bound within the block by
+# ANY construct: {#each ... as x}, destructured each bindings, {#await ... then
+# x}, let: directives, and inline arrow parameters. That is a small scope
+# analysis, not a regex, and getting it wrong produces components that typecheck
+# in isolation and fail at the call site.
+#
+# RECOMMENDATION: extract the remaining bodies BY HAND, largest first, one per
+# commit with a typecheck between — the same discipline that made the wrapper
+# conversion 20/20 clean. SpecDiffModal (committed) is the worked example: 7
+# props, ~2,883 bytes off the initial chunk.
+# ---------------------------------------------------------------------------
