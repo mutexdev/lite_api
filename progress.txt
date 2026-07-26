@@ -1593,3 +1593,52 @@ US-055 - Command palette. DONE, but SMALLER THAN THE STORY IMPLIES.
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 0,
   svelte-check 199/0/0, eslint 0, npm test 125/125 (was 105; +20 palette).
+
+US-056 - Bulk edit. DONE. Partly pre-existing, like US-055.
+  I grepped for "bulk" FIRST this time, per the US-055 lesson, and found
+  KeyValueTable.svelte already had a Bulk Edit toggle - but only wired on three
+  response-example tables. The main request params, path params and headers
+  tables, which are exactly what the story names ("headers/params tables,
+  Postman muscle memory"), had no toggle at all.
+
+  What was wrong with the existing implementation, found by reading it:
+
+  1. secret AND description WERE DESTROYED on every parse. parseBulkText
+     returned `secret: false, description: ''` unconditionally. The story names
+     only disabled state, but this is the worse loss: a secret row silently
+     becoming non-secret means its value starts being written out in the clear.
+     Now carried over from the previous rows, matching the nth occurrence of a
+     name to the nth previous one - matching by name alone gives every
+     duplicate the first row's metadata.
+
+  2. A value containing a NEWLINE split the row in two. This table supports
+     multi-line values (the multilineValues prop), so that was silent data loss
+     the user meets much later. Newlines are now escaped as \n and backslashes
+     doubled - backslash first, or the escape introduced for a newline gets
+     re-escaped and GROWS on every round trip. A test runs five cycles to pin
+     that.
+
+  3. The textarea rendered rowsToBulkText(rows) live, so the user's text was
+     reformatted under the cursor mid-edit: a half-typed line parses to a name
+     with an empty value, re-renders as "name: ", and the caret jumps. Now held
+     in a local draft, seeded on entering bulk mode.
+
+  Also: `//` (Postman's marker) is now emitted, and BOTH `//` and `~` (what
+  this app emitted before) parse, so existing text keeps working and pasted
+  Postman text works - which is the muscle memory the story is about.
+
+  bulkTextIsLossy reports the one genuinely unrepresentable case, a name
+  containing : or = or starting with a disabled marker. It WARNS rather than
+  blocking: silently refusing bulk edit on a table is more confusing than a
+  note.
+
+  Logic extracted to lib/bulkEdit.ts because it was untestable inside the
+  component, and the round trip is the entire criterion.
+
+  Negative controls, all three run and all three caught:
+    metadata not carried (the old behaviour)  4 tests fail
+    newlines not escaped                      2 tests fail
+    duplicates take the first row's metadata  1 test fails
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 38.2s 0,
+  svelte-check 200/0/0, eslint 0, npm test 145/145 (was 125; +20 bulk edit).

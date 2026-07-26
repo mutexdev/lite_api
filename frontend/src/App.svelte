@@ -5784,6 +5784,15 @@
     patchRequest({ [kind]: rows } as unknown as main.RequestPatch)
   }
 
+  // US-056. Bulk edit replaces the whole list in one patch rather than
+  // diffing row by row: the text form has no stable row identity, so a
+  // per-row diff would have to guess which line replaced which row and would
+  // reorder or drop rows on any edit that changes their count.
+  function replaceKeyValues(kind: 'params' | 'pathParams' | 'headers', rows: main.KeyValue[]) {
+    if (!activeRequest) return
+    patchRequest({ [kind]: rows } as unknown as main.RequestPatch)
+  }
+
   function addKeyValue(kind: 'params' | 'headers') {
     if (!activeRequest) return
     const rows = [...(activeRequest[kind] ?? []), { name: '', value: '', enabled: true, secret: false, description: '' }]
@@ -8978,6 +8987,8 @@
 	              {#if requestPaneTab === 'params'}
 	                <div class="param-section-title">Query</div>
 	                <KeyValueTable
+	                  showBulkEdit={true}
+	                  bulkLabel="Request params bulk edit"
 	                  rows={activeRequest.params}
 	                  variableOverlay={true}
                   {activeVariableTooltip}
@@ -8998,11 +9009,14 @@
                   onToggleSecret={toggleTooltipSecret}
                   onAdd={() => addKeyValue('params')}
 	                  onChange={(index, field, value) => updateKeyValue('params', index, field, value)}
+	                  onBulkChange={(rows) => replaceKeyValues('params', rows as unknown as main.KeyValue[])}
 	                  onRemove={(index) => removeKeyValue('params', index)}
 	                />
 	                {#if activeRequest.pathParams?.length}
 	                  <div class="param-section-title">Path</div>
 	                  <KeyValueTable
+	                    showBulkEdit={true}
+	                    bulkLabel="Request path params bulk edit"
 	                    rows={activeRequest.pathParams}
 	                    variableOverlay={true}
 	                    readonlyNames={true}
@@ -9026,10 +9040,13 @@
 	                    onCopy={copyVariableTooltipValue}
 	                    onToggleSecret={toggleTooltipSecret}
 	                    onChange={(index, field, value) => updateKeyValue('pathParams', index, field, value)}
+                  onBulkChange={(rows) => replaceKeyValues('pathParams', rows as unknown as main.KeyValue[])}
 	                  />
 	                {/if}
 	              {:else if requestPaneTab === 'headers'}
                 <KeyValueTable
+                  showBulkEdit={true}
+                  bulkLabel="Request headers bulk edit"
                   rows={activeRequest.headers}
                   variableOverlay={true}
                   {activeVariableTooltip}
@@ -9050,6 +9067,7 @@
                   onToggleSecret={toggleTooltipSecret}
                   onAdd={() => addKeyValue('headers')}
                   onChange={(index, field, value) => updateKeyValue('headers', index, field, value)}
+                  onBulkChange={(rows) => replaceKeyValues('headers', rows as unknown as main.KeyValue[])}
                   onRemove={(index) => removeKeyValue('headers', index)}
                 />
               {:else if requestPaneTab === 'body'}

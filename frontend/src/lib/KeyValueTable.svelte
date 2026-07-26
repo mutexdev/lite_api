@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { rowsToBulkText, parseBulkText, bulkTextIsLossy } from './bulkEdit'
   import VariableTextOverlay from './VariableTextOverlay.svelte'
 
   type KeyValueRow = { name: string; value: string; enabled: boolean; secret?: boolean; description?: string }
@@ -76,6 +77,24 @@
 	  let valueScrollLeft: Record<number, number> = {}
 	  let valueScrollTop: Record<number, number> = {}
   let bulkMode = false
+  // US-056. The text shown while editing is held locally rather than recomputed
+  // from `rows` on every keystroke. Rendering rowsToBulkText(rows) live would
+  // reformat the user's text under the cursor mid-edit — a half-typed line
+  // becomes a name with an empty value, gets re-rendered as "name: ", and the
+  // caret jumps.
+  let bulkDraft = ''
+
+  function enterBulkMode() {
+    bulkDraft = rowsToBulkText(rows)
+    bulkMode = true
+  }
+
+  function applyBulkDraft(text: string) {
+    bulkDraft = text
+    // `rows` is passed as the previous state so secret and description, which
+    // the text format cannot express, are carried over rather than reset.
+    onBulkChange(parseBulkText(text, rows) as KeyValueRow[])
+  }
   let draggingIndex: number | null = null
   let dragOverIndex: number | null = null
 
@@ -90,25 +109,6 @@
 	    onChange(index, 'value', (event.currentTarget as HTMLInputElement | HTMLTextAreaElement).value)
 	  }
 
-  function rowsToBulkText(value: KeyValueRow[]) {
-    return (value ?? []).map((row) => `${row.enabled === false ? '~' : ''}${row.name ?? ''}: ${row.value ?? ''}`).join('\n')
-  }
-
-  function parseBulkText(value: string): KeyValueRow[] {
-    return value
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const enabled = !line.startsWith('~')
-        const normalized = enabled ? line : line.slice(1).trimStart()
-        let separator = normalized.indexOf(':')
-        if (separator < 0) separator = normalized.indexOf('=')
-        const name = separator >= 0 ? normalized.slice(0, separator).trim() : normalized.trim()
-        const rowValue = separator >= 0 ? normalized.slice(separator + 1).trimStart() : ''
-        return { name, value: rowValue, enabled, secret: false, description: '' }
-      })
-  }
 
   function handleDragStart(index: number, event: DragEvent) {
     if (readonly || !showMove) return
@@ -144,9 +144,14 @@
 
 {#if showBulkEdit && !readonly}
   <div class="kv-bulk-toggle">
-    <button type="button" class:active={!bulkMode} on:click={() => (bulkMode = false)}>Key/Value Edit</button>
-    <button type="button" class:active={bulkMode} on:click={() => (bulkMode = true)}>Bulk Edit</button>
+    <button type="button" data-testid="kv-mode-rows" class:active={!bulkMode} on:click={() => (bulkMode = false)}>Key/Value Edit</button>
+    <button type="button" data-testid="kv-mode-bulk" class:active={bulkMode} on:click={enterBulkMode}>Bulk Edit</button>
   </div>
+  {#if bulkMode && bulkTextIsLossy(rows)}
+    <p class="muted" data-testid="kv-bulk-warning">
+      A name in this table contains <code>:</code>, <code>=</code> or a leading disabled marker, which bulk text cannot represent. Editing here will rewrite it.
+    </p>
+  {/if}
 {/if}
 
 {#if showBulkEdit && bulkMode}
@@ -154,8 +159,8 @@
     class="kv-bulk-textarea"
     aria-label={bulkLabel}
     spellcheck="false"
-    value={rowsToBulkText(rows)}
-    on:input={(event) => onBulkChange(parseBulkText(event.currentTarget.value))}
+    value={bulkDraft}
+    on:input={(event) => applyBulkDraft(event.currentTarget.value)}
   ></textarea>
 {:else}
 	<table class="kv-table">
