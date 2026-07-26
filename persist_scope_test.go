@@ -5,7 +5,7 @@ package main
 //
 // These tests assert on WHETHER THE FILE WAS WRITTEN, observed through its
 // modification time and inode, rather than on timing. Both auxiliary writers go
-// through writeFileAtomic / writePrivateAtomic, which rename a fresh temp file
+// through atomicfile.Write / writePrivateAtomic, which rename a fresh temp file
 // into place, so a write that happens always changes the inode — there is no
 // way for a real write to slip past this check, and no way for a skipped write
 // to look like one.

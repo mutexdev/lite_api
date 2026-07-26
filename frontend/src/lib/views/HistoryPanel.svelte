@@ -6,9 +6,9 @@
   // but each carries its headers, so pulling the whole log on every keystroke
   // would move hundreds of kilobytes across the binding to render at most a
   // screenful.
-  import type { main } from '../../../wailsjs/go/models'
+  import type { history } from '../../../wailsjs/go/models'
 
-  export let entries: main.HistoryEntry[]
+  export let entries: history.HistoryEntry[]
   export let query: string
   export let onlyFailures: boolean
   export let methodFilter: string
@@ -16,14 +16,14 @@
   export let collections: { id: string; name: string }[]
   export let saveTargetCollectionID: string
   export let onSearch: () => void
-  export let onOpenInTab: (entry: main.HistoryEntry) => void
-  export let onSaveToCollection: (entry: main.HistoryEntry) => void
+  export let onOpenInTab: (entry: history.HistoryEntry) => void
+  export let onSaveToCollection: (entry: history.HistoryEntry) => void
   export let onClear: () => void
-  export let canOpenInTab: (entry: main.HistoryEntry) => boolean
+  export let canOpenInTab: (entry: history.HistoryEntry) => boolean
 
   const methods = ['', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
 
-  function statusClass(entry: main.HistoryEntry) {
+  function statusClass(entry: history.HistoryEntry) {
     if (entry.error) return 'bad'
     if ((entry.status ?? 0) >= 400) return 'bad'
     if ((entry.status ?? 0) >= 200) return 'ok'

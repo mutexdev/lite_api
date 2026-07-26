@@ -3,6 +3,7 @@
 import {types} from '../models';
 import {main} from '../models';
 import {codegen} from '../models';
+import {history} from '../models';
 
 export function AddCookieFromHeader(arg1:string,arg2:string):Promise<types.AppState>;
 
@@ -162,7 +163,7 @@ export function GetFileCacheSize():Promise<number>;
 
 export function GetHistoryBody(arg1:string):Promise<string>;
 
-export function GetHistoryEntry(arg1:string):Promise<main.HistoryEntry>;
+export function GetHistoryEntry(arg1:string):Promise<history.HistoryEntry>;
 
 export function GetOpenAPISyncSpec(arg1:string):Promise<types.OpenAPISyncSpecViewResult>;
 
@@ -188,7 +189,7 @@ export function ListDotEnvFiles(arg1:string,arg2:string):Promise<Array<types.Dot
 
 export function ListGRPCMethods(arg1:string,arg2:string,arg3:string):Promise<Array<types.GRPCMethodInfo>>;
 
-export function ListHistory(arg1:main.HistoryQuery):Promise<Array<main.HistoryEntry>>;
+export function ListHistory(arg1:history.HistoryQuery):Promise<Array<history.HistoryEntry>>;
 
 export function ListRecoveryEntries():Promise<Array<main.RecoveryEntry>>;
 

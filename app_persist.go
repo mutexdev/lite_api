@@ -10,6 +10,8 @@ import (
 	"unicode/utf8"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+
+	"github.com/mutexdev/lite_api/internal/atomicfile"
 )
 
 // bumpRevisionLocked advances the mutation counter and stamps it into the state
@@ -40,54 +42,7 @@ func (a *App) writeStateLocked() error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(filepath.Join(a.dataDir, "state.json"), data, 0o600)
-}
-
-// writeFileAtomic writes data through a temporary file in the same directory,
-// fsyncs it, then renames it into place. os.Rename within one filesystem is
-// atomic, so a process killed at any point leaves either the previous file or
-// the complete new one — never the truncated file a bare os.WriteFile can leave
-// behind. Unlike writePrivateAtomic it does not create or re-chmod the parent
-// directory, so it can be used on directories whose mode is already meaningful.
-func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-")
-	if err != nil {
-		return err
-	}
-	tmp := f.Name()
-	closed := false
-	renamed := false
-	defer func() {
-		if !closed {
-			_ = f.Close()
-		}
-		if !renamed {
-			_ = os.Remove(tmp)
-		}
-	}()
-	if err := f.Chmod(perm); err != nil {
-		return err
-	}
-	if _, err := f.Write(data); err != nil {
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		return err
-	}
-	// Close is checked rather than deferred-and-ignored: US-003 found a
-	// truncated copy reported as success because a write handle's Close error
-	// was dropped.
-	if err := f.Close(); err != nil {
-		closed = true
-		return err
-	}
-	closed = true
-	if err := os.Rename(tmp, path); err != nil {
-		return err
-	}
-	renamed = true
-	return nil
+	return atomicfile.Write(filepath.Join(a.dataDir, "state.json"), data, 0o600)
 }
 
 // persistScope names the on-disk artifact a mutation invalidated. US-013 gives

@@ -29,6 +29,7 @@ import (
 	"github.com/mutexdev/lite_api/internal/codegen"
 	"github.com/mutexdev/lite_api/internal/cookiejar"
 	"github.com/mutexdev/lite_api/internal/grpcexec"
+	"github.com/mutexdev/lite_api/internal/history"
 	"github.com/mutexdev/lite_api/internal/interp"
 	"github.com/mutexdev/lite_api/internal/openapisync"
 	"github.com/mutexdev/lite_api/internal/scripting"
@@ -163,7 +164,7 @@ type App struct {
 	responsesMu sync.Mutex
 	// US-048. History lives outside state.json; see history_store.go for why.
 	historyOnce  sync.Once
-	historyStore *historyStore
+	historyStore *history.Store
 	// US-072. Per-collection mock listeners, guarded by their own mutex so
 	// binding a socket never happens under the state lock.
 	mockOnce    sync.Once

@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mutexdev/lite_api/internal/atomicfile"
 	"github.com/mutexdev/lite_api/internal/scripting"
 	"github.com/mutexdev/lite_api/internal/store/bru"
 )
@@ -89,7 +90,7 @@ func (a *App) writeEnvironmentSecretsLocked(store environmentSecretsFile) error 
 	}
 	// Atomic for the same reason state.json is: a half-written secrets.json is
 	// every environment secret in the workspace, unrecoverable.
-	if err := writeFileAtomic(path, data, 0o600); err != nil {
+	if err := atomicfile.Write(path, data, 0o600); err != nil {
 		// Leave the fingerprint alone on failure. Recording it here would make
 		// the next call skip a write that never landed.
 		return err

@@ -35,6 +35,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/atomicfile"
 )
 
 // newAppForTest builds an App rooted at a fresh temp directory and guarantees
@@ -710,7 +712,7 @@ func TestFlushPendingWritesBindingFlushes(t *testing.T) {
 	}
 }
 
-// TestWriteFileAtomicPreservesDirectoryMode guards the reason writeFileAtomic
+// TestWriteFileAtomicPreservesDirectoryMode guards the reason atomicfile.Write
 // exists alongside writePrivateAtomic: the data directory's mode is meaningful
 // to the multi-process window model and must not be tightened as a side effect
 // of writing a file inside it.
@@ -720,8 +722,8 @@ func TestWriteFileAtomicPreservesDirectoryMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "state.json")
-	if err := writeFileAtomic(path, []byte(`{"ok":true}`), 0o600); err != nil {
-		t.Fatalf("writeFileAtomic: %v", err)
+	if err := atomicfile.Write(path, []byte(`{"ok":true}`), 0o600); err != nil {
+		t.Fatalf("atomicfile.Write: %v", err)
 	}
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -742,6 +744,6 @@ func TestWriteFileAtomicPreservesDirectoryMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(entries) != 1 {
-		t.Fatalf("writeFileAtomic left %d entries behind, want only the target", len(entries))
+		t.Fatalf("atomicfile.Write left %d entries behind, want only the target", len(entries))
 	}
 }

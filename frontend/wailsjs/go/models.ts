@@ -17,6 +17,92 @@ export namespace codegen {
 
 }
 
+export namespace history {
+	
+	export class HistoryEntry {
+	    id: string;
+	    // Go type: time
+	    at: any;
+	    collectionId?: string;
+	    itemId?: string;
+	    name?: string;
+	    method: string;
+	    url: string;
+	    status?: number;
+	    statusText?: string;
+	    durationMs?: number;
+	    size?: number;
+	    error?: string;
+	    requestHeaders?: types.KeyValue[];
+	    responseHeaders?: types.KeyValue[];
+	    redacted?: boolean;
+	    bodyHandle?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new HistoryEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.at = this.convertValues(source["at"], null);
+	        this.collectionId = source["collectionId"];
+	        this.itemId = source["itemId"];
+	        this.name = source["name"];
+	        this.method = source["method"];
+	        this.url = source["url"];
+	        this.status = source["status"];
+	        this.statusText = source["statusText"];
+	        this.durationMs = source["durationMs"];
+	        this.size = source["size"];
+	        this.error = source["error"];
+	        this.requestHeaders = this.convertValues(source["requestHeaders"], types.KeyValue);
+	        this.responseHeaders = this.convertValues(source["responseHeaders"], types.KeyValue);
+	        this.redacted = source["redacted"];
+	        this.bodyHandle = source["bodyHandle"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class HistoryQuery {
+	    text?: string;
+	    collectionId?: string;
+	    method?: string;
+	    onlyFailures?: boolean;
+	    limit?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new HistoryQuery(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.text = source["text"];
+	        this.collectionId = source["collectionId"];
+	        this.method = source["method"];
+	        this.onlyFailures = source["onlyFailures"];
+	        this.limit = source["limit"];
+	    }
+	}
+
+}
+
 export namespace main {
 	
 	export class CollectionGitDiff {
@@ -523,87 +609,6 @@ export namespace main {
 	        this.port = source["port"];
 	        this.url = source["url"];
 	        this.error = source["error"];
-	    }
-	}
-	export class HistoryEntry {
-	    id: string;
-	    // Go type: time
-	    at: any;
-	    collectionId?: string;
-	    itemId?: string;
-	    name?: string;
-	    method: string;
-	    url: string;
-	    status?: number;
-	    statusText?: string;
-	    durationMs?: number;
-	    size?: number;
-	    error?: string;
-	    requestHeaders?: types.KeyValue[];
-	    responseHeaders?: types.KeyValue[];
-	    redacted?: boolean;
-	    bodyHandle?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new HistoryEntry(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.at = this.convertValues(source["at"], null);
-	        this.collectionId = source["collectionId"];
-	        this.itemId = source["itemId"];
-	        this.name = source["name"];
-	        this.method = source["method"];
-	        this.url = source["url"];
-	        this.status = source["status"];
-	        this.statusText = source["statusText"];
-	        this.durationMs = source["durationMs"];
-	        this.size = source["size"];
-	        this.error = source["error"];
-	        this.requestHeaders = this.convertValues(source["requestHeaders"], types.KeyValue);
-	        this.responseHeaders = this.convertValues(source["responseHeaders"], types.KeyValue);
-	        this.redacted = source["redacted"];
-	        this.bodyHandle = source["bodyHandle"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class HistoryQuery {
-	    text?: string;
-	    collectionId?: string;
-	    method?: string;
-	    onlyFailures?: boolean;
-	    limit?: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new HistoryQuery(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.text = source["text"];
-	        this.collectionId = source["collectionId"];
-	        this.method = source["method"];
-	        this.onlyFailures = source["onlyFailures"];
-	        this.limit = source["limit"];
 	    }
 	}
 	export class MockServerStatus {

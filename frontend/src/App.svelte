@@ -221,7 +221,7 @@
     WriteTerminalSession,
     UpdateResponseExample
   } from '../wailsjs/go/main/App'
-  import type { main, types } from '../wailsjs/go/models'
+  import type { history, main, types } from '../wailsjs/go/models'
   import { BrowserOpenURL, EventsOn, OnFileDrop, OnFileDropOff, Quit } from '../wailsjs/runtime/runtime'
 
   type View = 'request' | 'collection' | 'git' | 'runner' | 'environments' | 'import' | 'features' | 'network' | 'cookies' | 'history' | 'preferences' | 'devtools'
@@ -1159,7 +1159,7 @@
   // HistoryQuery rather than by pulling the whole log and filtering here: each
   // entry carries its headers, so a client-side filter would move hundreds of
   // kilobytes across the binding on every keystroke to render a screenful.
-  let historyEntries = $state<main.HistoryEntry[]>([])
+  let historyEntries = $state<history.HistoryEntry[]>([])
   let historyQuery = $state('')
   let historyOnlyFailures = $state(false)
   let historyMethodFilter = $state('')
@@ -1172,7 +1172,7 @@
         text: historyQuery,
         method: historyMethodFilter,
         onlyFailures: historyOnlyFailures
-      } as main.HistoryQuery)
+      } as history.HistoryQuery)
     } catch (err) {
       error = String(err)
     }
@@ -1189,7 +1189,7 @@
 
   // The original request may have been renamed, moved or deleted since the
   // send, so this is checked against live appState rather than assumed.
-  function historyEntryStillExists(entry: main.HistoryEntry) {
+  function historyEntryStillExists(entry: history.HistoryEntry) {
     if (!entry.collectionId || !entry.itemId) return false
     return (appState?.workspaces ?? []).some((workspace) =>
       (workspace.collections ?? []).some(
@@ -1199,7 +1199,7 @@
     )
   }
 
-  async function openHistoryEntryInTab(entry: main.HistoryEntry) {
+  async function openHistoryEntryInTab(entry: history.HistoryEntry) {
     // Narrowed locally: historyEntryStillExists already proves both are set,
     // but that guarantee does not cross the function boundary for the checker.
     const collectionId = entry.collectionId
@@ -1211,7 +1211,7 @@
     })
   }
 
-  async function saveHistoryEntryToCollection(entry: main.HistoryEntry) {
+  async function saveHistoryEntryToCollection(entry: history.HistoryEntry) {
     if (!historySaveTargetID) return
     await runAction('save history request', async () => {
       workspaceStore.appState = await CreateRequestFromHistory(historySaveTargetID, entry.id)

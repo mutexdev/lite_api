@@ -5755,3 +5755,46 @@ US-026 - Store layer. DONE. Both named collapses complete.
   declined to add the workspacestate import and the build reported "undefined:
   workspacestate" 7 times. Third goimports limitation this restructure
   (generics twice, wrong-package guess once, aliased imports once).
+
+=== RESTRUCTURE PHASE 4 — internal/visualizer, internal/history ===
+
+  visualizer.go   390 -> 66 lines   (internal/visualizer, 329 lines)
+  history_store.go 476 -> ~120      (internal/history)
+  writeFileAtomic -> internal/atomicfile.Write (second atomic writer, distinct
+    from WritePrivate: takes a perm and does NOT create or re-chmod the parent,
+    so it is usable on directories whose mode is already meaningful)
+
+  23 test packages. First use of the FORWARDER PATTERN: a bound method cannot
+  leave package main, but almost nothing it does has to stay with it.
+  VisualizerDocument is now sixteen lines — take the lock, find the item, call
+  visualizer.BuildDocument.
+
+  THE BINDING INVARIANT FIRED, AND IT WAS RIGHT TO.
+      go doc -all . | grep '^func (a \*App) [A-Z]'
+  differed on two lines after the history move:
+      GetHistoryEntry(id string) (HistoryEntry, error)
+   -> GetHistoryEntry(id string) (history.HistoryEntry, error)
+  The METHOD SET was identical and App.d.ts still declares 188. Only the
+  signature spelling changed, because the types moved packages.
+
+  This is worth writing down: the signature-level check and the method-set check
+  catch DIFFERENT things and both are worth running.
+    - method set  -> an accidentally lost or unexported binding
+    - signatures  -> a type that moved packages, which ALWAYS needs frontend
+                     follow-up (main.HistoryEntry -> history.HistoryEntry, 10
+                     references across App.svelte and HistoryPanel.svelte, plus
+                     two namespace imports)
+  A check that fires only on the first would have let the frontend drift.
+
+  THE FIELD-NAME TRAP, A THIRD TIME. `historyStore *historyStore` — field name
+  and type name identical — and a plain re.sub rewrote both, producing
+  `history.Store *history.Store`. I had already built the guard for this twice
+  today and then used a bare substitution because it was "just one symbol".
+  Loud syntax error, cheap fix, but the pattern is now unmistakable: never
+  rewrite Go identifiers without the first-token-of-an-indented-line guard.
+
+  Crossing a package boundary forced four helpers and four methods to be
+  exported (Store.Append/List/Get/Clear, RedactHeaders, HeaderMapRows,
+  EntryMatches, RedactedValue). Five tests that reach into Store's unexported
+  path field moved into the package with it; the eight that exercise the App
+  bindings stayed in main.

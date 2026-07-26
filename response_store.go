@@ -29,6 +29,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/mutexdev/lite_api/internal/atomicfile"
 )
 
 // responseStoreMemoryBudget is how many bytes of body the in-memory front will
@@ -98,11 +100,11 @@ func (s *responseStore) Put(body []byte) (responseHandle, error) {
 		if !errors.Is(err, os.ErrNotExist) {
 			return "", fmt.Errorf("stat response body: %w", err)
 		}
-		// writeFileAtomic, not os.WriteFile: a body half-written by a killed
+		// atomicfile.Write, not os.WriteFile: a body half-written by a killed
 		// process would be indistinguishable from a complete one, because the
 		// filename is a hash of what the CONTENT was meant to be. The next
 		// reader would then hand a user a truncated response and no error.
-		if err := writeFileAtomic(s.path(handle), body, 0o600); err != nil {
+		if err := atomicfile.Write(s.path(handle), body, 0o600); err != nil {
 			return "", fmt.Errorf("write response body: %w", err)
 		}
 	}
