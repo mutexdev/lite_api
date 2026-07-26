@@ -88,6 +88,14 @@
     sanitizeCollectionFolderName,
     slashPathBase
   } from './lib/filesystemNames'
+  import {
+    collectionProxyWithDefaults,
+    preferenceProxyModeValue,
+    proxyModeLabel,
+    proxyModeOverrides,
+    proxyPreferencesWithDefaults as proxyPreferencesWithDefaultsOf
+  } from './lib/authDefaults'
+  import { certificateFileName as customCaFileName } from './lib/filesystemNames'
   import { resolveNativeMenuCommand } from './lib/nativeMenu'
   import { resolveShortcut, shortcutTabNumber } from './lib/shortcuts'
   import { workspaceStore } from './lib/stores/workspaceStore.svelte'
@@ -918,13 +926,6 @@
   )
 	  const promptTokenPattern = /\{\{\?([^{}\s](?:[^{}]*?[^{}\s])?)\}\}/g
 	  const invalidVariableWarning = 'Invalid variable name! Variables must only contain alpha-numeric characters, "-", "_", "."'
-
-  function customCaFileName(filePath: string | undefined) {
-    const trimmed = filePath?.trim() ?? ''
-    if (!trimmed) return ''
-    const parts = trimmed.split(/[\\/]/)
-    return parts[parts.length - 1] || trimmed
-  }
 
   function codeFontFamilyFor(value: string) {
     const font = normalizedCodeFont(value)
@@ -5610,23 +5611,7 @@
 
   function normalizedCollectionProxy(overrides: Partial<types.ProxyConfig> = {}) {
     const current = activeCollection?.proxy ?? ({} as types.ProxyConfig)
-    const currentAuth = current.auth ?? ({} as types.ProxyAuthConfig)
-    const unset = isProxyConfigUnset(current)
-    return {
-      inherit: unset ? true : (current.inherit ?? true),
-      disabled: current.disabled ?? false,
-      protocol: current.protocol || 'http',
-      hostname: current.hostname || '',
-      port: current.port || '',
-      bypassProxy: current.bypassProxy || '',
-      ...overrides,
-      auth: {
-        username: currentAuth.username || '',
-        password: currentAuth.password || '',
-        disabled: currentAuth.disabled ?? false,
-        ...(overrides.auth ?? {})
-      }
-    } as types.ProxyConfig
+    return collectionProxyWithDefaults(current, isProxyConfigUnset(current), overrides)
   }
 
 
@@ -5636,13 +5621,7 @@
   }
 
   async function updateCollectionProxyMode(mode: string) {
-    if (mode === 'manual') {
-      await updateCollectionProxy({ inherit: false, disabled: false })
-    } else if (mode === 'off') {
-      await updateCollectionProxy({ inherit: false, disabled: true })
-    } else {
-      await updateCollectionProxy({ inherit: true, disabled: false })
-    }
+    await updateCollectionProxy(proxyModeOverrides(mode))
   }
 
   function collectionSandboxMode(collection: types.Collection | undefined = activeCollection): JSSandboxMode {
@@ -5661,31 +5640,11 @@
 
 
   function proxyPreferencesWithDefaults(overrides: Partial<types.ProxyPreferences> = {}) {
-    const current = appState?.preferences?.proxy ?? ({} as types.ProxyPreferences)
-    const pac = { source: current.pac?.source || '', ...(overrides.pac ?? {}) }
-    const config = proxyConfigWithDefaults(current.config, overrides.config ?? {})
-    return {
-      disabled: current.disabled ?? false,
-      source: current.source || (appState?.preferences?.proxyMode === 'pac' ? 'pac' : appState?.preferences?.proxyMode === 'manual' ? 'manual' : 'inherit'),
-      ...overrides,
-      pac,
-      config
-    } as types.ProxyPreferences
-  }
-
-
-  function proxyModeLabel(mode: string) {
-    if (mode === 'off') return 'Off'
-    if (mode === 'manual') return 'On'
-    if (mode === 'pac') return 'PAC'
-    return 'System Proxy'
-  }
-
-  function preferenceProxyModeValue(proxy: types.ProxyPreferences) {
-    if (proxy.disabled) return 'off'
-    if (proxy.source === 'manual') return 'manual'
-    if (proxy.source === 'pac') return 'pac'
-    return 'system'
+    return proxyPreferencesWithDefaultsOf(
+      appState?.preferences?.proxy,
+      appState?.preferences?.proxyMode,
+      overrides
+    )
   }
 
   async function updatePreferencesProxy(updates: Partial<types.ProxyPreferences>) {

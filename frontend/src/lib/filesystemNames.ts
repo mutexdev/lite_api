@@ -130,3 +130,16 @@ export function requestFilesystemBaseName(
   const withoutExtension = fileName.replace(/\.(bru|ya?ml)$/i, '')
   return sanitizeCollectionFolderName(withoutExtension || displayName || 'Request')
 }
+
+/**
+ * The display name for a certificate path chosen through a file dialog.
+ *
+ * Falls back to the whole path when the basename comes out empty (a path that
+ * is nothing but separators), because an empty label beside a "Clear" button
+ * reads as no certificate being configured at all.
+ */
+export function certificateFileName(filePath: string | undefined): string {
+  const trimmed = filePath?.trim() ?? ''
+  if (!trimmed) return ''
+  return slashPathBase(trimmed) || trimmed
+}

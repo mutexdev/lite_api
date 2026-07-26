@@ -7165,3 +7165,39 @@ US-026 - Store layer. DONE. Both named collapses complete.
   are correctly absent from it. Wrong oracle, not a wrong mapping.
 
   Nine controls, nine failures.
+
+=== PHASE 6 — the proxy and certificate helpers ===
+
+  Six exports onto src/lib/authDefaults.ts (12 -> 25 tests) and one onto
+  filesystemNames.ts (16 -> 18). App.svelte 10,991 -> 10,950. Suite 602 -> 616.
+
+  These went into EXISTING modules rather than a new one. authDefaults.ts
+  already owned proxyConfigWithDefaults; a seventh lib file for the other half
+  of the same merge would be splitting for the sake of a count.
+
+  Pinned:
+    - AN UNCONFIGURED COLLECTION PROXY INHERITS; the preferences-level one does
+      not. That single field is why both functions exist. Defaulting it to false
+      would opt EVERY EXISTING COLLECTION out of the user's system proxy the
+      first time this ran. Control fails 2.
+    - THE AUTH BLOCK IS MERGED AFTER THE SPREAD, so an override carrying only a
+      username keeps the stored PASSWORD. A single spread drops every field the
+      caller did not resend — silently clearing proxy credentials on an
+      unrelated edit. Control fails 1.
+    - off and inherit leave the manual settings ALONE. The user is choosing not
+      to use them, not discarding them, and coming back to manual must restore
+      what they typed. Control fails 2.
+    - the legacy `proxyMode` field is read when `source` is absent — `source`
+      replaced it, and ignoring the old one lets an upgrade silently reset a
+      configured PAC or manual proxy to the system one. But a stored `source`
+      still WINS. Controls fail 1 and 1.
+    - DISABLED IS CHECKED FIRST and beats any configured source. Turning the
+      proxy off has to mean off, whatever settings are saved beside it.
+      Control fails 1.
+    - the label is NOT the mode name: "manual" reads as "On", because the
+      control it labels is a toggle over the manual settings shown beside it.
+      Stored value and visible word are two vocabularies. Control fails 1, and a
+      second control proves no two modes share a label — a duplicate would make
+      the control ambiguous rather than blank, which is worse.
+
+  Ten controls, ten failures.
