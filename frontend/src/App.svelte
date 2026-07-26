@@ -4403,29 +4403,6 @@
     await completeTabLifecycleAction(dialog.action, dialog.targetTabIDs)
   }
 
-  function handleTabLifecycleDialogKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      event.stopPropagation()
-      void dismissTabLifecycleDialog()
-      return
-    }
-    if (event.key !== 'Tab') return
-    const dialog = event.currentTarget as HTMLElement
-    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
-      'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
-    )).filter((element) => element.offsetParent !== null)
-    if (focusable.length === 0) return
-    const first = focusable[0]
-    const last = focusable[focusable.length - 1]
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault()
-      last.focus()
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault()
-      first.focus()
-    }
-  }
 
   async function completeTabLifecycleAction(action: TabLifecycleAction, targetTabIDs: string[] = []) {
     if (action === 'close-active') {
@@ -6518,15 +6495,6 @@
     return true
   }
 
-  function handleCreationDialogKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      event.stopPropagation()
-      void closeCreationFlow()
-      return
-    }
-    containModalTab(event)
-  }
 
   async function submitCreationFlow() {
     if (!requestName.trim()) requestName = 'Untitled request'
@@ -6658,27 +6626,6 @@
     void runWorkbenchCommand(action.id, returnFocus)
   }
 
-  function handleCommandPaletteKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      event.stopPropagation()
-      void closeCommandPalette()
-      return
-    }
-    if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && event.target === commandPaletteInput) {
-      if (visibleCommandPaletteActions.length === 0) return
-      event.preventDefault()
-      const direction = event.key === 'ArrowDown' ? 1 : -1
-      commandPaletteActiveIndex = (commandPaletteActiveIndex + direction + visibleCommandPaletteActions.length) % visibleCommandPaletteActions.length
-      return
-    }
-    if (event.key === 'Enter' && event.target === commandPaletteInput && visibleCommandPaletteActions[commandPaletteActiveIndex]) {
-      event.preventDefault()
-      runCommandPaletteAction(visibleCommandPaletteActions[commandPaletteActiveIndex])
-      return
-    }
-    containModalTab(event)
-  }
 
   async function updateKeybindingsEnabled(enabled: boolean) {
     await updateAppearancePreferences({ keybindingsEnabled: enabled })
@@ -8314,7 +8261,7 @@
     <p>{loadingStatus}</p>
   </main>
 {:else if state}
-  <main class="app-shell" class:sidebar-collapsed={sidebarCollapsed} style={`--sidebar-width: ${sidebarWidth}px;`} inert={creationOpen || commandPaletteOpen}>
+  <main class="app-shell" class:sidebar-collapsed={sidebarCollapsed} style={`--sidebar-width: ${sidebarWidth}px;`} >
     <aside class="workspace-rail" aria-label="Collections sidebar">
       <div class="brand">
         <div class="brand-mark">LA</div>
@@ -12062,8 +12009,7 @@
 {/if}
 
 {#if creationOpen}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog compact-create-dialog" role="dialog" aria-modal="true" aria-labelledby="new-request-title" tabindex="-1" on:keydown={handleCreationDialogKeydown}>
+  <Modal labelledBy="new-request-title" onClose={() => void closeCreationFlow()} dialogClass="prompt-dialog compact-create-dialog">
     <form on:submit|preventDefault={submitCreationFlow}>
       <header>
         <div>
@@ -12090,13 +12036,11 @@
         <button class="primary" type="submit" disabled={!activeCollection}>Create request</button>
       </footer>
     </form>
-    </div>
-  </div>
+    </Modal>
 {/if}
 
 {#if commandPaletteOpen}
-  <div class="prompt-backdrop">
-    <div class="global-search-modal command-palette" role="dialog" aria-modal="true" aria-labelledby="command-palette-title" tabindex="-1" on:keydown={handleCommandPaletteKeydown}>
+  <Modal labelledBy="command-palette-title" onClose={() => void closeCommandPalette()} dialogClass="global-search-modal command-palette">
       <header>
         <div><h2 id="command-palette-title">Command palette</h2></div>
         <button type="button" class="icon-button" aria-label="Close command palette" title="Close" on:click={() => void closeCommandPalette()}>×</button>
@@ -12112,8 +12056,7 @@
           <div class="empty-state">No commands match.</div>
         {/each}
       </div>
-    </div>
-  </div>
+    </Modal>
 {/if}
 
 {#if globalSearchOpen}
@@ -13129,17 +13072,14 @@
 	{/if}
 
 	{#if tabLifecycleDialog}
-	  <div class="prompt-backdrop">
-	    <div
-	      class="prompt-dialog unsaved-tabs-dialog"
-	      role="dialog"
-	      aria-modal="true"
-	      aria-labelledby="unsaved-tabs-title"
-	      aria-describedby="unsaved-tabs-description"
-	      aria-busy={tabLifecycleDecisionBusy}
-	      tabindex="-1"
-	      on:keydown={handleTabLifecycleDialogKeydown}
-	    >
+	  <Modal
+	    labelledBy="unsaved-tabs-title"
+	    describedBy="unsaved-tabs-description"
+	    busy={tabLifecycleDecisionBusy}
+	    onClose={dismissTabLifecycleDialog}
+	    dialogClass="prompt-dialog unsaved-tabs-dialog"
+	    closeOnBackdrop={false}
+	  >
 	      <header>
 	        <h2 id="unsaved-tabs-title">Unsaved changes</h2>
 	      </header>
@@ -13180,8 +13120,7 @@
 	          disabled={tabLifecycleDecisionBusy}
 	        >Save &amp; Close</button>
 	      </div>
-	    </div>
-	  </div>
+	  </Modal>
 	{/if}
 
 	{#if promptDialog}
@@ -13208,8 +13147,7 @@
 {/if}
 
 {#if gitNotFoundMessage}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog git-not-found-dialog" role="dialog" aria-modal="true" aria-labelledby="git-not-found-title">
+  <Modal labelledBy="git-not-found-title" onClose={() => (gitNotFoundMessage = '')} dialogClass="prompt-dialog git-not-found-dialog">
       <header>
         <h2 id="git-not-found-title">Git Required</h2>
         <button type="button" class="icon-button" title="Close" on:click={() => (gitNotFoundMessage = '')}>x</button>
@@ -13218,8 +13156,7 @@
       <div class="button-row">
         <button class="primary" type="button" on:click={() => (gitNotFoundMessage = '')}>Close</button>
       </div>
-    </div>
-  </div>
+  </Modal>
 {/if}
 
 {#if generatedGrpcurlCommand}

@@ -40,6 +40,10 @@
   export let testId: string | undefined = undefined
   /** Set false for dialogs whose dismissal must be deliberate (destructive confirms). */
   export let closeOnBackdrop = true
+  /** id of a description element, for dialogs that carry explanatory prose. */
+  export let describedBy: string | undefined = undefined
+  /** Mirrors aria-busy for dialogs that run an async decision in place. */
+  export let busy: boolean | undefined = undefined
 
   const focusableSelector = [
     'a[href]',
@@ -130,6 +134,8 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby={labelledBy}
+    aria-describedby={describedBy}
+    aria-busy={busy}
     data-testid={testId}
     tabindex="-1"
     bind:this={dialog}
