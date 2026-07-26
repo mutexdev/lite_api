@@ -2300,6 +2300,7 @@ export namespace main {
 	    destinationRoot?: string;
 	    sources: CollectionImportSource[];
 	    selections: CollectionImportSelection[];
+	    translatePostmanScripts?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new CollectionImportApplyRequest(source);
@@ -2311,6 +2312,7 @@ export namespace main {
 	        this.destinationRoot = source["destinationRoot"];
 	        this.sources = this.convertValues(source["sources"], CollectionImportSource);
 	        this.selections = this.convertValues(source["selections"], CollectionImportSelection);
+	        this.translatePostmanScripts = source["translatePostmanScripts"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -2986,6 +2988,7 @@ export namespace main {
 	    groupBy: string;
 	    sourceUrl: string;
 	    openapiSync: boolean;
+	    translatePostmanScripts?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ImportPayload(source);
@@ -2999,6 +3002,7 @@ export namespace main {
 	        this.groupBy = source["groupBy"];
 	        this.sourceUrl = source["sourceUrl"];
 	        this.openapiSync = source["openapiSync"];
+	        this.translatePostmanScripts = source["translatePostmanScripts"];
 	    }
 	}
 	

@@ -28,6 +28,7 @@
 
   // Bindable: every form field on this panel writes back to App.svelte.
   export let importSourceMode: ImportSourceMode
+  export let importTranslatePostmanScripts: boolean
   export let importURL: string
   export let importContent: string
   export let importPasteName: string
@@ -160,7 +161,11 @@
                   </article>
                 {/each}
               </div>
-              <footer class="import-action-footer"><span>{importReadyRows.length} valid source{importReadyRows.length === 1 ? '' : 's'} selected</span><button class="primary" bind:this={importApplyButton} data-testid="import-apply-selected" type="button" on:click={requestPlannedImport} disabled={busy !== '' || importApplyInFlight || importReadyRows.length === 0}>Apply selected imports</button></footer>
+              <footer class="import-action-footer"><span>{importReadyRows.length} valid source{importReadyRows.length === 1 ? '' : 's'} selected</span>
+                <label class="checkbox-line" title="Off by default: pm.* runs natively. Enable only for collections whose scripts were already rewritten against the bru API.">
+                  <input type="checkbox" data-testid="import-translate-postman" bind:checked={importTranslatePostmanScripts} />
+                  Rewrite pm.* to bru.*
+                </label><button class="primary" bind:this={importApplyButton} data-testid="import-apply-selected" type="button" on:click={requestPlannedImport} disabled={busy !== '' || importApplyInFlight || importReadyRows.length === 0}>Apply selected imports</button></footer>
             {/if}
             {#if importApplyResult}<div class="import-results" aria-live="polite"><strong>{importStatus}</strong>{#each [...(importApplyResult.applied ?? []), ...(importApplyResult.skipped ?? []), ...(importApplyResult.errors ?? [])] as row, index (index)}<p>{row.sourceName}: {row.error || (importApplyResult.skipped?.some((entry) => entry.candidateId === row.candidateId) ? 'Skipped' : 'Imported')}</p>{/each}</div>{/if}
             <p class="import-live" aria-live="polite">{importStatus}</p>

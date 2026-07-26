@@ -965,3 +965,143 @@ func TestPmVaultWritesAreRejected(t *testing.T) {
 		}
 	}
 }
+
+// US-044 — fix and demote the import translator.
+
+const postmanScopeCollection = `{
+  "info": {"name": "scope translator", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+  "item": [{
+    "name": "scoped",
+    "event": [{
+      "listen": "prerequest",
+      "script": {"exec": [
+        "pm.environment.set('e', '1');",
+        "pm.collectionVariables.set('c', '2');",
+        "pm.globals.set('g', '3');",
+        "pm.variables.get('anything');",
+        "pm.test('x', function () {});"
+      ]}
+    }],
+    "request": {"method": "GET", "url": "https://example.test/"}
+  }]
+}`
+
+func importedScopeScript(t *testing.T, translate bool) string {
+	t.Helper()
+	collection, err := importPostman(postmanScopeCollection, "scope translator", translate)
+	if err != nil {
+		t.Fatalf("importPostman: %v", err)
+	}
+	if len(collection.Items) != 1 {
+		t.Fatalf("got %d items, want 1", len(collection.Items))
+	}
+	return collection.Items[0].PreScript
+}
+
+// TestPostmanImportKeepsPmByDefault is the demotion. Until US-039-043 there was
+// no live pm object, so rewriting was the only way an imported script could run
+// at all. Now pm.* is native and strictly more faithful than a textual rewrite,
+// so the default must leave the script alone.
+func TestPostmanImportKeepsPmByDefault(t *testing.T) {
+	script := importedScopeScript(t, false)
+	for _, expected := range []string{
+		"pm.environment.set", "pm.collectionVariables.set",
+		"pm.globals.set", "pm.variables.get", "pm.test",
+	} {
+		if !strings.Contains(script, expected) {
+			t.Errorf("default import rewrote %q away; it should run natively:\n%s", expected, script)
+		}
+	}
+	if strings.Contains(script, "bru.") {
+		t.Errorf("default import introduced bru.* calls:\n%s", script)
+	}
+}
+
+// TestPostmanTranslatorNoLongerCollapsesScopes is the fix. Every one of these
+// mapped to bru.setVar before, collapsing four distinct scopes into the runtime
+// scope — and it never errored, so a script that wrote one scope and read
+// another got its value back and the collapse looked like it worked.
+func TestPostmanTranslatorNoLongerCollapsesScopes(t *testing.T) {
+	script := importedScopeScript(t, true)
+
+	for _, want := range []string{
+		"bru.setEnvVar('e'",
+		"bru.setCollectionVar('c'",
+		"bru.setGlobalEnvVar('g'",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("expected %q in the translated script:\n%s", want, script)
+		}
+	}
+
+	// The collapse: if any scope still routed to the generic runtime setter,
+	// this would appear.
+	if strings.Contains(script, "bru.setVar(") {
+		t.Errorf("a scope still collapses onto the runtime scope:\n%s", script)
+	}
+
+	// pm.variables has no exact bru equivalent — bru.getVar reads only the
+	// runtime scope, which was half the collapse — so it stays native.
+	if !strings.Contains(script, "pm.variables.get") {
+		t.Errorf("pm.variables was translated; it has no exact bru equivalent and must stay native:\n%s", script)
+	}
+
+	// The parts that DO map exactly still convert.
+	if !strings.Contains(script, "test(") || strings.Contains(script, "pm.test") {
+		t.Errorf("pm.test was not translated:\n%s", script)
+	}
+}
+
+// TestTranslatedScopesReachDistinctStorage proves the fix at runtime, not just
+// textually: a rewrite that produced the right strings against the wrong
+// functions would satisfy the test above.
+func TestTranslatedScopesReachDistinctStorage(t *testing.T) {
+	app, collectionID, itemID, closeServer := scriptProbeFixture(t)
+	defer closeServer()
+
+	translated := postmanTranslateScript(
+		"pm.environment.set('scoped', 'environment');\n" +
+			"pm.collectionVariables.set('scoped', 'collection');\n" +
+			"pm.globals.set('scoped', 'global');\n")
+
+	state := sendWithScripts(t, app, collectionID, itemID, "", "", translated+`
+		test("the translated writes landed in three distinct scopes", function () {
+			expect(bru.getEnvVar("scoped")).to.equal("environment")
+			expect(bru.getCollectionVar("scoped")).to.equal("collection")
+			expect(bru.getGlobalEnvVar("scoped")).to.equal("global")
+		})
+		test("nothing landed in the runtime scope", function () {
+			expect(bru.hasVar("scoped")).to.equal(false)
+		})
+	`)
+
+	for _, result := range testResultsFor(t, state, collectionID, itemID) {
+		if !result.Passed {
+			t.Errorf("%s: %s", result.Name, result.Message)
+		}
+	}
+}
+
+// TestUntranslatedPostmanScriptsRun is the claim the demotion rests on: an
+// imported script left verbatim must actually work.
+func TestUntranslatedPostmanScriptsRun(t *testing.T) {
+	app, collectionID, itemID, closeServer := scriptProbeFixture(t)
+	defer closeServer()
+
+	state := sendWithScripts(t, app, collectionID, itemID, "", "", `
+		pm.environment.set("fromPm", "yes")
+		pm.test("an untranslated Postman script runs as written", function () {
+			pm.expect(pm.response.code).to.equal(200)
+			pm.response.to.have.status(200)
+			pm.expect(pm.environment.get("fromPm")).to.equal("yes")
+		})
+	`)
+
+	results := testResultsFor(t, state, collectionID, itemID)
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1 — the verbatim Postman script did not run", len(results))
+	}
+	if !results[0].Passed {
+		t.Errorf("%s: %s", results[0].Name, results[0].Message)
+	}
+}

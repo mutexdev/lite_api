@@ -118,6 +118,10 @@ type CollectionImportApplyRequest struct {
 	DestinationRoot string                      `json:"destinationRoot,omitempty"`
 	Sources         []CollectionImportSource    `json:"sources"`
 	Selections      []CollectionImportSelection `json:"selections"`
+	// US-044. Opt-in rewriting of pm.* to bru.* for Postman sources. Default
+	// false: pm.* is native since US-039-043 and more faithful than a textual
+	// rewrite, so an imported script now runs as written.
+	TranslatePostmanScripts bool `json:"translatePostmanScripts,omitempty"`
 }
 
 type CollectionImportApplyResult struct {
@@ -914,6 +918,27 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 			continue
 		}
 		collection := candidate.collection
+		// US-044. Candidates are parsed during DETECTION, before the apply
+		// request — and therefore before this flag — exists. A Postman
+		// candidate must be re-imported here or the opt-in would silently do
+		// nothing for every normally-detected file, leaving the toggle
+		// apparently working and demonstrably ineffective.
+		if request.TranslatePostmanScripts && strings.EqualFold(strings.TrimSpace(candidate.row.DetectedKind), "postman") && strings.TrimSpace(selection.KindOverride) == "" {
+			content, _, _, folder, readErr := readCollectionImportSource(candidate.source)
+			if readErr == nil && !folder {
+				if translated, translateErr := collectionFromImport(ImportPayload{
+					Kind:                    "postman",
+					Name:                    candidate.row.CollectionName,
+					Content:                 content,
+					TranslatePostmanScripts: true,
+				}); translateErr == nil {
+					collection = translated
+				}
+				// A failure here is deliberately not fatal: the untranslated
+				// candidate is already valid and imports correctly, so falling
+				// back to it beats failing an import over an optional rewrite.
+			}
+		}
 		if strings.TrimSpace(selection.KindOverride) != "" {
 			content, _, _, folder, readErr := readCollectionImportSource(candidate.source)
 			if readErr != nil || folder {
@@ -921,7 +946,7 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 				result.Errors = append(result.Errors, candidate.row)
 				continue
 			}
-			collection, err = collectionFromImport(ImportPayload{Kind: selection.KindOverride, Name: candidate.row.CollectionName, Content: content})
+			collection, err = collectionFromImport(ImportPayload{Kind: selection.KindOverride, Name: candidate.row.CollectionName, Content: content, TranslatePostmanScripts: request.TranslatePostmanScripts})
 			if err != nil {
 				candidate.row.Error = "manual import kind could not be parsed"
 				result.Errors = append(result.Errors, candidate.row)

@@ -12487,7 +12487,12 @@ func TestImportPostmanAndBruRoundTrip(t *testing.T) {
 			}]
 		}]
 	}`
-	state, err = app.ImportCollection(workspace.ID, ImportPayload{Kind: "postman", Content: postman})
+	state, err = app.ImportCollection(workspace.ID, ImportPayload{
+		// US-044 made translation opt-in. This test is ABOUT the translator,
+		// so it asks for it explicitly; the default is now to keep pm.*
+		// verbatim and run it on the native pm object.
+		Kind: "postman", Content: postman, TranslatePostmanScripts: true,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -12520,7 +12525,15 @@ func TestImportPostmanAndBruRoundTrip(t *testing.T) {
 	if imported.Items[0].Auth.Mode != "bearer" || imported.Items[0].Auth.Token != "{{token}}" {
 		t.Fatalf("postman bearer auth not converted: %#v", imported.Items[0].Auth)
 	}
-	if strings.Contains(imported.Items[0].PreScript, "pm.") || strings.Contains(imported.Items[0].PostScript, "pm.") || !strings.Contains(imported.Items[0].PreScript, "req.setHeader") || !strings.Contains(imported.Items[0].PostScript, "test(") || !strings.Contains(imported.Items[0].PostScript, "expect(res.status).to.equal(200)") || !strings.Contains(imported.Items[0].PostScript, "res.json.ok") || !strings.Contains(imported.Items[0].PostScript, "res.getHeader") {
+	// US-044: pm.variables is deliberately NOT translated even with the flag
+	// on, because bru has no equivalent — bru.getVar reads only the runtime
+	// scope, whereas pm.variables reads the fully resolved chain. Translating
+	// it was half of the scope-collapse bug this story fixes. Left alone it
+	// runs on the native pm.variables from US-040, which is strictly more
+	// correct than any rewrite. Everything else must still convert.
+	untranslatedPre := strings.ReplaceAll(imported.Items[0].PreScript, "pm.variables.", "")
+	untranslatedPost := strings.ReplaceAll(imported.Items[0].PostScript, "pm.variables.", "")
+	if strings.Contains(untranslatedPre, "pm.") || strings.Contains(untranslatedPost, "pm.") || !strings.Contains(imported.Items[0].PreScript, "req.setHeader") || !strings.Contains(imported.Items[0].PostScript, "test(") || !strings.Contains(imported.Items[0].PostScript, "expect(res.status).to.equal(200)") || !strings.Contains(imported.Items[0].PostScript, "res.json.ok") || !strings.Contains(imported.Items[0].PostScript, "res.getHeader") {
 		t.Fatalf("postman request events not converted: pre=%q post=%q", imported.Items[0].PreScript, imported.Items[0].PostScript)
 	}
 	scripts := mergedRuntimeScripts(imported, imported.Items[0])
@@ -12699,7 +12712,12 @@ func TestImportPostmanAdvancedAuth(t *testing.T) {
 				]}
 			}
 		}]}`
-	state, err = app.ImportCollection(workspace.ID, ImportPayload{Kind: "postman", Content: postman})
+	state, err = app.ImportCollection(workspace.ID, ImportPayload{
+		// US-044 made translation opt-in. This test is ABOUT the translator,
+		// so it asks for it explicitly; the default is now to keep pm.*
+		// verbatim and run it on the native pm object.
+		Kind: "postman", Content: postman, TranslatePostmanScripts: true,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -12757,7 +12775,12 @@ func TestImportPostmanCookieScriptTranslation(t *testing.T) {
 				]}
 			}]
 		}]}`
-	state, err = app.ImportCollection(workspace.ID, ImportPayload{Kind: "postman", Content: postman})
+	state, err = app.ImportCollection(workspace.ID, ImportPayload{
+		// US-044 made translation opt-in. This test is ABOUT the translator,
+		// so it asks for it explicitly; the default is now to keep pm.*
+		// verbatim and run it on the native pm object.
+		Kind: "postman", Content: postman, TranslatePostmanScripts: true,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -12814,7 +12837,12 @@ func TestImportPostmanHeaderListScriptTranslation(t *testing.T) {
 				]}
 			}]
 		}]}`
-	state, err = app.ImportCollection(workspace.ID, ImportPayload{Kind: "postman", Content: postman})
+	state, err = app.ImportCollection(workspace.ID, ImportPayload{
+		// US-044 made translation opt-in. This test is ABOUT the translator,
+		// so it asks for it explicitly; the default is now to keep pm.*
+		// verbatim and run it on the native pm object.
+		Kind: "postman", Content: postman, TranslatePostmanScripts: true,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

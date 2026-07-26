@@ -766,3 +766,95 @@ func assertNoImportScratchDirs(t *testing.T, root string) {
 		}
 	}
 }
+
+// TestApplyCollectionImportHonoursTheTranslateFlag is US-044's plumbing check.
+//
+// Candidates are parsed during DETECTION, before the apply request exists, so
+// a naive implementation threads the flag only into the manual-kind-override
+// branch. Every normally-detected Postman file would then ignore the toggle
+// entirely — the checkbox would look like it worked and do nothing.
+func TestApplyCollectionImportHonoursTheTranslateFlag(t *testing.T) {
+	const postmanFile = `{
+  "info": {"name": "translate flag", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+  "item": [{
+    "name": "scoped",
+    "event": [{"listen": "prerequest", "script": {"exec": ["pm.environment.set('e', '1');"]}}],
+    "request": {"method": "GET", "url": "https://example.test/"}
+  }]
+}`
+
+	run := func(t *testing.T, translate bool) string {
+		t.Helper()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "translate-flag.postman_collection.json")
+		if err := os.WriteFile(path, []byte(postmanFile), 0o600); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+
+		app := newAppForTest(t)
+		state, err := app.GetState()
+		if err != nil {
+			t.Fatalf("GetState: %v", err)
+		}
+		workspaceID := state.Workspaces[0].ID
+
+		sources := []CollectionImportSource{{Path: path}}
+		preview, err := app.PreviewCollectionImport(CollectionImportPreviewRequest{WorkspaceID: workspaceID, Sources: sources})
+		if err != nil {
+			t.Fatalf("PreviewCollectionImport: %v", err)
+		}
+		if len(preview.Rows) == 0 {
+			t.Fatal("the Postman file was not detected")
+		}
+		row := preview.Rows[0]
+		if !strings.EqualFold(row.DetectedKind, "postman") {
+			t.Fatalf("detected kind = %q, want postman", row.DetectedKind)
+		}
+
+		result, err := app.ApplyCollectionImport(CollectionImportApplyRequest{
+			WorkspaceID: workspaceID,
+			Sources:     sources,
+			Selections: []CollectionImportSelection{{
+				SourceID:            row.SourceID,
+				CandidateID:         row.CandidateID,
+				ExpectedContentHash: row.ContentHash,
+			}},
+			TranslatePostmanScripts: translate,
+		})
+		if err != nil {
+			t.Fatalf("ApplyCollectionImport: %v", err)
+		}
+		if len(result.Errors) > 0 {
+			t.Fatalf("import reported errors: %#v", result.Errors)
+		}
+
+		for _, workspace := range result.State.Workspaces {
+			for _, collection := range workspace.Collections {
+				for _, item := range collection.Items {
+					if item.Name == "scoped" {
+						return item.PreScript
+					}
+				}
+			}
+		}
+		t.Fatal("the imported request was not found")
+		return ""
+	}
+
+	t.Run("default keeps pm", func(t *testing.T) {
+		script := run(t, false)
+		if !strings.Contains(script, "pm.environment.set") {
+			t.Errorf("the default rewrote the script; it should run natively: %q", script)
+		}
+	})
+
+	t.Run("opt-in translates", func(t *testing.T) {
+		script := run(t, true)
+		if !strings.Contains(script, "bru.setEnvVar") {
+			t.Errorf("the opt-in had no effect on a normally-detected file: %q", script)
+		}
+		if strings.Contains(script, "pm.environment.set") {
+			t.Errorf("the script was not translated: %q", script)
+		}
+	})
+}

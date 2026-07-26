@@ -449,7 +449,11 @@
 	  let importDecisions: Record<string, ImportDecision> = {}
 	  let importExpanded: Record<string, boolean> = {}
 	  let importApplyResult: main.CollectionImportApplyResult | undefined
-	  let importDestinationRoot = ''
+	  // US-044. Off by default: pm.* runs natively now, so an imported Postman
+  // script works as written. Translation is for collections whose scripts were
+  // already migrated by hand against the bru API.
+  let importTranslatePostmanScripts = false
+  let importDestinationRoot = ''
 	  let importDestinationWorkspaceID = ''
 	  let importURL = ''
 	  let importPasteName = 'Pasted import'
@@ -3796,7 +3800,7 @@
 	  let applySucceeded = false
     try {
       await runAction('apply import', async () => {
-	        const result = await ApplyCollectionImport({ workspaceId: importDestinationWorkspaceID, destinationRoot: importDestinationRoot, sources: importSources, selections: importReadyRows.map(importSelectionFor) } as main.CollectionImportApplyRequest)
+	        const result = await ApplyCollectionImport({ workspaceId: importDestinationWorkspaceID, destinationRoot: importDestinationRoot, sources: importSources, selections: importReadyRows.map(importSelectionFor), translatePostmanScripts: importTranslatePostmanScripts } as main.CollectionImportApplyRequest)
         importApplyResult = result
 	        state = result.state
         const completed = new Set([...(result.applied ?? []), ...(result.skipped ?? [])].map((row) => row.candidateId))
@@ -11067,6 +11071,7 @@
         {#await import('./lib/views/ImportPanel.svelte') then ImportPanel}
           <svelte:component this={ImportPanel.default}
             bind:importSourceMode
+            bind:importTranslatePostmanScripts
             bind:importURL
             bind:importContent
             bind:importPasteName

@@ -1287,3 +1287,52 @@ US-043 - `pm.iterationData` / `pm.vault`. DONE.
     toObject returns the live map "expected tampered to equal 7"
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, -race clean.
+
+US-044 - Fix + demote the import translator. DONE. Closes the pm cluster.
+
+  FIX. Each variable scope now maps to ITS OWN bru function:
+    pm.environment.*        -> bru.*EnvVar
+    pm.collectionVariables.*-> bru.*CollectionVar
+    pm.globals.*            -> bru.*GlobalEnvVar
+  All four families previously pointed at bru.getVar/setVar/deleteVar,
+  collapsing environment, collection, global and resolved-chain variables into
+  the single runtime scope.
+
+  pm.variables is now NOT translated at all. bru has no equivalent - bru.getVar
+  reads only the runtime scope, whereas pm.variables reads the fully resolved
+  chain - and translating it was HALF THE COLLAPSE. Left alone it runs on the
+  native pm.variables from US-040, which is strictly more correct than any
+  rewrite. That is the general rule the table follows now: translate only what
+  maps EXACTLY, leave everything else to the real pm object.
+
+  DEMOTE. Translation is opt-in via ImportPayload.TranslatePostmanScripts and
+  CollectionImportApplyRequest.TranslatePostmanScripts, default false. Until
+  US-039-043 there was no live pm object, so rewriting was the only way an
+  imported script could run at all. Now pm.* is native and more faithful than
+  any textual rewrite - distinct scopes, Postman status semantics, throwing
+  where Postman throws.
+
+  PLUMBING TRAP FOUND WHILE WIRING IT. Candidates are parsed during DETECTION,
+  before the apply request (and therefore the flag) exists. Threading the flag
+  only into collectionFromImport reaches the manual KindOverride branch ONLY,
+  so every normally-detected Postman file would ignore the toggle - a checkbox
+  that looks like it works and demonstrably does nothing. ApplyCollectionImport
+  now re-imports Postman candidates when the flag is set. A re-import failure
+  is deliberately non-fatal: the untranslated candidate is already valid, so
+  falling back beats failing an import over an optional rewrite.
+
+  Three existing tests opted in (they are ABOUT the translator).
+  TestImportPostmanAndBruRoundTrip's "no pm. remains" assertion now exempts
+  pm.variables, with the reasoning inline.
+
+  Negative controls, all three run and all three caught:
+    restore the scope collapse       three setters missing from the output
+    translation on by default        pm.* rewritten away on a default import
+    flag only in the override branch "the opt-in had no effect on a normally-
+                                     detected file"
+
+  Frontend: "Rewrite pm.* to bru.*" checkbox in the import footer, off by
+  default, with a title explaining when to use it.
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 38.3s 0,
+  -race clean, svelte-check 198/0/0, eslint 0, npm test 105/105.

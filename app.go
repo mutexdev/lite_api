@@ -1295,6 +1295,11 @@ type ImportPayload struct {
 	GroupBy     string `json:"groupBy"`
 	SourceURL   string `json:"sourceUrl"`
 	OpenAPISync bool   `json:"openapiSync"`
+	// US-044. Opt-in rewriting of pm.* to bru.* on Postman import. The default
+	// is false: pm.* is native since US-039-043 and more faithful than any
+	// textual rewrite, so translation is only for collections whose scripts
+	// were already migrated by hand against the bru API.
+	TranslatePostmanScripts bool `json:"translatePostmanScripts,omitempty"`
 }
 
 type GitCollectionCandidate struct {
@@ -34230,7 +34235,7 @@ func collectionFromImport(payload ImportPayload) (Collection, error) {
 		collection.Items = []RequestItem{item}
 		return collection, nil
 	case "postman":
-		return importPostman(payload.Content, name)
+		return importPostman(payload.Content, name, payload.TranslatePostmanScripts)
 	case "insomnia":
 		return importInsomnia(payload.Content, name)
 	case "openapi":
@@ -37745,7 +37750,7 @@ func normalizeWhitespace(value string) string {
 	return strings.Join(strings.Fields(value), " ")
 }
 
-func importPostman(content, name string) (Collection, error) {
+func importPostman(content, name string, translateScripts bool) (Collection, error) {
 	var raw struct {
 		Info struct {
 			Name string `json:"name"`
@@ -37766,9 +37771,9 @@ func importPostman(content, name string) (Collection, error) {
 	if auth, ok := postmanAuthConfig(raw.Auth); ok {
 		collection.Auth = auth
 	}
-	collection.PreScript, collection.PostScript = postmanEventScripts(raw.Event)
+	collection.PreScript, collection.PostScript = postmanEventScripts(raw.Event, translateScripts)
 	seq := 1
-	appendPostmanItems(&collection, raw.Item, "", &seq)
+	appendPostmanItems(&collection, raw.Item, "", &seq, translateScripts)
 	return collection, nil
 }
 
@@ -37855,22 +37860,22 @@ type postmanResponse struct {
 	PreviewLanguage string          `json:"_postman_previewlanguage"`
 }
 
-func appendPostmanItems(collection *Collection, entries []postmanItem, folderPath string, seq *int) {
+func appendPostmanItems(collection *Collection, entries []postmanItem, folderPath string, seq *int, translateScripts bool) {
 	for _, entry := range entries {
 		if entry.Request != nil {
-			item := postmanRequestItem(entry, folderPath, *seq)
+			item := postmanRequestItem(entry, folderPath, *seq, translateScripts)
 			collection.Items = append(collection.Items, item)
 			*seq = *seq + 1
 		}
 		if len(entry.Item) > 0 {
 			childFolderPath := postmanFolderPath(folderPath, entry.Name)
-			appendPostmanFolder(collection, entry, childFolderPath)
-			appendPostmanItems(collection, entry.Item, childFolderPath, seq)
+			appendPostmanFolder(collection, entry, childFolderPath, translateScripts)
+			appendPostmanItems(collection, entry.Item, childFolderPath, seq, translateScripts)
 		}
 	}
 }
 
-func postmanRequestItem(entry postmanItem, folderPath string, seq int) RequestItem {
+func postmanRequestItem(entry postmanItem, folderPath string, seq int, translateScripts bool) RequestItem {
 	item := defaultRequest(entry.Name, "http", seq)
 	item.FolderPath = folderPath
 	item.Auth = AuthConfig{Mode: "inherit", APILocation: "header"}
@@ -37886,7 +37891,7 @@ func postmanRequestItem(entry postmanItem, folderPath string, seq int) RequestIt
 	if auth, ok := postmanAuthConfig(entry.Request.Auth); ok {
 		item.Auth = auth
 	}
-	item.PreScript, item.PostScript = postmanEventScripts(entry.Event)
+	item.PreScript, item.PostScript = postmanEventScripts(entry.Event, translateScripts)
 	if item.Body.Mode == "graphql" {
 		item.Type = "graphql"
 	}
@@ -37894,7 +37899,7 @@ func postmanRequestItem(entry postmanItem, folderPath string, seq int) RequestIt
 	return item
 }
 
-func appendPostmanFolder(collection *Collection, entry postmanItem, folderPath string) {
+func appendPostmanFolder(collection *Collection, entry postmanItem, folderPath string, translateScripts bool) {
 	if folderPath == "" {
 		return
 	}
@@ -37907,7 +37912,7 @@ func appendPostmanFolder(collection *Collection, entry postmanItem, folderPath s
 	if auth, ok := postmanAuthConfig(entry.Auth); ok {
 		folder.Auth = auth
 	}
-	folder.PreScript, folder.PostScript = postmanEventScripts(entry.Event)
+	folder.PreScript, folder.PostScript = postmanEventScripts(entry.Event, translateScripts)
 	collection.Folders = append(collection.Folders, folder)
 }
 
@@ -38116,11 +38121,11 @@ func postmanVariableName(name string) string {
 	return b.String()
 }
 
-func postmanEventScripts(events []postmanEvent) (string, string) {
+func postmanEventScripts(events []postmanEvent, translate bool) (string, string) {
 	preScripts := []string{}
 	postScripts := []string{}
 	for _, event := range events {
-		script := postmanScriptText(event.Script.Exec)
+		script := postmanScriptText(event.Script.Exec, translate)
 		if strings.TrimSpace(script) == "" {
 			continue
 		}
@@ -38134,7 +38139,17 @@ func postmanEventScripts(events []postmanEvent) (string, string) {
 	return strings.Join(preScripts, "\n"), strings.Join(postScripts, "\n")
 }
 
-func postmanScriptText(raw interface{}) string {
+// postmanScriptText extracts an event's script text, translating pm.* to bru.*
+// only when the importer was explicitly asked to (US-044).
+//
+// The default is now NO translation. Until US-039-043 there was no live pm
+// object, so rewriting was the only way an imported Postman script could run at
+// all. Now pm.* is native and more faithful than any textual rewrite can be —
+// it keeps each variable scope distinct, reports Postman's status semantics,
+// and throws where Postman throws. Translation is retained for collections
+// whose scripts were already migrated by hand against the bru API, where a
+// rewrite is what keeps them working.
+func postmanScriptText(raw interface{}, translate bool) string {
 	var script string
 	switch value := raw.(type) {
 	case string:
@@ -38150,6 +38165,9 @@ func postmanScriptText(raw interface{}) string {
 	default:
 		script = yamlScalarString(raw)
 	}
+	if !translate {
+		return script
+	}
 	return postmanTranslateScript(script)
 }
 
@@ -38158,21 +38176,31 @@ func postmanTranslateScript(script string) string {
 		from string
 		to   string
 	}{
-		{"pm.variables.get", "bru.getVar"},
-		{"pm.variables.set", "bru.setVar"},
-		{"pm.variables.unset", "bru.deleteVar"},
-		{"pm.variables.replaceIn", "bru.interpolate"},
-		{"pm.environment.get", "bru.getVar"},
-		{"pm.environment.set", "bru.setVar"},
-		{"pm.environment.unset", "bru.deleteVar"},
+		// US-044. Each scope maps to ITS OWN bru function. These four
+		// families all pointed at bru.getVar/setVar/deleteVar before, which
+		// collapsed environment, collection, global and resolved-chain
+		// variables into the single runtime scope. Nothing errored: a script
+		// that wrote one scope and read another got its value back, so the
+		// collapse looked like it worked until a second environment or
+		// collection was supposed to see a different value.
+		//
+		// pm.variables is NOT translated. It reads the fully resolved chain,
+		// and bru has no equivalent — bru.getVar reads only the runtime scope,
+		// which is what produced half the collapse. Left alone it now runs on
+		// the native pm.variables from US-040, which is exactly right. That is
+		// the general rule this table follows after US-039-043: translate only
+		// what maps EXACTLY, and leave everything else to the real pm object.
+		{"pm.environment.get", "bru.getEnvVar"},
+		{"pm.environment.set", "bru.setEnvVar"},
+		{"pm.environment.unset", "bru.deleteEnvVar"},
 		{"pm.environment.replaceIn", "bru.interpolate"},
-		{"pm.collectionVariables.get", "bru.getVar"},
-		{"pm.collectionVariables.set", "bru.setVar"},
-		{"pm.collectionVariables.unset", "bru.deleteVar"},
+		{"pm.collectionVariables.get", "bru.getCollectionVar"},
+		{"pm.collectionVariables.set", "bru.setCollectionVar"},
+		{"pm.collectionVariables.unset", "bru.deleteCollectionVar"},
 		{"pm.collectionVariables.replaceIn", "bru.interpolate"},
-		{"pm.globals.get", "bru.getVar"},
-		{"pm.globals.set", "bru.setVar"},
-		{"pm.globals.unset", "bru.deleteVar"},
+		{"pm.globals.get", "bru.getGlobalEnvVar"},
+		{"pm.globals.set", "bru.setGlobalEnvVar"},
+		{"pm.globals.unset", "bru.deleteGlobalEnvVar"},
 		{"pm.globals.replaceIn", "bru.interpolate"},
 		{"pm.test", "test"},
 		{"pm.expect", "expect"},
