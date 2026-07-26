@@ -5246,3 +5246,31 @@ US-026 - Store layer. DONE. Both named collapses complete.
   One control was equivalent: removing the []interface{} case still works,
   because a JS array falls through to the indexed-object path and reads the same
   bytes.
+
+--- The Windows half of the script path API — 33/44% -> 100% ---
+
+  path.win32.* must behave like Node's ON EVERY PLATFORM, because a script
+  written on Windows runs on the Mac of whoever opens the collection next. So
+  these are pure string manipulation with no filesystem behind them, and the
+  only thing keeping them honest is agreeing with Node.
+
+  The ROOT is where it goes wrong. Three things look alike and are not:
+    C:\foo    absolute
+    C:foo     "foo relative to the current directory ON C:" — NOT absolute, and
+              not the same place
+    \\srv\share\foo   a UNC share, whose root is the share, not the server
+  Confusing any two turns a path into one that points somewhere else. Each has
+  its own control; treating "C:foo" as absolute fails 2 tests.
+
+  A trailing separator is dropped so "C:\foo\" and "C:\foo" name the same thing,
+  but NOT when the separator IS the root: trimming "C:\" to "C:" converts an
+  absolute path into a drive-relative one that resolves against the current
+  directory.
+
+  And an absolute path cannot climb above its root — "C:\..\x" is "C:\x" on
+  Windows — while a relative one keeps its "..", since dropping it would
+  silently turn "..\x" into "x".
+
+  Two controls needed rewriting before they measured anything: one escaped
+  wrongly through two layers of shell quoting (moved to a Python driver), and
+  one left a variable unused so it did not compile. Neither was a test gap.
