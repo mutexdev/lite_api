@@ -64,6 +64,13 @@ jobs:
           GOOS=windows GOARCH=amd64 go build ./...
           GOOS=darwin GOARCH=arm64 go build ./...
 
+      # The binding surface is the contract between package main and the
+      # frontend, and nothing else in this workflow checks it. A renamed or
+      # re-signed bound method compiles on both sides and only fails when a
+      # user clicks the thing that calls it.
+      - name: Check the Wails binding surface
+        run: ./qa/bindings.sh
+
       - name: Test
         run: go test -tags webkit2_41 ./...
 

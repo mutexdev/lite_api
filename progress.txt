@@ -7708,3 +7708,45 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   The rule for this file from here: NEVER quote a coverage percentage without
   the scope beside it, and never by hand — run qa/coverage.sh.
+
+=== THE BINDING SURFACE GATE — the plan's "single cheapest guard", implemented ===
+
+  The plan asked for the FULL bound-method list to be snapshotted and diffed,
+  and explicitly warned that a count is not enough. I had been checking only the
+  count (188) for every slice this session. A count of 188 survives:
+    - a changed parameter or return type
+    - one method unexported while another is added
+    - a rename in Go that was never regenerated into the frontend
+  All three compile on both sides.
+
+  qa/bindings.sh now makes THREE checks, because each catches what the others
+  cannot:
+    1. the Go signature list vs qa/baseline/bindings.txt
+    2. the Go method NAMES vs frontend/wailsjs/go/main/App.d.ts — the generated
+       bindings are COMMITTED, so a Go rename without `wails generate module`
+       leaves the frontend calling a method that no longer exists, and NOTHING
+       IN EITHER BUILD SAYS SO because the .d.ts still type-checks against
+       itself
+    3. App.d.ts vs App.js, which are generated separately
+
+  Wired into ci.yml, beside the cross-compile gate added earlier.
+
+  Controls — five, all caught:
+    - a renamed bound method                                      caught
+    - the generated TypeScript drifted from Go                    caught
+    - App.js drifted from App.d.ts                                caught
+    - a method unexported (188 -> 187)                            caught
+    - A SIGNATURE CHANGE THAT COMPILES CLEANLY                    caught
+      (extra parameter on a frontend-only method; the gate prints the exact
+      -/+ line. THIS IS THE CASE A COUNT MISSES ENTIRELY, and the reason the
+      plan called for a list rather than a number.)
+
+  AND A FAILURE IN MY OWN CONTROL HARNESS, worth recording because it produced a
+  CONFIDENT WRONG ANSWER. My first run reported "PASSED — GATE IS BLIND" twice.
+  Both mutations had targeted app.go; the method lives in request_lifecycle.go
+  after the file split, so NEITHER EDIT LANDED — the harness judged a gate
+  against a change that was never made. The runner now refuses to report a
+  verdict unless the substitution matched exactly once. Same doctrine as
+  tools/extraction/control.sh, which I had not applied here.
+
+  Verified today: Go 188 == App.d.ts 188 == App.js 188, name sets identical.
