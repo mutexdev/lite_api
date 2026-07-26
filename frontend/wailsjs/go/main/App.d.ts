@@ -34,6 +34,8 @@ export function ClearDomainCookies(arg1:string):Promise<main.AppState>;
 
 export function ClearFileCache():Promise<number>;
 
+export function ClearHistory():Promise<void>;
+
 export function ClearNotifications():Promise<main.AppState>;
 
 export function ClearSSLSessionCache():Promise<main.AppState>;
@@ -152,6 +154,10 @@ export function GetDevToolsSnapshot():Promise<main.DevToolsSnapshot>;
 
 export function GetFileCacheSize():Promise<number>;
 
+export function GetHistoryBody(arg1:string):Promise<string>;
+
+export function GetHistoryEntry(arg1:string):Promise<main.HistoryEntry>;
+
 export function GetOpenAPISyncSpec(arg1:string):Promise<main.OpenAPISyncSpecViewResult>;
 
 export function GetOpenAPISyncSpecDiff(arg1:string,arg2:main.OpenAPISyncOptions):Promise<main.OpenAPISyncSpecDiffResult>;
@@ -175,6 +181,8 @@ export function KillTerminalSession(arg1:string):Promise<void>;
 export function ListDotEnvFiles(arg1:string,arg2:string):Promise<Array<main.DotEnvFile>>;
 
 export function ListGRPCMethods(arg1:string,arg2:string,arg3:string):Promise<Array<main.GRPCMethodInfo>>;
+
+export function ListHistory(arg1:main.HistoryQuery):Promise<Array<main.HistoryEntry>>;
 
 export function ListRecoveryEntries():Promise<Array<main.RecoveryEntry>>;
 

@@ -1791,3 +1791,55 @@ US-059 - Postman parity ledger. DONE. Closes the Postman cluster (039-059).
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 38.4s 0,
   svelte-check 201/0/0, npm test 158/158.
+
+US-048 - History store. DONE.
+  history.jsonl in dataDir, capped, searchable, bodies via the US-009 response
+  store. Bindings: ListHistory (with HistoryQuery), GetHistoryEntry,
+  GetHistoryBody, ClearHistory. Recorded on the send path, best-effort.
+
+  "OUTSIDE state.json" is mechanical, not tidiness: state.json is rewritten IN
+  FULL on every mutation, and history grows by one entry per send forever.
+  Keeping it there would put the whole log on the hot path of every
+  keystroke-triggered save - the cost of a feature nobody is looking at landing
+  on the one they are.
+
+  APPEND-ONLY JSONL on the hot path. A send costs one short write at the end of
+  the file rather than a rewrite of everything; that is the whole reason to
+  accept a line format over a JSON array. Compaction runs at 2x the cap, not at
+  the cap, because compacting at exactly the cap would rewrite the file on
+  every send once it filled up - defeating the point.
+
+  Bodies are NOT inlined; they carry a handle into the content-addressed
+  response store, so a hundred sends of the same request store one copy. A test
+  asserts three identical responses share one handle. A missing body (the store
+  is pruned independently) returns "" rather than an error.
+
+  CREDENTIALS ARE REDACTED. History is the one place credentials would persist
+  in the clear indefinitely, in a plaintext file no encryption covers, long
+  after the token was rotated - and nobody expects a request log to be a
+  credential store. Authorization, Cookie, Set-Cookie, api-key and friends have
+  their VALUES withheld but their NAMES kept: dropping the row entirely would
+  make the entry misrepresent the request as unauthenticated. NC2 confirmed
+  that distinction matters.
+
+  Malformed lines are SKIPPED, not fatal: a truncated line is the likely result
+  of a crash mid-write, and it must not make the whole log unreadable.
+
+  MY COMPACTION TEST WAS MEASURING THE WRONG THING, caught by NC4 producing no
+  failure. It asserted on list(), whose limit caps results at historyLimit
+  whether or not anything was ever compacted - so it would pass against a store
+  that grows without bound. Rewritten to count lines in the FILE. Then it
+  failed at 504 lines, and that was my assertion being wrong again, not the
+  code: the file is deliberately allowed to drift above the cap BETWEEN
+  compactions. The real invariant is "never past the trigger", and the test now
+  pins both ends.
+
+  Negative controls, all five run and all five caught:
+    redaction disabled            token found in the file in the clear
+    credential headers dropped    entry misrepresents request as unauthed
+    limit from the oldest end     returned [0 1 2] instead of the newest
+    compaction removed            1005 lines after 1005 appends
+    malformed line fatal          whole log unreadable
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 39.0s 0,
+  -race clean, svelte-check 201/0/0, npm test 158/158.

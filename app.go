@@ -214,7 +214,10 @@ type App struct {
 	// a directory for Apps that never store a response. Guarded by responsesMu,
 	// which is a leaf lock — never held while acquiring a.mu.
 	responsesMu sync.Mutex
-	responses   *responseStore
+	// US-048. History lives outside state.json; see history_store.go for why.
+	historyOnce  sync.Once
+	historyStore *historyStore
+	responses    *responseStore
 
 	// US-013. Fingerprints of what each auxiliary file last contained, so a
 	// persist that changes nothing in a file does no work for that file.
@@ -6528,6 +6531,11 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 		response.Visualizer = controls.Visualizer
 	}
 	_ = a.attachResponseBody(&response)
+	// US-048. Best-effort and deliberately ignoring the error: a request that
+	// reached the server must not be reported as failed because its history
+	// line could not be written. Recorded AFTER attachResponseBody so the
+	// entry carries the body handle rather than duplicating the body.
+	_ = a.recordSendHistory(collectionID, requestCopy, &response)
 	item.Response = &response
 	item.Timeline = append(item.Timeline, scriptTimeline...)
 	if controls.SkipRequest {

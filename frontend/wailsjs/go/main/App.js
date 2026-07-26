@@ -66,6 +66,10 @@ export function ClearFileCache() {
   return window['go']['main']['App']['ClearFileCache']();
 }
 
+export function ClearHistory() {
+  return window['go']['main']['App']['ClearHistory']();
+}
+
 export function ClearNotifications() {
   return window['go']['main']['App']['ClearNotifications']();
 }
@@ -302,6 +306,14 @@ export function GetFileCacheSize() {
   return window['go']['main']['App']['GetFileCacheSize']();
 }
 
+export function GetHistoryBody(arg1) {
+  return window['go']['main']['App']['GetHistoryBody'](arg1);
+}
+
+export function GetHistoryEntry(arg1) {
+  return window['go']['main']['App']['GetHistoryEntry'](arg1);
+}
+
 export function GetOpenAPISyncSpec(arg1) {
   return window['go']['main']['App']['GetOpenAPISyncSpec'](arg1);
 }
@@ -348,6 +360,10 @@ export function ListDotEnvFiles(arg1, arg2) {
 
 export function ListGRPCMethods(arg1, arg2, arg3) {
   return window['go']['main']['App']['ListGRPCMethods'](arg1, arg2, arg3);
+}
+
+export function ListHistory(arg1) {
+  return window['go']['main']['App']['ListHistory'](arg1);
 }
 
 export function ListRecoveryEntries() {
