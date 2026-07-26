@@ -5096,3 +5096,49 @@ US-026 - Store layer. DONE. Both named collapses complete.
   through the content-sniffing fallback, so the assertion held whether or not
   the language was recognised at all. Re-run with a body that is valid JSON, so
   a dropped "html" case now returns "json", it fires.
+
+--- Where credentials come from — 33% -> 100% ---
+
+  awsSharedCredentialsPath / awsSharedConfigPath / awsV4SSOCacheDir decide which
+  file on disk supplies an access key. That makes them the point where a request
+  gets signed by the WRONG AWS ACCOUNT — not refused, signed, and accepted by
+  whatever account those credentials belong to.
+
+  The env overrides matter because aws-vault, CI runners and containers all
+  point them somewhere other than ~/.aws; ignoring one signs with the
+  developer's personal default profile instead.
+
+  The two fallbacks are deliberately OPPOSITE and both are pinned:
+    - with no home directory the credential paths return EMPTY. Falling through
+      to filepath.Join("", ".aws", "credentials") gives ".aws/credentials",
+      a RELATIVE path resolved against the working directory — so a .aws folder
+      sitting wherever the app was launched would be read as the user's real
+      credentials.
+    - the SSO cache falls back to a temp directory instead, because an app
+      started without HOME (launchd, systemd) should still complete an SSO login
+      rather than re-authenticating on every request. The token file is 0600.
+
+  And the cache filename is a hash: the raw key is a start URL, which is not a
+  legal filename, and two start URLs sharing a file would hand one account's
+  token to the other.
+
+--- OAuth 1.0a RSA keys, and one real papercut fixed ---
+
+  The key comes from a text box, so it arrives however the user copied it. Both
+  PKCS#1 and PKCS#8 are accepted, and the PEM LABEL IS NOT TRUSTED to say which:
+  openssl and several key managers write a PKCS#8 body under an "RSA PRIVATE
+  KEY" header, and believing the label would reject a perfectly usable key.
+
+  An EC key parses as valid PKCS#8, so the only thing between it and a nil
+  dereference in the signer is that type assertion being checked. Control
+  confirms: unchecked, it returns a nil key with a nil error.
+
+  FIXED: pem.Decode wants the BEGIN marker at the start of a line, so a key
+  pasted with a single leading space was rejected as "must be PEM encoded" —
+  which reads as plainly false to someone looking at a PEM block. Input is now
+  trimmed. This does NOT extend to a key indented on every line, and the test
+  says so rather than implying a tolerance that isn't there.
+
+  A control also showed the two failure modes were collapsing: with the parse
+  error unchecked, a CORRUPT key reports "is not an RSA key", sending someone
+  off to regenerate a key that was fine. Now asserted separately.

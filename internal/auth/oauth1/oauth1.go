@@ -356,7 +356,10 @@ func oauth1CollectionBasePath(item *types.RequestItem) string {
 }
 
 func parseOAuth1RSAPrivateKey(privateKeyPEM string) (*rsa.PrivateKey, error) {
-	block, _ := pem.Decode([]byte(privateKeyPEM))
+	// Trimmed because pem.Decode needs the BEGIN marker at the start of a line.
+	// A key pasted with a leading space is otherwise rejected as "not PEM
+	// encoded", which reads as plainly wrong to someone looking at a PEM block.
+	block, _ := pem.Decode([]byte(strings.TrimSpace(privateKeyPEM)))
 	if block == nil {
 		return nil, errors.New("OAuth1 RSA private key must be PEM encoded")
 	}
