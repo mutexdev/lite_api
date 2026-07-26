@@ -769,6 +769,14 @@ pre {
 
 .collections {
   display: grid;
+  /* Size each collection to its content instead of stretching it to share the
+     track. Without this the grid gives every article an equal slice of a fixed
+     height, and `.collections article { overflow: hidden }` then CLIPS the rest:
+     with a 500-request collection the section reported scrollHeight == clientHeight,
+     so the sidebar could not scroll and every request past the first screen was
+     unreachable. Measured before and after against a 500-request fixture. */
+  align-content: start;
+  grid-auto-rows: min-content;
   gap: 4px;
   overflow: auto;
   padding-right: 2px;

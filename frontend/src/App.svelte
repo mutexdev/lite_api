@@ -7938,6 +7938,85 @@
   // changes whenever anything the grouping reads has changed. Keying on the
   // collection object alone would go stale on an in-place edit; keying on its
   // item count would miss a rename.
+  // US-031: sidebar row windowing.
+  //
+  // The tree markup stays nested (collection -> folder -> request) because
+  // flattening it would mean rewriting ~200 lines of headers, drag targets and
+  // menus. Only the innermost request loop is windowed, using each group's
+  // offset in a FLAT row coordinate so the arithmetic matches what the user
+  // actually scrolls past.
+  //
+  // Rows outside the window are replaced by two spacer divs, so the scrollbar
+  // stays the size it would be if everything were rendered. Getting that wrong
+  // is visible immediately: the scrollbar jumps as you scroll.
+  let sidebarScrollTop = $state(0)
+  let sidebarViewportHeight = $state(0)
+  let sidebarRowHeight = $state(28)
+
+  function measureSidebarViewport(node: HTMLElement) {
+    const sync = () => {
+      sidebarScrollTop = node.scrollTop
+      sidebarViewportHeight = node.clientHeight
+      const row = node.querySelector<HTMLElement>('.request-row-shell')
+      // A row measures 0 before layout; keeping the previous value avoids a
+      // divide-by-zero window that would render nothing.
+      if (row && row.offsetHeight > 0) sidebarRowHeight = row.offsetHeight
+    }
+    sync()
+    node.addEventListener('scroll', sync, { passive: true })
+    const observer = new ResizeObserver(sync)
+    observer.observe(node)
+    return {
+      destroy() {
+        node.removeEventListener('scroll', sync)
+        observer.disconnect()
+      }
+    }
+  }
+
+  /**
+   * sidebarGroupOffset is the flat row index of a group's FIRST request.
+   *
+   * It walks the same order the markup renders in, so the two cannot disagree:
+   * one row per collection header, one per folder header, one per request.
+   */
+  function sidebarGroupOffset(targetCollectionId: string, targetFolder: string): number {
+    let offset = 0
+    for (const collection of visibleSidebarCollections) {
+      offset += 1 // the collection's own header row
+      const collapsed = !searchQuery && Boolean(collapsedSidebarCollections[collection.id])
+      if (collapsed || collection.notFoundLocally) continue
+      for (const group of groupedItems(collection, searchQuery)) {
+        if (group.folder) offset += 1 // the folder header row
+        const folderCollapsed =
+          Boolean(group.folder) && !searchQuery &&
+          Boolean(collapsedSidebarFolders[sidebarFolderKey(collection.id, group.folder)])
+        if (collection.id === targetCollectionId && group.folder === targetFolder) return offset
+        if (!folderCollapsed) offset += group.items.length
+      }
+    }
+    return offset
+  }
+
+  /** Which of a group's items fall inside the viewport, plus the padding. */
+  function sidebarItemWindow(collectionId: string, folder: string, count: number) {
+    if (sidebarViewportHeight <= 0 || sidebarRowHeight <= 0 || count === 0) {
+      return { start: 0, end: count, padTop: 0, padBottom: 0 }
+    }
+    const offset = sidebarGroupOffset(collectionId, folder)
+    const overscan = 8
+    const firstVisible = Math.floor(sidebarScrollTop / sidebarRowHeight) - offset - overscan
+    const lastVisible = Math.ceil((sidebarScrollTop + sidebarViewportHeight) / sidebarRowHeight) - offset + overscan
+    const start = Math.max(0, Math.min(count, firstVisible))
+    const end = Math.max(start, Math.min(count, lastVisible))
+    return {
+      start,
+      end,
+      padTop: start * sidebarRowHeight,
+      padBottom: (count - end) * sidebarRowHeight
+    }
+  }
+
   // US-031: which per-row disclosure menus are open, keyed collection:item.
   // Only an open menu renders its buttons; see the note at the <details>.
   let openRequestMenus = $state<Record<string, boolean>>({})
@@ -8628,7 +8707,7 @@
         {/if}
       </section>
 
-      <section class="collections">
+      <section class="collections" use:measureSidebarViewport>
         {#if visibleSidebarCollections.length === 0}
           <div class="sidebar-empty">No matching requests</div>
         {/if}
@@ -8737,7 +8816,9 @@
                   </div>
                 {/if}
                 {#if !folderCollapsed}
-                {#each group.items as item (item.id)}
+                {@const win = sidebarItemWindow(collection.id, group.folder, group.items.length)}
+                {#if win.padTop > 0}<div class="sidebar-spacer" style={`height:${win.padTop}px`} aria-hidden="true"></div>{/if}
+                {#each group.items.slice(win.start, win.end) as item (item.id)}
                   <div class="request-row-shell" class:in-folder={Boolean(group.folder)}>
                     <button
                       class="request-row"
@@ -8827,6 +8908,7 @@
                     </div>
                   {/if}
                 {/each}
+                {#if win.padBottom > 0}<div class="sidebar-spacer" style={`height:${win.padBottom}px`} aria-hidden="true"></div>{/if}
                 {/if}
               {/each}
             {/if}

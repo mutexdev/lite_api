@@ -3767,3 +3767,50 @@ US-026 - Store layer. DONE. Both named collapses complete.
   CodeGenerationTarget became codegen.Target when internal/codegen was
   extracted, and I had not regenerated since. `wails dev` did it, svelte-check
   passes against the new shape, and the corrected binding is committed.
+
+--- US-031 COMPLETE — and it uncovered a real bug the story did not mention ---
+
+  Row windowing wired into the sidebar. Measured against the 500-request
+  fixture in the running app:
+
+      6,251 sidebar DOM nodes  ->  469     (bounded, not merely reduced)
+        500 rows always mounted ->  35-47  depending on scroll position
+
+  The node count no longer depends on collection size, which is what the story
+  asked for.
+
+  HOW, without rewriting 198 lines of nested markup: only the INNERMOST request
+  loop is windowed. Each group asks for its own slice using its offset in a flat
+  row coordinate (sidebarGroupOffset walks the same order the markup renders, so
+  the two cannot disagree), and rows outside the slice become two spacer divs so
+  the scrollbar keeps the size it would have if everything were rendered.
+
+  !!! THE SIDEBAR COULD NOT SCROLL AT ALL, AND THAT WAS PRE-EXISTING !!!
+
+  While verifying, section.collections reported scrollHeight == clientHeight
+  (921 == 921) with 14,683px of content. Setting scrollTop did nothing. With a
+  large collection, EVERY REQUEST PAST THE FIRST SCREEN WAS UNREACHABLE.
+
+  I did not assume it was mine. I stashed my change, reloaded, and measured the
+  original: 500 rows rendered, scrollHeight 921, scrollTop stuck at 0, article
+  clipped at 831px. Identical. Pre-existing, and my windowing had merely
+  inherited it.
+
+  CAUSE: `.collections { display: grid; overflow: auto }` with
+  `.collections article { overflow: hidden }`. A grid with a definite height
+  gives each article an equal share of the track; the article then clips its
+  overflow instead of growing, so the section never overflows and never scrolls.
+
+  FIX: align-content: start + grid-auto-rows: min-content, so each collection
+  sizes to its content and the section scrolls. After: scrollHeight 14,760 vs
+  clientHeight 921, and scrolling to the bottom reaches Req 19-24 - the 500th
+  request, which no user could previously get to.
+
+  RE-VERIFIED ON WINDOWED ROWS: menu opens to exactly 6 actions and closes to 0,
+  a row is focusable, Enter activates it (url became .../f10/i5), and tab order
+  is row -> disclosure -> next row. So "keyboard nav + context menus still work"
+  holds after windowing, not just before it.
+
+  This is the second time this session that verifying a change surfaced a defect
+  the change was not about. The first was the -race flake. Both came from
+  measuring rather than reasoning.
