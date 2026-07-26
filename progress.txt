@@ -49,6 +49,50 @@ evidence for each story; this file carries the cross-story findings.
     US-077 (internal/ layout) MUST land BEFORE Phase 4 (US-060..US-071), or
     all nine package extractions get moved twice.
 
+--- US-019 — INVESTIGATED, NOT STARTED. Read this before implementing it. ---
+  Analysis done so the next iteration does not repeat it. Two of the story's
+  criteria are not equally achievable, and the difference matters.
+
+  1. "sync.Pool of pre-warmed runtimes, reset between uses" — LIKELY INFEASIBLE
+     AS WRITTEN, and the story does not acknowledge why. Nearly every shim
+     installed by newScriptRuntimeWithMeta CLOSES OVER PER-REQUEST STATE. From
+     the signatures alone:
+         installScriptFetch(runtime, vars)
+         installScriptProcess(runtime, loop, meta.CollectionPath,
+                              scriptVars.ProcessEnv, sandboxMode)
+     plus reqObject's ~15 getters/setters, which capture item, vars, reqState
+     and a currentRequestURL closure over item.Params/item.PathParams.
+     A pooled runtime therefore cannot be "reset" cheaply — every global would
+     have to be re-installed, which is the entire cost being avoided. Worse, a
+     miss leaks the PREVIOUS request's url/headers/env into the next script,
+     which is a correctness and secrets-leak failure, not a performance one.
+     US-018 already banked the large win here (compiled *goja.Program cache,
+     ~10x, 8.2x fewer allocs). What remains is object construction, and pooling
+     it is not obviously safe.
+
+  2. "One runtime instead of four where hooks share scope" — ACHIEVABLE, and is
+     the real story. But it is 4 -> 2, not 4 -> 1, and the reason is structural:
+        runPreRequestScript*        runs BEFORE the request exists as a
+                                    response; response = Response{}, and its
+                                    whole job is to mutate the outbound request.
+                                    It CANNOT share a runtime with the others.
+        runPostResponseScript*   \
+        runPostResponseVariables  >  all run AFTER, with the same item,
+        the tests runtime        /   response, jar and meta. THESE three can
+                                    share one runtime.
+     That is also closer to Postman, where state set in a post-response script
+     is visible to tests.
+
+  SEQUENCING HAZARD if implemented: runPostResponseVariables sets globals into
+  its runtime — every combined variable by name, plus $bru and $req. Sharing a
+  runtime makes those visible to the tests script, so the order the three run in
+  becomes observable behaviour where today it is not. Decide and pin the order
+  in a test before writing the refactor, not after.
+
+  The "no variable or cookie state leaks between requests — explicit test"
+  criterion should be written FIRST, as a failing test, since it is the one that
+  catches every way this can go wrong.
+
 --- US-014 — narrow-return mutators (PASSED, except browser QA) ---
   HEADLINE, measured on the 500-request fixture by marshalling both return
   values the way Wails does:
