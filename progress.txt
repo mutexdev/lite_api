@@ -5969,3 +5969,47 @@ US-026 - Store layer. DONE. Both named collapses complete.
   App.svelte is still 12,163 lines. This is one cluster of several; the same
   treatment applies to the prompt scanning, URL/path-param and global-search
   clusters identified alongside it.
+
+=== RESTRUCTURE PHASE 6 — second slice, request scanning ===
+
+  src/lib/requestScanning.ts — 256 lines, 23 tests. App.svelte 12,163 -> 11,959.
+  Frontend suite 272 -> 295.
+
+  TWO SCANS THAT LOOK ALIKE AND DELIBERATELY ARE NOT:
+    collectVariableNames / scanBodyVariables -> every {{name}}, EVERY body field
+                                                regardless of mode
+    collectPromptNames   / scanBodyPrompts   -> every {{?name}}, ONLY the fields
+                                                the active mode sends
+  The variable list drives a tooltip, so keeping a name from the JSON body while
+  the user looks at the XML tab costs nothing. Prompts drive a DIALOG at send
+  time: asking for a value from a body that is not being sent blocks the request
+  on an irrelevant question. Both directions now have a test.
+
+  scanBodyPrompts is the frontend twin of scanBodyPromptVariables in
+  internal/scripting, tested earlier this session. Same per-mode dispatch, same
+  silent failure, now the same coverage on both sides.
+
+  AN OPTIONAL PARAMETER HID A REGRESSION FROM THE TYPE CHECKER.
+  collectPromptNames closed over `activeGlobalEnvironment`, a $derived. Moving
+  it to a module meant passing that in, and I declared it OPTIONAL. All three
+  call sites then failed to pass it, svelte-check reported 0 errors, and prompts
+  defined in a GLOBAL ENVIRONMENT silently stopped being collected — the user
+  would never be asked, and the request would go out with a literal {{?name}}.
+  Made the parameter required (`types.Environment | undefined`), which turns the
+  same mistake into a compile error, and fixed the three call sites.
+
+  Optional parameters are how a closure-to-parameter refactor loses data without
+  the compiler noticing. If the caller must supply it, say so in the type.
+
+  THE FIRST-MATCH TRAP AGAIN, IN TYPESCRIPT THIS TIME.
+  `if (part.enabled === false) continue` appears TWICE — once in
+  scanBodyVariables, once in scanBodyPrompts. A control using .replace(old,new,1)
+  hit the first and reported 0 failing, which reads as a missing test. Same
+  lesson as the perl -0p s/// that hit line 1799 instead of 12619 in app.go:
+  an anchor that is not unique is not an anchor. Re-run against occurrence 2, it
+  fails 1.
+
+  Also: node --test's ESM resolver does not resolve extensionless imports the
+  way Vite does, so a src/lib module importing another needs the .ts extension.
+  Enabled allowImportingTsExtensions + noEmit, which satisfies tsc,
+  svelte-check, Vite and node --test at once.

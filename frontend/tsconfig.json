@@ -15,7 +15,15 @@
      */
     "allowJs": true,
     "checkJs": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    /**
+     * Modules under src/lib are imported two ways: by Vite (which resolves
+     * extensionless paths) and by `node --test`, whose ESM resolver does not.
+     * Writing the .ts extension satisfies both, and this flag is what lets
+     * TypeScript accept it under bundler resolution.
+     */
+    "allowImportingTsExtensions": true,
+    "noEmit": true
   },
   "include": [
     "src/**/*.d.ts",
