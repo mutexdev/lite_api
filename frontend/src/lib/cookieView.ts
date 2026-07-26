@@ -111,3 +111,57 @@ export function cookieGroups(cookies: types.CookieEntry[] | undefined, query: st
       header: cookieHeaderPreview(groupCookies)
     }))
 }
+
+/**
+ * The expiry as an ISO string for the form's datetime input, or "" for a
+ * session cookie.
+ *
+ * A year <= 1 is treated as absent, not as a date in antiquity. Go marshals a
+ * zero time.Time as 0001-01-01T00:00:00Z, so an unset expiry arrives here as a
+ * parseable date almost two millennia ago; rendering it would fill the input
+ * with a value the user never set and did not mean.
+ */
+export function cookieExpiresInput(cookie: types.CookieEntry): string {
+  if (!cookie.expires) return ''
+  const value = new Date(cookie.expires)
+  return Number.isNaN(value.getTime()) || value.getFullYear() <= 1 ? '' : value.toISOString()
+}
+
+/**
+ * The expiry as displayed in the jar: a local timestamp, or "session".
+ *
+ * Every route to "no usable expiry" ends at "session" rather than at blank or
+ * "Invalid Date", because a cookie with no expiry IS a session cookie — the
+ * word is the accurate answer, not a fallback.
+ */
+export function cookieExpiry(cookie: types.CookieEntry): string {
+  if (cookie.session) return 'session'
+  if (!cookie.expires) return 'session'
+  const value = new Date(cookie.expires)
+  if (Number.isNaN(value.getTime()) || value.getFullYear() <= 1) return 'session'
+  return value.toLocaleString()
+}
+
+/**
+ * Loads a stored cookie into the edit form.
+ *
+ * The expiry is blanked for a session cookie rather than carried across: a
+ * datetime input showing a date beside a ticked "session" box says two
+ * contradictory things, and whichever the user then changes, the other is a
+ * surprise.
+ */
+export function cookieFormFor(cookie: types.CookieEntry): CookieForm {
+  return {
+    id: cookie.id,
+    name: cookie.name,
+    value: cookie.value,
+    domain: cookie.domain,
+    path: cookie.path || '/',
+    expires: cookie.session ? '' : cookieExpiresInput(cookie),
+    session: cookie.session,
+    secure: cookie.secure,
+    httpOnly: cookie.httpOnly,
+    sameSite: cookie.sameSite || '',
+    hostOnly: cookie.hostOnly
+  }
+}

@@ -6816,3 +6816,27 @@ US-026 - Store layer. DONE. Both named collapses complete.
   selection at all, which is a broken state worth repairing whenever it is
   noticed. Both halves of that condition have their own control, and the second
   (`removedSelected` alone, dropping the repair) fails 1.
+
+=== PHASE 6 — cookie expiry, and a Go/JS boundary artefact ===
+
+  cookieView.ts gains the expiry formatters and the edit-form loader.
+  12 tests -> 20. App.svelte 11,402 -> 11,381. Frontend suite 452 -> 460.
+
+  A ZERO time.Time CROSSES THE BOUNDARY AS A REAL DATE. Go marshals an unset
+  time.Time as 0001-01-01T00:00:00Z, which JavaScript parses happily — it is not
+  NaN, it is a date almost two millennia ago. So `Number.isNaN(...)` alone is
+  not enough, and the `getFullYear() <= 1` guard is what stops the form filling
+  with a value the user never set. Both call sites need it; both have a control,
+  and both fail without the guard.
+
+  This is the kind of thing that only shows up at a language boundary: neither
+  side is wrong on its own terms. Go's zero value is a legitimate "unset", and
+  JavaScript's Date is legitimately happy to represent year 1.
+
+  Every route to "no usable expiry" ends at the word "session" rather than blank
+  or "Invalid Date", because a cookie with no expiry IS a session cookie — the
+  word is the accurate answer, not a fallback standing in for one.
+
+  A session cookie loads with a BLANK expiry even when one is stored: a datetime
+  input showing a date beside a ticked "session" box says two contradictory
+  things, and whichever the user changes next, the other is a surprise.

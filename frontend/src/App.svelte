@@ -289,6 +289,9 @@
     cookieGroups,
     cookieHeaderPreview,
     cookieMatches,
+    cookieExpiresInput,
+    cookieExpiry,
+    cookieFormFor,
     emptyCookieForm,
     type CookieForm
   } from './lib/cookieView'
@@ -3987,19 +3990,7 @@
   }
 
   function editCookie(cookie: types.CookieEntry) {
-    cookieForm = {
-      id: cookie.id,
-      name: cookie.name,
-      value: cookie.value,
-      domain: cookie.domain,
-      path: cookie.path || '/',
-      expires: cookie.session ? '' : cookieExpiresInput(cookie),
-      session: cookie.session,
-      secure: cookie.secure,
-      httpOnly: cookie.httpOnly,
-      sameSite: cookie.sameSite || '',
-      hostOnly: cookie.hostOnly
-    }
+    cookieForm = cookieFormFor(cookie)
   }
 
   function resetCookieForm() {
@@ -7389,19 +7380,7 @@
 
 
 
-  function cookieExpiresInput(cookie: types.CookieEntry) {
-    if (!cookie.expires) return ''
-    const value = new Date(cookie.expires)
-    return Number.isNaN(value.getTime()) || value.getFullYear() <= 1 ? '' : value.toISOString()
-  }
 
-  function cookieExpiry(cookie: types.CookieEntry) {
-    if (cookie.session) return 'session'
-    if (!cookie.expires) return 'session'
-    const value = new Date(cookie.expires)
-    if (Number.isNaN(value.getTime()) || value.getFullYear() <= 1) return 'session'
-    return value.toLocaleString()
-  }
 
   function notificationsForDisplay(notifications: types.Notification[]) {
     return [...notifications].sort((a, b) => notificationTime(b) - notificationTime(a))

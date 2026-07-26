@@ -11,7 +11,10 @@ import {
   cookieFlags,
   cookieMatches,
   cookieHeaderPreview,
-  cookieGroups
+  cookieGroups,
+  cookieExpiresInput,
+  cookieExpiry,
+  cookieFormFor
 } from '../src/lib/cookieView.ts'
 
 const cookie = (o: Record<string, unknown>) => ({ name: 'c', value: 'v', ...o }) as never
@@ -121,4 +124,74 @@ test('an empty or absent jar is not an error', () => {
   assert.deepEqual(cookieGroups([], ''), [])
   assert.deepEqual(cookieGroups(undefined, ''), [])
   assert.deepEqual(cookieGroups(undefined, 'query'), [])
+})
+
+// Go marshals a zero time.Time as 0001-01-01T00:00:00Z, so an unset expiry
+// arrives as a parseable date almost two millennia ago.
+test('a zero-value expiry is treated as absent, not as a date in antiquity', () => {
+  assert.equal(cookieExpiresInput(cookie({ expires: '0001-01-01T00:00:00Z' })), '')
+  assert.equal(cookieExpiry(cookie({ expires: '0001-01-01T00:00:00Z' })), 'session')
+})
+
+test('an unusable expiry never reaches the input', () => {
+  assert.equal(cookieExpiresInput(cookie({ expires: '' })), '')
+  assert.equal(cookieExpiresInput(cookie({ expires: 'not a date' })), '')
+  assert.equal(cookieExpiresInput(cookie({})), '')
+})
+
+test('a real expiry round-trips as ISO', () => {
+  const iso = cookieExpiresInput(cookie({ expires: '2030-06-01T12:00:00Z' }))
+  assert.equal(new Date(iso).getUTCFullYear(), 2030)
+})
+
+// "session" is the accurate answer for a cookie with no expiry, not a fallback
+// standing in for one.
+test('every route to no usable expiry displays as session', () => {
+  assert.equal(cookieExpiry(cookie({ session: true, expires: '2030-06-01T12:00:00Z' })), 'session')
+  assert.equal(cookieExpiry(cookie({ expires: '' })), 'session')
+  assert.equal(cookieExpiry(cookie({ expires: 'rubbish' })), 'session')
+  assert.notEqual(cookieExpiry(cookie({ expires: 'rubbish' })), 'Invalid Date')
+})
+
+test('a real expiry displays as a local timestamp', () => {
+  const shown = cookieExpiry(cookie({ expires: '2030-06-01T12:00:00Z' }))
+  assert.notEqual(shown, 'session')
+  assert.ok(shown.includes('2030'))
+})
+
+test('loading a cookie into the form fills every field', () => {
+  const form = cookieFormFor(
+    cookie({
+      id: 'c1',
+      name: 'sid',
+      value: 'abc',
+      domain: 'api.test',
+      path: '/admin',
+      expires: '2030-06-01T12:00:00Z',
+      session: false,
+      secure: true,
+      httpOnly: true,
+      sameSite: 'Lax',
+      hostOnly: false
+    })
+  )
+  assert.deepEqual(
+    [form.id, form.name, form.value, form.domain, form.path, form.secure, form.httpOnly, form.sameSite, form.hostOnly],
+    ['c1', 'sid', 'abc', 'api.test', '/admin', true, true, 'Lax', false]
+  )
+  assert.ok(form.expires.startsWith('2030'))
+})
+
+// A datetime input showing a date beside a ticked "session" box says two
+// contradictory things, and whichever the user changes, the other surprises.
+test('a session cookie loads with a blank expiry even when one is stored', () => {
+  const form = cookieFormFor(cookie({ session: true, expires: '2030-06-01T12:00:00Z' }))
+  assert.equal(form.expires, '')
+  assert.equal(form.session, true)
+})
+
+test('missing path and sameSite fall back the way the blank form does', () => {
+  const form = cookieFormFor(cookie({ path: '', sameSite: '' }))
+  assert.equal(form.path, '/', 'matching emptyCookieForm, since a cookie with no path is a cookie for nothing')
+  assert.equal(form.sameSite, '')
 })
