@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mutexdev/lite_api/internal/workspacestate"
+
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	"golang.org/x/sys/unix"
 )
@@ -33,9 +35,9 @@ type WorkspaceWindowTarget struct {
 }
 
 type workspaceWindowRuntime struct {
-	intent         WindowLaunchIntent
+	intent         workspacestate.WindowLaunchIntent
 	owner          WorkspaceWindowOwner
-	session        WindowSession
+	session        workspacestate.WindowSession
 	sharedBaseline SharedAppState
 	locks          WorkspaceWindowLockStore
 	stop           chan struct{}
@@ -52,7 +54,7 @@ func NewProductionApp(args []string) (*App, error) {
 	// directly; this makes isolated packaged launches reliable even when macOS
 	// app activation does not preserve a shell environment variable.
 	if hasWorkspaceWindowArgs(args) {
-		intent, err := ParseWindowLaunchIntent(args)
+		intent, err := workspacestate.ParseWindowLaunchIntent(args)
 		if err != nil {
 			return nil, err
 		}
@@ -87,7 +89,7 @@ func productionDataDirFromArgs(args []string, fallback string) (string, []string
 func newProductionApp(dataDir string, args []string) (*App, error) {
 	dataDir = filepath.Clean(dataDir)
 	if hasWorkspaceWindowArgs(args) {
-		intent, err := ParseWindowLaunchIntent(args)
+		intent, err := workspacestate.ParseWindowLaunchIntent(args)
 		if err != nil {
 			return nil, err
 		}
@@ -115,12 +117,12 @@ func newProductionApp(dataDir string, args []string) (*App, error) {
 		if err != nil || validateMutableWorkspaceArtifacts(dataDir, marker) != nil {
 			return nil, errors.New("workspace migration marker is invalid; refusing to overwrite scoped state from legacy data")
 		}
-		session, err := ReadWindowSession(defaultWorkspaceSessionPath(dataDir, marker.DefaultSessionID))
+		session, err := workspacestate.ReadWindowSession(defaultWorkspaceSessionPath(dataDir, marker.DefaultSessionID))
 		if err != nil {
 			return nil, err
 		}
 		app := newAppBase(dataDir)
-		if err := app.loadWorkspaceWindow(WindowLaunchIntent{SessionID: session.ID, WorkspaceID: session.WorkspaceID, DataDir: dataDir}); err != nil {
+		if err := app.loadWorkspaceWindow(workspacestate.WindowLaunchIntent{SessionID: session.ID, WorkspaceID: session.WorkspaceID, DataDir: dataDir}); err != nil {
 			return nil, err
 		}
 		return app, nil
@@ -139,7 +141,7 @@ func newProductionApp(dataDir string, args []string) (*App, error) {
 	if len(legacy.state.Workspaces) == 0 {
 		return nil, errors.New("workspace migration did not produce a workspace")
 	}
-	intent := WindowLaunchIntent{SessionID: defaultSessionID, WorkspaceID: legacy.state.ActiveWorkspaceID, DataDir: dataDir}
+	intent := workspacestate.WindowLaunchIntent{SessionID: defaultSessionID, WorkspaceID: legacy.state.ActiveWorkspaceID, DataDir: dataDir}
 	if intent.WorkspaceID == "" {
 		intent.WorkspaceID = legacy.state.Workspaces[0].ID
 	}
@@ -159,11 +161,11 @@ func hasWorkspaceWindowArgs(args []string) bool {
 	return false
 }
 
-func (a *App) loadWorkspaceWindow(intent WindowLaunchIntent) error {
-	if err := validatePrivateRegularArtifact(workspaceRegistryPath(intent.DataDir)); err != nil {
+func (a *App) loadWorkspaceWindow(intent workspacestate.WindowLaunchIntent) error {
+	if err := validatePrivateRegularArtifact(workspacestate.WorkspaceRegistryPath(intent.DataDir)); err != nil {
 		return fmt.Errorf("read workspace registry: %w", err)
 	}
-	registry, err := ReadWorkspaceRegistry(intent.DataDir)
+	registry, err := workspacestate.ReadWorkspaceRegistry(intent.DataDir)
 	if err != nil {
 		return fmt.Errorf("read workspace registry: %w", err)
 	}
@@ -175,7 +177,7 @@ func (a *App) loadWorkspaceWindow(intent WindowLaunchIntent) error {
 	if err := validatePrivateRegularArtifact(sessionPath); err != nil {
 		return fmt.Errorf("read window session: %w", err)
 	}
-	session, err := ReadWindowSession(sessionPath)
+	session, err := workspacestate.ReadWindowSession(sessionPath)
 	if err != nil {
 		return fmt.Errorf("read window session: %w", err)
 	}
@@ -199,7 +201,7 @@ func (a *App) loadWorkspaceWindow(intent WindowLaunchIntent) error {
 		_ = locks.Release(owner)
 		return err
 	}
-	if err := validatePrivateRegularArtifact(workspaceScopedStatePath(intent.DataDir, target.ID)); err != nil {
+	if err := validatePrivateRegularArtifact(workspacestate.WorkspaceScopedStatePath(intent.DataDir, target.ID)); err != nil {
 		_ = locks.Release(owner)
 		return err
 	}
@@ -247,11 +249,11 @@ func (a *App) loadWorkspaceWindow(intent WindowLaunchIntent) error {
 }
 
 func sameCanonicalWorkspacePath(a, b string) bool {
-	ca, ea := canonicalWorkspaceIdentity(a)
-	cb, eb := canonicalWorkspaceIdentity(b)
+	ca, ea := workspacestate.CanonicalWorkspaceIdentity(a)
+	cb, eb := workspacestate.CanonicalWorkspaceIdentity(b)
 	return ea == nil && eb == nil && ca == cb
 }
-func sanitizeSessionTabsForScopedWorkspace(session WindowSession, scoped WorkspaceScopedState) ([]OpenTab, []OpenTab, string) {
+func sanitizeSessionTabsForScopedWorkspace(session workspacestate.WindowSession, scoped workspacestate.WorkspaceScopedState) ([]OpenTab, []OpenTab, string) {
 	allowed := map[string]bool{}
 	for _, c := range scoped.Workspace.Collections {
 		allowed[c.ID] = true
@@ -267,7 +269,7 @@ func sanitizeSessionTabsForScopedWorkspace(session WindowSession, scoped Workspa
 	}
 	open, closed := filter(session.OpenTabs), filter(session.ClosedTabs)
 	active := session.ActiveTabID
-	if !tabIDPresent(open, active) {
+	if !workspacestate.TabIDPresent(open, active) {
 		active = ""
 		if len(open) > 0 {
 			active = open[0].ID
@@ -276,7 +278,7 @@ func sanitizeSessionTabsForScopedWorkspace(session WindowSession, scoped Workspa
 	return open, closed, active
 }
 
-func (a *App) hydrateWorkspaceReference(reference WorkspaceScopedReference) (Workspace, error) {
+func (a *App) hydrateWorkspaceReference(reference workspacestate.WorkspaceScopedReference) (Workspace, error) {
 	workspace := Workspace{ID: reference.ID, Name: reference.Name, Path: reference.Path, Docs: reference.Docs, ActiveGlobalEnvironmentID: reference.ActiveGlobalEnvironmentID, CreatedAt: reference.CreatedAt, UpdatedAt: reference.UpdatedAt}
 	if strings.TrimSpace(workspace.Path) != "" {
 		if environments, err := readWorkspaceGlobalEnvironments(workspace.Path); err == nil {
@@ -387,7 +389,7 @@ func (r *workspaceWindowRuntime) captureGeometry(ctx context.Context) {
 		return
 	}
 	r.mu.Lock()
-	r.session.Geometry = WindowGeometry{X: x, Y: y, Width: width, Height: height}
+	r.session.Geometry = workspacestate.WindowGeometry{X: x, Y: y, Width: width, Height: height}
 	session := r.session
 	r.mu.Unlock()
 	_ = withSharedWorkspacePersistenceGuard(r.intent.DataDir, func() error { return writeWorkspaceMigrationSession(r.intent.DataDir, session) })
@@ -427,7 +429,7 @@ func (r *workspaceWindowRuntime) release() {
 func (a *App) ListWorkspaceWindowTargets() ([]WorkspaceWindowTarget, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	registry, err := ReadWorkspaceRegistry(a.dataDir)
+	registry, err := workspacestate.ReadWorkspaceRegistry(a.dataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -446,7 +448,7 @@ func (a *App) createScopedWorkspaceTargetLocked(name string) (AppState, error) {
 	}
 	var createdPath string
 	err := withSharedWorkspacePersistenceGuard(a.dataDir, func() error {
-		registry, err := ReadWorkspaceRegistry(a.dataDir)
+		registry, err := workspacestate.ReadWorkspaceRegistry(a.dataDir)
 		if err != nil {
 			return err
 		}
@@ -466,16 +468,16 @@ func (a *App) createScopedWorkspaceTargetLocked(name string) (AppState, error) {
 			return err
 		}
 		createdPath = workspace.Path
-		scoped, err := ProjectWorkspaceState(AppState{Workspaces: []Workspace{workspace}, ActiveWorkspaceID: workspace.ID}, workspace.ID)
+		scoped, err := workspacestate.ProjectWorkspaceState(AppState{Workspaces: []Workspace{workspace}, ActiveWorkspaceID: workspace.ID}, workspace.ID)
 		if err != nil {
 			return err
 		}
 		if err := WriteWorkspaceScopedState(a.dataDir, scoped); err != nil {
 			return err
 		}
-		registry.Workspaces = append(registry.Workspaces, WorkspaceRegistryEntry{ID: workspace.ID, Name: workspace.Name, Path: workspace.Path, UpdatedAt: now})
+		registry.Workspaces = append(registry.Workspaces, workspacestate.WorkspaceRegistryEntry{ID: workspace.ID, Name: workspace.Name, Path: workspace.Path, UpdatedAt: now})
 		if err := writeWorkspaceMigrationRegistry(a.dataDir, registry); err != nil {
-			_ = os.Remove(workspaceScopedStatePath(a.dataDir, workspace.ID))
+			_ = os.Remove(workspacestate.WorkspaceScopedStatePath(a.dataDir, workspace.ID))
 			return err
 		}
 		return nil
@@ -492,7 +494,7 @@ func (a *App) createScopedWorkspaceTargetLocked(name string) (AppState, error) {
 func (a *App) OpenNewWindow() (WorkspaceWindowTarget, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	registry, err := ReadWorkspaceRegistry(a.dataDir)
+	registry, err := workspacestate.ReadWorkspaceRegistry(a.dataDir)
 	if err != nil {
 		return WorkspaceWindowTarget{}, err
 	}
@@ -516,7 +518,7 @@ func (a *App) OpenWorkspaceInNewWindow(workspaceID string) (WorkspaceWindowTarge
 }
 
 func (a *App) openWorkspaceInNewWindowLocked(workspaceID string) (WorkspaceWindowTarget, error) {
-	registry, err := ReadWorkspaceRegistry(a.dataDir)
+	registry, err := workspacestate.ReadWorkspaceRegistry(a.dataDir)
 	if err != nil {
 		return WorkspaceWindowTarget{}, err
 	}
@@ -552,7 +554,7 @@ func (a *App) openWorkspaceInNewWindowLocked(workspaceID string) (WorkspaceWindo
 		if err != nil {
 			return WorkspaceWindowTarget{}, err
 		}
-		session = WindowSession{Version: windowSessionVersion, ID: sessionID, WorkspaceID: workspace.ID, OpenTabs: scoped.OpenTabs, ClosedTabs: scoped.ClosedTabs, ActiveTabID: scoped.ActiveTabID, ResponsePaneOrientation: a.state.Preferences.Layout.ResponsePaneOrientation, UpdatedAt: time.Now().UTC()}
+		session = workspacestate.WindowSession{Version: workspacestate.WindowSessionVersion, ID: sessionID, WorkspaceID: workspace.ID, OpenTabs: scoped.OpenTabs, ClosedTabs: scoped.ClosedTabs, ActiveTabID: scoped.ActiveTabID, ResponsePaneOrientation: a.state.Preferences.Layout.ResponsePaneOrientation, UpdatedAt: time.Now().UTC()}
 		if err := writeWorkspaceMigrationSession(a.dataDir, session); err != nil {
 			return WorkspaceWindowTarget{}, err
 		}
@@ -579,16 +581,16 @@ func (a *App) openWorkspaceInNewWindowLocked(workspaceID string) (WorkspaceWindo
 	return WorkspaceWindowTarget{ID: workspace.ID, Name: workspace.Name, Path: workspace.Path}, nil
 }
 
-func findReusableWorkspaceSession(dataDir string, workspace WorkspaceRegistryEntry) (WindowSession, bool, error) {
+func findReusableWorkspaceSession(dataDir string, workspace workspacestate.WorkspaceRegistryEntry) (workspacestate.WindowSession, bool, error) {
 	dir := filepath.Join(dataDir, "window-sessions")
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
-		return WindowSession{}, false, nil
+		return workspacestate.WindowSession{}, false, nil
 	}
 	if err != nil {
-		return WindowSession{}, false, err
+		return workspacestate.WindowSession{}, false, err
 	}
-	var best WindowSession
+	var best workspacestate.WindowSession
 	found := false
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
@@ -598,7 +600,7 @@ func findReusableWorkspaceSession(dataDir string, workspace WorkspaceRegistryEnt
 		if err := validatePrivateRegularArtifact(path); err != nil {
 			continue
 		}
-		session, err := ReadWindowSession(path)
+		session, err := workspacestate.ReadWindowSession(path)
 		if err != nil || defaultWorkspaceSessionPath(dataDir, session.ID) != path {
 			continue
 		}
@@ -630,7 +632,7 @@ func (a *App) persistWorkspaceRuntimeLocked() error {
 		if err := a.storeOAuth2Credentials(); err != nil {
 			return err
 		}
-		registry, err := ReadWorkspaceRegistry(a.dataDir)
+		registry, err := workspacestate.ReadWorkspaceRegistry(a.dataDir)
 		if err != nil {
 			return err
 		}
@@ -638,17 +640,17 @@ func (a *App) persistWorkspaceRuntimeLocked() error {
 		updated := false
 		for i := range registry.Workspaces {
 			if registry.Workspaces[i].ID == workspace.ID {
-				registry.Workspaces[i] = WorkspaceRegistryEntry{ID: workspace.ID, Name: workspace.Name, Path: workspace.Path, UpdatedAt: workspace.UpdatedAt}
+				registry.Workspaces[i] = workspacestate.WorkspaceRegistryEntry{ID: workspace.ID, Name: workspace.Name, Path: workspace.Path, UpdatedAt: workspace.UpdatedAt}
 				updated = true
 			}
 		}
 		if !updated {
-			registry.Workspaces = append(registry.Workspaces, WorkspaceRegistryEntry{ID: workspace.ID, Name: workspace.Name, Path: workspace.Path, UpdatedAt: workspace.UpdatedAt})
+			registry.Workspaces = append(registry.Workspaces, workspacestate.WorkspaceRegistryEntry{ID: workspace.ID, Name: workspace.Name, Path: workspace.Path, UpdatedAt: workspace.UpdatedAt})
 		}
 		if err := writeWorkspaceMigrationRegistry(a.dataDir, registry); err != nil {
 			return err
 		}
-		scoped, err := ProjectWorkspaceState(a.state, workspace.ID)
+		scoped, err := workspacestate.ProjectWorkspaceState(a.state, workspace.ID)
 		if err != nil {
 			return err
 		}
@@ -699,7 +701,7 @@ func (a *App) persistWorkspaceRuntimeLocked() error {
 		} else {
 			return err
 		}
-		session := WindowSession{Version: windowSessionVersion, ID: a.workspaceRuntime.intent.SessionID, WorkspaceID: workspace.ID, OpenTabs: scoped.OpenTabs, ClosedTabs: scoped.ClosedTabs, ActiveTabID: scoped.ActiveTabID, ResponsePaneOrientation: sessionOrientation, UpdatedAt: time.Now().UTC()}
+		session := workspacestate.WindowSession{Version: workspacestate.WindowSessionVersion, ID: a.workspaceRuntime.intent.SessionID, WorkspaceID: workspace.ID, OpenTabs: scoped.OpenTabs, ClosedTabs: scoped.ClosedTabs, ActiveTabID: scoped.ActiveTabID, ResponsePaneOrientation: sessionOrientation, UpdatedAt: time.Now().UTC()}
 		a.workspaceRuntime.mu.Lock()
 		session.Geometry = a.workspaceRuntime.session.Geometry
 		a.workspaceRuntime.session = session
@@ -902,7 +904,7 @@ func mergeSharedSlice[T any](base, current, disk []T, key func(T) string) []T {
 	return result
 }
 
-func ensureScopedCollectionIDsUnique(dataDir string, registry WorkspaceRegistry, scoped WorkspaceScopedState) error {
+func ensureScopedCollectionIDsUnique(dataDir string, registry workspacestate.WorkspaceRegistry, scoped workspacestate.WorkspaceScopedState) error {
 	owned := map[string]bool{}
 	for _, collection := range scoped.Workspace.Collections {
 		owned[collection.ID] = true

@@ -1,4 +1,4 @@
-package main
+package workspacestate
 
 import (
 	"encoding/json"
@@ -10,9 +10,10 @@ import (
 	"time"
 
 	"github.com/mutexdev/lite_api/internal/atomicfile"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
-const windowSessionVersion = 1
+const WindowSessionVersion = 1
 
 type WindowGeometry struct {
 	X      int `json:"x,omitempty"`
@@ -21,16 +22,16 @@ type WindowGeometry struct {
 	Height int `json:"height,omitempty"`
 }
 type WindowSession struct {
-	Version                 int            `json:"version"`
-	ID                      string         `json:"id"`
-	WorkspaceID             string         `json:"workspaceId,omitempty"`
-	WorkspacePath           string         `json:"workspacePath,omitempty"`
-	OpenTabs                []OpenTab      `json:"openTabs"`
-	ClosedTabs              []OpenTab      `json:"closedTabs,omitempty"`
-	ActiveTabID             string         `json:"activeTabId,omitempty"`
-	ResponsePaneOrientation string         `json:"responsePaneOrientation,omitempty"`
-	Geometry                WindowGeometry `json:"geometry,omitempty"`
-	UpdatedAt               time.Time      `json:"updatedAt"`
+	Version                 int             `json:"version"`
+	ID                      string          `json:"id"`
+	WorkspaceID             string          `json:"workspaceId,omitempty"`
+	WorkspacePath           string          `json:"workspacePath,omitempty"`
+	OpenTabs                []types.OpenTab `json:"openTabs"`
+	ClosedTabs              []types.OpenTab `json:"closedTabs,omitempty"`
+	ActiveTabID             string          `json:"activeTabId,omitempty"`
+	ResponsePaneOrientation string          `json:"responsePaneOrientation,omitempty"`
+	Geometry                WindowGeometry  `json:"geometry,omitempty"`
+	UpdatedAt               time.Time       `json:"updatedAt"`
 }
 type WindowLaunchIntent struct {
 	SessionID     string
@@ -92,7 +93,7 @@ func ParseWindowLaunchIntent(args []string) (WindowLaunchIntent, error) {
 	return intent, nil
 }
 func (s WindowSession) Validate() error {
-	if s.Version != windowSessionVersion {
+	if s.Version != WindowSessionVersion {
 		return fmt.Errorf("unsupported window session version %d", s.Version)
 	}
 	if strings.TrimSpace(s.ID) == "" {
@@ -137,9 +138,9 @@ func ReadWindowSession(path string) (WindowSession, error) {
 	}
 	return session, nil
 }
-func MigrateDefaultWindowSession(sessionID, workspaceID, workspacePath string, state AppState) (WindowSession, error) {
+func MigrateDefaultWindowSession(sessionID, workspaceID, workspacePath string, state types.AppState) (WindowSession, error) {
 	workspaceID, workspacePath = strings.TrimSpace(workspaceID), strings.TrimSpace(workspacePath)
-	var selected *Workspace
+	var selected *types.Workspace
 	for i := range state.Workspaces {
 		ws := &state.Workspaces[i]
 		if (workspaceID != "" && ws.ID == workspaceID) || (workspacePath != "" && filepath.Clean(ws.Path) == filepath.Clean(workspacePath)) {
@@ -154,8 +155,8 @@ func MigrateDefaultWindowSession(sessionID, workspaceID, workspacePath string, s
 			allowed[collection.ID] = true
 		}
 	}
-	filter := func(tabs []OpenTab) []OpenTab {
-		out := []OpenTab{}
+	filter := func(tabs []types.OpenTab) []types.OpenTab {
+		out := []types.OpenTab{}
 		for _, tab := range tabs {
 			if allowed[tab.CollectionID] {
 				out = append(out, tab)
@@ -177,6 +178,6 @@ func MigrateDefaultWindowSession(sessionID, workspaceID, workspacePath string, s
 			active = open[0].ID
 		}
 	}
-	s := WindowSession{Version: windowSessionVersion, ID: strings.TrimSpace(sessionID), WorkspaceID: workspaceID, WorkspacePath: workspacePath, OpenTabs: open, ClosedTabs: filter(state.ClosedTabs), ActiveTabID: active, ResponsePaneOrientation: state.Preferences.Layout.ResponsePaneOrientation, UpdatedAt: time.Now().UTC()}
+	s := WindowSession{Version: WindowSessionVersion, ID: strings.TrimSpace(sessionID), WorkspaceID: workspaceID, WorkspacePath: workspacePath, OpenTabs: open, ClosedTabs: filter(state.ClosedTabs), ActiveTabID: active, ResponsePaneOrientation: state.Preferences.Layout.ResponsePaneOrientation, UpdatedAt: time.Now().UTC()}
 	return s, s.Validate()
 }

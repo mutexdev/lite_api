@@ -1,10 +1,12 @@
-package main
+package workspacestate
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 func TestWindowLaunchIntentStrictValidation(t *testing.T) {
@@ -45,7 +47,7 @@ func TestWindowSessionPrivateAtomicAndIsolation(t *testing.T) {
 	}
 }
 func TestMigrateDefaultWindowSessionDoesNotMutateState(t *testing.T) {
-	state := AppState{Workspaces: []Workspace{{ID: "w", Path: "/workspace", Collections: []Collection{{ID: "c"}}}, {ID: "other", Collections: []Collection{{ID: "other-c"}}}}, OpenTabs: []OpenTab{{ID: "tab", CollectionID: "c"}, {ID: "foreign", CollectionID: "other-c"}}, ClosedTabs: []OpenTab{{ID: "closed", CollectionID: "c"}, {ID: "foreign-closed", CollectionID: "other-c"}}, ActiveTabID: "foreign", Preferences: Preferences{Layout: LayoutPreferences{ResponsePaneOrientation: "vertical"}}}
+	state := types.AppState{Workspaces: []types.Workspace{{ID: "w", Path: "/workspace", Collections: []types.Collection{{ID: "c"}}}, {ID: "other", Collections: []types.Collection{{ID: "other-c"}}}}, OpenTabs: []types.OpenTab{{ID: "tab", CollectionID: "c"}, {ID: "foreign", CollectionID: "other-c"}}, ClosedTabs: []types.OpenTab{{ID: "closed", CollectionID: "c"}, {ID: "foreign-closed", CollectionID: "other-c"}}, ActiveTabID: "foreign", Preferences: types.Preferences{Layout: types.LayoutPreferences{ResponsePaneOrientation: "vertical"}}}
 	session, err := MigrateDefaultWindowSession("s", "w", "", state)
 	if err != nil || len(session.OpenTabs) != 1 || session.OpenTabs[0].ID != "tab" || len(session.ClosedTabs) != 1 || session.ClosedTabs[0].ID != "closed" || session.ActiveTabID != "tab" {
 		t.Fatal(session, err)

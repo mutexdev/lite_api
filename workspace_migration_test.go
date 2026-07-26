@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/mutexdev/lite_api/internal/atomicfile"
+	"github.com/mutexdev/lite_api/internal/workspacestate"
 )
 
 const migrationSecretSentinel = "migration-environment-secret-sentinel"
@@ -98,7 +99,7 @@ func TestExecuteWorkspaceMigrationWritesVerifiedPrivateIdempotentArtifacts(t *te
 
 func assertWorkspaceReferenceSchema(t *testing.T, dir, workspaceID string) {
 	t.Helper()
-	data, err := os.ReadFile(workspaceScopedStatePath(dir, workspaceID))
+	data, err := os.ReadFile(workspacestate.WorkspaceScopedStatePath(dir, workspaceID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +195,7 @@ func TestExecuteWorkspaceMigrationRejectsCorruptCommittedState(t *testing.T) {
 	if err := ExecuteWorkspaceMigration(dir, legacy, "repair-session"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(workspaceScopedStatePath(dir, "a"), []byte("{"), 0o600); err != nil {
+	if err := os.WriteFile(workspacestate.WorkspaceScopedStatePath(dir, "a"), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := ExecuteWorkspaceMigration(dir, legacy, "repair-session"); err == nil {
@@ -226,7 +227,7 @@ func TestExecuteWorkspaceMigrationConcurrentRunsLeaveVerifiedMarker(t *testing.T
 	}
 	checksumA, _ := workspaceMigrationLegacyChecksum(a, dir)
 	checksumB, _ := workspaceMigrationLegacyChecksum(b, dir)
-	registry, readErr := ReadWorkspaceRegistry(dir)
+	registry, readErr := workspacestate.ReadWorkspaceRegistry(dir)
 	if readErr != nil || len(registry.Workspaces) == 0 {
 		t.Fatalf("registry=%+v err=%v", registry, readErr)
 	}

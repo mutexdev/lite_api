@@ -1,4 +1,4 @@
-package main
+package workspacestate
 
 import (
 	"encoding/json"
@@ -25,7 +25,7 @@ type WorkspaceRegistry struct {
 	Workspaces []WorkspaceRegistryEntry `json:"workspaces"`
 }
 
-func workspaceRegistryPath(dataDir string) string {
+func WorkspaceRegistryPath(dataDir string) string {
 	return filepath.Join(dataDir, "workspace-registry.json")
 }
 func (r WorkspaceRegistry) Validate() error {
@@ -35,10 +35,10 @@ func (r WorkspaceRegistry) Validate() error {
 	seenID := map[string]bool{}
 	seenPath := map[string]bool{}
 	for _, e := range r.Workspaces {
-		if err := validateWorkspaceRegistryID(e.ID); err != nil || strings.TrimSpace(e.Path) == "" {
+		if err := ValidateWorkspaceRegistryID(e.ID); err != nil || strings.TrimSpace(e.Path) == "" {
 			return errors.New("workspace registry entry is invalid")
 		}
-		p, err := canonicalWorkspaceIdentity(e.Path)
+		p, err := CanonicalWorkspaceIdentity(e.Path)
 		if err != nil {
 			return err
 		}
@@ -51,7 +51,7 @@ func (r WorkspaceRegistry) Validate() error {
 	return nil
 }
 
-func validateWorkspaceRegistryID(id string) error {
+func ValidateWorkspaceRegistryID(id string) error {
 	if id != strings.TrimSpace(id) || id == "" || len(id) > 256 || id == "." || id == ".." || strings.ContainsAny(id, "/\\\x00") {
 		return errors.New("workspace registry id is invalid")
 	}
@@ -65,10 +65,10 @@ func WriteWorkspaceRegistry(dataDir string, r WorkspaceRegistry) error {
 	if err != nil {
 		return err
 	}
-	return atomicfile.WritePrivate(workspaceRegistryPath(dataDir), data)
+	return atomicfile.WritePrivate(WorkspaceRegistryPath(dataDir), data)
 }
 func ReadWorkspaceRegistry(dataDir string) (WorkspaceRegistry, error) {
-	data, err := os.ReadFile(workspaceRegistryPath(dataDir))
+	data, err := os.ReadFile(WorkspaceRegistryPath(dataDir))
 	if err != nil {
 		return WorkspaceRegistry{}, err
 	}
@@ -84,11 +84,11 @@ func (r WorkspaceRegistry) Resolve(id, path string) (WorkspaceRegistryEntry, err
 		return WorkspaceRegistryEntry{}, errors.New("workspace registry identity is ambiguous")
 	}
 	if id != "" {
-		if err := validateWorkspaceRegistryID(id); err != nil {
+		if err := ValidateWorkspaceRegistryID(id); err != nil {
 			return WorkspaceRegistryEntry{}, err
 		}
 	} else if path != "" {
-		if _, err := canonicalWorkspaceIdentity(path); err != nil {
+		if _, err := CanonicalWorkspaceIdentity(path); err != nil {
 			return WorkspaceRegistryEntry{}, err
 		}
 	}
@@ -96,7 +96,7 @@ func (r WorkspaceRegistry) Resolve(id, path string) (WorkspaceRegistryEntry, err
 		if id != "" && e.ID == id {
 			return e, nil
 		}
-		if path != "" && sameCanonicalWorkspacePath(e.Path, path) {
+		if path != "" && SameCanonicalWorkspacePath(e.Path, path) {
 			return e, nil
 		}
 	}

@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/workspacestate"
 )
 
 func TestWorkspaceWindowLockOwnershipStaleAndReplacementSafety(t *testing.T) {
@@ -115,7 +117,7 @@ func TestWorkspaceWindowLockAndRegistryCanonicalizeSymlinkAliases(t *testing.T) 
 	if err := locks.Release(owner); err != nil {
 		t.Fatal(err)
 	}
-	registry := WorkspaceRegistry{Version: 1, Workspaces: []WorkspaceRegistryEntry{{ID: "real", Path: realWorkspace}, {ID: "alias", Path: aliasWorkspace}}}
+	registry := workspacestate.WorkspaceRegistry{Version: 1, Workspaces: []workspacestate.WorkspaceRegistryEntry{{ID: "real", Path: realWorkspace}, {ID: "alias", Path: aliasWorkspace}}}
 	if err := registry.Validate(); err == nil {
 		t.Fatal("registry accepted duplicate physical workspace paths")
 	}

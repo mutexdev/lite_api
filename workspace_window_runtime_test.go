@@ -11,6 +11,8 @@ import (
 	"time"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+
+	"github.com/mutexdev/lite_api/internal/workspacestate"
 )
 
 func TestWorkspaceWindowRuntimeLaunchesStrictChildAndHydratesOnlySelectedWorkspace(t *testing.T) {
@@ -39,7 +41,7 @@ func TestWorkspaceWindowRuntimeLaunchesStrictChildAndHydratesOnlySelectedWorkspa
 		t.Fatalf("child launch arguments are not strict: %v", args)
 	}
 	child := newAppBase(dir)
-	if err := child.loadWorkspaceWindow(WindowLaunchIntent{SessionID: args[1], WorkspaceID: target.ID, DataDir: dir}); err != nil {
+	if err := child.loadWorkspaceWindow(workspacestate.WindowLaunchIntent{SessionID: args[1], WorkspaceID: target.ID, DataDir: dir}); err != nil {
 		t.Fatal(err)
 	}
 	defer child.workspaceRuntime.release()
@@ -237,7 +239,7 @@ func TestScopedRuntimePersistenceKeepsOtherWorkspaceAndLegacyUntouched(t *testin
 	if err := ExecuteWorkspaceMigration(dir, legacy, "main-window"); err != nil {
 		t.Fatal(err)
 	}
-	beforeB, err := os.ReadFile(workspaceScopedStatePath(dir, "b"))
+	beforeB, err := os.ReadFile(workspacestate.WorkspaceScopedStatePath(dir, "b"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +251,7 @@ func TestScopedRuntimePersistenceKeepsOtherWorkspaceAndLegacyUntouched(t *testin
 	}
 	app := newAppBase(dir)
 	app.state = AppState{Workspaces: []Workspace{{ID: "a", Name: "A changed", Path: "/workspace/a"}}, ActiveWorkspaceID: "a"}
-	app.workspaceRuntime = &workspaceWindowRuntime{intent: WindowLaunchIntent{SessionID: "a-session", WorkspaceID: "a", DataDir: dir}, owner: owner, locks: locks, stop: make(chan struct{})}
+	app.workspaceRuntime = &workspaceWindowRuntime{intent: workspacestate.WindowLaunchIntent{SessionID: "a-session", WorkspaceID: "a", DataDir: dir}, owner: owner, locks: locks, stop: make(chan struct{})}
 	if err := app.persistWorkspaceRuntimeLocked(); err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +259,7 @@ func TestScopedRuntimePersistenceKeepsOtherWorkspaceAndLegacyUntouched(t *testin
 	// persistWorkspaceRuntimeLocked needs, so pending state must land first.
 	flushPersistForTest(t, app)
 	app.workspaceRuntime.release()
-	afterB, err := os.ReadFile(workspaceScopedStatePath(dir, "b"))
+	afterB, err := os.ReadFile(workspacestate.WorkspaceScopedStatePath(dir, "b"))
 	if err != nil || fileChecksum(beforeB) != fileChecksum(afterB) {
 		t.Fatalf("A persistence changed B: err=%v", err)
 	}
@@ -294,7 +296,7 @@ func TestReplacedWorkspaceOwnerCannotHeartbeatPersistOrReleaseReplacement(t *tes
 	}
 	app := newAppBase(dir)
 	app.state = AppState{Workspaces: []Workspace{{ID: "a", Name: "A", Path: "/workspace/a"}}, ActiveWorkspaceID: "a"}
-	app.workspaceRuntime = &workspaceWindowRuntime{intent: WindowLaunchIntent{SessionID: "first", WorkspaceID: "a", DataDir: dir}, owner: first, locks: locks, stop: make(chan struct{})}
+	app.workspaceRuntime = &workspaceWindowRuntime{intent: workspacestate.WindowLaunchIntent{SessionID: "first", WorkspaceID: "a", DataDir: dir}, owner: first, locks: locks, stop: make(chan struct{})}
 	if err := app.workspaceRuntime.heartbeat(); err == nil {
 		t.Fatal("replaced owner heartbeated")
 	}
@@ -336,14 +338,14 @@ func TestWorkspaceSessionReuseRestoresWorkspaceStateAndMainSession(t *testing.T)
 	if _, err := a.OpenWorkspaceInNewWindow("b"); err != nil {
 		t.Fatal(err)
 	}
-	bSession, err := ReadWindowSession(defaultWorkspaceSessionPath(dir, firstArgs[1]))
+	bSession, err := workspacestate.ReadWindowSession(defaultWorkspaceSessionPath(dir, firstArgs[1]))
 	if err != nil {
 		t.Fatal(err)
 	}
 	bSession.OpenTabs = []OpenTab{{ID: "b-tab", CollectionID: "cb"}}
 	bSession.ActiveTabID = "b-tab"
 	bSession.ResponsePaneOrientation = "vertical"
-	bSession.Geometry = WindowGeometry{X: 44, Y: 55, Width: 900, Height: 700}
+	bSession.Geometry = workspacestate.WindowGeometry{X: 44, Y: 55, Width: 900, Height: 700}
 	bSession.UpdatedAt = time.Now().UTC().Add(time.Minute)
 	if err := writeWorkspaceMigrationSession(dir, bSession); err != nil {
 		t.Fatal(err)
@@ -355,7 +357,7 @@ func TestWorkspaceSessionReuseRestoresWorkspaceStateAndMainSession(t *testing.T)
 		t.Fatalf("workspace session was not reused: first=%v second=%v", firstArgs, secondArgs)
 	}
 	b := newAppBase(dir)
-	if err := b.loadWorkspaceWindow(WindowLaunchIntent{SessionID: bSession.ID, WorkspaceID: "b", DataDir: dir}); err != nil {
+	if err := b.loadWorkspaceWindow(workspacestate.WindowLaunchIntent{SessionID: bSession.ID, WorkspaceID: "b", DataDir: dir}); err != nil {
 		t.Fatal(err)
 	}
 	if b.state.ActiveTabID != "b-tab" || b.state.Preferences.Layout.ResponsePaneOrientation != "vertical" || b.workspaceRuntime.session.Geometry != bSession.Geometry {
@@ -387,7 +389,7 @@ func TestWorkspaceSessionIdentityFilteringAndOrientationRestore(t *testing.T) {
 	if err := ExecuteWorkspaceMigration(dir, legacy, "main-window"); err != nil {
 		t.Fatal(err)
 	}
-	session, err := ReadWindowSession(defaultWorkspaceSessionPath(dir, "main-window"))
+	session, err := workspacestate.ReadWindowSession(defaultWorkspaceSessionPath(dir, "main-window"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,14 +423,14 @@ func TestWorkspaceSessionIdentityFilteringAndOrientationRestore(t *testing.T) {
 
 func TestReusableWorkspaceSessionDoesNotPathMatchDifferentID(t *testing.T) {
 	dir := t.TempDir()
-	workspace := WorkspaceRegistryEntry{ID: "target", Path: filepath.Join(dir, "workspace")}
-	session := WindowSession{Version: 1, ID: "wrong-id", WorkspaceID: "different", WorkspacePath: "", UpdatedAt: time.Now().UTC()}
+	workspace := workspacestate.WorkspaceRegistryEntry{ID: "target", Path: filepath.Join(dir, "workspace")}
+	session := workspacestate.WindowSession{Version: 1, ID: "wrong-id", WorkspaceID: "different", WorkspacePath: "", UpdatedAt: time.Now().UTC()}
 	if err := writeWorkspaceMigrationSession(dir, session); err != nil {
 		t.Fatal(err)
 	}
 	// A valid session cannot carry both identities. Write a path-selected
 	// session separately to prove that path reuse remains supported.
-	pathSession := WindowSession{Version: 1, ID: "path-id", WorkspacePath: workspace.Path, UpdatedAt: time.Now().UTC().Add(-time.Minute)}
+	pathSession := workspacestate.WindowSession{Version: 1, ID: "path-id", WorkspacePath: workspace.Path, UpdatedAt: time.Now().UTC().Add(-time.Minute)}
 	if err := writeWorkspaceMigrationSession(dir, pathSession); err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +445,7 @@ func TestWorkspaceGeometryRestoreClampsToVisibleScreen(t *testing.T) {
 	defer func() {
 		workspaceScreenGetAll, workspaceWindowSetSize, workspaceWindowSetPosition = originalScreens, originalSize, originalPosition
 	}()
-	var gotSize, gotPosition WindowGeometry
+	var gotSize, gotPosition workspacestate.WindowGeometry
 	workspaceScreenGetAll = func(context.Context) ([]wailsruntime.Screen, error) {
 		// Size's type lives in an internal Wails package and cannot be named
 		// here, so populate it field-by-field.
@@ -453,22 +455,22 @@ func TestWorkspaceGeometryRestoreClampsToVisibleScreen(t *testing.T) {
 	}
 	workspaceWindowSetSize = func(_ context.Context, width, height int) { gotSize.Width, gotSize.Height = width, height }
 	workspaceWindowSetPosition = func(_ context.Context, x, y int) { gotPosition.X, gotPosition.Y = x, y }
-	runtime := &workspaceWindowRuntime{session: WindowSession{Geometry: WindowGeometry{X: -999, Y: 4000, Width: 1600, Height: 900}}}
+	runtime := &workspaceWindowRuntime{session: workspacestate.WindowSession{Geometry: workspacestate.WindowGeometry{X: -999, Y: 4000, Width: 1600, Height: 900}}}
 	runtime.restoreGeometry(context.Background())
 	if gotSize.Width != 1280 || gotSize.Height != 720 || gotPosition.X != 0 || gotPosition.Y != 0 {
 		t.Fatalf("unsafe geometry was not clamped: size=%+v position=%+v", gotSize, gotPosition)
 	}
-	gotSize, gotPosition = WindowGeometry{}, WindowGeometry{}
+	gotSize, gotPosition = workspacestate.WindowGeometry{}, workspacestate.WindowGeometry{}
 	workspaceScreenGetAll = func(context.Context) ([]wailsruntime.Screen, error) { return nil, errors.New("no screens") }
 	runtime.restoreGeometry(context.Background())
-	if gotSize != (WindowGeometry{}) || gotPosition != (WindowGeometry{}) {
+	if gotSize != (workspacestate.WindowGeometry{}) || gotPosition != (workspacestate.WindowGeometry{}) {
 		t.Fatalf("geometry applied without valid screen: size=%+v position=%+v", gotSize, gotPosition)
 	}
 }
 
 func TestWorkspaceGeometryCaptureKeepsOnlyValidDimensions(t *testing.T) {
 	dir := t.TempDir()
-	session := WindowSession{Version: 1, ID: "capture", WorkspaceID: "a", Geometry: WindowGeometry{X: 1, Y: 2, Width: 800, Height: 600}}
+	session := workspacestate.WindowSession{Version: 1, ID: "capture", WorkspaceID: "a", Geometry: workspacestate.WindowGeometry{X: 1, Y: 2, Width: 800, Height: 600}}
 	if err := writeWorkspaceMigrationSession(dir, session); err != nil {
 		t.Fatal(err)
 	}
@@ -476,14 +478,14 @@ func TestWorkspaceGeometryCaptureKeepsOnlyValidDimensions(t *testing.T) {
 	defer func() { workspaceWindowGetPosition, workspaceWindowGetSize = originalPosition, originalSize }()
 	workspaceWindowGetPosition = func(context.Context) (int, int) { return -20, 30 }
 	workspaceWindowGetSize = func(context.Context) (int, int) { return 100, 100 }
-	runtime := &workspaceWindowRuntime{intent: WindowLaunchIntent{DataDir: dir}, session: session}
+	runtime := &workspaceWindowRuntime{intent: workspacestate.WindowLaunchIntent{DataDir: dir}, session: session}
 	runtime.captureGeometry(context.Background())
 	if runtime.session.Geometry != session.Geometry {
 		t.Fatalf("invalid dimensions replaced stored geometry: %+v", runtime.session.Geometry)
 	}
 	workspaceWindowGetSize = func(context.Context) (int, int) { return 900, 700 }
 	runtime.captureGeometry(context.Background())
-	if runtime.session.Geometry != (WindowGeometry{X: -20, Y: 30, Width: 900, Height: 700}) {
+	if runtime.session.Geometry != (workspacestate.WindowGeometry{X: -20, Y: 30, Width: 900, Height: 700}) {
 		t.Fatalf("valid dimensions were not captured: %+v", runtime.session.Geometry)
 	}
 }
@@ -497,17 +499,17 @@ func TestWindowOrientationRemainsSessionPrivateAcrossRuntimes(t *testing.T) {
 	if err := ExecuteWorkspaceMigration(dir, legacy, "a-session"); err != nil {
 		t.Fatal(err)
 	}
-	bSession := WindowSession{Version: 1, ID: "b-session", WorkspaceID: "b", ResponsePaneOrientation: "vertical", UpdatedAt: time.Now().UTC()}
+	bSession := workspacestate.WindowSession{Version: 1, ID: "b-session", WorkspaceID: "b", ResponsePaneOrientation: "vertical", UpdatedAt: time.Now().UTC()}
 	if err := writeWorkspaceMigrationSession(dir, bSession); err != nil {
 		t.Fatal(err)
 	}
 	a := newAppBase(dir)
-	if err := a.loadWorkspaceWindow(WindowLaunchIntent{SessionID: "a-session", WorkspaceID: "a", DataDir: dir}); err != nil {
+	if err := a.loadWorkspaceWindow(workspacestate.WindowLaunchIntent{SessionID: "a-session", WorkspaceID: "a", DataDir: dir}); err != nil {
 		t.Fatal(err)
 	}
 	defer a.workspaceRuntime.release()
 	b := newAppBase(dir)
-	if err := b.loadWorkspaceWindow(WindowLaunchIntent{SessionID: "b-session", WorkspaceID: "b", DataDir: dir}); err != nil {
+	if err := b.loadWorkspaceWindow(workspacestate.WindowLaunchIntent{SessionID: "b-session", WorkspaceID: "b", DataDir: dir}); err != nil {
 		t.Fatal(err)
 	}
 	defer b.workspaceRuntime.release()
@@ -524,11 +526,11 @@ func TestWindowOrientationRemainsSessionPrivateAcrossRuntimes(t *testing.T) {
 	if err != nil || shared.Preferences.Layout.ResponsePaneOrientation != "horizontal" {
 		t.Fatalf("session orientation leaked to shared state: %+v err=%v", shared.Preferences.Layout, err)
 	}
-	aStored, err := ReadWindowSession(defaultWorkspaceSessionPath(dir, "a-session"))
+	aStored, err := workspacestate.ReadWindowSession(defaultWorkspaceSessionPath(dir, "a-session"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	bStored, err := ReadWindowSession(defaultWorkspaceSessionPath(dir, "b-session"))
+	bStored, err := workspacestate.ReadWindowSession(defaultWorkspaceSessionPath(dir, "b-session"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -585,7 +587,7 @@ func TestScopedCreateWorkspaceDoesNotSwitchAndCanLaunchNewTarget(t *testing.T) {
 	}
 	originalWrite := workspacePersistenceWriteAtomic
 	workspacePersistenceWriteAtomic = func(path string, data []byte) error {
-		if path == workspaceRegistryPath(dir) {
+		if path == workspacestate.WorkspaceRegistryPath(dir) {
 			return errors.New("injected registry failure")
 		}
 		return originalWrite(path, data)
@@ -626,7 +628,7 @@ func TestReplacedOwnerCannotMutateRequestBeforeSideEffects(t *testing.T) {
 	}
 	app := newAppBase(dir)
 	app.state = state
-	app.workspaceRuntime = &workspaceWindowRuntime{intent: WindowLaunchIntent{SessionID: "first", WorkspaceID: "a", DataDir: dir}, owner: first, locks: locks, stop: make(chan struct{})}
+	app.workspaceRuntime = &workspaceWindowRuntime{intent: workspacestate.WindowLaunchIntent{SessionID: "first", WorkspaceID: "a", DataDir: dir}, owner: first, locks: locks, stop: make(chan struct{})}
 	before, _ := json.Marshal(app.state)
 	if _, err := app.RenameRequest("c", "r", "Changed", "changed"); err == nil {
 		t.Fatal("replaced owner mutated request")

@@ -1,10 +1,12 @@
-package main
+package workspacestate
 
 import (
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 const scopedStateSecretSentinel = "workspace-secret-sentinel"
@@ -43,13 +45,13 @@ func TestWorkspaceMigrationPlanProjectsIndependentScrubbedState(t *testing.T) {
 	// environments are deliberately not represented in the persisted DTO.
 	scoped.Workspace.Name = "mutated"
 	scoped.Workspace.Collections[0].Name = "mutated collection"
-	if state.Workspaces[0].Name != "A" || state.Workspaces[0].Collections[0].Name != "Source Collection" || state.Workspaces[0].GlobalEnvironments[0].Variables[1].Value != "region-us" || state.Workspaces[0].Collections[0].Environments[0].Variables[1].Value != "region-us" {
+	if state.Workspaces[0].Name != "A" || state.Workspaces[0].Collections[0].Name != "Source types.Collection" || state.Workspaces[0].GlobalEnvironments[0].Variables[1].Value != "region-us" || state.Workspaces[0].Collections[0].Environments[0].Variables[1].Value != "region-us" {
 		t.Fatalf("projection mutated source state: %+v", state.Workspaces[0])
 	}
 	if err := WriteWorkspaceRegistry(dir, registry); err != nil {
 		t.Fatal(err)
 	}
-	registryJSON, err := os.ReadFile(workspaceRegistryPath(dir))
+	registryJSON, err := os.ReadFile(WorkspaceRegistryPath(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +62,7 @@ func TestWorkspaceMigrationPlanProjectsIndependentScrubbedState(t *testing.T) {
 	if err != nil || got.Workspaces[1].ID != "b" {
 		t.Fatalf("registry=%+v err=%v", got, err)
 	}
-	info, err := os.Stat(workspaceRegistryPath(dir))
+	info, err := os.Stat(WorkspaceRegistryPath(dir))
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("registry permissions: info=%+v err=%v", info, err)
 	}
@@ -76,9 +78,9 @@ func TestMergeWorkspaceScopedStateReplacesOnlySelectedWorkspaceTabs(t *testing.T
 		t.Fatal(err)
 	}
 	scoped.Workspace.Name = "A restored"
-	scoped.Workspace.Collections[0].Name = "Restored Collection"
-	scoped.OpenTabs = []OpenTab{{ID: "a-restored", CollectionID: "ca"}}
-	scoped.ClosedTabs = []OpenTab{{ID: "a-closed-restored", CollectionID: "ca"}}
+	scoped.Workspace.Collections[0].Name = "Restored types.Collection"
+	scoped.OpenTabs = []types.OpenTab{{ID: "a-restored", CollectionID: "ca"}}
+	scoped.ClosedTabs = []types.OpenTab{{ID: "a-closed-restored", CollectionID: "ca"}}
 	scoped.ActiveTabID = "a-restored"
 
 	merged, err := MergeWorkspaceScopedState(state, scoped)
@@ -99,7 +101,7 @@ func TestMergeWorkspaceScopedStateReplacesOnlySelectedWorkspaceTabs(t *testing.T
 	// caller's input state or the scoped payload supplied by the caller.
 	merged.Workspaces[0].Collections[0].Name = "changed"
 	merged.OpenTabs[0].ID = "changed"
-	if state.Workspaces[0].Collections[0].Name != "Source Collection" || state.OpenTabs[1].ID != "b-open" || scoped.Workspace.Collections[0].Name != "Restored Collection" {
+	if state.Workspaces[0].Collections[0].Name != "Source types.Collection" || state.OpenTabs[1].ID != "b-open" || scoped.Workspace.Collections[0].Name != "Restored types.Collection" {
 		t.Fatalf("merge aliases its inputs: state=%+v scoped=%+v", state, scoped)
 	}
 	if got := merged.Workspaces[0]; got.ScratchCollectionID != "scratch" || got.ScratchTempDirectory != "/tmp/scratch" || got.GlobalEnvironments[0].Variables[0].Value != scopedStateSecretSentinel || got.Collections[0].Items[0].Auth.Token != scopedStateSecretSentinel || got.Collections[0].Auth.APIKey != scopedStateSecretSentinel || got.Collections[0].Environments[0].Variables[0].Value != scopedStateSecretSentinel || got.Collections[0].ClientCertificates[0].Passphrase != scopedStateSecretSentinel {
@@ -109,9 +111,9 @@ func TestMergeWorkspaceScopedStateReplacesOnlySelectedWorkspaceTabs(t *testing.T
 
 func TestWorkspaceScopedStatePathUsesExactIDHash(t *testing.T) {
 	dir := t.TempDir()
-	first := workspaceScopedStatePath(dir, "a/b")
-	second := workspaceScopedStatePath(dir, "a-b")
-	traversal := workspaceScopedStatePath(dir, "../outside")
+	first := WorkspaceScopedStatePath(dir, "a/b")
+	second := WorkspaceScopedStatePath(dir, "a-b")
+	traversal := WorkspaceScopedStatePath(dir, "../outside")
 	stateDir := filepath.Join(dir, "workspace-state")
 	if first == second || filepath.Dir(first) != stateDir || filepath.Dir(traversal) != stateDir || strings.Contains(filepath.Base(traversal), "outside") {
 		t.Fatalf("unsafe or colliding paths: first=%q second=%q traversal=%q", first, second, traversal)
@@ -120,7 +122,7 @@ func TestWorkspaceScopedStatePathUsesExactIDHash(t *testing.T) {
 
 func TestWorkspaceRegistryRejectsCorruptVersionsAndCollisions(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(workspaceRegistryPath(dir), []byte("{"), 0o600); err != nil {
+	if err := os.WriteFile(WorkspaceRegistryPath(dir), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ReadWorkspaceRegistry(dir); err == nil {
@@ -136,39 +138,39 @@ func TestWorkspaceRegistryRejectsCorruptVersionsAndCollisions(t *testing.T) {
 }
 
 func TestWorkspaceProjectionRejectsDuplicateCollectionIDsAcrossWorkspaces(t *testing.T) {
-	state := AppState{Workspaces: []Workspace{{ID: "a", Collections: []Collection{{ID: "duplicate"}}}, {ID: "b", Collections: []Collection{{ID: "duplicate"}}}}}
+	state := types.AppState{Workspaces: []types.Workspace{{ID: "a", Collections: []types.Collection{{ID: "duplicate"}}}, {ID: "b", Collections: []types.Collection{{ID: "duplicate"}}}}}
 	if _, err := ProjectWorkspaceState(state, "a"); err == nil {
 		t.Fatal("ambiguous cross-workspace collection IDs accepted")
 	}
 }
 
-func workspaceStateFixture() AppState {
-	secretAndPublic := func() []Environment {
-		return []Environment{{ID: "env", Name: "shared", Variables: []Variable{
+func workspaceStateFixture() types.AppState {
+	secretAndPublic := func() []types.Environment {
+		return []types.Environment{{ID: "env", Name: "shared", Variables: []types.Variable{
 			{ID: "secret", Name: "token", Value: scopedStateSecretSentinel, Secret: true, Enabled: true},
 			{ID: "public", Name: "region", Value: "region-us", Enabled: true},
 		}}}
 	}
-	return AppState{
-		Workspaces: []Workspace{
-			{ID: "a", Name: "A", Path: "/a", ScratchCollectionID: "scratch", ScratchTempDirectory: "/tmp/scratch", GlobalEnvironments: secretAndPublic(), Collections: []Collection{
-				{ID: "ca", Name: "Source Collection", Environments: secretAndPublic(), Items: []RequestItem{{ID: "request", Auth: AuthConfig{Token: scopedStateSecretSentinel}}}, Auth: AuthConfig{APIKey: scopedStateSecretSentinel}, ClientCertificates: []ClientCertificateConfig{{Passphrase: scopedStateSecretSentinel}}},
+	return types.AppState{
+		Workspaces: []types.Workspace{
+			{ID: "a", Name: "A", Path: "/a", ScratchCollectionID: "scratch", ScratchTempDirectory: "/tmp/scratch", GlobalEnvironments: secretAndPublic(), Collections: []types.Collection{
+				{ID: "ca", Name: "Source types.Collection", Environments: secretAndPublic(), Items: []types.RequestItem{{ID: "request", Auth: types.AuthConfig{Token: scopedStateSecretSentinel}}}, Auth: types.AuthConfig{APIKey: scopedStateSecretSentinel}, ClientCertificates: []types.ClientCertificateConfig{{Passphrase: scopedStateSecretSentinel}}},
 				{ID: "scratch", Scratch: true},
 			}},
-			{ID: "b", Name: "B", Path: "/b", Collections: []Collection{{ID: "cb"}}},
+			{ID: "b", Name: "B", Path: "/b", Collections: []types.Collection{{ID: "cb"}}},
 			{ID: "empty", Name: "Empty", Path: "/empty"},
 		},
-		OpenTabs: []OpenTab{
+		OpenTabs: []types.OpenTab{
 			{ID: "a-open", CollectionID: "ca"},
 			{ID: "b-open", CollectionID: "cb"},
 			{ID: "scratch-open", CollectionID: "scratch"},
 		},
-		ClosedTabs:  []OpenTab{{ID: "a-closed", CollectionID: "ca"}, {ID: "b-closed", CollectionID: "cb"}},
+		ClosedTabs:  []types.OpenTab{{ID: "a-closed", CollectionID: "ca"}, {ID: "b-closed", CollectionID: "cb"}},
 		ActiveTabID: "b-open",
 	}
 }
 
-func tabIDs(tabs []OpenTab) string {
+func tabIDs(tabs []types.OpenTab) string {
 	ids := make([]string, len(tabs))
 	for i := range tabs {
 		ids[i] = tabs[i].ID

@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/mutexdev/lite_api/internal/atomicfile"
+	"github.com/mutexdev/lite_api/internal/workspacestate"
 )
 
 const workspaceMigrationVersion = 1
@@ -43,33 +44,33 @@ func defaultWorkspaceSessionPath(dataDir, sessionID string) string {
 	return filepath.Join(dataDir, "window-sessions", hex.EncodeToString(digest[:])+".json")
 }
 
-func WriteWorkspaceScopedState(dataDir string, scoped WorkspaceScopedState) error {
-	data, err := EncodeWorkspaceScopedState(scoped)
+func WriteWorkspaceScopedState(dataDir string, scoped workspacestate.WorkspaceScopedState) error {
+	data, err := workspacestate.EncodeWorkspaceScopedState(scoped)
 	if err != nil {
 		return err
 	}
-	return workspacePersistenceWriteAtomic(workspaceScopedStatePath(dataDir, scoped.Workspace.ID), data)
+	return workspacePersistenceWriteAtomic(workspacestate.WorkspaceScopedStatePath(dataDir, scoped.Workspace.ID), data)
 }
 
-func ReadWorkspaceScopedState(dataDir, workspaceID string) (WorkspaceScopedState, error) {
-	if err := validateWorkspaceRegistryID(workspaceID); err != nil {
-		return WorkspaceScopedState{}, err
+func ReadWorkspaceScopedState(dataDir, workspaceID string) (workspacestate.WorkspaceScopedState, error) {
+	if err := workspacestate.ValidateWorkspaceRegistryID(workspaceID); err != nil {
+		return workspacestate.WorkspaceScopedState{}, err
 	}
-	data, err := os.ReadFile(workspaceScopedStatePath(dataDir, workspaceID))
+	data, err := os.ReadFile(workspacestate.WorkspaceScopedStatePath(dataDir, workspaceID))
 	if err != nil {
-		return WorkspaceScopedState{}, err
+		return workspacestate.WorkspaceScopedState{}, err
 	}
-	var scoped WorkspaceScopedState
+	var scoped workspacestate.WorkspaceScopedState
 	if err := json.Unmarshal(data, &scoped); err != nil {
-		return WorkspaceScopedState{}, fmt.Errorf("parse workspace scoped state: %w", err)
+		return workspacestate.WorkspaceScopedState{}, fmt.Errorf("parse workspace scoped state: %w", err)
 	}
-	if scoped.Version != workspaceScopedStateVersion || validateWorkspaceRegistryID(scoped.Workspace.ID) != nil || scoped.Workspace.ID != workspaceID {
-		return WorkspaceScopedState{}, errors.New("workspace scoped state is invalid")
+	if scoped.Version != workspacestate.WorkspaceScopedStateVersion || workspacestate.ValidateWorkspaceRegistryID(scoped.Workspace.ID) != nil || scoped.Workspace.ID != workspaceID {
+		return workspacestate.WorkspaceScopedState{}, errors.New("workspace scoped state is invalid")
 	}
-	if _, err := canonicalWorkspaceIdentity(scoped.Workspace.Path); err != nil {
-		return WorkspaceScopedState{}, errors.New("workspace scoped state path is invalid")
+	if _, err := workspacestate.CanonicalWorkspaceIdentity(scoped.Workspace.Path); err != nil {
+		return workspacestate.WorkspaceScopedState{}, errors.New("workspace scoped state path is invalid")
 	}
-	return cloneWorkspaceScopedState(scoped)
+	return workspacestate.CloneWorkspaceScopedState(scoped)
 }
 
 func ExecuteWorkspaceMigration(dataDir string, legacy AppState, defaultSessionID string) error {
@@ -95,7 +96,7 @@ func executeWorkspaceMigrationLocked(dataDir string, legacy AppState, defaultSes
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	registry, plan, err := BuildWorkspaceMigrationPlan(dataDir, legacy)
+	registry, plan, err := workspacestate.BuildWorkspaceMigrationPlan(dataDir, legacy)
 	if err != nil {
 		return err
 	}
@@ -178,7 +179,7 @@ func withWorkspaceMigrationGuard(dataDir string, fn func() error) error {
 	return fn()
 }
 
-func buildDefaultWorkspaceMigrationSession(sessionID string, legacy AppState, states []WorkspaceScopedState) (WindowSession, error) {
+func buildDefaultWorkspaceMigrationSession(sessionID string, legacy AppState, states []workspacestate.WorkspaceScopedState) (workspacestate.WindowSession, error) {
 	selected := states[0]
 	for _, scoped := range states {
 		if scoped.Workspace.ID == legacy.ActiveWorkspaceID {
@@ -186,8 +187,8 @@ func buildDefaultWorkspaceMigrationSession(sessionID string, legacy AppState, st
 			break
 		}
 	}
-	session := WindowSession{
-		Version:                 windowSessionVersion,
+	session := workspacestate.WindowSession{
+		Version:                 workspacestate.WindowSessionVersion,
 		ID:                      sessionID,
 		WorkspaceID:             selected.Workspace.ID,
 		OpenTabs:                append([]OpenTab(nil), selected.OpenTabs...),
@@ -199,7 +200,7 @@ func buildDefaultWorkspaceMigrationSession(sessionID string, legacy AppState, st
 	return session, session.Validate()
 }
 
-func writeWorkspaceMigrationRegistry(dataDir string, registry WorkspaceRegistry) error {
+func writeWorkspaceMigrationRegistry(dataDir string, registry workspacestate.WorkspaceRegistry) error {
 	if err := registry.Validate(); err != nil {
 		return err
 	}
@@ -207,10 +208,10 @@ func writeWorkspaceMigrationRegistry(dataDir string, registry WorkspaceRegistry)
 	if err != nil {
 		return err
 	}
-	return workspacePersistenceWriteAtomic(workspaceRegistryPath(dataDir), data)
+	return workspacePersistenceWriteAtomic(workspacestate.WorkspaceRegistryPath(dataDir), data)
 }
 
-func writeWorkspaceMigrationSession(dataDir string, session WindowSession) error {
+func writeWorkspaceMigrationSession(dataDir string, session workspacestate.WindowSession) error {
 	if err := session.Validate(); err != nil {
 		return err
 	}
@@ -266,14 +267,14 @@ func verifyWorkspaceMigrationOutputs(dataDir string, marker WorkspaceMigrationMa
 	if err := marker.Validate(); err != nil {
 		return err
 	}
-	registry, err := ReadWorkspaceRegistry(dataDir)
+	registry, err := workspacestate.ReadWorkspaceRegistry(dataDir)
 	if err != nil {
 		return err
 	}
 	if _, err := ReadSharedAppState(dataDir); err != nil {
 		return err
 	}
-	if session, err := ReadWindowSession(defaultWorkspaceSessionPath(dataDir, marker.DefaultSessionID)); err != nil || session.ID != marker.DefaultSessionID {
+	if session, err := workspacestate.ReadWindowSession(defaultWorkspaceSessionPath(dataDir, marker.DefaultSessionID)); err != nil || session.ID != marker.DefaultSessionID {
 		if err != nil {
 			return err
 		}
@@ -289,7 +290,7 @@ func verifyWorkspaceMigrationOutputs(dataDir string, marker WorkspaceMigrationMa
 	}
 	expectedArtifacts[filepath.ToSlash(sessionRelativePath)] = true
 	for _, workspace := range registry.Workspaces {
-		relativePath, err := filepath.Rel(dataDir, workspaceScopedStatePath(dataDir, workspace.ID))
+		relativePath, err := filepath.Rel(dataDir, workspacestate.WorkspaceScopedStatePath(dataDir, workspace.ID))
 		if err != nil {
 			return err
 		}
@@ -344,24 +345,24 @@ func validateMutableWorkspaceArtifacts(dataDir string, marker WorkspaceMigration
 	if err := marker.Validate(); err != nil {
 		return err
 	}
-	for _, path := range []string{workspaceMigrationMarkerPath(dataDir), workspaceRegistryPath(dataDir), sharedAppStatePath(dataDir), defaultWorkspaceSessionPath(dataDir, marker.DefaultSessionID)} {
+	for _, path := range []string{workspaceMigrationMarkerPath(dataDir), workspacestate.WorkspaceRegistryPath(dataDir), sharedAppStatePath(dataDir), defaultWorkspaceSessionPath(dataDir, marker.DefaultSessionID)} {
 		if err := validatePrivateRegularArtifact(path); err != nil {
 			return err
 		}
 	}
-	registry, err := ReadWorkspaceRegistry(dataDir)
+	registry, err := workspacestate.ReadWorkspaceRegistry(dataDir)
 	if err != nil {
 		return err
 	}
 	if _, err := ReadSharedAppState(dataDir); err != nil {
 		return err
 	}
-	if _, err := ReadWindowSession(defaultWorkspaceSessionPath(dataDir, marker.DefaultSessionID)); err != nil {
+	if _, err := workspacestate.ReadWindowSession(defaultWorkspaceSessionPath(dataDir, marker.DefaultSessionID)); err != nil {
 		return err
 	}
-	paths := []string{workspaceRegistryPath(dataDir), sharedAppStatePath(dataDir), defaultWorkspaceSessionPath(dataDir, marker.DefaultSessionID)}
+	paths := []string{workspacestate.WorkspaceRegistryPath(dataDir), sharedAppStatePath(dataDir), defaultWorkspaceSessionPath(dataDir, marker.DefaultSessionID)}
 	for _, workspace := range registry.Workspaces {
-		path := workspaceScopedStatePath(dataDir, workspace.ID)
+		path := workspacestate.WorkspaceScopedStatePath(dataDir, workspace.ID)
 		if err := validatePrivateRegularArtifact(path); err != nil {
 			return err
 		}
@@ -400,11 +401,11 @@ func validatePrivateRegularArtifact(path string) error {
 	return nil
 }
 
-func workspaceMigrationArtifactChecksums(dataDir string, registry WorkspaceRegistry, states []WorkspaceScopedState, session WindowSession) (map[string]string, error) {
+func workspaceMigrationArtifactChecksums(dataDir string, registry workspacestate.WorkspaceRegistry, states []workspacestate.WorkspaceScopedState, session workspacestate.WindowSession) (map[string]string, error) {
 	checksums := map[string]string{}
-	paths := []string{workspaceRegistryPath(dataDir), sharedAppStatePath(dataDir), defaultWorkspaceSessionPath(dataDir, session.ID)}
+	paths := []string{workspacestate.WorkspaceRegistryPath(dataDir), sharedAppStatePath(dataDir), defaultWorkspaceSessionPath(dataDir, session.ID)}
 	for _, scoped := range states {
-		paths = append(paths, workspaceScopedStatePath(dataDir, scoped.Workspace.ID))
+		paths = append(paths, workspacestate.WorkspaceScopedStatePath(dataDir, scoped.Workspace.ID))
 	}
 	for _, fullPath := range paths {
 		data, err := os.ReadFile(fullPath)
@@ -421,12 +422,12 @@ func workspaceMigrationArtifactChecksums(dataDir string, registry WorkspaceRegis
 }
 
 func workspaceIDForScopedStatePath(dataDir, fullPath string) (string, error) {
-	registry, err := ReadWorkspaceRegistry(dataDir)
+	registry, err := workspacestate.ReadWorkspaceRegistry(dataDir)
 	if err != nil {
 		return "", err
 	}
 	for _, workspace := range registry.Workspaces {
-		if workspaceScopedStatePath(dataDir, workspace.ID) == fullPath {
+		if workspacestate.WorkspaceScopedStatePath(dataDir, workspace.ID) == fullPath {
 			return workspace.ID, nil
 		}
 	}

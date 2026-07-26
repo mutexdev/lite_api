@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/mutexdev/lite_api/internal/atomicfile"
+	"github.com/mutexdev/lite_api/internal/workspacestate"
 )
 
 type WorkspaceWindowOwner struct {
@@ -43,7 +44,7 @@ func workspaceWindowProcessAlive(pid int) bool {
 	return err == nil || errors.Is(err, unix.EPERM)
 }
 func (s WorkspaceWindowLockStore) lockPath(workspace string) (string, error) {
-	workspace, err := canonicalWorkspaceIdentity(workspace)
+	workspace, err := workspacestate.CanonicalWorkspaceIdentity(workspace)
 	if err != nil {
 		return "", err
 	}
@@ -52,47 +53,6 @@ func (s WorkspaceWindowLockStore) lockPath(workspace string) (string, error) {
 	}
 	sum := sha256.Sum256([]byte(workspace))
 	return filepath.Join(filepath.Clean(s.DataDir), "workspace-window-locks", hex.EncodeToString(sum[:])+".json"), nil
-}
-func canonicalWorkspaceIdentity(value string) (string, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", errors.New("workspace identity is required")
-	}
-	if strings.Contains(value, "\x00") {
-		return "", errors.New("workspace identity is invalid")
-	}
-	for _, component := range strings.FieldsFunc(value, func(r rune) bool { return r == '/' || r == '\\' }) {
-		if component == ".." {
-			return "", errors.New("workspace identity traversal is invalid")
-		}
-	}
-	abs, err := filepath.Abs(filepath.Clean(value))
-	if err != nil {
-		return "", err
-	}
-	// Resolve the deepest existing ancestor as well as an existing final path.
-	// EvalSymlinks on the complete path returns ENOENT for a new workspace below
-	// a symlinked directory, which would otherwise give the alias a second lock.
-	candidate := abs
-	var suffix []string
-	for {
-		physical, evalErr := filepath.EvalSymlinks(candidate)
-		if evalErr == nil {
-			for i := len(suffix) - 1; i >= 0; i-- {
-				physical = filepath.Join(physical, suffix[i])
-			}
-			return filepath.Clean(physical), nil
-		}
-		if !errors.Is(evalErr, os.ErrNotExist) {
-			return "", evalErr
-		}
-		parent := filepath.Dir(candidate)
-		if parent == candidate {
-			return filepath.Clean(abs), nil
-		}
-		suffix = append(suffix, filepath.Base(candidate))
-		candidate = parent
-	}
 }
 func (s WorkspaceWindowLockStore) Acquire(workspace, sessionID string, pid int) (WorkspaceWindowOwner, error) {
 	return s.withGuard(workspace, func() (WorkspaceWindowOwner, error) { return s.acquireLocked(workspace, sessionID, pid) })
@@ -118,7 +78,7 @@ func (s WorkspaceWindowLockStore) Available(workspace string) error {
 	return err
 }
 func (s WorkspaceWindowLockStore) acquireLocked(workspace, sessionID string, pid int) (WorkspaceWindowOwner, error) {
-	workspace, err := canonicalWorkspaceIdentity(workspace)
+	workspace, err := workspacestate.CanonicalWorkspaceIdentity(workspace)
 	if err != nil {
 		return WorkspaceWindowOwner{}, err
 	}
@@ -257,7 +217,7 @@ func (o WorkspaceWindowOwner) validate() error {
 	if o.Version != 1 {
 		return errors.New("workspace owner version is invalid")
 	}
-	if _, err := canonicalWorkspaceIdentity(o.Workspace); err != nil {
+	if _, err := workspacestate.CanonicalWorkspaceIdentity(o.Workspace); err != nil {
 		return err
 	}
 	if strings.TrimSpace(o.SessionID) == "" || strings.ContainsAny(o.SessionID, "/\\\x00") {

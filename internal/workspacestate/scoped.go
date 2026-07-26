@@ -1,4 +1,4 @@
-package main
+package workspacestate
 
 import (
 	"crypto/sha256"
@@ -9,20 +9,22 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
-const workspaceScopedStateVersion = 1
+const WorkspaceScopedStateVersion = 1
 
 type WorkspaceScopedState struct {
 	Version     int                      `json:"version"`
 	Workspace   WorkspaceScopedReference `json:"workspace"`
-	OpenTabs    []OpenTab                `json:"openTabs"`
-	ClosedTabs  []OpenTab                `json:"closedTabs,omitempty"`
+	OpenTabs    []types.OpenTab          `json:"openTabs"`
+	ClosedTabs  []types.OpenTab          `json:"closedTabs,omitempty"`
 	ActiveTabID string                   `json:"activeTabId,omitempty"`
 	UpdatedAt   time.Time                `json:"updatedAt"`
 }
 
-// WorkspaceScopedReference is intentionally not Workspace. It describes how
+// WorkspaceScopedReference is intentionally not types.Workspace. It describes how
 // to locate authoritative workspace/collection files without duplicating their
 // request payloads, auth values, environments or client credentials.
 type WorkspaceScopedReference struct {
@@ -55,19 +57,19 @@ type WorkspaceMigrationPlan struct {
 	Complete        bool                   `json:"complete"`
 }
 
-// workspaceScopedStatePath derives a filesystem-safe, collision-resistant name
-// from the exact workspace ID. Workspace IDs are user-controlled state and must
+// WorkspaceScopedStatePath derives a filesystem-safe, collision-resistant name
+// from the exact workspace ID. types.Workspace IDs are user-controlled state and must
 // not be normalized through a lossy filename sanitizer.
-func workspaceScopedStatePath(dataDir, id string) string {
+func WorkspaceScopedStatePath(dataDir, id string) string {
 	digest := sha256.Sum256([]byte(id))
 	return filepath.Join(dataDir, "workspace-state", hex.EncodeToString(digest[:])+".json")
 }
 
-func ProjectWorkspaceState(state AppState, workspaceID string) (WorkspaceScopedState, error) {
+func ProjectWorkspaceState(state types.AppState, workspaceID string) (WorkspaceScopedState, error) {
 	if err := validateGlobalCollectionIDs(state); err != nil {
 		return WorkspaceScopedState{}, err
 	}
-	var workspace *Workspace
+	var workspace *types.Workspace
 	for i := range state.Workspaces {
 		if state.Workspaces[i].ID == workspaceID {
 			workspace = &state.Workspaces[i]
@@ -86,8 +88,8 @@ func ProjectWorkspaceState(state AppState, workspaceID string) (WorkspaceScopedS
 		}
 		allowedCollections[collection.ID] = true
 	}
-	filterTabs := func(tabs []OpenTab) []OpenTab {
-		filtered := make([]OpenTab, 0, len(tabs))
+	filterTabs := func(tabs []types.OpenTab) []types.OpenTab {
+		filtered := make([]types.OpenTab, 0, len(tabs))
 		for _, tab := range tabs {
 			if allowedCollections[tab.CollectionID] {
 				filtered = append(filtered, tab)
@@ -98,15 +100,15 @@ func ProjectWorkspaceState(state AppState, workspaceID string) (WorkspaceScopedS
 
 	openTabs := filterTabs(state.OpenTabs)
 	activeTabID := state.ActiveTabID
-	if !tabIDPresent(openTabs, activeTabID) {
+	if !TabIDPresent(openTabs, activeTabID) {
 		activeTabID = ""
 		if len(openTabs) > 0 {
 			activeTabID = openTabs[0].ID
 		}
 	}
 
-	return cloneWorkspaceScopedState(WorkspaceScopedState{
-		Version:     workspaceScopedStateVersion,
+	return CloneWorkspaceScopedState(WorkspaceScopedState{
+		Version:     WorkspaceScopedStateVersion,
 		Workspace:   projectedWorkspace,
 		OpenTabs:    openTabs,
 		ClosedTabs:  filterTabs(state.ClosedTabs),
@@ -115,13 +117,13 @@ func ProjectWorkspaceState(state AppState, workspaceID string) (WorkspaceScopedS
 	})
 }
 
-func BuildWorkspaceMigrationPlan(dataDir string, state AppState) (WorkspaceRegistry, WorkspaceMigrationPlan, error) {
+func BuildWorkspaceMigrationPlan(dataDir string, state types.AppState) (WorkspaceRegistry, WorkspaceMigrationPlan, error) {
 	if err := validateGlobalCollectionIDs(state); err != nil {
 		return WorkspaceRegistry{}, WorkspaceMigrationPlan{}, err
 	}
 	registry := WorkspaceRegistry{Version: workspaceRegistryVersion}
 	plan := WorkspaceMigrationPlan{
-		Version:         workspaceScopedStateVersion,
+		Version:         WorkspaceScopedStateVersion,
 		LegacyStatePath: filepath.Join(dataDir, "state.json"),
 		MarkerPath:      filepath.Join(dataDir, "workspace-migration-v1.json"),
 	}
@@ -140,21 +142,21 @@ func BuildWorkspaceMigrationPlan(dataDir string, state AppState) (WorkspaceRegis
 	return registry, plan, registry.Validate()
 }
 
-func MergeWorkspaceScopedState(state AppState, scoped WorkspaceScopedState) (AppState, error) {
+func MergeWorkspaceScopedState(state types.AppState, scoped WorkspaceScopedState) (types.AppState, error) {
 	if err := validateGlobalCollectionIDs(state); err != nil {
-		return AppState{}, err
+		return types.AppState{}, err
 	}
-	if scoped.Version != workspaceScopedStateVersion || strings.TrimSpace(scoped.Workspace.ID) == "" {
-		return AppState{}, errors.New("workspace state version is invalid")
+	if scoped.Version != WorkspaceScopedStateVersion || strings.TrimSpace(scoped.Workspace.ID) == "" {
+		return types.AppState{}, errors.New("workspace state version is invalid")
 	}
 
 	next, err := cloneAppStateForWorkspaceMerge(state)
 	if err != nil {
-		return AppState{}, err
+		return types.AppState{}, err
 	}
-	clonedScoped, err := cloneWorkspaceScopedState(scoped)
+	clonedScoped, err := CloneWorkspaceScopedState(scoped)
 	if err != nil {
-		return AppState{}, err
+		return types.AppState{}, err
 	}
 
 	workspaceIndex := -1
@@ -170,7 +172,7 @@ func MergeWorkspaceScopedState(state AppState, scoped WorkspaceScopedState) (App
 		break
 	}
 	if workspaceIndex < 0 {
-		return AppState{}, fmt.Errorf("workspace %s not found", clonedScoped.Workspace.ID)
+		return types.AppState{}, fmt.Errorf("workspace %s not found", clonedScoped.Workspace.ID)
 	}
 	for _, collection := range clonedScoped.Workspace.Collections {
 		workspaceCollectionIDs[collection.ID] = true
@@ -181,9 +183,9 @@ func MergeWorkspaceScopedState(state AppState, scoped WorkspaceScopedState) (App
 
 	// The restored scoped selection wins if valid; otherwise retain an active
 	// tab from another workspace, then use the first remaining tab.
-	if tabIDPresent(next.OpenTabs, clonedScoped.ActiveTabID) {
+	if TabIDPresent(next.OpenTabs, clonedScoped.ActiveTabID) {
 		next.ActiveTabID = clonedScoped.ActiveTabID
-	} else if tabIDPresent(next.OpenTabs, state.ActiveTabID) {
+	} else if TabIDPresent(next.OpenTabs, state.ActiveTabID) {
 		next.ActiveTabID = state.ActiveTabID
 	} else if len(next.OpenTabs) > 0 {
 		next.ActiveTabID = next.OpenTabs[0].ID
@@ -193,7 +195,7 @@ func MergeWorkspaceScopedState(state AppState, scoped WorkspaceScopedState) (App
 	return next, nil
 }
 
-func validateGlobalCollectionIDs(state AppState) error {
+func validateGlobalCollectionIDs(state types.AppState) error {
 	seen := map[string]string{}
 	for _, workspace := range state.Workspaces {
 		for _, collection := range workspace.Collections {
@@ -211,16 +213,16 @@ func validateGlobalCollectionIDs(state AppState) error {
 }
 
 func EncodeWorkspaceScopedState(scoped WorkspaceScopedState) ([]byte, error) {
-	if scoped.Version != workspaceScopedStateVersion || validateWorkspaceRegistryID(scoped.Workspace.ID) != nil {
+	if scoped.Version != WorkspaceScopedStateVersion || ValidateWorkspaceRegistryID(scoped.Workspace.ID) != nil {
 		return nil, errors.New("workspace state is invalid")
 	}
-	if _, err := canonicalWorkspaceIdentity(scoped.Workspace.Path); err != nil {
+	if _, err := CanonicalWorkspaceIdentity(scoped.Workspace.Path); err != nil {
 		return nil, errors.New("workspace state path is invalid")
 	}
 	return json.MarshalIndent(scoped, "", "  ")
 }
 
-func workspaceScopedWorkspaceReference(workspace Workspace) WorkspaceScopedReference {
+func workspaceScopedWorkspaceReference(workspace types.Workspace) WorkspaceScopedReference {
 	reference := WorkspaceScopedReference{
 		ID:                        workspace.ID,
 		Name:                      workspace.Name,
@@ -239,7 +241,7 @@ func workspaceScopedWorkspaceReference(workspace Workspace) WorkspaceScopedRefer
 	return reference
 }
 
-func workspaceScopedCollectionReference(collection Collection) CollectionScopedReference {
+func workspaceScopedCollectionReference(collection types.Collection) CollectionScopedReference {
 	return CollectionScopedReference{
 		ID:              collection.ID,
 		Name:            collection.Name,
@@ -252,7 +254,7 @@ func workspaceScopedCollectionReference(collection Collection) CollectionScopedR
 	}
 }
 
-func mergeWorkspaceReferenceIntoAuthoritativeWorkspace(workspace *Workspace, reference WorkspaceScopedReference) {
+func mergeWorkspaceReferenceIntoAuthoritativeWorkspace(workspace *types.Workspace, reference WorkspaceScopedReference) {
 	// References intentionally omit operational workspace fields. Preserve them
 	// here and only reconcile the metadata that the scoped representation owns.
 	workspace.Name = reference.Name
@@ -283,14 +285,14 @@ func mergeWorkspaceReferenceIntoAuthoritativeWorkspace(workspace *Workspace, ref
 		}
 		// New references have no authoritative payload in this process yet.
 		// Append only their metadata; a later file hydration step owns content.
-		workspace.Collections = append(workspace.Collections, Collection{
+		workspace.Collections = append(workspace.Collections, types.Collection{
 			ID: reference.ID, Name: reference.Name, Path: reference.Path, Format: reference.Format, Remote: reference.Remote,
 			NotFoundLocally: reference.NotFoundLocally, CreatedAt: reference.CreatedAt, UpdatedAt: reference.UpdatedAt,
 		})
 	}
 }
 
-func mergeCollectionReferenceIntoAuthoritativeCollection(collection *Collection, reference CollectionScopedReference) {
+func mergeCollectionReferenceIntoAuthoritativeCollection(collection *types.Collection, reference CollectionScopedReference) {
 	collection.Name = reference.Name
 	collection.Path = reference.Path
 	collection.Format = reference.Format
@@ -300,7 +302,7 @@ func mergeCollectionReferenceIntoAuthoritativeCollection(collection *Collection,
 	collection.UpdatedAt = reference.UpdatedAt
 }
 
-func cloneWorkspaceScopedState(scoped WorkspaceScopedState) (WorkspaceScopedState, error) {
+func CloneWorkspaceScopedState(scoped WorkspaceScopedState) (WorkspaceScopedState, error) {
 	data, err := json.Marshal(scoped)
 	if err != nil {
 		return WorkspaceScopedState{}, fmt.Errorf("clone workspace scoped state: %w", err)
@@ -312,20 +314,20 @@ func cloneWorkspaceScopedState(scoped WorkspaceScopedState) (WorkspaceScopedStat
 	return cloned, nil
 }
 
-func cloneAppStateForWorkspaceMerge(state AppState) (AppState, error) {
+func cloneAppStateForWorkspaceMerge(state types.AppState) (types.AppState, error) {
 	data, err := json.Marshal(state)
 	if err != nil {
-		return AppState{}, fmt.Errorf("clone app state for workspace merge: %w", err)
+		return types.AppState{}, fmt.Errorf("clone app state for workspace merge: %w", err)
 	}
-	var cloned AppState
+	var cloned types.AppState
 	if err := json.Unmarshal(data, &cloned); err != nil {
-		return AppState{}, fmt.Errorf("clone app state for workspace merge: %w", err)
+		return types.AppState{}, fmt.Errorf("clone app state for workspace merge: %w", err)
 	}
 	return cloned, nil
 }
 
-func mergeWorkspaceTabs(existing, scoped []OpenTab, workspaceCollectionIDs map[string]bool) []OpenTab {
-	merged := make([]OpenTab, 0, len(existing)+len(scoped))
+func mergeWorkspaceTabs(existing, scoped []types.OpenTab, workspaceCollectionIDs map[string]bool) []types.OpenTab {
+	merged := make([]types.OpenTab, 0, len(existing)+len(scoped))
 	for _, tab := range existing {
 		if !workspaceCollectionIDs[tab.CollectionID] {
 			merged = append(merged, tab)
@@ -334,7 +336,7 @@ func mergeWorkspaceTabs(existing, scoped []OpenTab, workspaceCollectionIDs map[s
 	return append(merged, scoped...)
 }
 
-func tabIDPresent(tabs []OpenTab, id string) bool {
+func TabIDPresent(tabs []types.OpenTab, id string) bool {
 	if id == "" {
 		return false
 	}
