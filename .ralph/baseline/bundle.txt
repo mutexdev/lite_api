@@ -399,3 +399,27 @@ frontend/dist/assets/index-*.css        113609
 # Runner was the right panel to start with: smallest, self-contained, no
 # {@render}. Remaining: preferences 24,353 B (~60 props), import 10,913 B, and
 # the devToolsPanel snippet 15,912 B which must move as a snippet.
+
+# View panel #2 — Import: ATTEMPTED AND REVERTED.
+#
+# The prop list drafted from the branch markup produced 39 svelte-check errors,
+# not the 2-3 the dialogs and the Runner panel produced. The misses were not
+# stragglers, they were structural: importPreview, importSources, and the local
+# type ImportSourceMode are all referenced from the branch but never appear on
+# an attribute line, and importSources is called as a FUNCTION with an argument
+# where my draft had it as a value.
+#
+# WHAT THIS TELLS US about the remaining panels. The dialogs averaged 5-15 props
+# and one correction; Runner needed 15 props and three. Import needs materially
+# more than that, and preferences at 24,353 B with ~60 candidate identifiers
+# will need more again. The "grep the markup, let svelte-check finish" loop
+# works when the draft is nearly right; at 39 errors it stops being a check and
+# becomes the actual design work, done backwards.
+#
+# RECOMMENDATION for import and preferences specifically: derive the prop list
+# from what the branch USES by reading it top to bottom, not by pattern-matching
+# attribute lines — and expect to also move some helper functions into the
+# component rather than pass them, since several (importSources, and the local
+# ImportSourceMode type) are panel-specific rather than shared.
+#
+# Bundle unchanged: 496,350, still 3,650 under the target.
