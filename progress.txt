@@ -7350,3 +7350,47 @@ US-026 - Store layer. DONE. Both named collapses complete.
       DIFFERENT FILE each time the same table is saved. Controls fail 1 and 1.
 
   Eleven controls, eleven failures.
+
+=== PHASE 6 — tab presentation and the sidebar folder key ===
+
+  New src/lib/workbench/tabPresentation.ts, 15 tests.
+  App.svelte 10,825 -> 10,807. Suite 673 -> 688.
+
+  A tab stores REFERENCES — a collection id, an item id, an example id — and
+  resolves them against live state on every render. Every fallback here exists
+  because one of those references can be missing or stale, and the wrong answer
+  is not an error: it is a tab labelled after a different request than the one
+  it opens.
+
+  Pinned:
+    - THE SIDEBAR FOLDER KEY IS SEPARATED BY NUL, the one byte that cannot
+      appear in a collection id or a folder path. A printable separator lets
+      collection "a" folder "b/c" and collection "a/b" folder "c" produce the
+      SAME KEY, and the two folders then collapse and expand together. Three
+      controls — slash, colon, dash — each fail 2.
+    - an example with no id is identified by its NAME. Examples written by
+      earlier versions have none, and dropping the fallback makes every one of
+      them unaddressable: they render, and nothing can be opened or renamed.
+      Control fails 2.
+    - the tab lookup matches identifier OR bare name, so a tab opened before the
+      example gained an id still resolves after an upgrade rewrites the file.
+      One comparison leaves those tabs on a BLANK PANE rather than an error.
+      Control fails 1.
+    - "Scratch request" vs "Request" is the one thing a user needs to know
+      before closing a tab. Control fails 1.
+    - only DELETE and OPTIONS are abbreviated; the test walks every other method
+      asserting it is NOT. Control fails 1.
+    - a scratch collection is recognised from EITHER source, because one loaded
+      before the flag existed has only the workspace's id and one from another
+      workspace has only its own flag. Controls fail 1 and 2. And an absent
+      scratch id must match nothing — otherwise every collection reads as
+      scratch, and scratch collections are excluded from git, export and the
+      collection list.
+
+  I WROTE THE BUG THIS MODULE DOCUMENTS AGAINST. My first draft of
+  sidebarFolderKey used a literal SPACE instead of NUL. Then the fix left a RAW
+  NUL BYTE in the test file — invisible in an editor, and a byte a later edit
+  would silently drop. Both corrected; the escape sequence is now in both files
+  and no raw NUL remains in either.
+
+  Eleven controls, eleven failures.

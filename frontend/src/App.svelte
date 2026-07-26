@@ -102,6 +102,15 @@
     visibleEnvironmentVariables
   } from './lib/environmentVariables'
   import { resolveNativeMenuCommand } from './lib/nativeMenu'
+  import {
+    collectionIsScratch as isScratchCollection,
+    findResponseExampleForTab,
+    methodLabel,
+    responseExampleIdentifier,
+    sidebarFolderKey,
+    tabLabel as tabLabelFor,
+    tabMethod as tabMethodFor
+  } from './lib/workbench/tabPresentation'
   import { movedRows, normalizeBulkKeyValueRows, reorderedRows } from './lib/rowEdits'
   import { resolveShortcut, shortcutTabNumber } from './lib/shortcuts'
   import { workspaceStore } from './lib/stores/workspaceStore.svelte'
@@ -2064,47 +2073,20 @@
     })
   }
 
-  function responseExampleIdentifier(example: types.ResponseExample) {
-    return example.id || example.name
-  }
-
   function responseExampleForTab(tab: types.OpenTab | undefined) {
-    if (!tab || tab.kind !== 'response-example') return undefined
-    const collection = activeWorkspace?.collections?.find((candidate) => candidate.id === tab.collectionId)
-    const item = collection?.items?.find((candidate) => candidate.id === tab.itemId)
-    const target = tab.exampleId || tab.exampleName || ''
-    return item?.examples?.find((example) => responseExampleIdentifier(example) === target || example.name === target)
+    return findResponseExampleForTab(tab, activeWorkspace?.collections)
   }
 
   function tabLabel(tab: types.OpenTab) {
-    const collection = activeWorkspace?.collections?.find((candidate) => candidate.id === tab.collectionId)
-    const item = collection?.items?.find((candidate) => candidate.id === tab.itemId)
-    if (tab.kind === 'response-example') {
-      return responseExampleForTab(tab)?.name || tab.exampleName || 'Example'
-    }
-    return item?.name ?? (tab.transient ? 'Scratch request' : 'Request')
-  }
-
-  function methodLabel(method: string) {
-    const upper = (method || '').toUpperCase()
-    if (upper === 'DELETE') return 'DEL'
-    if (upper === 'OPTIONS') return 'OPT'
-    return upper
+    return tabLabelFor(tab, activeWorkspace?.collections)
   }
 
   function tabMethod(tab: types.OpenTab) {
-    if (tab.kind === 'response-example') return ''
-    const collection = activeWorkspace?.collections?.find((candidate) => candidate.id === tab.collectionId)
-    const item = collection?.items?.find((candidate) => candidate.id === tab.itemId)
-    return item?.method ?? ''
+    return tabMethodFor(tab, activeWorkspace?.collections)
   }
 
   let collapsedSidebarCollections = $state<Record<string, boolean>>({})
   let collapsedSidebarFolders = $state<Record<string, boolean>>({})
-
-  function sidebarFolderKey(collectionId: string, folder: string) {
-    return `${collectionId}\u0000${folder}`
-  }
 
   function toggleSidebarCollection(collectionId: string) {
     collapsedSidebarCollections = { ...collapsedSidebarCollections, [collectionId]: !collapsedSidebarCollections[collectionId] }
@@ -2120,7 +2102,7 @@
   }
 
   function collectionIsScratch(collection: types.Collection | undefined) {
-    return Boolean(collection?.scratch || (collection && activeWorkspace?.scratchCollectionId === collection.id))
+    return isScratchCollection(collection, activeWorkspace?.scratchCollectionId)
   }
 
 
