@@ -4363,3 +4363,28 @@ US-026 - Store layer. DONE. Both named collapses complete.
   fails 1, removing the size cap fails 1, an off-by-one in the byte read fails 2.
 
   0%-covered: 30 -> 19. Coverage 79.2%.
+
+--- Multipart LOADING (the read side of what was tested on the merge side) ---
+
+  ParseYAMLMultipart was at 0%. It is the counterpart to
+  mergeFormPartListPreserving tested earlier: one loads parts from disk, the
+  other keeps them across a re-sync. Both were untested; now neither is.
+
+  The load has a branch worth pinning: `type: file` changes WHICH FIELD the
+  saved value lands in. A file part carries FilePath, a text part carries Value.
+  Read the wrong one and the request still shows a part with the right name — it
+  just sends the path as literal text, or sends nothing.
+
+  A file path may also be stored under filePath, path OR value depending on
+  which tool wrote the file. Missing one loads a part pointing at nothing.
+
+  Five tests. Controls: reading file parts as text fails 2, honouring only the
+  filePath key fails 1, dropping contentType fails 1, ignoring the enabled flag
+  fails 1.
+
+  A control was refused for not compiling (`if false` left partType unused), and
+  rewriting it to compare against a dead string landed properly. That guard has
+  now caught roughly a dozen invalid controls across this session — each one a
+  "0 failing" I would otherwise have believed.
+
+  0%-covered: 30 -> 18. Coverage 79.3%.
