@@ -60,7 +60,9 @@
   } from './lib/openApiSync'
   import {
     DEFAULT_CODE_FONT,
+    DEFAULT_CODE_FONT_FAMILY,
     DEFAULT_CODE_FONT_SIZE,
+    codeFontFamilyFor,
     ZOOM_DEFAULT_PERCENTAGE,
     ZOOM_MAX_PERCENTAGE,
     ZOOM_MIN_PERCENTAGE,
@@ -426,7 +428,9 @@
     applyResponseExampleHeader,
     applyResponseExampleRequestField,
     applyResponseExampleResponseField,
-    removeResponseExampleFileRow
+    prettifyJSON,
+    removeResponseExampleFileRow,
+    suggestedResponseExampleName as suggestedResponseExampleNameOf
   } from './lib/responseExampleEdits'
   import { BrowserOpenURL, EventsOn, OnFileDrop, OnFileDropOff, Quit } from '../wailsjs/runtime/runtime'
 
@@ -949,20 +953,13 @@
   const zoomStepPercentage = 10
   const defaultCodeFont = DEFAULT_CODE_FONT
   const defaultCodeFontSize = DEFAULT_CODE_FONT_SIZE
-  const defaultCodeFontFamily = '"SFMono-Regular", Consolas, "Liberation Mono", monospace'
+  const defaultCodeFontFamily = DEFAULT_CODE_FONT_FAMILY
   const zoomPercentages = Array.from(
     { length: (zoomMaxPercentage - zoomMinPercentage) / zoomStepPercentage + 1 },
     (_, index) => zoomMinPercentage + index * zoomStepPercentage
   )
 	  const promptTokenPattern = /\{\{\?([^{}\s](?:[^{}]*?[^{}\s])?)\}\}/g
 	  const invalidVariableWarning = 'Invalid variable name! Variables must only contain alpha-numeric characters, "-", "_", "."'
-
-  function codeFontFamilyFor(value: string) {
-    const font = normalizedCodeFont(value)
-    if (font === defaultCodeFont) return defaultCodeFontFamily
-    const escaped = font.replace(/["\\]/g, '\\$&')
-    return `"${escaped}", ${defaultCodeFontFamily}`
-  }
 
   const activeWorkspace = $derived(workspaceStore.activeWorkspace)
   const activeTab = $derived(workspaceStore.activeTab)
@@ -2037,11 +2034,7 @@
   }
 
   function suggestedResponseExampleName() {
-    const existing = new Set((activeRequest?.examples ?? []).map((example) => example.name).filter(Boolean))
-    if (!existing.has('example')) return 'example'
-    let index = 1
-    while (existing.has(`example (${index})`)) index += 1
-    return `example (${index})`
+    return suggestedResponseExampleNameOf((activeRequest?.examples ?? []).map((example) => example.name))
   }
 
   async function beginCreateResponseExample() {
@@ -2189,14 +2182,6 @@
       draft.description = value
       return draft
     })
-  }
-
-  function prettifyJSON(value: string) {
-    try {
-      return JSON.stringify(JSON.parse(value), null, 2)
-    } catch {
-      return value
-    }
   }
 
 

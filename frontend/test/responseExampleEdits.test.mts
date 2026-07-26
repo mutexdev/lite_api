@@ -11,7 +11,9 @@ import {
   applyResponseExampleFileRow,
   applyResponseExampleHeader,
   applyResponseExampleResponseField,
-  removeResponseExampleFileRow
+  removeResponseExampleFileRow,
+  prettifyJSON,
+  suggestedResponseExampleName,
 } from '../src/lib/responseExampleEdits.ts'
 
 const req = (o: Record<string, unknown> = {}) => o as never
@@ -194,4 +196,46 @@ test('removing does not mutate the original rows', () => {
   const original = { file: [{ filePath: '/a', selected: true }, { filePath: '/b' }] }
   removeResponseExampleFileRow(original as never, 0)
   assert.equal(original.file.length, 2)
+})
+
+// The button is offered on any body. A body that is XML, HTML or a truncated
+// response must come back exactly as it was rather than being replaced by an
+// error message.
+test('prettifying a non-JSON body returns it unchanged', () => {
+  assert.equal(prettifyJSON('<html></html>'), '<html></html>')
+  assert.equal(prettifyJSON('{"a":1'), '{"a":1')
+  assert.equal(prettifyJSON(''), '')
+})
+
+test('prettifying JSON indents it', () => {
+  assert.equal(prettifyJSON('{"a":1}'), '{\n  "a": 1\n}')
+})
+
+test('the first example on a request is offered a plain name', () => {
+  assert.equal(suggestedResponseExampleName([]), 'example')
+  assert.equal(suggestedResponseExampleName(['other']), 'example')
+})
+
+test('a taken name is suffixed', () => {
+  assert.equal(suggestedResponseExampleName(['example']), 'example (1)')
+  assert.equal(suggestedResponseExampleName(['example', 'example (1)']), 'example (2)')
+})
+
+// Counting the examples instead of scanning the taken suffixes would suggest a
+// name that is already in use as soon as the middle of a run is deleted, and
+// the create call fails on a duplicate.
+test('a gap in the run is filled rather than skipped past', () => {
+  assert.equal(suggestedResponseExampleName(['example', 'example (2)']), 'example (1)')
+  assert.equal(
+    suggestedResponseExampleName(['example', 'example (1)', 'example (2)', 'example (4)']),
+    'example (3)'
+  )
+})
+
+// Blank and absent names cannot collide, because every candidate generated
+// here is non-empty. This documents that they pass through harmlessly rather
+// than needing a filter — a guard that changes no answer is worse than none.
+test('blank and absent names pass through without affecting the suggestion', () => {
+  assert.equal(suggestedResponseExampleName(['', undefined, 'example']), 'example (1)')
+  assert.equal(suggestedResponseExampleName(['', undefined]), 'example')
 })

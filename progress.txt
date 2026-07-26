@@ -7394,3 +7394,42 @@ US-026 - Store layer. DONE. Both named collapses complete.
   and no raw NUL remains in either.
 
   Eleven controls, eleven failures.
+
+=== PHASE 6 — the code font family and the example name ===
+
+  codeFontFamilyFor onto preferences.ts (18 -> 22 tests); prettifyJSON and
+  suggestedResponseExampleName onto responseExampleEdits.ts (27 -> 33).
+  App.svelte 10,807 -> 10,792. Suite 688 -> 698.
+
+  THE FONT ESCAPING IS A CSS INJECTION GUARD, which is not obvious from the
+  code. The result goes straight into a custom property via
+  style.setProperty('--code-font-family', ...), and the name is FREE TEXT the
+  user types into a preferences field. A name containing a double quote closes
+  the quoted string early and everything after it parses as CSS: a font called
+  `a", x: y; --z: "b` is a declaration, not a font. Control fails 2.
+
+    - backslashes are escaped for the same reason and MUST BE HANDLED IN THE
+      SAME PASS, which the single character class guarantees. Escaping quotes
+      and then backslashes doubles the backslash just inserted and leaves the
+      quote bare — the exact thing being guarded against. Controls fail 1 and 2.
+    - the default name short-circuits instead of being quoted: the fallback is
+      SEVERAL families, and quoting it whole names one font that does not exist,
+      so every code surface renders in the browser default. Controls fail 1, 2.
+
+  Also pinned:
+    - prettify returns the INPUT on a parse failure, so the button is safe to
+      press on XML, HTML or a truncated body. Control fails 1.
+    - the first example is offered a plain "example", and the scan then SKIPS
+      TAKEN SUFFIXES rather than counting. Deleting the middle of a run would
+      otherwise suggest a name already in use, and create fails on a duplicate.
+      Controls fail 2 and 1.
+
+  A NO-OP GUARD REMOVED RATHER THAN TESTED. `filter(Boolean)` on the taken-names
+  set could not change any answer — every candidate generated is non-empty — and
+  the control confirmed it: fails 0. My own comment had already admitted it
+  "would not change the answer". A guard that changes no answer is worse than
+  none, because it reads as load-bearing. Deleted, and the test restated to
+  document that blank names pass through harmlessly rather than pretending to
+  pin a filter.
+
+  Nine controls, eight failures and one deletion.

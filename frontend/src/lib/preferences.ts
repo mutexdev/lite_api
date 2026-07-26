@@ -198,3 +198,30 @@ export function normalizedTabID<T extends string>(
 ): T {
   return tabs.some((tab) => tab.id === value) ? (value as T) : fallback
 }
+
+/** The stack every code surface falls back through. */
+export const DEFAULT_CODE_FONT_FAMILY = '"SFMono-Regular", Consolas, "Liberation Mono", monospace'
+
+/**
+ * Builds the `--code-font-family` custom property from a stored font name.
+ *
+ * THE ESCAPING IS THE POINT. The result is written straight into a CSS custom
+ * property with `style.setProperty`, and the name is free text the user types
+ * into a preferences field. A name containing a double quote would close the
+ * quoted string early and let the rest of it be parsed as CSS — a font called
+ * `a", x: y; --z: "b` is a declaration, not a font.
+ *
+ * Backslashes are escaped for the same reason and must be handled FIRST, which
+ * the single character class guarantees: escaping quotes and then backslashes
+ * would double the backslash that was just inserted.
+ *
+ * The default name short-circuits rather than being quoted, because the fallback
+ * stack is several families and quoting it whole would name one font that does
+ * not exist.
+ */
+export function codeFontFamilyFor(value: string): string {
+  const font = normalizedCodeFont(value)
+  if (font === DEFAULT_CODE_FONT) return DEFAULT_CODE_FONT_FAMILY
+  const escaped = font.replace(/["\\]/g, '\\$&')
+  return `"${escaped}", ${DEFAULT_CODE_FONT_FAMILY}`
+}

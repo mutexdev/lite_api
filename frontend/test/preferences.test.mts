@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   DEFAULT_AUTO_SAVE_INTERVAL_MS,
   DEFAULT_CODE_FONT,
+  DEFAULT_CODE_FONT_FAMILY,
   DEFAULT_CODE_FONT_SIZE,
   MAX_RUNNER_DELAY_MS,
   MAX_RUNNER_ITERATIONS,
@@ -10,6 +11,7 @@ import {
   ZOOM_MAX_PERCENTAGE,
   ZOOM_MIN_PERCENTAGE,
   normalizePresetRequestType,
+  codeFontFamilyFor,
   normalizedAutoSaveInterval,
   normalizedCodeFont,
   normalizedCodeFontSize,
@@ -167,4 +169,39 @@ test('a tab id that no longer exists falls back', () => {
   assert.equal(normalizedTabID('network', tabs, 'console'), 'network')
   assert.equal(normalizedTabID('performance', tabs, 'console'), 'console')
   assert.equal(normalizedTabID(undefined, tabs, 'console'), 'console')
+})
+
+// The result is written straight into a CSS custom property with
+// style.setProperty, and the name is free text from a preferences field. A name
+// containing a double quote closes the quoted string early and lets the rest be
+// parsed as CSS.
+test('a quote in a font name is escaped rather than closing the string', () => {
+  const injected = codeFontFamilyFor('a", x: y; --z: "b')
+  assert.equal(injected, `"a\\", x: y; --z: \\"b", ${DEFAULT_CODE_FONT_FAMILY}`)
+  // No quote inside the name segment is left unescaped — an unescaped one ends
+  // the string and everything after it is parsed as CSS.
+  const name = injected.slice(0, injected.length - DEFAULT_CODE_FONT_FAMILY.length - 2)
+  assert.equal(name.slice(1, -1).replace(/\\./g, '').includes('"'), false, name)
+})
+
+// Backslashes must be escaped first, which the single character class
+// guarantees: escaping quotes and then backslashes would double the backslash
+// just inserted, and the font name would be wrong.
+test('a backslash is escaped exactly once', () => {
+  assert.ok(codeFontFamilyFor('a\\b').startsWith('"a\\\\b"'))
+  assert.ok(codeFontFamilyFor('a\\"b').startsWith('"a\\\\\\"b"'))
+})
+
+// The fallback stack is several families. Quoting it whole would name one font
+// that does not exist, and every code surface would render in the browser
+// default.
+test('the default font short-circuits instead of being quoted', () => {
+  assert.equal(codeFontFamilyFor(DEFAULT_CODE_FONT), DEFAULT_CODE_FONT_FAMILY)
+  assert.equal(codeFontFamilyFor(''), DEFAULT_CODE_FONT_FAMILY)
+  assert.equal(codeFontFamilyFor('   '), DEFAULT_CODE_FONT_FAMILY)
+})
+
+test('a chosen font is quoted and keeps the fallback stack behind it', () => {
+  const family = codeFontFamilyFor('Fira Code')
+  assert.equal(family, `"Fira Code", ${DEFAULT_CODE_FONT_FAMILY}`)
 })

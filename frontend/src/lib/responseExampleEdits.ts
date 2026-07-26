@@ -170,3 +170,43 @@ export function removeResponseExampleFileRow(
   next.file = rows
   return next
 }
+
+/**
+ * Pretty-prints JSON, returning the input unchanged when it is not JSON.
+ *
+ * Used on a response body the user asked to format. Returning the input on a
+ * parse failure is what makes the button safe to press on anything: a body that
+ * is XML, HTML or a truncated response comes back exactly as it was rather than
+ * being replaced by an error.
+ */
+export function prettifyJSON(value: string): string {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2)
+  } catch {
+    return value
+  }
+}
+
+/**
+ * The name a new response example is offered.
+ *
+ * Suffixes only when it has to, so the first example on a request is plainly
+ * "example" rather than "example (1)". The scan then skips every taken suffix
+ * instead of counting the examples: deleting the middle of a run would
+ * otherwise suggest a name that is already in use, and the create call fails on
+ * a duplicate.
+ *
+ * Blank and absent names are simply carried into the set. They cannot collide,
+ * because every candidate this generates is non-empty — filtering them out
+ * first would read as a guard and change nothing, which is worse than not
+ * having one.
+ */
+export function suggestedResponseExampleName(
+  existingNames: readonly (string | undefined)[]
+): string {
+  const taken = new Set(existingNames)
+  if (!taken.has('example')) return 'example'
+  let index = 1
+  while (taken.has(`example (${index})`)) index += 1
+  return `example (${index})`
+}
