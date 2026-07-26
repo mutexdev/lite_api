@@ -1,6 +1,7 @@
 package main
 
 import (
+	"LiteAPI/internal/auth/digest"
 	"LiteAPI/internal/auth/oauth1"
 	"LiteAPI/internal/auth/wsse"
 	"LiteAPI/internal/codegen"
@@ -19515,13 +19516,13 @@ func TestDigestAuthChallengeRetrySucceeds(t *testing.T) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		values := parseDigestChallenge(authHeader)
+		values := digest.ParseChallenge(authHeader)
 		if values["username"] != username || values["realm"] != realm || values["nonce"] != nonce || values["uri"] != r.URL.RequestURI() || values["opaque"] != opaque {
 			t.Fatalf("unexpected digest values: %#v", values)
 		}
-		ha1 := md5Hex(username + ":" + realm + ":" + password)
-		ha2 := md5Hex(r.Method + ":" + r.URL.RequestURI())
-		expected := md5Hex(ha1 + ":" + nonce + ":" + values["nc"] + ":" + values["cnonce"] + ":" + values["qop"] + ":" + ha2)
+		ha1 := digest.MD5Hex(username + ":" + realm + ":" + password)
+		ha2 := digest.MD5Hex(r.Method + ":" + r.URL.RequestURI())
+		expected := digest.MD5Hex(ha1 + ":" + nonce + ":" + values["nc"] + ":" + values["cnonce"] + ":" + values["qop"] + ":" + ha2)
 		if values["response"] != expected {
 			t.Fatalf("bad digest response: got %s expected %s values=%#v", values["response"], expected, values)
 		}
@@ -22288,7 +22289,7 @@ func ntlmMessageType(t *testing.T, encoded string) uint32 {
 func parseOAuth1Header(header string) map[string]string {
 	out := map[string]string{}
 	header = strings.TrimSpace(strings.TrimPrefix(header, "OAuth"))
-	for _, part := range splitDigestParts(header) {
+	for _, part := range digest.SplitParts(header) {
 		key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
 		if !ok {
 			continue

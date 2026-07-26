@@ -2,6 +2,7 @@ package main
 
 import (
 	"LiteAPI/internal/auth/awsv4"
+	"LiteAPI/internal/auth/digest"
 	"LiteAPI/internal/auth/oauth1"
 	"LiteAPI/internal/auth/wsse"
 	"LiteAPI/internal/codegen"
@@ -8722,10 +8723,10 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 		result.Timings = timingTrace.finalize(time.Now())
 		return result
 	}
-	if shouldRetryDigest(res, item.Auth) {
+	if digest.ShouldRetry(res, item.Auth) {
 		challenge := res.Header.Get("WWW-Authenticate")
 		_ = res.Body.Close()
-		retryReq, retryErr := cloneRequestForDigest(req, item.Auth, vars, challenge)
+		retryReq, retryErr := digest.CloneRequest(req, item.Auth, vars, challenge)
 		if retryErr != nil {
 			result.Error = retryErr.Error()
 			result.DurationMs = time.Since(start).Milliseconds()
@@ -12792,165 +12793,7 @@ func applyOAuth2Token(req *http.Request, auth OAuth2Auth, token string, vars map
 // hmacSHA256Bytes stays here: OAuth1 signing uses it too, so it is generic
 // crypto rather than part of the AWS surface.
 
-func shouldRetryDigest(res *http.Response, auth AuthConfig) bool {
-	if res == nil || res.StatusCode != http.StatusUnauthorized || strings.ToLower(auth.Mode) != "digest" {
-		return false
-	}
-	return strings.Contains(strings.ToLower(res.Header.Get("WWW-Authenticate")), "digest")
-}
-
-func cloneRequestForDigest(req *http.Request, auth AuthConfig, vars map[string]string, challenge string) (*http.Request, error) {
-	if req == nil {
-		return nil, errors.New("missing request for digest retry")
-	}
-	var body io.Reader
-	if req.GetBody != nil {
-		rc, err := req.GetBody()
-		if err != nil {
-			return nil, err
-		}
-		defer func() { _ = rc.Close() }()
-		data, err := io.ReadAll(rc)
-		if err != nil {
-			return nil, err
-		}
-		body = bytes.NewReader(data)
-	} else if req.ContentLength == 0 || req.Body == nil {
-		body = nil
-	} else {
-		return nil, errors.New("digest auth retry requires a rewindable request body")
-	}
-	retry, err := http.NewRequestWithContext(req.Context(), req.Method, req.URL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-	retry.Header = req.Header.Clone()
-	retry.ContentLength = req.ContentLength
-	header, err := digestAuthorizationHeader(req.Method, req.URL.RequestURI(), auth, vars, challenge)
-	if err != nil {
-		return nil, err
-	}
-	retry.Header.Set("Authorization", header)
-	return retry, nil
-}
-
-func digestAuthorizationHeader(method, uri string, auth AuthConfig, vars map[string]string, challenge string) (string, error) {
-	params := parseDigestChallenge(challenge)
-	if len(params) == 0 {
-		return "", errors.New("missing digest challenge")
-	}
-	realm := params["realm"]
-	nonce := params["nonce"]
-	if realm == "" || nonce == "" {
-		return "", errors.New("digest challenge is missing realm or nonce")
-	}
-	username := interpolate(auth.Username, vars)
-	password := interpolate(auth.Password, vars)
-	if username == "" {
-		return "", errors.New("digest username is required")
-	}
-	algorithm := strings.ToUpper(firstNonEmpty(params["algorithm"], "MD5"))
-	if algorithm != "MD5" && algorithm != "MD5-SESS" {
-		return "", fmt.Errorf("unsupported digest algorithm %s", algorithm)
-	}
-	qop := chooseDigestQop(params["qop"])
-	cnonce := randomHex(8)
-	nc := "00000001"
-	ha1 := md5Hex(username + ":" + realm + ":" + password)
-	if algorithm == "MD5-SESS" {
-		ha1 = md5Hex(ha1 + ":" + nonce + ":" + cnonce)
-	}
-	ha2 := md5Hex(strings.ToUpper(method) + ":" + uri)
-	responseSeed := ha1 + ":" + nonce + ":"
-	if qop != "" {
-		responseSeed += nc + ":" + cnonce + ":" + qop + ":"
-	}
-	response := md5Hex(responseSeed + ha2)
-	parts := []string{
-		`username="` + quoteDigestValue(username) + `"`,
-		`realm="` + quoteDigestValue(realm) + `"`,
-		`nonce="` + quoteDigestValue(nonce) + `"`,
-		`uri="` + quoteDigestValue(uri) + `"`,
-		`response="` + response + `"`,
-	}
-	if algorithm != "" {
-		parts = append(parts, `algorithm=`+algorithm)
-	}
-	if opaque := params["opaque"]; opaque != "" {
-		parts = append(parts, `opaque="`+quoteDigestValue(opaque)+`"`)
-	}
-	if qop != "" {
-		parts = append(parts, `qop=`+qop, `nc=`+nc, `cnonce="`+cnonce+`"`)
-	}
-	return "Digest " + strings.Join(parts, ", "), nil
-}
-
-func parseDigestChallenge(challenge string) map[string]string {
-	challenge = strings.TrimSpace(challenge)
-	if strings.HasPrefix(strings.ToLower(challenge), "digest") {
-		challenge = strings.TrimSpace(challenge[len("digest"):])
-	}
-	params := map[string]string{}
-	for _, part := range splitDigestParts(challenge) {
-		key, value, ok := strings.Cut(part, "=")
-		if !ok {
-			continue
-		}
-		key = strings.ToLower(strings.TrimSpace(key))
-		value = strings.TrimSpace(value)
-		value = strings.Trim(value, `"`)
-		if key != "" {
-			params[key] = value
-		}
-	}
-	return params
-}
-
-func splitDigestParts(value string) []string {
-	parts := []string{}
-	var b strings.Builder
-	inQuotes := false
-	escaped := false
-	for _, r := range value {
-		switch {
-		case escaped:
-			b.WriteRune(r)
-			escaped = false
-		case r == '\\' && inQuotes:
-			escaped = true
-			b.WriteRune(r)
-		case r == '"':
-			inQuotes = !inQuotes
-			b.WriteRune(r)
-		case r == ',' && !inQuotes:
-			if strings.TrimSpace(b.String()) != "" {
-				parts = append(parts, strings.TrimSpace(b.String()))
-			}
-			b.Reset()
-		default:
-			b.WriteRune(r)
-		}
-	}
-	if strings.TrimSpace(b.String()) != "" {
-		parts = append(parts, strings.TrimSpace(b.String()))
-	}
-	return parts
-}
-
-func chooseDigestQop(value string) string {
-	for _, part := range strings.Split(value, ",") {
-		qop := strings.ToLower(strings.TrimSpace(part))
-		if qop == "auth" {
-			return "auth"
-		}
-	}
-	return ""
-}
-
-func md5Hex(value string) string {
-	sum := md5.Sum([]byte(value))
-	return hex.EncodeToString(sum[:])
-}
+// HTTP Digest authentication moved to internal/auth/digest.
 
 func evaluateAssertions(assertions []Assertion, response Response) []Assertion {
 	next := make([]Assertion, 0, len(assertions))

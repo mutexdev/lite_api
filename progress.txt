@@ -3207,3 +3207,44 @@ US-026 - Store layer. DONE. Both named collapses complete.
     OAuth1    - same tautology as SigV4, plus a constant nonce passing
   Every one of them passed a full green test suite. The suite being green says
   nothing about whether the tests can fail.
+
+--- US-065 (part) — internal/auth/digest (DONE) ---
+
+  159 lines of HTTP Digest out of app.go: challenge parsing, qop selection, the
+  Authorization header and the retry decision. app.go: 36,802 -> 36,645.
+
+  The retry decision lives WITH the header builder on purpose. Digest is a
+  two-round-trip scheme - the first request is expected to 401, and the header
+  can only be built from the challenge that comes back - so "should we retry"
+  and "what do we send on the retry" are one concern.
+
+  !!! THE SAME TAUTOLOGY, A THIRD TIME, AND THE WORST INSTANCE !!!
+
+  The existing tests build their expected digest with MD5Hex, the function under
+  test. Making MD5Hex RETURN ITS INPUT UNCHANGED failed no test at all. The
+  response hash is the entire security property of Digest auth, and nothing
+  verified it.
+
+  Three signers in this repo, three identical shapes:
+    SigV4      verification recomputed with the signer's own helpers
+    OAuth 1.0a expected signature built from Signature/ParameterString/Encode
+    Digest     expected response built from MD5Hex
+
+  I found the second and third by looking for the shape of the first. That is
+  the useful part: once a tautological test appears in one signer, it is worth
+  checking every other, because the same habit produced them all.
+
+  Seven tests added, sharing nothing with the implementation - the digest is
+  taken with crypto/md5 and checked against RFC 2617's published vector
+  (6629fae49393a05397450978507c4ef1), which fails on a wrong hash, wrong field
+  order OR wrong separator.
+
+  Controls now: MD5 as identity fails 3, qop always "auth" fails 1, a constant
+  cnonce fails 1.
+
+  qop matters more than it looks: auth-int is NOT implemented, so a challenge
+  offering only auth-int must yield no qop rather than silently claiming "auth"
+  and sending a response computed over the wrong thing.
+
+  Gates: go build, go vet, go test ok across 11 packages; svelte-check 209/0/0;
+  eslint 0; npm test 223/223.
