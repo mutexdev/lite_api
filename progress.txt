@@ -2535,3 +2535,45 @@ US-031 - Virtualize the collection tree. PARTIAL, deliberately. The flattening
   Three of these four want a browser or are single large edits. None is a good
   fit for being started and left half-finished, which is the state this file
   already warns about twice.
+
+US-026 - Store layer. PARTIAL. The first store is built and tested; the two
+  named component collapses are not wired, and the reason is a measurement.
+
+  DONE: lib/stores/variableTooltipState.ts (pure transitions, 13 tests) plus
+  lib/stores/variableTooltipStore.svelte.ts (thin rune shell over it).
+
+  A FINDING THAT SHAPED THE DESIGN: a .svelte.ts rune module CANNOT be
+  exercised by `node --test`. $state is a compiler construct, so importing the
+  store directly fails with "$state is not defined". The choice is a second
+  test runner with the Svelte plugin, or keeping the logic somewhere plain. I
+  kept it plain: none of the behaviour is reactive, so the shell has nothing
+  left to test once the transitions are extracted. This is also the honest
+  answer to the toolchain US-038 asked for - vitest earns its place when
+  something genuinely needs the compiler, and here nothing does.
+
+  The cluster this replaces was drilled through THREE components from FIVE call
+  sites. Each hop is a place where a rename silently stops the tooltip
+  responding with nothing to report it, which is the actual cost of the
+  drilling - not verbosity.
+
+  Save and copy deliberately stay OUT of the store: they need the collection
+  actions and the error channel, and a store reaching for those would need the
+  whole app injected and would stop being testable.
+
+  NOT DONE, and this is a sizing finding rather than a preference: the story's
+  headline is collapsing WorkspaceCommandBar's 22 props and KeyValueTable's 33
+  to store reads. Every one of the command bar's 20 data props derives from
+  App.svelte's own selection logic (activeWorkspace / activeCollection /
+  activeRequest and the tab state behind them), so collapsing them means moving
+  that logic into the store - and `appState` has 296 references with 123
+  assignment sites. That is one large edit, not a slice, and half of it is worse
+  than none.
+
+  Negative controls, all four run and all four caught:
+    unfound variable seeds its placeholder   draft test fails
+    cancelEdit also closes the tooltip       open-after-cancel test fails
+    toggleActive cannot close                dismissal test fails
+    beginEdit ignores `editable`             read-only test fails
+
+  Gates: svelte-check 205/0/0, eslint 0, npm test 223/223 (+13), vite build
+  succeeds, go test 40.6s 0.
