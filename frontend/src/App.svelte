@@ -11421,142 +11421,18 @@
             />
           {/await}
 
-		            <section>
-		              <div class="settings-section-header">
-		                <h3>General Settings</h3>
-		              </div>
-		              <div class="general-preferences-grid">
-		                <label class="inline-toggle">
-		                  <input
-		                    id="sslVerification"
-		                    data-testid="ssl-verification-toggle"
-		                    type="checkbox"
-		                    checked={state.preferences.request?.sslVerification !== false}
-		                    on:change={(event) => updateRequestPreferences({ sslVerification: event.currentTarget.checked } as Partial<main.RequestPreferences>)}
-		                  />
-		                  SSL/TLS Certificate Verification
-		                </label>
-		                <label class="inline-toggle">
-		                  <input
-		                    id="customCaCertificateEnabled"
-		                    data-testid="custom-ca-enabled-toggle"
-		                    type="checkbox"
-		                    checked={state.preferences.request?.customCaCertificate?.enabled ?? false}
-		                    on:change={(event) => updateRequestPreferences({
-		                      customCaCertificate: {
-		                        ...(state?.preferences.request?.customCaCertificate ?? {}),
-		                        enabled: event.currentTarget.checked
-		                      } as main.CustomCaCertificatePreferences
-		                    })}
-		                  />
-		                  Use Custom CA Certificate
-		                </label>
-		                <div class:settings-disabled={!(state.preferences.request?.customCaCertificate?.enabled ?? false)} class="path-picker-row">
-		                  {#if state.preferences.request?.customCaCertificate?.filePath}
-		                    <span class="selected-path-chip" data-testid="custom-ca-file-name">
-		                      {customCaFileName(state.preferences.request.customCaCertificate.filePath)}
-		                      <button type="button" aria-label="Remove custom CA certificate" on:click={clearCustomCaCertificate}>x</button>
-		                    </span>
-		                  {:else}
-		                    <button
-		                      type="button"
-		                      data-testid="custom-ca-select-btn"
-		                      on:click={browseCustomCaCertificate}
-		                      disabled={!(state.preferences.request?.customCaCertificate?.enabled ?? false)}
-		                    >
-		                      Select File
-		                    </button>
-		                  {/if}
-		                </div>
-		                <label class:settings-disabled={!((state.preferences.request?.customCaCertificate?.enabled ?? false) && state.preferences.request?.customCaCertificate?.filePath)} class="inline-toggle">
-		                  <input
-		                    id="keepDefaultCaCertificatesEnabled"
-		                    data-testid="keep-default-ca-toggle"
-		                    type="checkbox"
-		                    checked={state.preferences.request?.keepDefaultCaCertificates?.enabled !== false}
-		                    disabled={!((state.preferences.request?.customCaCertificate?.enabled ?? false) && state.preferences.request?.customCaCertificate?.filePath)}
-		                    on:change={(event) => updateRequestPreferences({
-		                      keepDefaultCaCertificates: { enabled: event.currentTarget.checked } as main.KeepDefaultCaCertificatesPreferences
-		                    })}
-		                  />
-		                  Keep Default CA Certificates
-		                </label>
-		                <label class="inline-toggle">
-		                  <input
-		                    id="storeCookies"
-		                    data-testid="store-cookies-toggle"
-		                    type="checkbox"
-		                    checked={state.preferences.request?.storeCookies ?? state.preferences.storeCookies ?? true}
-		                    on:change={(event) => updateRequestPreferences({ storeCookies: event.currentTarget.checked } as Partial<main.RequestPreferences>)}
-		                  />
-		                  Store Cookies automatically
-		                </label>
-		                <label class="inline-toggle">
-		                  <input
-		                    id="sendCookies"
-		                    data-testid="send-cookies-toggle"
-		                    type="checkbox"
-		                    checked={state.preferences.request?.sendCookies ?? true}
-		                    on:change={(event) => updateRequestPreferences({ sendCookies: event.currentTarget.checked } as Partial<main.RequestPreferences>)}
-		                  />
-		                  Send Cookies automatically
-		                </label>
-		                <div class="field-grid compact-preference-grid">
-		                  <label class="field-label" for="requestTimeout">Request Timeout (in ms)</label>
-		                  <input
-		                    id="requestTimeout"
-		                    data-testid="request-timeout-input"
-		                    value={state.preferences.request?.timeout ?? 0}
-		                    inputmode="numeric"
-		                    on:input={(event) => updateRequestPreferences({ timeout: Number(event.currentTarget.value) } as Partial<main.RequestPreferences>)}
-		                  />
-		                </div>
-		                <label class="inline-toggle">
-		                  <input
-		                    id="autoSaveEnabled"
-		                    data-testid="autosave-enabled-toggle"
-		                    type="checkbox"
-		                    checked={state.preferences.autoSave?.enabled ?? state.preferences.autosave ?? false}
-		                    on:change={(event) => updateAutoSavePreferences({ enabled: event.currentTarget.checked } as Partial<main.AutoSavePreferences>)}
-		                  />
-		                  Enable Auto Save
-		                </label>
-		                <div class:settings-disabled={!(state.preferences.autoSave?.enabled ?? state.preferences.autosave ?? false)} class="field-grid compact-preference-grid">
-		                  <label class="field-label" for="autoSaveInterval">Save Delay (in ms)</label>
-		                  <input
-		                    id="autoSaveInterval"
-		                    data-testid="autosave-interval-input"
-		                    value={state.preferences.autoSave?.interval ?? 1000}
-		                    disabled={!(state.preferences.autoSave?.enabled ?? state.preferences.autosave ?? false)}
-		                    inputmode="numeric"
-		                    on:input={(event) => updateAutoSavePreferences({ interval: Number(event.currentTarget.value) } as Partial<main.AutoSavePreferences>)}
-		                  />
-		                </div>
-		                <div class="field-grid default-location-grid">
-		                  <label class="field-label" for="defaultLocation">Default Location</label>
-		                  <div class="default-location-control">
-		                    <input
-		                      id="defaultLocation"
-		                      data-testid="default-location-input"
-		                      class="default-location-input"
-		                      readonly
-		                      value={state.preferences.general?.defaultLocation ?? state.preferences.defaultCollectionPath ?? ''}
-		                      placeholder="Click to browse for default location"
-		                      on:click={browseDefaultLocation}
-		                    />
-		                    <button type="button" data-testid="default-location-browse-btn" on:click={browseDefaultLocation}>Browse</button>
-		                    <button
-		                      type="button"
-		                      data-testid="default-location-clear-btn"
-		                      on:click={clearDefaultLocation}
-		                      disabled={!((state.preferences.general?.defaultLocation ?? state.preferences.defaultCollectionPath ?? '').trim())}
-		                    >
-		                      Clear
-		                    </button>
-		                  </div>
-		                </div>
-		              </div>
-		            </section>
+          {#await import('./lib/views/preferences/GeneralSection.svelte') then GeneralSection}
+            <svelte:component this={GeneralSection.default}
+              {state}
+              {customCaFileName}
+              {browseDefaultLocation}
+              {clearDefaultLocation}
+              {browseCustomCaCertificate}
+              {clearCustomCaCertificate}
+              {updateAutoSavePreferences}
+              {updateRequestPreferences}
+            />
+          {/await}
 	
           {#await import('./lib/views/preferences/OAuth2Section.svelte') then OAuth2Section}
             <svelte:component this={OAuth2Section.default}
@@ -11565,85 +11441,27 @@
             />
           {/await}
 	
-	            <section class="keybindings-preference-section">
-	              <details class="keybindings-disclosure">
-	                <summary>
-	                  <span class="keybindings-summary-title">Keybindings</span>
-	                  <span class="keybindings-summary-status">
-	                    {#if keybindingsAreEnabled(state.preferences)}
-	                      {Object.keys(state.preferences.keyBindings ?? {}).length === 0
-	                        ? 'Enabled · defaults'
-	                        : `Enabled · ${Object.keys(state.preferences.keyBindings ?? {}).length} customized`}
-	                    {:else}
-	                      Disabled
-	                    {/if}
-	                  </span>
-	                </summary>
-	                <div class:settings-disabled={!keybindingsAreEnabled(state.preferences)} class="keybindings-table-wrap">
-	                <table class="keybindings-table">
-	                  <thead>
-	                    <tr>
-	                      <th>Command</th>
-	                      <th>Keybinding</th>
-	                      <th></th>
-	                    </tr>
-	                  </thead>
-	                  <tbody>
-	                    {#each keyBindingSections as section (section.heading)}
-	                      <tr class="keybinding-section-row">
-	                        <td colspan="3">{section.heading}</td>
-	                      </tr>
-	                      {#each visibleKeyBindingEntries(section) as [action, binding] (action)}
-	                        {@const value = recordingKeybindingAction === action ? keybindingDraft : keyBindingDisplayValue(action)}
-	                        {@const canEdit = keyBindingCanEdit(action) && keybindingsAreEnabled(state.preferences)}
-	                        <tr>
-	                          <td>
-	                            <span>{binding.name}</span>
-	                          </td>
-	                          <td>
-	                            <input
-	                              class="keybinding-input"
-	                              class:error={recordingKeybindingAction === action && Boolean(keybindingError)}
-	                              aria-label={`Keybinding ${binding.name}`}
-	                              readonly
-	                              disabled={!canEdit}
-	                              value={formatKeyBinding(value)}
-	                              placeholder="Press shortcut"
-	                              on:focus={() => beginRecordKeyBinding(action)}
-	                              on:keydown={(e) => recordKeyBinding(action, e)}
-	                              on:blur={() => stopRecordKeyBinding(action)}
-	                            />
-	                            {#if recordingKeybindingAction === action && keybindingError}
-	                              <small class="keybinding-error">{keybindingError}</small>
-	                            {/if}
-	                          </td>
-	                          <td>
-	                            {#if binding.readOnly}
-	                              <span class="muted">Locked</span>
-	                            {:else}
-	                              <button on:click={() => resetKeyBinding(action)} disabled={!keyBindingIsCustomized(action)}>Reset</button>
-	                            {/if}
-	                          </td>
-	                        </tr>
-	                      {/each}
-	                    {/each}
-	                  </tbody>
-	                </table>
-	                </div>
-	              </details>
-	              <div class="settings-section-actions keybindings-section-actions">
-	                <label class="inline-toggle">
-	                  <input
-	                    type="checkbox"
-	                    aria-label="Enable keybindings"
-	                    checked={keybindingsAreEnabled(state.preferences)}
-	                    on:change={(e) => updateKeybindingsEnabled(e.currentTarget.checked)}
-	                  />
-	                  Enabled
-	                </label>
-	                <button aria-label="Reset all keybindings to defaults" on:click={resetAllKeyBindings} disabled={Object.keys(state.preferences.keyBindings ?? {}).length === 0}>Reset Default</button>
-	              </div>
-	            </section>
+          {#await import('./lib/views/preferences/KeybindingsSection.svelte') then KeybindingsSection}
+            <svelte:component this={KeybindingsSection.default}
+              {state}
+              {keyBindingSections}
+              {visibleKeyBindingEntries}
+              {keyBindingDisplayValue}
+              {keyBindingCanEdit}
+              {keyBindingIsCustomized}
+              {keybindingDraft}
+              {keybindingsAreEnabled}
+              {keybindingError}
+              {recordingKeybindingAction}
+              {formatKeyBinding}
+              {beginRecordKeyBinding}
+              {recordKeyBinding}
+              {stopRecordKeyBinding}
+              {resetKeyBinding}
+              {resetAllKeyBindings}
+              {updateKeybindingsEnabled}
+            />
+          {/await}
 
           {#await import('./lib/views/preferences/ProxySection.svelte') then ProxySection}
             <svelte:component this={ProxySection.default}

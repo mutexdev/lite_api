@@ -546,3 +546,25 @@ frontend/dist/assets/index-*.css        113609
 # them, which forced the nine real corrections above into the open. Had the rule
 # been off, four components would have shipped with wrong prop contracts that
 # typechecked.
+
+# Preferences sections 6-7 — General Settings and Keybindings:
+#   initial chunk 487,172 -> 480,201  (-6,971). Margin 19,799 bytes.
+#   ALL SEVEN preference sections are now extracted.
+#
+# I reached for `never[]` on keyBindingSections when the real type resisted, and
+# it failed exactly the way `any` does: clean in isolation, broken at the call
+# site. The fix was to mirror App.svelte's KeyBindingSection and
+# KeyBindingDefinition — after CHECKING whether either was exported first, which
+# is the habit the WorkbenchCommandID revert taught. Neither is; mirroring was
+# right. But `never` is not a lighter-weight `any`, it is a worse one.
+#
+# Two more function-shaped names: customCaFileName takes a filePath and
+# keybindingsAreEnabled takes Preferences. Both read like values.
+#
+# ---------------------------------------------------------------------------
+# US-036 running position: 1,159,933 -> 480,201 bytes, 58.6% smaller.
+#   dialogs: 29/29    Runner panel: done    Preferences: 7/7 sections
+#   remaining: the Import panel and the devToolsPanel snippet — check both for
+#   internal <section>/<details> boundaries first, since that decomposition is
+#   what made Preferences tractable after I had written it off as too large.
+# ---------------------------------------------------------------------------
