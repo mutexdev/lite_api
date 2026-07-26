@@ -12220,79 +12220,23 @@
 {/if}
 
 {#if cloneFolderTarget}
-  <Modal labelledBy="clone-folder-title" onClose={cancelCloneFolderModal}>
-      <form on:submit|preventDefault={confirmCloneFolder}>
-        <header>
-          <h2 id="clone-folder-title">Clone Folder</h2>
-          <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={cancelCloneFolderModal}>x</button>
-        </header>
-        <div class="prompt-fields">
-          <label>
-            <span>Folder Name</span>
-            <input
-              id="collection-item-name"
-              name="name"
-              aria-label="Clone folder name"
-              data-testid="clone-folder-name"
-              value={cloneFolderNameDraft}
-              on:input={(event) => updateCloneFolderName(event.currentTarget.value)}
-            />
-          </label>
-          <div class="button-row compact">
-            <button type="button" data-testid="clone-folder-options-toggle" on:click={() => (cloneFolderShowFilesystemName = !cloneFolderShowFilesystemName)}>
-              {cloneFolderShowFilesystemName ? 'Hide Filesystem Name' : 'Show Filesystem Name'}
-            </button>
-          </div>
-          {#if cloneFolderShowFilesystemName}
-            <label>
-              <span>Folder Name (on filesystem)</span>
-              <div class="inline-field-action">
-                {#if cloneFolderDirectoryEditing}
-                  <input
-                    id="file-name"
-                    name="filename"
-                    aria-label="Clone folder filesystem name"
-                    data-testid="clone-folder-directory-name"
-                    value={cloneFolderDirectoryDraft}
-                    on:input={(event) => (cloneFolderDirectoryDraft = event.currentTarget.value)}
-                  />
-                {:else}
-                  <input
-                    aria-label="Clone folder filesystem name"
-                    data-testid="clone-folder-directory-name"
-                    readonly
-                    value={cloneFolderDirectoryDraft}
-                  />
-                {/if}
-                <button
-                  type="button"
-                  data-testid="clone-folder-directory-toggle"
-                  on:click={() => {
-                    cloneFolderDirectoryEditing = !cloneFolderDirectoryEditing
-                    if (!cloneFolderDirectoryEditing) cloneFolderDirectoryDraft = sanitizeCollectionFolderName(cloneFolderNameDraft)
-                  }}
-                >{cloneFolderDirectoryEditing ? 'Reset' : 'Edit'}</button>
-              </div>
-            </label>
-          {/if}
-          {#if cloneFolderDirectoryDraft && !collectionFolderNameIsValid(cloneFolderDirectoryDraft)}
-            <p class="field-error">Folder name is not valid.</p>
-          {/if}
-          {#if cloneFolderDirectoryIsReserved()}
-            <p class="field-error">The file names "collection" and "folder" are reserved by the Bruno-compatible collection file format.</p>
-          {/if}
-        </div>
-        <div class="button-row">
-          <button type="button" on:click={cancelCloneFolderModal}>Cancel</button>
-          <button
-            class="primary"
-            type="submit"
-            data-testid="clone-item-button"
-            disabled={busy !== '' || cloneFolderNameDraft.trim() === '' || !cloneFolderDirectoryNameIsValid()}
-          >{busy === 'clone folder' ? 'Cloning...' : 'Clone'}</button>
-        </div>
-      </form>
-  </Modal>
+  {#await import('./lib/modals/collection/CloneFolderModal.svelte') then CloneFolderModal}
+    <svelte:component
+      this={CloneFolderModal.default}
+      bind:cloneFolderDirectoryDraft
+      bind:cloneFolderDirectoryEditing
+      bind:cloneFolderShowFilesystemName
+      {cloneFolderNameDraft}
+      {busy}
+      {cloneFolderDirectoryNameIsValid}
+      {cloneFolderDirectoryIsReserved}
+      {collectionFolderNameIsValid}
+      {sanitizeCollectionFolderName}
+      {updateCloneFolderName}
+      {confirmCloneFolder}
+      {cancelCloneFolderModal}
+    />
+  {/await}
 {/if}
 
 {#if renameRequestTarget}

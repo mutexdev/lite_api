@@ -240,3 +240,14 @@ frontend/dist/assets/index-*.css        113609
 #     912 remove-collection   883 prompt-dialog      640 grpcurl-code
 #     521 git-not-found     1,762 unsaved-tabs
 # ~29 KB of source against a 16,039-byte gap: comfortable.
+
+# Hand extraction #10 — clone-folder (3,350 B of source):
+#   initial chunk 516,039 -> 514,465  (-1,574)
+#
+# Second clean landing in a row. new-folder / rename-folder / clone-folder are
+# near-identical in shape (name draft + filesystem-name toggle + directory
+# draft + editing toggle + two validators), so once the first was done the other
+# two were transcription. Worth grouping structurally similar dialogs when
+# picking the next one.
+#
+# Running total: 1,159,933 -> 514,465 (55.7% smaller). 14,465 above target.
