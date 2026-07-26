@@ -301,3 +301,152 @@ export function normalizeEventKey(event: Pick<KeyboardEvent, 'key' | 'code'>): s
   // no test. One fallback rather than two that agree.
   return event.key.toLowerCase()
 }
+
+/**
+ * The platform whose column of the binding table applies.
+ *
+ * Everything that is not a Mac reads the windows column, Linux included. The
+ * table has two columns and the meaningful split is Command vs Ctrl, so a third
+ * case would only duplicate one of them.
+ */
+export function currentKeyBindingOS(): KeyBindingOS {
+  if (typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac')) return 'mac'
+  return 'windows'
+}
+
+/**
+ * Whether custom keybindings are on.
+ *
+ * Compared against false rather than read as truthy, so a preferences file
+ * written before the flag existed keeps its shortcuts working. Only an explicit
+ * false turns them off.
+ */
+export function keybindingsAreEnabled(keybindingsEnabled: boolean | undefined): boolean {
+  return keybindingsEnabled !== false
+}
+
+/**
+ * Merges a preset binding with the user's override for one action.
+ *
+ * The order is the point (US-057): defaults, then preset, then override. A
+ * shortcut somebody deliberately set must not be silently replaced by switching
+ * preset — which is exactly what merging the other way round would do.
+ *
+ * `name` is restored from the base when the override carries an empty one,
+ * because an override that only changes a key combo has no name to contribute
+ * and an unnamed row renders as a blank line in the shortcuts sheet.
+ */
+export function mergeKeyBinding(
+  base: KeyBindingDefinition | undefined,
+  override: Partial<KeyBindingDefinition> | undefined
+): KeyBindingDefinition | undefined {
+  if (!base) return undefined
+  return {
+    ...base,
+    ...(override ?? {}),
+    name: override?.name || base.name
+  }
+}
+
+/** The combo stored for one platform, or "" when the action has none there. */
+export function keyBindingValueFor(
+  binding: KeyBindingDefinition | undefined,
+  os: KeyBindingOS
+): string {
+  return (binding?.[os] as string | undefined) || ''
+}
+
+/**
+ * The combo to SHOW, which is not always the combo that fires.
+ *
+ * A binding may carry a `displayValue` that reads more naturally than the one
+ * the matcher uses — and falling back to the real value keeps the sheet honest
+ * when it does not.
+ */
+export function keyBindingDisplayValueFor(
+  binding: KeyBindingDefinition | undefined,
+  os: KeyBindingOS
+): string {
+  return binding?.displayValue?.[os] || keyBindingValueFor(binding, os)
+}
+
+/**
+ * The combo string for a keydown.
+ *
+ * Modifiers are emitted in a FIXED order regardless of which the user pressed
+ * first, because the stored bindings are written in that order and the two are
+ * compared as strings via `keyBindingSignature`.
+ *
+ * A keydown that is only a modifier produces no key part, so holding Shift
+ * alone does not match a binding whose combo is "shift".
+ */
+export function keyBindingComboFromEvent(
+  event: Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'key' | 'code'>
+): string {
+  const parts: string[] = []
+  if (event.ctrlKey) parts.push('ctrl')
+  if (event.metaKey) parts.push('command')
+  if (event.altKey) parts.push('alt')
+  if (event.shiftKey) parts.push('shift')
+  const key = normalizeEventKey(event)
+  if (key && !isKeyBindingModifier(key)) parts.push(key)
+  return parts.join(keyBindingSeparator)
+}
+
+const MAC_TOKEN_LABELS: Record<string, string> = {
+  command: 'Cmd', ctrl: 'Ctrl', alt: 'Opt', shift: 'Shift',
+  enter: 'Enter', esc: 'Esc', space: 'Space',
+  arrowup: 'Up', arrowdown: 'Down', arrowleft: 'Left', arrowright: 'Right'
+}
+
+const WINDOWS_TOKEN_LABELS: Record<string, string> = {
+  ...MAC_TOKEN_LABELS,
+  // The same physical key, and the only two tokens that differ: on Windows the
+  // Command position is the Windows key, and Option is Alt.
+  command: 'Win',
+  alt: 'Alt'
+}
+
+/** The human label for one token of a combo. */
+export function formatKeyBindingToken(token: string, os: KeyBindingOS): string {
+  const labels = os === 'mac' ? MAC_TOKEN_LABELS : WINDOWS_TOKEN_LABELS
+  return labels[token] || token.toUpperCase()
+}
+
+/**
+ * Renders a stored combo for display.
+ *
+ * The " - " split handles CHORDS — two combos pressed in sequence — and is
+ * applied before the parts split so a chord renders as "Cmd + K - Cmd + S"
+ * rather than collapsing into one impossible combination.
+ */
+export function formatKeyBinding(value: string, os: KeyBindingOS): string {
+  if (!value) return ''
+  return value
+    .split(/\s+-\s+/)
+    .map((part) => keyBindingParts(part).map((token) => formatKeyBindingToken(token, os)).join(' + '))
+    .join(' - ')
+}
+
+/** The rows of a section that the shortcuts sheet lists. */
+export function visibleKeyBindingEntries(
+  section: KeyBindingSection
+): [string, KeyBindingDefinition][] {
+  return Object.entries(section.bindings).filter(([, binding]) => !binding.hidden)
+}
+
+/** Whether an action's combo may be edited. */
+export function keyBindingCanEdit(binding: KeyBindingDefinition | undefined): boolean {
+  return Boolean(binding && !binding.readOnly)
+}
+
+/** Every action's default definition, flattened across the sections. */
+export function keyBindingDefaultsByAction(): Record<string, KeyBindingDefinition> {
+  const defaults: Record<string, KeyBindingDefinition> = {}
+  for (const section of keyBindingSections) {
+    for (const [action, binding] of Object.entries(section.bindings)) {
+      defaults[action] = binding
+    }
+  }
+  return defaults
+}

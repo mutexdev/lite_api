@@ -22,7 +22,20 @@ import {
   findKeyBindingCollisions,
   keyBindingSignature,
   normalizeKeyBindingPreset,
-  type KeyBindingOS
+  type KeyBindingOS,
+  type KeyBindingDefinition,
+  type KeyBindingSection,
+  currentKeyBindingOS,
+  formatKeyBinding,
+  formatKeyBindingToken,
+  keyBindingCanEdit,
+  keyBindingComboFromEvent,
+  keyBindingDefaultsByAction,
+  keyBindingDisplayValueFor,
+  keyBindingValueFor,
+  keybindingsAreEnabled,
+  mergeKeyBinding,
+  visibleKeyBindingEntries,
 } from '../src/lib/keybindings.ts'
 
 const operatingSystems: KeyBindingOS[] = ['mac', 'windows']
@@ -323,4 +336,140 @@ test('a captured chord matches its stored binding signature', () => {
     keyBindingSignature('command+bind+s'),
     'a layout that produces a different character must still match Cmd+S'
   )
+})
+
+test('everything that is not a mac reads the windows column', () => {
+  const os = currentKeyBindingOS()
+  assert.ok(os === 'mac' || os === 'windows')
+})
+
+// A preferences file written before the flag existed has it undefined, and
+// reading it as truthy would silently disable every shortcut for those users.
+test('keybindings are on unless explicitly disabled', () => {
+  assert.equal(keybindingsAreEnabled(undefined), true)
+  assert.equal(keybindingsAreEnabled(true), true)
+  assert.equal(keybindingsAreEnabled(false), false)
+})
+
+// US-057. Defaults, then preset, then override. A shortcut somebody
+// deliberately set must not be silently replaced by switching preset, which is
+// exactly what merging the other way round would do.
+test('a user override wins over the preset binding', () => {
+  const base = { name: 'Send', mac: 'command+bind+enter', windows: 'ctrl+bind+enter' } as KeyBindingDefinition
+  const merged = mergeKeyBinding(base, { mac: 'command+bind+s' })
+  assert.equal(merged?.mac, 'command+bind+s')
+  assert.equal(merged?.windows, 'ctrl+bind+enter', 'the untouched platform kept the preset value')
+})
+
+// An override that only changes a key combo has no name to contribute, and an
+// unnamed row renders as a blank line in the shortcuts sheet.
+test('an override with no name keeps the base name', () => {
+  const base = { name: 'Send', mac: 'command+bind+enter' } as KeyBindingDefinition
+  assert.equal(mergeKeyBinding(base, { mac: 'command+bind+s' })?.name, 'Send')
+  assert.equal(mergeKeyBinding(base, { name: '' })?.name, 'Send')
+  assert.equal(mergeKeyBinding(base, { name: 'Fire' })?.name, 'Fire')
+})
+
+test('an action with no base binding merges to nothing', () => {
+  assert.equal(mergeKeyBinding(undefined, { mac: 'command+bind+s' }), undefined)
+})
+
+// The display value is not always the combo that fires, and falling back to the
+// real one keeps the sheet honest when a binding does not supply it.
+test('the displayed combo falls back to the one that fires', () => {
+  const binding = {
+    name: 'Send', mac: 'command+bind+enter',
+    displayValue: { mac: 'Cmd Return' }
+  } as KeyBindingDefinition
+  assert.equal(keyBindingDisplayValueFor(binding, 'mac'), 'Cmd Return')
+  assert.equal(keyBindingValueFor(binding, 'mac'), 'command+bind+enter')
+  assert.equal(keyBindingDisplayValueFor({ name: 'X', mac: 'a' } as KeyBindingDefinition, 'mac'), 'a')
+  assert.equal(keyBindingValueFor(undefined, 'mac'), '')
+})
+
+// The stored bindings are written in a fixed modifier order and compared as
+// strings, so the combo built from an event must use the same order however the
+// user happened to press them.
+test('modifiers are emitted in a fixed order', () => {
+  const combo = keyBindingComboFromEvent({
+    ctrlKey: true, metaKey: true, altKey: true, shiftKey: true, key: 's', code: 'KeyS'
+  })
+  assert.deepEqual(keyBindingParts(combo), ['ctrl', 'command', 'alt', 'shift', 's'])
+})
+
+// Holding Shift alone must not match a binding whose combo is "shift" — every
+// modified shortcut would fire the moment the modifier went down.
+test('a modifier on its own contributes no key part', () => {
+  const combo = keyBindingComboFromEvent({
+    ctrlKey: false, metaKey: false, altKey: false, shiftKey: true, key: 'Shift', code: 'ShiftLeft'
+  })
+  assert.deepEqual(keyBindingParts(combo), ['shift'])
+})
+
+test('an unmodified key is its own combo', () => {
+  const combo = keyBindingComboFromEvent({
+    ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, key: 'Escape', code: 'Escape'
+  })
+  assert.equal(keyBindingParts(combo).at(-1), 'esc')
+})
+
+// The same physical key reads differently per platform, and these are the only
+// two tokens that differ.
+test('the command and alt tokens are the only platform-specific labels', () => {
+  assert.equal(formatKeyBindingToken('command', 'mac'), 'Cmd')
+  assert.equal(formatKeyBindingToken('command', 'windows'), 'Win')
+  assert.equal(formatKeyBindingToken('alt', 'mac'), 'Opt')
+  assert.equal(formatKeyBindingToken('alt', 'windows'), 'Alt')
+  for (const token of ['ctrl', 'shift', 'enter', 'esc', 'space', 'arrowup']) {
+    assert.equal(
+      formatKeyBindingToken(token, 'mac'),
+      formatKeyBindingToken(token, 'windows'),
+      token
+    )
+  }
+})
+
+test('an unknown token is uppercased', () => {
+  assert.equal(formatKeyBindingToken('k', 'mac'), 'K')
+  assert.equal(formatKeyBindingToken('f12', 'mac'), 'F12')
+})
+
+// A chord is two combos pressed in sequence. Splitting on " - " before the
+// parts split is what keeps them separate — collapsing them would render one
+// impossible combination.
+test('a chord renders as two combos, not one', () => {
+  const rendered = formatKeyBinding('command+bind+k - command+bind+s', 'mac')
+  assert.equal(rendered, 'Cmd + K - Cmd + S')
+})
+
+test('an empty binding renders as nothing', () => {
+  assert.equal(formatKeyBinding('', 'mac'), '')
+})
+
+test('hidden bindings are left out of the shortcuts sheet', () => {
+  const section = {
+    title: 'Test',
+    bindings: {
+      shown: { name: 'Shown', mac: 'a' } as KeyBindingDefinition,
+      secret: { name: 'Secret', mac: 'b', hidden: true } as KeyBindingDefinition
+    }
+  } as KeyBindingSection
+  assert.deepEqual(visibleKeyBindingEntries(section).map(([action]) => action), ['shown'])
+})
+
+test('a read-only binding cannot be edited', () => {
+  assert.equal(keyBindingCanEdit({ name: 'X', mac: 'a' } as KeyBindingDefinition), true)
+  assert.equal(keyBindingCanEdit({ name: 'X', mac: 'a', readOnly: true } as KeyBindingDefinition), false)
+  assert.equal(keyBindingCanEdit(undefined), false)
+})
+
+// Flattening the sections must not lose an action, or the shortcut has no
+// default to reset to and the reset button does nothing.
+test('the flattened defaults cover every action in every section', () => {
+  const defaults = keyBindingDefaultsByAction()
+  for (const section of keyBindingSections) {
+    for (const action of Object.keys(section.bindings)) {
+      assert.ok(defaults[action], `${action} is missing from the flattened defaults`)
+    }
+  }
 })

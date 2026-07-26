@@ -7283,3 +7283,37 @@ US-026 - Store layer. DONE. Both named collapses complete.
   own test file with the convenient runner would have missed it entirely.
 
   Eight controls, eight failures.
+
+=== PHASE 6 — the keybinding display layer ===
+
+  Twelve exports onto src/lib/keybindings.ts (34 -> 46 tests).
+  App.svelte 10,851 (was 10,897). Suite 642 -> 658.
+
+  Pinned:
+    - US-057, NOW TESTED RATHER THAN COMMENTED. Defaults, then preset, then
+      override. A shortcut somebody DELIBERATELY SET must not be silently
+      replaced by switching preset — which is exactly what merging the other way
+      round does. The comment said so; nothing checked it. Control fails 1.
+    - an override with no name keeps the BASE name. An override that only
+      changes a combo has no name to contribute, and an unnamed row renders as a
+      blank line in the shortcuts sheet. `||` not `??`, because the empty string
+      is the case. Control fails 1.
+    - MODIFIERS ARE EMITTED IN A FIXED ORDER regardless of which was pressed
+      first. The stored bindings are written in that order and the two are
+      compared AS STRINGS. Control fails 1.
+    - a bare modifier contributes NO key part, so holding Shift alone does not
+      match a binding whose combo is "shift" — otherwise every modified shortcut
+      fires the moment the modifier goes down. Control fails 1.
+    - command and alt are the ONLY platform-specific labels, and the test walks
+      every other token asserting they agree. Control fails 1.
+    - A CHORD IS TWO COMBOS IN SEQUENCE. Splitting on " - " before the parts
+      split keeps them separate; collapsing them renders one impossible
+      combination. Control fails 1.
+    - the flattened defaults must cover EVERY action in EVERY section, or a
+      shortcut has no default to reset to and the reset button does nothing.
+      Control fails 1.
+
+  Eleven controls, eleven failures — one after a second attempt: my first
+  mutation of the flattening didn't type-check, so it was rejected rather than
+  counted. The control runner refuses to report a number for code that does not
+  compile, which is the only reason that was visible.

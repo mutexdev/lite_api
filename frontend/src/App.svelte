@@ -106,12 +106,18 @@
   import { workspaceStore } from './lib/stores/workspaceStore.svelte'
   import { variableTooltips } from './lib/stores/variableTooltipStore.svelte'
   import {
-    isKeyBindingModifier,
-    keyBindingParts,
-    keyBindingSeparator,
+    currentKeyBindingOS,
+    keyBindingCanEdit as canEditKeyBinding,
+    keyBindingComboFromEvent,
+    keyBindingDefaultsByAction,
+    keyBindingDisplayValueFor,
     keyBindingSignature,
-    normalizeEventKey,
+    keyBindingValueFor,
+    keybindingsAreEnabled as keybindingsEnabledFor,
+    formatKeyBinding as formatKeyBindingFor,
+    mergeKeyBinding,
     validateKeyBinding as validateKeyBindingRule,
+    visibleKeyBindingEntries,
     keyBindingSections,
     keyBindingPresets,
     normalizeKeyBindingPreset,
@@ -1625,23 +1631,8 @@
     document.documentElement.style.setProperty('--code-font-size', `${normalizedSize}px`)
   }
 
-  function currentKeyBindingOS(): KeyBindingOS {
-    if (typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac')) return 'mac'
-    return 'windows'
-  }
-
   function keybindingsAreEnabled(preferences: types.Preferences | undefined) {
-    return preferences?.keybindingsEnabled !== false
-  }
-
-  function keyBindingDefaultsByAction() {
-    const defaults: Record<string, KeyBindingDefinition> = {}
-    for (const section of keyBindingSections) {
-      for (const [action, binding] of Object.entries(section.bindings)) {
-        defaults[action] = binding
-      }
-    }
-    return defaults
+    return keybindingsEnabledFor(preferences?.keybindingsEnabled)
   }
 
   // US-057. The preset sits between the defaults and the user's overrides, and
@@ -1651,41 +1642,21 @@
   const presetKeyBindings = $derived(effectiveKeyBindings(keyBindingSections, keyBindingPresets[activeKeyBindingPreset]))
 
   function mergedKeyBinding(action: string): KeyBindingDefinition | undefined {
-    const base = presetKeyBindings[action]
-    if (!base) return undefined
     const override = appState?.preferences?.keyBindings?.[action] as types.KeyBinding | undefined
-    return {
-      ...base,
-      ...(override ?? {}),
-      name: override?.name || base.name
-    }
+    return mergeKeyBinding(presetKeyBindings[action], override)
   }
 
   function keyBindingValue(action: string, os: KeyBindingOS = currentKeyBindingOS()) {
-    const binding = mergedKeyBinding(action)
-    return (binding?.[os] as string | undefined) || ''
+    return keyBindingValueFor(mergedKeyBinding(action), os)
   }
 
   function keyBindingDisplayValue(action: string, os: KeyBindingOS = currentKeyBindingOS()) {
-    const binding = mergedKeyBinding(action)
-    const display = binding?.displayValue?.[os]
-    return display || keyBindingValue(action, os)
+    return keyBindingDisplayValueFor(mergedKeyBinding(action), os)
   }
 
 
 
 
-
-  function keyBindingComboFromEvent(event: KeyboardEvent) {
-    const parts: string[] = []
-    if (event.ctrlKey) parts.push('ctrl')
-    if (event.metaKey) parts.push('command')
-    if (event.altKey) parts.push('alt')
-    if (event.shiftKey) parts.push('shift')
-    const key = normalizeEventKey(event)
-    if (key && !isKeyBindingModifier(key)) parts.push(key)
-    return parts.join(keyBindingSeparator)
-  }
 
   function keyBindingEventMatches(event: KeyboardEvent, action: string) {
     const combo = keyBindingComboFromEvent(event)
@@ -1694,20 +1665,8 @@
     return keyBindingSignature(combo) === keyBindingSignature(value)
   }
 
-  function formatKeyBindingToken(token: string) {
-    const os = currentKeyBindingOS()
-    const labels: Record<string, string> = os === 'mac'
-      ? { command: 'Cmd', ctrl: 'Ctrl', alt: 'Opt', shift: 'Shift', enter: 'Enter', esc: 'Esc', space: 'Space', arrowup: 'Up', arrowdown: 'Down', arrowleft: 'Left', arrowright: 'Right' }
-      : { command: 'Win', ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift', enter: 'Enter', esc: 'Esc', space: 'Space', arrowup: 'Up', arrowdown: 'Down', arrowleft: 'Left', arrowright: 'Right' }
-    return labels[token] || token.toUpperCase()
-  }
-
   function formatKeyBinding(value: string) {
-    if (!value) return ''
-    return value
-      .split(/\s+-\s+/)
-      .map((part) => keyBindingParts(part).map(formatKeyBindingToken).join(' + '))
-      .join(' - ')
+    return formatKeyBindingFor(value, currentKeyBindingOS())
   }
 
   function keyBindingIsCustomized(action: string) {
@@ -1715,12 +1674,7 @@
   }
 
   function keyBindingCanEdit(action: string) {
-    const binding = mergedKeyBinding(action)
-    return Boolean(binding && !binding.readOnly)
-  }
-
-  function visibleKeyBindingEntries(section: KeyBindingSection) {
-    return Object.entries(section.bindings).filter(([, binding]) => !binding.hidden)
+    return canEditKeyBinding(mergedKeyBinding(action))
   }
 
   // Delegates to the module, supplying the resolved bindings and the current
