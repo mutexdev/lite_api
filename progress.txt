@@ -6955,3 +6955,46 @@ US-026 - Store layer. DONE. Both named collapses complete.
       leaves the other divider where the user just dragged it. Control fails 2.
 
   Seven controls, seven failures. No vacuous test this round.
+
+=== PHASE 6 — the OpenAPI sync panel ===
+
+  New src/lib/openApiSync.ts, 22 tests. App.svelte 11,280 -> 11,221.
+  Frontend suite 511 -> 533.
+
+  The decisions are the reason this is worth isolating. Each one chooses whether
+  an endpoint's local edits survive the next apply, and a wrong one has no
+  symptom except a request the user had customised coming back as the spec's.
+
+  Pinned:
+    - AN UNRECOGNISED DECISION IS REPLACED, NOT CARRIED. The map is rebuilt from
+      whatever it held before, so a value left by an older build or a renamed
+      decision would ride along and be handed to the backend as an endpoint's
+      disposition. Control fails 1.
+    - IDS NO LONGER PRESENT ARE DROPPED, because the map is built fresh rather
+      than merged. A decision for an endpoint the spec no longer has would
+      accumulate forever and re-apply if the id came back. Control fails 1.
+    - a decision the user made SURVIVES a re-check, since the dialog is often
+      reopened between deciding and applying.
+    - autoCheck is `!== false`, not truthy. A config saved before the flag
+      existed has it undefined; reading it as truthy silently stops polling for
+      every collection connected by an older build. Control fails 4.
+    - a 0 or negative interval falls back. It becomes a setInterval that fires
+      continuously — a request flood at the spec's host. Control fails 1.
+    - A FAILED CHECK REPORTS THE FAILURE AND NOTHING ELSE. Beside it, "Updates
+      found" reads as though the spec were still tracked. Control fails 1.
+    - the drift labels are stated from the COLLECTION's point of view. "missing"
+      and "local-only" are written from the spec's; rendering them raw tells the
+      user their new request was deleted. Control fails 1.
+
+  A SEVENTH GAP OF THE SAME KIND, and this one was a WRONG COMMENT as much as a
+  weak test. I claimed the leading-`{` test keeps YAML out of the formatter. It
+  does not: a YAML mapping is not valid JSON, so it reaches the same catch and
+  is returned unchanged either way. My "YAML" fixture proved nothing — control
+  fails 0.
+
+  What is actually true: the `{` test is a cheap PRE-FILTER that avoids running
+  the parser over every large spec, and its one observable effect is on
+  top-level JSON that is not an object. The trimStart is the load-bearing part —
+  a spec served with a leading newline is ordinary, and without it every such
+  document renders as the unformatted single line it arrived as. Comment
+  rewritten to say that; both now control at 1.

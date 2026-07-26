@@ -37,6 +37,22 @@
     splitFractionAt,
     writeWorkbenchLayout
   } from './lib/workbench/layout'
+  import {
+    OPENAPI_SYNC_CHECK_INTERVALS,
+    allEndpointDecisions,
+    defaultOpenAPISyncDecision,
+    formatOpenAPISyncCheckedAt,
+    formattedOpenAPISpecContent,
+    normalizedOpenAPISyncSettingsInterval,
+    openAPILocalDriftLabel,
+    openAPILocalDriftIDs as openAPILocalDriftIDsOf,
+    openAPISyncAutoCheckEnabled,
+    openAPISyncAutoCheckStatusLine as openAPISyncAutoCheckStatusLineOf,
+    openAPISyncConfigFor,
+    openAPISyncIntervalMinutes,
+    openAPISyncSpecDiffSummary,
+    reconcileEndpointDecisions
+  } from './lib/openApiSync'
   import { workspaceStore } from './lib/stores/workspaceStore.svelte'
   import { variableTooltips } from './lib/stores/variableTooltipStore.svelte'
   import {
@@ -868,7 +884,7 @@
     { id: 'vscode-dark', name: 'VS Code Dark', mode: 'dark', preview: { background: '#1e1e1e', sidebar: '#252526', accent: '#3794ff' } }
   ]
 	  const zoomDefaultPercentage = 100
-	  const openAPISyncCheckIntervals = [5, 15, 30, 60]
+	  const openAPISyncCheckIntervals = [...OPENAPI_SYNC_CHECK_INTERVALS]
 	  const collectionWatchPollMs = 2_000
 	  const openAPISyncInitialPollMs = 10_000
 	  const openAPISyncGlobalPollMs = 5 * 60_000
@@ -3579,24 +3595,6 @@
 	    } as types.OpenAPISyncOptions
 	  }
 
-	  function openAPISyncConfigFor(collection: types.Collection | undefined) {
-	    return collection?.openapi?.[0]
-	  }
-
-	  function openAPISyncIntervalMinutes(config: types.OpenAPISyncConfig | undefined) {
-	    const minutes = Number(config?.autoCheckInterval || 5)
-	    return Number.isFinite(minutes) && minutes > 0 ? minutes : 5
-	  }
-
-	  function openAPISyncAutoCheckEnabled(config: types.OpenAPISyncConfig | undefined) {
-	    return Boolean(config?.sourceUrl && config.autoCheck !== false)
-	  }
-
-	  function normalizedOpenAPISyncSettingsInterval(value: number | undefined) {
-	    const minutes = Number(value || 5)
-	    return openAPISyncCheckIntervals.includes(minutes) ? minutes : 5
-	  }
-
 	  function openOpenAPISyncSettings() {
 	    if (!activeCollection) return
 	    const config = openAPISyncConfigFor(activeCollection)
@@ -3715,58 +3713,17 @@
 	    }
 	  }
 
-	  function formatOpenAPISyncCheckedAt(value: string | undefined) {
-	    if (!value) return ''
-	    const date = new Date(value)
-	    if (Number.isNaN(date.getTime())) return value
-	    return date.toLocaleTimeString()
-	  }
-
 		  function openAPISyncAutoCheckStatusLine(collection: types.Collection | undefined) {
-		    const config = openAPISyncConfigFor(collection)
-		    if (!config?.sourceUrl) return ''
-		    const cadence = openAPISyncAutoCheckEnabled(config)
-		      ? `Auto Check for Updates: Every ${openAPISyncIntervalMinutes(config)} min`
-	      : 'Auto Check for Updates: Disabled'
-	    if (!collection) return cadence
-	    if (!openAPISyncAutoCheckEnabled(config)) return cadence
-	    const errorMessage = openAPISyncUpdateErrors[collection.id]
-	    if (errorMessage) return `${cadence} · Last check failed`
-	    const status = openAPISyncUpdateStatus[collection.id]
-	    if (!status?.checkedAt) return cadence
-	    const checkedAt = formatOpenAPISyncCheckedAt(status.checkedAt)
-	    const updateState = status.hasUpdates ? 'Updates found' : 'No updates'
-		    return `${cadence} · ${updateState}${checkedAt ? ` ${checkedAt}` : ''}`
-		  }
-
-	  function formattedOpenAPISpecContent(content: string | undefined) {
-	    const value = content ?? ''
-	    if (value.trimStart().startsWith('{')) {
-	      try {
-	        return JSON.stringify(JSON.parse(value), null, 2)
-	      } catch {
-	        return value
-	      }
-	    }
-	    return value
-	  }
-
-		  function defaultOpenAPISyncDecision(change: types.OpenAPISyncEndpointChange) {
-		    return change.defaultDecision || 'accept-incoming'
+		    return openAPISyncAutoCheckStatusLineOf({
+		      config: openAPISyncConfigFor(collection),
+		      hasCollection: Boolean(collection),
+		      errorMessage: collection ? openAPISyncUpdateErrors[collection.id] : undefined,
+		      status: collection ? openAPISyncUpdateStatus[collection.id] : undefined
+		    })
 		  }
 
   function reconcileOpenAPISyncEndpointDecisions(result: types.OpenAPISyncResult | undefined) {
-    const changes = result?.changes ?? []
-    if (changes.length === 0) {
-      openAPISyncEndpointDecisions = {}
-      return
-    }
-    const next: Record<string, string> = {}
-    for (const change of changes) {
-      const existing = openAPISyncEndpointDecisions[change.id]
-      next[change.id] = existing === 'accept-incoming' || existing === 'keep-mine' ? existing : defaultOpenAPISyncDecision(change)
-    }
-    openAPISyncEndpointDecisions = next
+    openAPISyncEndpointDecisions = reconcileEndpointDecisions(result?.changes, openAPISyncEndpointDecisions)
   }
 
   function setOpenAPISyncEndpointDecision(id: string, decision: string) {
@@ -3774,22 +3731,11 @@
   }
 
   function setOpenAPISyncAllEndpointDecisions(decision: string) {
-    const changes = openAPISyncResult?.changes ?? []
-    const next: Record<string, string> = {}
-    for (const change of changes) {
-      next[change.id] = decision
-    }
-    openAPISyncEndpointDecisions = next
+    openAPISyncEndpointDecisions = allEndpointDecisions(openAPISyncResult?.changes, decision)
   }
 
   function openAPILocalDriftIDs(changeType: string) {
-    return (openAPILocalDriftResult?.changes ?? []).filter((change) => change.change === changeType).map((change) => change.id)
-  }
-
-  function openAPILocalDriftLabel(changeType: string) {
-    if (changeType === 'missing') return 'deleted'
-    if (changeType === 'local-only') return 'added'
-    return changeType
+    return openAPILocalDriftIDsOf(openAPILocalDriftResult, changeType)
   }
 
   async function checkOpenAPILocalDrift() {
@@ -3888,11 +3834,6 @@
 		  function closeOpenAPISyncSpecDiff() {
 		    openAPISpecDiffOpen = false
 		    openAPISpecDiffActiveChangeIndex = 0
-		  }
-
-		  function openAPISyncSpecDiffSummary(result: types.OpenAPISyncSpecDiffResult | undefined) {
-		    if (!result) return ''
-		    return `${result.added ?? 0} added · ${result.updated ?? 0} updated · ${result.removed ?? 0} removed · ${result.unchanged ?? 0} unchanged`
 		  }
 
 		  async function scrollOpenAPISpecDiffChangeIntoView() {
