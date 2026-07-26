@@ -8,10 +8,6 @@
 package digest
 
 import (
-	"LiteAPI/internal/auth/wsse"
-	"LiteAPI/internal/interp"
-	"LiteAPI/internal/scalar"
-	"LiteAPI/internal/types"
 	"bytes"
 	"crypto/md5"
 	"encoding/hex"
@@ -20,6 +16,11 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/mutexdev/lite_api/internal/auth/wsse"
+	"github.com/mutexdev/lite_api/internal/interp"
+	"github.com/mutexdev/lite_api/internal/scalar"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 func ShouldRetry(res *http.Response, auth types.AuthConfig) bool {

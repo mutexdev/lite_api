@@ -9,13 +9,14 @@ package main
 // just cites evidence that no longer exists.
 
 import (
-	"LiteAPI/internal/store/bru"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/mutexdev/lite_api/internal/store/bru"
 )
 
 // goTestNamesInPackage collects every Go test function declared in the package.

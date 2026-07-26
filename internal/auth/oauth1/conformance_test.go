@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"LiteAPI/internal/types"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 // rfc3986Escape is written out rather than imported: percent-encoding is part

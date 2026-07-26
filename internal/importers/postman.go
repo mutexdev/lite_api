@@ -2,8 +2,6 @@
 package importers
 
 import (
-	"LiteAPI/internal/scalar"
-	"LiteAPI/internal/types"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,6 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/scalar"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 // Postman v2.1 collections, including its script dialect.

@@ -7,9 +7,6 @@
 package codegen
 
 import (
-	"LiteAPI/internal/interp"
-	"LiteAPI/internal/scalar"
-	"LiteAPI/internal/types"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -19,6 +16,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/mutexdev/lite_api/internal/interp"
+	"github.com/mutexdev/lite_api/internal/scalar"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 func GenerateResponseExampleCode(example types.ResponseExample, language string) (string, error) {

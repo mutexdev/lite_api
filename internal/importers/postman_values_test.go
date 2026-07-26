@@ -10,7 +10,7 @@ package importers
 import (
 	"testing"
 
-	"LiteAPI/internal/types"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 // The auth "values" block is either an object or Postman's list-of-{key,value}

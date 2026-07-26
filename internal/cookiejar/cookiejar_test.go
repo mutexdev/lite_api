@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"LiteAPI/internal/types"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 func TestDomainMatchIsSuffixBoundedNotSubstring(t *testing.T) {

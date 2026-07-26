@@ -16,7 +16,7 @@ import (
 	"strings"
 	"testing"
 
-	"LiteAPI/internal/types"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 func md5literal(value string) string {

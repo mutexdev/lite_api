@@ -11,7 +11,7 @@ package yamlstore
 import (
 	"testing"
 
-	"LiteAPI/internal/types"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 func action(over map[string]interface{}) map[string]interface{} {

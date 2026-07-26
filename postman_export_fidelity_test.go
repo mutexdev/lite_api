@@ -17,11 +17,12 @@ package main
 // exporter that drops everything: an empty collection round-trips perfectly.
 
 import (
-	"LiteAPI/internal/importers"
-	"LiteAPI/internal/scripting"
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/mutexdev/lite_api/internal/importers"
+	"github.com/mutexdev/lite_api/internal/scripting"
 )
 
 const fidelityPostmanCollection = `{

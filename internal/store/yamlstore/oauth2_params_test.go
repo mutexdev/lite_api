@@ -14,7 +14,7 @@ package yamlstore
 import (
 	"testing"
 
-	"LiteAPI/internal/types"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 func TestOAuth2AdditionalParamsReadNamePlacementAndFlags(t *testing.T) {

@@ -7,9 +7,6 @@
 package bru
 
 import (
-	"LiteAPI/internal/scalar"
-	"LiteAPI/internal/types"
-	"LiteAPI/internal/wsexec"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +16,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/scalar"
+	"github.com/mutexdev/lite_api/internal/types"
+	"github.com/mutexdev/lite_api/internal/wsexec"
 
 	"gopkg.in/yaml.v3"
 )

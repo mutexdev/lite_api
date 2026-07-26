@@ -18,12 +18,13 @@ package main
 // .ralph/baseline/bench.txt.
 
 import (
-	"LiteAPI/internal/scripting"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/mutexdev/lite_api/internal/scripting"
 )
 
 func benchFixtureOptions() largeWorkspaceOptions {

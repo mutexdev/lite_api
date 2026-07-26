@@ -5392,3 +5392,32 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Verified: 0 lint issues, gofmt clean, go vet clean, 19 packages ok,
   1,045 tests, coverage 83.3% (-count=1), -race clean, bindings identical.
+
+=== RESTRUCTURE PHASE 1 — module path ===
+
+  module LiteAPI -> github.com/mutexdev/lite_api (matches the actual remote,
+  git@github.com:mutexdev/lite_api.git). 117 import lines across 51 files.
+
+  Done BEFORE any file motion on purpose: every later diff is then pure code
+  movement rather than movement tangled with import churn.
+
+  TWO THINGS THE MECHANICAL REWRITE DID NOT COVER, both caught by gofmt:
+
+  1. The new path SORTS DIFFERENTLY. "LiteAPI/..." begins with an uppercase L,
+     which sorts before every lowercase stdlib name, so the internal imports had
+     been sitting at the top of the first group. "github.com/..." sorts among
+     the lowercase names, and gofmt merged them into the stdlib block. Fixed
+     with goimports -local github.com/mutexdev/lite_api, which restores the
+     stdlib / local / third-party grouping.
+
+  2. goimports COULD NOT PARSE app_test.go — an older build that does not
+     handle generics in grpc.ServerStreamingServer[...] at line 193. It printed
+     three parse errors and DECLINED TO WRITE, which is the safe failure. The
+     file was left with its imports mixed into the stdlib group and was fixed by
+     hand. Worth recording: a tool that refuses is not a tool that succeeded,
+     and the only reason this was noticed is that the grouping was inspected
+     rather than assumed from a zero exit code.
+
+  Verified: gofmt clean, build OK, vet clean, 0 lint issues, 19 packages ok,
+  bindings identical (188 via go doc). GOOS=windows still fails — that is
+  Phase 0, which is blocked on a design decision about symlink semantics.

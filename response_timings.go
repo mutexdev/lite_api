@@ -1,13 +1,14 @@
 package main
 
 import (
-	"LiteAPI/internal/types"
 	"crypto/tls"
 	"net/http/httptrace"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 var timingTimelineSequence atomic.Uint64

@@ -7,9 +7,6 @@
 package transport
 
 import (
-	"LiteAPI/internal/interp"
-	"LiteAPI/internal/scalar"
-	"LiteAPI/internal/types"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -29,6 +26,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/interp"
+	"github.com/mutexdev/lite_api/internal/scalar"
+	"github.com/mutexdev/lite_api/internal/types"
 
 	"github.com/dop251/goja"
 	"software.sslmate.com/src/go-pkcs12"

@@ -8,17 +8,18 @@
 package bru
 
 import (
-	"LiteAPI/internal/auth/oauth1"
-	"LiteAPI/internal/codegen"
-	"LiteAPI/internal/scalar"
-	"LiteAPI/internal/types"
-	"LiteAPI/internal/wsexec"
 	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/mutexdev/lite_api/internal/auth/oauth1"
+	"github.com/mutexdev/lite_api/internal/codegen"
+	"github.com/mutexdev/lite_api/internal/scalar"
+	"github.com/mutexdev/lite_api/internal/types"
+	"github.com/mutexdev/lite_api/internal/wsexec"
 )
 
 func ParseSections(content string) map[string][]string {

@@ -1,10 +1,11 @@
 package scripting
 
 import (
-	"LiteAPI/internal/types"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/mutexdev/lite_api/internal/types"
 
 	"github.com/dop251/goja"
 )

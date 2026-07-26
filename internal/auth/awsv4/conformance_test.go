@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"LiteAPI/internal/types"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 func TestSignMatchesAnIndependentlyComputedSignature(t *testing.T) {

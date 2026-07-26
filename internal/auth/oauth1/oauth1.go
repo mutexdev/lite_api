@@ -6,10 +6,6 @@
 package oauth1
 
 import (
-	"LiteAPI/internal/auth/wsse"
-	"LiteAPI/internal/interp"
-	"LiteAPI/internal/scalar"
-	"LiteAPI/internal/types"
 	"bytes"
 	"crypto"
 	"crypto/hmac"
@@ -32,6 +28,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/auth/wsse"
+	"github.com/mutexdev/lite_api/internal/interp"
+	"github.com/mutexdev/lite_api/internal/scalar"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 func Sign(req *http.Request, item *types.RequestItem, auth types.OAuth1Auth, vars map[string]string, now time.Time) error {

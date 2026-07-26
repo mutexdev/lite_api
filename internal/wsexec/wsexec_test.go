@@ -15,7 +15,7 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"LiteAPI/internal/types"
+	"github.com/mutexdev/lite_api/internal/types"
 
 	"github.com/gorilla/websocket"
 )

@@ -1,8 +1,6 @@
 package main
 
 import (
-	"LiteAPI/internal/openapisync"
-	"LiteAPI/internal/types"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +13,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/openapisync"
+	"github.com/mutexdev/lite_api/internal/types"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	"gopkg.in/yaml.v3"

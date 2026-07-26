@@ -14,7 +14,7 @@ package scripting
 import (
 	"testing"
 
-	"LiteAPI/internal/types"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 // collect runs the scanner and returns every string it looked at.

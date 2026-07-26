@@ -13,12 +13,13 @@ package main
 // correctly, right up until someone controls the data.
 
 import (
-	"LiteAPI/internal/scripting"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mutexdev/lite_api/internal/scripting"
 )
 
 // TestVisualizerSandboxNeverAllowsSameOrigin is the single most important

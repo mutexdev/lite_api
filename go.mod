@@ -1,4 +1,4 @@
-module LiteAPI
+module github.com/mutexdev/lite_api
 
 go 1.25.0
 

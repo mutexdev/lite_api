@@ -1,11 +1,12 @@
 package main
 
 import (
-	"LiteAPI/internal/cookiejar"
 	"context"
 	"fmt"
 	"strings"
 	"sync/atomic"
+
+	"github.com/mutexdev/lite_api/internal/cookiejar"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )

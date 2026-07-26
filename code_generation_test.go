@@ -9,10 +9,11 @@ package main
 // user never wrote. Every target is therefore fed the same hostile body.
 
 import (
-	"LiteAPI/internal/codegen"
-	"LiteAPI/internal/types"
 	"strings"
 	"testing"
+
+	"github.com/mutexdev/lite_api/internal/codegen"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 // hostileBody contains, deliberately: a double quote, a single quote, a

@@ -18,7 +18,7 @@ package codegen
 import (
 	"testing"
 
-	"LiteAPI/internal/types"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 var vars = map[string]string{"host": "api.test", "token": "secret", "file": "/tmp/x.bin"}

@@ -1,13 +1,14 @@
 package codegen
 
 import (
-	"LiteAPI/internal/scalar"
-	"LiteAPI/internal/types"
 	"fmt"
 	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/mutexdev/lite_api/internal/scalar"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 // US-054 — code generation targets beyond curl and fetch.

@@ -2,8 +2,6 @@
 package importers
 
 import (
-	"LiteAPI/internal/scalar"
-	"LiteAPI/internal/types"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +10,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/scalar"
+	"github.com/mutexdev/lite_api/internal/types"
 
 	"gopkg.in/yaml.v3"
 )

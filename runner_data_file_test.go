@@ -8,7 +8,6 @@ package main
 // would pass a unit test while shipping requests with {{userId}} in the URL.
 
 import (
-	"LiteAPI/internal/scripting"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +15,8 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/mutexdev/lite_api/internal/scripting"
 )
 
 func writeDataFile(t *testing.T, name, content string) string {

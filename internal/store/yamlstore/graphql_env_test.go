@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"LiteAPI/internal/types"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 func TestGraphQLSectionLoadsQueryVariablesAndMode(t *testing.T) {

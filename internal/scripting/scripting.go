@@ -8,11 +8,6 @@
 package scripting
 
 import (
-	"LiteAPI/internal/codegen"
-	"LiteAPI/internal/cookiejar"
-	"LiteAPI/internal/interp"
-	"LiteAPI/internal/scalar"
-	"LiteAPI/internal/types"
 	"bytes"
 	"compress/flate"
 	"compress/gzip"
@@ -50,6 +45,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/codegen"
+	"github.com/mutexdev/lite_api/internal/cookiejar"
+	"github.com/mutexdev/lite_api/internal/interp"
+	"github.com/mutexdev/lite_api/internal/scalar"
+	"github.com/mutexdev/lite_api/internal/types"
 
 	jwtlib "github.com/golang-jwt/jwt/v5"
 	googleuuid "github.com/google/uuid"

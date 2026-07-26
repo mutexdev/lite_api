@@ -13,7 +13,7 @@ package bru
 import (
 	"testing"
 
-	"LiteAPI/internal/types"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 // The operators the evaluator (scripting.CompareAssertion) accepts. Duplicated

@@ -9,9 +9,6 @@
 package cookiejar
 
 import (
-	"LiteAPI/internal/codegen"
-	"LiteAPI/internal/scalar"
-	"LiteAPI/internal/types"
 	"errors"
 	"fmt"
 	"net"
@@ -20,6 +17,10 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/codegen"
+	"github.com/mutexdev/lite_api/internal/scalar"
+	"github.com/mutexdev/lite_api/internal/types"
 
 	"golang.org/x/net/publicsuffix"
 )

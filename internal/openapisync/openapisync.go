@@ -7,10 +7,6 @@
 package openapisync
 
 import (
-	"LiteAPI/internal/importers"
-	"LiteAPI/internal/scalar"
-	"LiteAPI/internal/scripting"
-	"LiteAPI/internal/types"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
@@ -26,6 +22,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/importers"
+	"github.com/mutexdev/lite_api/internal/scalar"
+	"github.com/mutexdev/lite_api/internal/scripting"
+	"github.com/mutexdev/lite_api/internal/types"
 
 	"gopkg.in/yaml.v3"
 )

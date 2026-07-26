@@ -5,7 +5,7 @@
 // another package without its receiver.
 package main
 
-import "LiteAPI/internal/codegen"
+import "github.com/mutexdev/lite_api/internal/codegen"
 
 func (a *App) CodeGenerationTargets() []codegen.Target {
 	out := []codegen.Target{

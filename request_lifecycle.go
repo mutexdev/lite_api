@@ -1,10 +1,11 @@
 package main
 
 import (
-	"LiteAPI/internal/cookiejar"
 	"context"
 	"sync"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/cookiejar"
 )
 
 // requestLifecycleRegistry tracks active top-level HTTP and GraphQL sends,

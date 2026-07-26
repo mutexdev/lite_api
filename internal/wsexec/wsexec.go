@@ -7,9 +7,6 @@
 package wsexec
 
 import (
-	"LiteAPI/internal/codegen"
-	"LiteAPI/internal/interp"
-	"LiteAPI/internal/types"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -17,6 +14,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/codegen"
+	"github.com/mutexdev/lite_api/internal/interp"
+	"github.com/mutexdev/lite_api/internal/types"
 
 	"github.com/gorilla/websocket"
 )

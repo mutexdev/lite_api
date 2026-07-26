@@ -29,11 +29,12 @@ package main
 //     server's data are different trust levels.
 
 import (
-	"LiteAPI/internal/types"
 	"encoding/json"
 	"fmt"
 	"html"
 	"strings"
+
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 // VisualizerPayload moved to internal/types: Response embeds it, and a type

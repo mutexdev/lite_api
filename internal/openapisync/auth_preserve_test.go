@@ -16,7 +16,7 @@ package openapisync
 import (
 	"testing"
 
-	"LiteAPI/internal/types"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 func TestOAuth2CredentialsSurviveAReSync(t *testing.T) {

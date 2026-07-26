@@ -8,7 +8,6 @@
 package awsv4
 
 import (
-	"LiteAPI/internal/types"
 	"bytes"
 	"context"
 	"crypto/hmac"
@@ -28,6 +27,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 // Sign adds the SigV4 Authorization header to req.

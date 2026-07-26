@@ -1,8 +1,6 @@
 package main
 
 import (
-	"LiteAPI/internal/auth/awsv4"
-	xport "LiteAPI/internal/transport"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -17,6 +15,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/auth/awsv4"
+	xport "github.com/mutexdev/lite_api/internal/transport"
 )
 
 // US-016 — keyed HTTP transport cache.

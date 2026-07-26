@@ -8,11 +8,6 @@
 package grpcexec
 
 import (
-	"LiteAPI/internal/auth/wsse"
-	"LiteAPI/internal/interp"
-	"LiteAPI/internal/scalar"
-	"LiteAPI/internal/transport"
-	"LiteAPI/internal/types"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
@@ -27,6 +22,12 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/auth/wsse"
+	"github.com/mutexdev/lite_api/internal/interp"
+	"github.com/mutexdev/lite_api/internal/scalar"
+	"github.com/mutexdev/lite_api/internal/transport"
+	"github.com/mutexdev/lite_api/internal/types"
 
 	reflectionpb "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 

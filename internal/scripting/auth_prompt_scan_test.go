@@ -18,7 +18,7 @@ import (
 	"reflect"
 	"testing"
 
-	"LiteAPI/internal/types"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 // fillStrings puts a distinct marker in every string field, walking nested

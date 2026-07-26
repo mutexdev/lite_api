@@ -3,10 +3,11 @@
 package codegen
 
 import (
-	"LiteAPI/internal/types"
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 // hostileBody contains, deliberately: a double quote, a single quote, a

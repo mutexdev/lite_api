@@ -6,11 +6,12 @@
 package main
 
 import (
-	"LiteAPI/internal/scripting"
 	"strings"
 	"testing"
 
-	"LiteAPI/internal/interp"
+	"github.com/mutexdev/lite_api/internal/scripting"
+
+	"github.com/mutexdev/lite_api/internal/interp"
 )
 
 func TestInterpolateCycleTermination(t *testing.T) {

@@ -9,14 +9,15 @@ package main
 // reaches the same TestResults the runner reads.
 
 import (
-	"LiteAPI/internal/importers"
-	"LiteAPI/internal/scripting"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/mutexdev/lite_api/internal/importers"
+	"github.com/mutexdev/lite_api/internal/scripting"
 )
 
 func TestPostmanEventName(t *testing.T) {

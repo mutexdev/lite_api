@@ -11,7 +11,7 @@ package scripting
 import (
 	"testing"
 
-	"LiteAPI/internal/types"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 func benchItem() types.RequestItem {

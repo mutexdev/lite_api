@@ -6,16 +6,17 @@
 package yamlstore
 
 import (
-	"LiteAPI/internal/scalar"
-	"LiteAPI/internal/store/bru"
-	"LiteAPI/internal/types"
-	"LiteAPI/internal/wsexec"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
+
+	"github.com/mutexdev/lite_api/internal/scalar"
+	"github.com/mutexdev/lite_api/internal/store/bru"
+	"github.com/mutexdev/lite_api/internal/types"
+	"github.com/mutexdev/lite_api/internal/wsexec"
 
 	"gopkg.in/yaml.v3"
 )
