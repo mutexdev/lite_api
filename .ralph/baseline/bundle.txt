@@ -699,3 +699,29 @@ frontend/dist/assets/index-*.css        113609
 #   dialogs 29/29 | Runner | Preferences 7/7 | DevTools fully decomposed
 #   Import: the one surface left, and the only one that does not decompose.
 # ---------------------------------------------------------------------------
+
+# Import panel — EXTRACTED on the third attempt. 10,913 B of source, 35 props.
+#   initial chunk 473,597 -> 463,476  (-10,121). Margin 36,524 bytes.
+#
+# WHAT MADE THE DIFFERENCE, stated precisely because the three attempts isolate
+# it cleanly:
+#   attempt 1: guessed prop NAMES from attribute lines   -> 39 errors, missing names
+#   attempt 2: read names from the body, guessed TYPES   -> 37 errors, all signatures
+#   attempt 3: read both names AND signatures from the
+#              declarations in App.svelte's <script>     -> 4 errors
+#
+# The four residuals were one genuinely wrong signature (toggleImportChild takes
+# four arguments, not two — my regex captured only the first line of a wrapped
+# parameter list) and its three call sites.
+#
+# So the rule that closes this story: for every prop, grep its declaration.
+# `function name(` and `let name:` in App.svelte's script give the truth in one
+# pass. Inferring from the prop name, from sibling props, or from how it is used
+# in markup all failed measurably.
+#
+# ---------------------------------------------------------------------------
+# US-036 COMPLETE
+#   1,159,933 -> 463,476 bytes. 60.0% smaller. 36,524 under the 500 KB target.
+#   dialogs 29/29 | Runner | Preferences 7/7 | DevTools 4/4 | Import
+#   Every panel and dialog now loads only when its surface is opened.
+# ---------------------------------------------------------------------------
