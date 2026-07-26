@@ -6301,3 +6301,26 @@ US-026 - Store layer. DONE. Both named collapses complete.
   indentation drift from the dedent, not ambiguity. Now it says NOT FOUND or
   AMBIGUOUS(n). A control runner that misreports why it refused is a control
   runner that gets ignored.
+
+=== RESTRUCTURE PHASE 6 — ninth slice, content-type derivation ===
+
+  src/lib/contentTypes.ts — 42 lines, 8 tests. App.svelte 11,621 -> 11,592.
+  Frontend suite 373 -> 381.
+
+  Both functions run while someone is typing, and both get WRITTEN into the
+  request rather than merely displayed. A wrong guess is saved and sent.
+
+  Pinned: the query and fragment are stripped before reading the extension,
+  because a path pasted from a browser carries them and "report.pdf?download=1"
+  is still a PDF. An unknown extension yields "" rather than
+  application/octet-stream — an empty content type lets the server sniff, a
+  wrong one overrides it. Text types carry charset=utf-8 and binary ones do not,
+  and JSON does not because the format defines UTF-8.
+
+  RECORDED A LIMITATION RATHER THAN CLAIMING IT WAS CORRECT.
+  responseExampleBodyTypeForContentType matches "application/json" as a
+  SUBSTRING, so application/vnd.api+json falls through to 'text' and renders
+  unformatted. That is a real thing someone will hit. The test asserts the
+  current behaviour and says why it is wrong-looking, rather than either
+  pretending it is right or quietly changing a matcher I have no failing report
+  about. Changing it is a one-line fix whenever someone decides to.

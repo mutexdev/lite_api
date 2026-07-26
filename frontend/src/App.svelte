@@ -280,6 +280,7 @@
     oauth2AuthWithDefaults,
     proxyConfigWithDefaults
   } from './lib/authDefaults'
+  import { contentTypeForFilePath, responseExampleBodyTypeForContentType } from './lib/contentTypes'
   import { BrowserOpenURL, EventsOn, OnFileDrop, OnFileDropOff, Quit } from '../wailsjs/runtime/runtime'
 
   type View = 'request' | 'collection' | 'git' | 'runner' | 'environments' | 'import' | 'features' | 'network' | 'cookies' | 'history' | 'preferences' | 'devtools'
@@ -2277,13 +2278,6 @@
     }
   }
 
-  function responseExampleBodyTypeForContentType(contentType = '') {
-    const normalized = contentType.toLowerCase()
-    if (normalized.includes('application/json')) return 'json'
-    if (normalized.includes('text/xml') || normalized.includes('application/xml')) return 'xml'
-    if (normalized.includes('text/html')) return 'html'
-    return 'text'
-  }
 
   function updateResponseExampleResponseField(example: types.ResponseExample, field: keyof types.ResponseExamplePayload, value: string | number) {
     updateResponseExampleDraft(example, (draft) => {
@@ -5441,29 +5435,6 @@
 	    updateBody({ multipart: rows } as Partial<types.RequestBody>)
 	  }
 
-	  function contentTypeForFilePath(filePath: string) {
-	    const ext = filePath.trim().toLowerCase().split('?')[0].split('#')[0].match(/\.([a-z0-9]+)$/)?.[1] ?? ''
-	    const types: Record<string, string> = {
-	      json: 'application/json',
-	      txt: 'text/plain; charset=utf-8',
-	      text: 'text/plain; charset=utf-8',
-	      xml: 'application/xml',
-	      csv: 'text/csv; charset=utf-8',
-	      html: 'text/html; charset=utf-8',
-	      htm: 'text/html; charset=utf-8',
-	      css: 'text/css; charset=utf-8',
-	      js: 'text/javascript; charset=utf-8',
-	      mjs: 'text/javascript; charset=utf-8',
-	      png: 'image/png',
-	      jpg: 'image/jpeg',
-	      jpeg: 'image/jpeg',
-	      gif: 'image/gif',
-	      svg: 'image/svg+xml',
-	      pdf: 'application/pdf',
-	      zip: 'application/zip'
-	    }
-	    return types[ext] ?? ''
-	  }
 
 
 	  function fileBodyUpdate(rows: types.FileBodyEntry[]) {
