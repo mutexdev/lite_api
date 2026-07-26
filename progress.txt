@@ -3534,3 +3534,37 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Also pinned: first-occurrence ORDER survives dedup, so drafts save in the
   order the user's tabs are in rather than whatever a map iteration produces.
+
+--- Response timing units + a sweep that found things ALREADY covered ---
+
+  Control: swapping Milliseconds() for Microseconds() failed no test. The field
+  is TotalMs and the UI renders it as milliseconds, so a unit slip shows a 200ms
+  request as 200000ms - wrong to anyone who looks, and nothing fails.
+
+  Five tests added. Controls: wrong unit -> 6 findings, download measured from
+  the request start instead of the first byte -> 2, the availability flag
+  always set -> 2.
+
+  The download one is the subtle one. A zero duration and an UNMEASURED phase
+  are the same number, so DownloadAvailable is the only thing separating "this
+  took no time" from "Go never reported this". Measuring from the start instead
+  of the first byte quietly attributes the entire wait to download, and the
+  number still looks plausible.
+
+  THE SWEEP ALSO FOUND THINGS PROPERLY COVERED, which is worth recording so the
+  session's tally is not read as "everything was broken":
+
+    shared-state cookie encryption disabled     -> 2 failing  (covered)
+    shared-state preference encryption disabled -> 2 failing  (covered)
+    workspace symlink resolution skipped        -> 1 failing  (covered)
+    recovery entry-id UUID validation disabled  -> 1 failing  (covered)
+    assertion comparison always true            -> 1 failing  (covered)
+    grpcurl full-method assembly                -> 1 failing  (covered)
+    unix socket path extraction                 -> 1 failing  (covered)
+    bru ParseSections / ParseScalarMap          -> 44 / 33    (covered well)
+
+  The workspace symlink one deserves a note: canonicalWorkspaceIdentity resolves
+  symlinks so two paths to the same workspace get the SAME lock. Without it an
+  alias would take a second lock and two windows could open one workspace at
+  once. That IS tested, and it is the kind of subtle property that usually is
+  not - someone thought about it.
