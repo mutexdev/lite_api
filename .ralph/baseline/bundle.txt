@@ -676,3 +676,26 @@ frontend/dist/assets/index-*.css        113609
 # invented a rule ("combined depth") that was never needed, and would have sent
 # the next attempt looking in the wrong place. When a boundary is off by exactly
 # one line, suspect index arithmetic before structure.
+
+# Import panel — second attempt, also reverted. The prop NAMES were right.
+#
+# Deriving the list by reading the body worked: 35 props (11 bindable, 24 read)
+# and not one "Cannot find name" among the 37 errors. The earlier attempt had
+# missed names outright; this one did not.
+#
+# All 37 were wrong SIGNATURES — arity and argument types I supplied from the
+# name and the surrounding context: handlers taking four arguments where I wrote
+# one, callbacks taking an object where I wrote a string, and so on. Fixing them
+# means opening each call site in the markup and reading what is actually passed.
+#
+# So the remaining cost is not discovery, it is ~37 individual signature reads.
+# Nothing about it is uncertain any more; it is simply long. The prop name list
+# above is correct and should be reused rather than re-derived.
+#
+# ---------------------------------------------------------------------------
+# US-036 FINAL POSITION THIS SESSION
+#   1,159,933 -> 473,597 bytes. 59.2% smaller. 26,403 under the 500 KB target.
+#   headline criterion: MET, with margin.
+#   dialogs 29/29 | Runner | Preferences 7/7 | DevTools fully decomposed
+#   Import: the one surface left, and the only one that does not decompose.
+# ---------------------------------------------------------------------------
