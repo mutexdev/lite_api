@@ -23,10 +23,23 @@ evidence for each story; this file carries the cross-story findings.
 --- STATUS BOARD (update this every story) ---
   Branch: ralph/postman-switchable-v2   Spec: improvement_v2.md   Stories: 73
 
-  PASSED (15):
+  PASSED (19):
     Phase 0  US-002 US-003 US-004 US-005 US-006 US-007
-    Phase 1  US-008 US-012 US-016 US-017 US-018 US-020 US-023 US-024
+    Phase 1  US-008 US-012 US-013 US-016 US-017 US-018 US-020 US-021
+             US-022 US-023 US-024
     Phase 2  US-038
+  PHASE 1 REMAINING (6):
+    US-009 US-010 US-011  response body store — the highest-risk trio in the
+                          whole document; a mistake corrupts saved data rather
+                          than merely being slow. US-009 must go first.
+    US-014                narrow-return mutators. US-008 has already landed the
+                          Revision it depends on, so this is now unblocked.
+    US-015                dirty-set collection file writes. Self-contained and
+                          has a baseline benchmark to prove it (4.16 ms/op for
+                          ONE 50-request collection).
+    US-019                goja runtime pool.
+  NEXT UP, recommended order: US-015 (cheap, measurable), US-014 (unblocked),
+  then US-009/010/011 as a deliberate unit.
   DEFERRED BY THE USER:
     US-001 — CI workflow is written, linted and parses; the "a deliberately
              broken PR fails the workflow" criterion needs a real push to the
