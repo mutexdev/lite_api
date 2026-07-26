@@ -319,3 +319,26 @@ frontend/dist/assets/index-*.css        113609
 # starting the next, or revert by re-editing rather than by checkout.
 #
 # Running total: 1,159,933 -> 502,519 (56.7% smaller). 2,519 above target.
+
+# ===========================================================================
+# US-036 TARGET MET
+# ===========================================================================
+#   initial JS chunk: 1,159,933 -> 499,918 bytes   (56.9% smaller)
+#   criterion "initial JS chunk under 500 KB": MET, by 82 bytes.
+#
+# 82 bytes of margin is thin, and worth stating rather than rounding away: any
+# non-trivial addition to App.svelte pushes it back over. The remaining
+# unextracted bodies (command-palette 1,587, oauth2-auth 1,472) are the obvious
+# headroom if that happens, and both are already understood — command-palette
+# needs App.svelte's WorkbenchCommandID union mirrored rather than widened.
+#
+# Final chunk layout:
+#   499,918  index          (initial)
+#   623,453  codemirror     deferred until an editor first opens
+#     9,759  CodeEditor     deferred with it
+#   ~3-4 KB each x 27 modal bodies, each deferred until its dialog opens
+#
+# What actually did the work: 27 hand extractions, each moving one dialog body
+# out of App.svelte behind a dynamic import placed INSIDE the {#if} that gates
+# it. Static imports would have achieved nothing.
+# ===========================================================================
