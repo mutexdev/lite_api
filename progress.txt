@@ -5552,3 +5552,41 @@ US-026 - Store layer. DONE. Both named collapses complete.
   what makes it possible to retire them deliberately rather than discovering
   them one at a time. These are the LIVE ones; the 21 dead ones were deleted in
   Phase 0b.
+
+=== RESTRUCTURE PHASE 2 — wave 5, and a tripwire that caught the split ===
+
+  app_send.go     28 decls, 771 lines  (SendRequest -> sendRequestWithControlsContext)
+  app_runner.go   11 decls, 357 lines  (RunCollection, iterations, delay, bail)
+
+  app.go: 8,274 -> 7,174 lines. Down 59% from 17,314.
+
+  A SOURCE-SCANNING GUARD FIRED ON THE MOVE — WHICH IS BOTH RIGHT AND WRONG.
+  TestRunnerResolvesWorkspaceAfterReacquiringTheLock (US-076) greps the source
+  for
+
+      scripting.ApplyScriptVariableContextToState(&a.state, liveWorkspace, ...)
+
+  to catch anyone reintroducing the captured pre-I/O workspace pointer. Its
+  helper read app.go and only app.go, so moving sendRequestWithControlsContext
+  into app_send.go made it report a US-076 regression when nothing about the
+  property had changed. The FIRST failing test of the whole restructure, and it
+  was the guard rather than the code.
+
+  Fixed by scanning every non-test file in package main rather than one
+  filename. Exactly as strict about what it protects — the call must exist and
+  must not pass `ws` — and silent about where that code lives. A guard that
+  fires on code motion is a guard people learn to edit away.
+
+  MY OWN CONTROL DOCTRINE, VIOLATED BY ME, CAUGHT BY THE DOCTRINE.
+  The first negative control on the fixed guard reported 0 failures. I had
+  counted '--- FAIL' lines instead of reading the output. The control had not
+  compiled: swapping liveWorkspace for ws left liveWorkspace declared and not
+  used, so the run ended in "FAIL [build failed]" — which contains no '--- FAIL'
+  line at all. Zero failures and a broken build are indistinguishable to a
+  counter.
+
+  control.sh exists precisely to refuse a number unless the edit LANDED and
+  COMPILED, and I bypassed it by inlining a one-off. Re-run with `_ =
+  liveWorkspace` added so the mutation compiles: both assertions fire. Third
+  time this session that an absent result has impersonated a negative one
+  (blank grep count, un-run `timeout` command, now a failed build).

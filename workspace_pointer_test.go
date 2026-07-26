@@ -29,13 +29,40 @@ import (
 // readAppSourceForTest reads app.go so a test can assert on a property of the
 // code itself. Used sparingly and only where a behavioural test cannot pin the
 // property on its own.
+// readAppSourceForTest returns every non-test source file in package main,
+// concatenated.
+//
+// It used to read app.go alone. That made it fail the moment
+// sendRequestWithControlsContext moved to app_send.go during the file split —
+// reporting a US-076 regression when nothing about the property had changed.
+// A guard that fires on code motion is a guard people learn to edit away.
+//
+// Scanning the whole package keeps it exactly as strict about the thing it
+// actually protects (the call must exist, and must not pass the pre-I/O
+// pointer) while saying nothing about which file that code lives in.
 func readAppSourceForTest(t *testing.T) string {
 	t.Helper()
-	data, err := os.ReadFile("app.go")
+	entries, err := os.ReadDir(".")
 	if err != nil {
-		t.Fatalf("read app.go: %v", err)
+		t.Fatalf("read package directory: %v", err)
 	}
-	return string(data)
+	var combined strings.Builder
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		combined.Write(data)
+		combined.WriteByte('\n')
+	}
+	if combined.Len() == 0 {
+		t.Fatal("no package sources found; the guard would pass vacuously")
+	}
+	return combined.String()
 }
 
 // globalVariableValue returns the value of a named global variable in the given
