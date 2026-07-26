@@ -5216,3 +5216,33 @@ US-026 - Store layer. DONE. Both named collapses complete.
   trim its input. Unlike a PEM pasted into a text box, this value comes from a
   script's own options object, so a stray space means the script wrote one. The
   test says that instead of asserting a tolerance and then adding it.
+
+--- fs.writeFile data conversion, and a DataView writing nulls ---
+
+  JavaScript has half a dozen ways to hold binary data — a string in some
+  encoding, a Buffer, a Uint8Array, an ArrayBuffer, a DataView, a plain array of
+  numbers — and fs.writeFile accepts all of them. Each takes a different path,
+  and a path that gets it wrong writes a FILE: corrupt, truncated, or holding
+  the text of the data rather than the data. So the tests are mostly round
+  trips: what a script wrote must be what a script reads back.
+
+  FOUND AND FIXED: writing a DataView produced a file of the RIGHT LENGTH FULL
+  OF ZEROS. A DataView has byteLength but no length, and new Uint8Array(dataView)
+  treats it as an array-like with no length at all, giving an empty view whose
+  bytes then read back as zero — while the byte count still came from
+  byteLength. Nothing errors. The file exists, the size looks right, the
+  contents are nulls. Now routed through the view's buffer, honouring byteOffset
+  since a view need not start at zero; a Uint8Array over a slice of a buffer had
+  the same latent problem and is tested alongside.
+
+  Also pinned: 64 MB cap on a claimed length — without it an object claiming
+  length 2^40 allocates until the process is killed, and that control does not
+  fail the suite, it HANGS it, which is the failure it predicts. utf8 is lossy
+  for bytes that are not valid UTF-8 and the round-trip test says so explicitly
+  rather than quietly skipping. latin1 is a byte-per-character encoding, not
+  UTF-8, in both directions. Node's spellings ("UTF-8", "utf_8") are accepted
+  because that is how the docs write them.
+
+  One control was equivalent: removing the []interface{} case still works,
+  because a JS array falls through to the indexed-object path and reads the same
+  bytes.

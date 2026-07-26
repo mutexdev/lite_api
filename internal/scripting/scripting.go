@@ -4371,7 +4371,13 @@ func scriptFSWriteBytes(runtime *goja.Runtime, value, options goja.Value) ([]byt
 	}
 	byteLengthValue := object.Get("byteLength")
 	if byteLengthValue != nil && !goja.IsUndefined(byteLengthValue) && !goja.IsNull(byteLengthValue) {
-		view, err := runtime.New(runtime.Get("Uint8Array"), value)
+		// A DataView has byteLength but no length, and new Uint8Array(dataView)
+		// treats it as an array-like with no length at all — producing an empty
+		// view whose bytes then read back as zero. Going through its buffer
+		// (honouring byteOffset, since a view need not start at zero) is what
+		// makes fs.writeFile(dataView) write the data rather than a file of the
+		// right size full of nulls.
+		view, err := scriptFSUint8ArrayOver(runtime, value, object)
 		if err != nil {
 			return nil, err
 		}
@@ -4414,6 +4420,19 @@ func scriptFSBytesFromInterfaceSlice(values []interface{}) []byte {
 		}
 	}
 	return bytes
+}
+
+func scriptFSUint8ArrayOver(runtime *goja.Runtime, value goja.Value, object *goja.Object) (*goja.Object, error) {
+	uint8Array := runtime.Get("Uint8Array")
+	if buffer := object.Get("buffer"); buffer != nil && !goja.IsUndefined(buffer) && !goja.IsNull(buffer) {
+		offset := int64(0)
+		if byteOffset := object.Get("byteOffset"); byteOffset != nil && !goja.IsUndefined(byteOffset) && !goja.IsNull(byteOffset) {
+			offset = byteOffset.ToInteger()
+		}
+		byteLength := object.Get("byteLength").ToInteger()
+		return runtime.New(uint8Array, buffer, runtime.ToValue(offset), runtime.ToValue(byteLength))
+	}
+	return runtime.New(uint8Array, value)
 }
 
 func scriptFSBytesFromIndexedObject(object *goja.Object, length int64) ([]byte, error) {

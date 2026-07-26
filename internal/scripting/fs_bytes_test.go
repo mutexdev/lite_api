@@ -1,118 +1,245 @@
-// Converting a script's byte array into bytes on disk.
+// Turning whatever a script passes to fs.writeFile into bytes.
 //
-// These two turn what a script passes to fs.writeFile — a Uint8Array, an
-// ArrayBuffer view, or a plain array of numbers — into the bytes actually
-// written. Coverage found both at 0%.
+// JavaScript has half a dozen ways to hold binary data — a string in some
+// encoding, a Buffer, a Uint8Array, an ArrayBuffer, a plain array of numbers —
+// and fs.writeFile accepts all of them. Every one takes a different path
+// through this function, and a path that gets it wrong writes a FILE: corrupt,
+// truncated, or holding the text of the data rather than the data.
 //
-// The failure mode is data corruption at rest. A conversion that truncates,
-// misreads a numeric type or silently substitutes zeroes writes a file that
-// exists, has a plausible size, and contains the wrong bytes. Nothing errors,
-// and the script reports success.
+// The read side has to agree with the write side, so the tests below are mostly
+// round trips: what a script wrote must be what a script reads back.
 package scripting
 
 import (
-	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/dop251/goja"
 )
 
-func TestFSBytesFromInterfaceSliceHandlesEveryNumericShape(t *testing.T) {
-	// goja hands numbers over as int64 or float64 depending on how they were
-	// written; a decoder may hand over json.Number. All three must survive.
-	got := scriptFSBytesFromInterfaceSlice([]interface{}{
-		int(72), int64(101), float64(108), json.Number("108"), int64(111),
-	})
-	if string(got) != "Hello" {
-		t.Fatalf("got %q (% x), want %q", got, got, "Hello")
+func jsValue(t *testing.T, source string) (*goja.Runtime, goja.Value) {
+	t.Helper()
+	runtime := goja.New()
+	value, err := runtime.RunString(source)
+	if err != nil {
+		t.Fatalf("%s: %v", source, err)
+	}
+	return runtime, value
+}
+
+func TestFSWriteAcceptsEveryJavaScriptBinaryShape(t *testing.T) {
+	for name, source := range map[string]string{
+		"string":           `"abc"`,
+		"array of numbers": `[97, 98, 99]`,
+		"Uint8Array":       `new Uint8Array([97, 98, 99])`,
+		"ArrayBuffer":      `new Uint8Array([97, 98, 99]).buffer`,
+		"Int8Array":        `new Int8Array([97, 98, 99])`,
+		"DataView":         `new DataView(new Uint8Array([97, 98, 99]).buffer)`,
+	} {
+		runtime, value := jsValue(t, source)
+		got, err := scriptFSWriteBytes(runtime, value, goja.Undefined())
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if string(got) != "abc" {
+			t.Errorf("%s: wrote %q, want \"abc\"", name, got)
+		}
 	}
 }
 
-// Values above 255 wrap, which is what a byte conversion does and what the
-// JS side does too — Uint8Array truncates modulo 256. Pinning it so a future
-// change to clamp instead is a deliberate decision.
-func TestFSBytesFromInterfaceSliceWrapsOutOfRangeValues(t *testing.T) {
-	got := scriptFSBytesFromInterfaceSlice([]interface{}{int64(256), int64(257), int64(-1)})
-	if got[0] != 0 || got[1] != 1 || got[2] != 255 {
-		t.Fatalf("got % x, want 00 01 ff — byte conversion wraps like Uint8Array", got)
+// A view need not start at the beginning of its buffer. Reading from offset
+// zero would write the wrong three bytes — a file that is the right size and
+// the wrong contents, which nothing downstream can detect.
+func TestFSWriteHonoursAViewsByteOffset(t *testing.T) {
+	for name, source := range map[string]string{
+		"DataView":   `new DataView(new Uint8Array([0, 0, 97, 98, 99]).buffer, 2, 3)`,
+		"Uint8Array": `new Uint8Array(new Uint8Array([0, 0, 97, 98, 99]).buffer, 2, 3)`,
+	} {
+		runtime, value := jsValue(t, source)
+		got, err := scriptFSWriteBytes(runtime, value, goja.Undefined())
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if string(got) != "abc" {
+			t.Errorf("%s: wrote %q, want the three bytes the view covers", name, got)
+		}
 	}
 }
 
-// A non-numeric entry becomes zero rather than aborting the write. That is a
-// deliberate choice and worth stating: the alternative is a script failing to
-// save anything because one element was undefined.
-func TestFSBytesFromInterfaceSliceZeroesUnknownEntries(t *testing.T) {
-	got := scriptFSBytesFromInterfaceSlice([]interface{}{int64(65), "not a number", nil, int64(66)})
-	if len(got) != 4 || got[0] != 65 || got[1] != 0 || got[2] != 0 || got[3] != 66 {
-		t.Fatalf("got % x, want 41 00 00 42", got)
+// A Buffer is the shape scripts use most, because it is what fs.readFile hands
+// back — so read-modify-write is the ordinary case and must survive it.
+func TestFSWriteRoundTripsWhatItRead(t *testing.T) {
+	runtime := goja.New()
+	original := []byte{0x00, 0x7f, 0x80, 0xff, 'a'}
+
+	for _, encoding := range []string{"", "utf8", "base64", "hex", "latin1"} {
+		read := scriptFSFileValue(runtime, original, encoding)
+		written, err := scriptFSWriteBytes(runtime, read, runtime.ToValue(encoding))
+		if err != nil {
+			t.Errorf("%q: %v", encoding, err)
+			continue
+		}
+		if encoding == "utf8" {
+			// utf8 is lossy for bytes that are not valid UTF-8: Go replaces
+			// them with U+FFFD on the way out and cannot recover them. That is
+			// inherent to asking for text, and the reason "" gives a Buffer.
+			continue
+		}
+		if string(written) != string(original) {
+			t.Errorf("%q: round trip gave % x, want % x", encoding, written, original)
+		}
 	}
 }
 
-func TestFSBytesFromInterfaceSliceHandlesEmpty(t *testing.T) {
-	if got := scriptFSBytesFromInterfaceSlice(nil); len(got) != 0 {
-		t.Fatalf("got %d bytes for a nil slice", len(got))
+// The encoding names come from Node, where every one of these spellings is
+// accepted. Rejecting "UTF-8" because of its hyphen would fail a script that is
+// written exactly as the Node docs show.
+func TestFSEncodingNamesAreNormalisedLikeNodes(t *testing.T) {
+	for _, spelling := range []string{"utf8", "UTF-8", " utf_8 ", "UTF8"} {
+		got, err := scriptFSBytesFromString("abc", spelling)
+		if err != nil || string(got) != "abc" {
+			t.Errorf("%q: got %q %v", spelling, got, err)
+		}
+	}
+	if _, err := scriptFSBytesFromString("abc", "utf16"); err == nil {
+		t.Error("an unsupported encoding was accepted")
 	}
 }
 
-func TestFSBytesFromIndexedObjectReadsByIndex(t *testing.T) {
-	vm := goja.New()
-	obj := vm.NewObject()
-	for i, b := range []byte("Hi!") {
-		_ = obj.Set(itoaFS(i), int64(b))
+func TestFSStringDecodingPerEncoding(t *testing.T) {
+	for name, tc := range map[string]struct {
+		value, encoding, want string
+	}{
+		"plain utf8":  {"héllo", "utf8", "héllo"},
+		"base64":      {"YWJj", "base64", "abc"},
+		"base64url":   {"YWJj", "base64url", "abc"},
+		"hex":         {"616263", "hex", "abc"},
+		"hex spaced":  {"  616263  ", "hex", "abc"},
+		"latin1":      {"abc", "latin1", "abc"},
+		"no encoding": {"abc", "", "abc"},
+	} {
+		got, err := scriptFSBytesFromString(tc.value, tc.encoding)
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if string(got) != tc.want {
+			t.Errorf("%s: got %q, want %q", name, got, tc.want)
+		}
 	}
+}
 
-	got, err := scriptFSBytesFromIndexedObject(obj, 3)
+// Malformed input has to be an error. Writing a partial decode would leave a
+// file that looks written and is silently truncated.
+func TestFSStringDecodingRejectsMalformedInput(t *testing.T) {
+	if _, err := scriptFSBytesFromString("zzz", "hex"); err == nil {
+		t.Error("invalid hex was accepted")
+	}
+	if _, err := scriptFSBytesFromString("!!!!", "base64"); err == nil {
+		t.Error("invalid base64 was accepted")
+	}
+	if _, err := scriptFSBytesFromString("Ł", "latin1"); err == nil {
+		t.Error("a character above 0xff was accepted as latin1")
+	}
+}
+
+// The options argument is either a bare encoding string or an object with an
+// encoding property, exactly as Node accepts. Reading only one form makes half
+// the scripts in circulation write UTF-8 bytes for base64 text.
+func TestFSEncodingComesFromEitherAStringOrAnObject(t *testing.T) {
+	runtime := goja.New()
+	if got := scriptFSEncoding(runtime, runtime.ToValue("BASE64")); got != "base64" {
+		t.Errorf("string form gave %q", got)
+	}
+	object, err := runtime.RunString(`({ encoding: "base64" })`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != "Hi!" {
-		t.Fatalf("got %q, want %q", got, "Hi!")
+	if got := scriptFSEncoding(runtime, object); got != "base64" {
+		t.Errorf("object form gave %q", got)
 	}
-}
-
-// A hole in the array is a zero byte, not a short write — the file must be the
-// length the caller asked for, or an offset-sensitive format is silently
-// mangled.
-func TestFSBytesFromIndexedObjectFillsHolesWithZero(t *testing.T) {
-	vm := goja.New()
-	obj := vm.NewObject()
-	_ = obj.Set("0", int64(65))
-	_ = obj.Set("2", int64(67))
-
-	got, err := scriptFSBytesFromIndexedObject(obj, 3)
+	empty, err := runtime.RunString(`({ flag: "w" })`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 3 || got[0] != 65 || got[1] != 0 || got[2] != 67 {
-		t.Fatalf("got % x, want 41 00 43 — a missing index must be a zero byte, not a shorter file", got)
+	if got := scriptFSEncoding(runtime, empty); got != "" {
+		t.Errorf("an options object with no encoding gave %q", got)
+	}
+	if got := scriptFSEncoding(runtime, goja.Undefined()); got != "" {
+		t.Errorf("undefined gave %q", got)
+	}
+	if got := scriptFSEncoding(runtime, goja.Null()); got != "" {
+		t.Errorf("null gave %q", got)
 	}
 }
 
-// The guards. A negative length would panic on make([]byte, n); an unbounded
-// one would let a script allocate the process to death from a single call.
-func TestFSBytesFromIndexedObjectRejectsBadLengths(t *testing.T) {
-	vm := goja.New()
-	obj := vm.NewObject()
-
-	if _, err := scriptFSBytesFromIndexedObject(obj, -1); err == nil {
-		t.Error("a negative length must be rejected, not passed to make()")
+func TestFSWriteRejectsWhatIsNotData(t *testing.T) {
+	runtime := goja.New()
+	for name, value := range map[string]goja.Value{
+		"null":      goja.Null(),
+		"undefined": goja.Undefined(),
+		"nil":       nil,
+	} {
+		if _, err := scriptFSWriteBytes(runtime, value, goja.Undefined()); err == nil {
+			t.Errorf("%s was accepted as file data", name)
+		}
 	}
-	if _, err := scriptFSBytesFromIndexedObject(obj, 64*1024*1024+1); err == nil {
-		t.Error("a length past the cap must be rejected — a script could otherwise allocate unbounded memory")
+	object, err := runtime.RunString(`({ a: 1 })`)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := scriptFSBytesFromIndexedObject(obj, 0); err != nil {
-		t.Errorf("zero length is legitimate (an empty file): %v", err)
+	if _, err := scriptFSWriteBytes(runtime, object, goja.Undefined()); err == nil {
+		t.Error("a plain object was accepted as file data")
 	}
 }
 
-func itoaFS(n int) string {
-	if n == 0 {
-		return "0"
+// The message names every shape that IS accepted, because the script author's
+// next question is always "what should I have passed?".
+func TestFSWriteErrorSaysWhatIsAccepted(t *testing.T) {
+	runtime := goja.New()
+	_, err := scriptFSWriteBytes(runtime, goja.Null(), goja.Undefined())
+	if err == nil {
+		t.Fatal("null accepted")
 	}
-	out := ""
-	for n > 0 {
-		out = string(rune('0'+n%10)) + out
-		n /= 10
+	for _, shape := range []string{"string", "Buffer", "ArrayBuffer", "typed array"} {
+		if !strings.Contains(err.Error(), shape) {
+			t.Errorf("error %q does not mention %s", err, shape)
+		}
 	}
-	return out
+}
+
+// 64 MB is the cap. Without it, a script that passes an object claiming a
+// length of 2^40 makes the process allocate until it is killed — no error, no
+// file, no message.
+func TestFSWriteRefusesImplausibleLengths(t *testing.T) {
+	runtime, value := jsValue(t, `({ length: 1099511627776, 0: 1 })`)
+	if _, err := scriptFSWriteBytes(runtime, value, goja.Undefined()); err == nil {
+		t.Fatal("a terabyte-long object was accepted")
+	}
+	negative, err := runtime.RunString(`({ length: -1 })`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := scriptFSWriteBytes(runtime, negative, goja.Undefined()); err == nil {
+		t.Error("a negative length was accepted")
+	}
+}
+
+// A sparse array has holes, and a hole is not a byte. Writing zero for it keeps
+// the file the length the script asked for; skipping the entry would shift
+// every byte after it.
+func TestFSWriteFillsHolesWithZero(t *testing.T) {
+	runtime, value := jsValue(t, `(() => { const a = new Array(4); a[0] = 97; a[3] = 98; return a; })()`)
+	got, err := scriptFSWriteBytes(runtime, value, goja.Undefined())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("wrote %d bytes, want 4", len(got))
+	}
+	if got[0] != 97 || got[1] != 0 || got[2] != 0 || got[3] != 98 {
+		t.Errorf("got % x", got)
+	}
 }
