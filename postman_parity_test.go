@@ -9,6 +9,7 @@ package main
 // just cites evidence that no longer exists.
 
 import (
+	"LiteAPI/internal/store/bru"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -62,7 +63,7 @@ func goTestNamesInPackage(t *testing.T) map[string]bool {
 func TestPostmanLedgerCitesTestsThatExist(t *testing.T) {
 	known := goTestNamesInPackage(t)
 
-	for _, row := range postmanFeatures() {
+	for _, row := range bru.PostmanFeatures() {
 		for _, cited := range row.Tests {
 			// Only Go test names are checkable here. Frontend suites and UI
 			// smokes are cited by description and verified elsewhere; asserting
@@ -81,7 +82,7 @@ func TestPostmanLedgerCitesTestsThatExist(t *testing.T) {
 // is a claim with no evidence behind it.
 func TestPostmanLedgerRowsAreWellFormed(t *testing.T) {
 	seen := map[string]bool{}
-	for _, row := range postmanFeatures() {
+	for _, row := range bru.PostmanFeatures() {
 		if row.ID == "" || row.Name == "" {
 			t.Errorf("row %+v has no id or name", row)
 		}
@@ -116,7 +117,7 @@ func TestPostmanLedgerRowsAreWellFormed(t *testing.T) {
 // appending to a slice is exactly the operation where a stray reassignment
 // silently replaces it instead.
 func TestBrunoLedgerIsRetained(t *testing.T) {
-	features := defaultFeatures()
+	features := bru.DefaultFeatures()
 
 	var bruno, postman int
 	for _, row := range features {
@@ -133,8 +134,8 @@ func TestBrunoLedgerIsRetained(t *testing.T) {
 	if postman == 0 {
 		t.Fatal("no Postman rows reached the ledger")
 	}
-	if postman != len(postmanFeatures()) {
-		t.Errorf("%d of %d Postman rows reached the ledger", postman, len(postmanFeatures()))
+	if postman != len(bru.PostmanFeatures()) {
+		t.Errorf("%d of %d Postman rows reached the ledger", postman, len(bru.PostmanFeatures()))
 	}
 
 	// The Bruno rows must keep citing Bruno, not inherit Postman's references.
@@ -155,7 +156,7 @@ func TestBrunoLedgerIsRetained(t *testing.T) {
 // the Bruno tree would be claiming evidence from a source that says nothing
 // about Postman.
 func TestPostmanLedgerRowsCiteTheirOwnReferences(t *testing.T) {
-	for _, row := range postmanFeatures() {
+	for _, row := range bru.PostmanFeatures() {
 		joined := strings.Join(row.SourceRefs, " ")
 		if strings.Contains(joined, "Workspace/bruno") {
 			t.Errorf("Postman row %q cites the Bruno source tree", row.ID)
@@ -179,7 +180,7 @@ func TestPostmanParityDocumentExistsAndCoversEveryRow(t *testing.T) {
 	}
 	document := string(data)
 
-	for _, row := range postmanFeatures() {
+	for _, row := range bru.PostmanFeatures() {
 		if !strings.Contains(document, row.Name) {
 			t.Errorf("POSTMAN-PARITY.md never mentions the ledger row %q", row.Name)
 		}

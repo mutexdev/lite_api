@@ -3004,7 +3004,7 @@ func TestRequestSettingsEncodeURLRoundTrip(t *testing.T) {
 	item.Settings.VerifyTLS = false
 	item.Settings.KeepAliveInterval = 2500
 
-	bru := stringifyBru(item)
+	bru := brustore.StringifyBru(item)
 	for _, want := range []string{"settings {", "encodeUrl: false", "storeCookies: false", "verifyTls: false", "keepAliveInterval: 2500"} {
 		if !strings.Contains(bru, want) {
 			t.Fatalf("stringified bru missing %q:\n%s", want, bru)
@@ -9649,7 +9649,7 @@ activeEnvironmentUid: "%s"
 collections: []
 specs:
 docs: ''
-`, brunoWorkspaceEnvironmentUIDForPath(alphaPath))), 0o600); err != nil {
+`, brustore.BrunoWorkspaceEnvironmentUIDForPath(alphaPath))), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -12623,7 +12623,7 @@ func TestImportPostmanAndBruRoundTrip(t *testing.T) {
 		t.Fatalf("postman noauth request not converted: %#v", noAuth)
 	}
 
-	bru := stringifyBru(imported.Items[0])
+	bru := brustore.StringifyBru(imported.Items[0])
 	if !strings.Contains(bru, "params:path") || !strings.Contains(bru, "  id: 123") {
 		t.Fatalf("bru export did not include path params:\n%s", bru)
 	}
@@ -13114,12 +13114,12 @@ example {
 	if !strings.Contains(example.Response.Body, `"name":"Ada"`) {
 		t.Fatalf("example body was not parsed: %q", example.Response.Body)
 	}
-	roundTrip, err := brustore.Parse(stringifyBru(item))
+	roundTrip, err := brustore.Parse(brustore.StringifyBru(item))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(roundTrip.Examples) != 1 || roundTrip.Examples[0].Request.BodyMode != "json" || roundTrip.Examples[0].Request.Headers[1].Enabled || roundTrip.Examples[0].Request.Params[1].Enabled || !strings.Contains(roundTrip.Examples[0].Request.Body, `"request":true`) || !strings.Contains(roundTrip.Examples[0].Response.Body, `"id":123`) {
-		t.Fatalf("example did not round-trip:\n%s\n%#v", stringifyBru(item), roundTrip.Examples)
+		t.Fatalf("example did not round-trip:\n%s\n%#v", brustore.StringifyBru(item), roundTrip.Examples)
 	}
 }
 
@@ -13175,7 +13175,7 @@ example {
 	if example.Request.FormURLEncoded[2].Name != "disabled" || example.Request.FormURLEncoded[2].Enabled {
 		t.Fatalf("disabled form example row did not parse: %#v", example.Request.FormURLEncoded[2])
 	}
-	written := stringifyBru(item)
+	written := brustore.StringifyBru(item)
 	if !strings.Contains(written, "body:form-urlencoded: {") || !strings.Contains(written, "      email: ada@example.test") || !strings.Contains(written, "      ~disabled: nope") {
 		t.Fatalf("form-url-encoded example body was not written:\n%s", written)
 	}
@@ -13240,7 +13240,7 @@ example {
 	if example.Request.MultipartForm[2].Name != "skip" || example.Request.MultipartForm[2].Enabled {
 		t.Fatalf("disabled multipart row did not parse: %#v", example.Request.MultipartForm[2])
 	}
-	written := stringifyBru(item)
+	written := brustore.StringifyBru(item)
 	if !strings.Contains(written, "body:multipart-form: {") || !strings.Contains(written, "      document: @file(examples/sample.pdf) @contentType(application/pdf)") || !strings.Contains(written, "      ~skip: nope") {
 		t.Fatalf("multipart example body was not written:\n%s", written)
 	}
@@ -13304,7 +13304,7 @@ example {
 	if example.Request.File[1].FilePath != "examples/backup.json" || example.Request.File[1].ContentType != "application/json" || example.Request.File[1].Selected {
 		t.Fatalf("unselected file row did not parse: %#v", example.Request.File[1])
 	}
-	written := stringifyBru(item)
+	written := brustore.StringifyBru(item)
 	if !strings.Contains(written, "body:file: {") || !strings.Contains(written, "      file: @file(examples/selected.bin) @contentType(application/octet-stream)") || !strings.Contains(written, "      ~file: @file(examples/backup.json) @contentType(application/json)") {
 		t.Fatalf("file example body was not written:\n%s", written)
 	}
@@ -13334,7 +13334,7 @@ func TestBruFormURLEncodedBodyRoundTrip(t *testing.T) {
 		},
 		Settings: RequestSettings{TimeoutMs: 30000, FollowRedirects: true, MaxRedirects: 5, EncodeURL: true, StoreCookies: true, VerifyTLS: true},
 	}
-	content := stringifyBru(item)
+	content := brustore.StringifyBru(item)
 	if !strings.Contains(content, "body:form-urlencoded {") || !strings.Contains(content, "  email: ada@example.test") || !strings.Contains(content, "  ~disabled: nope") {
 		t.Fatalf("form-url-encoded body was not written:\n%s", content)
 	}
@@ -13370,7 +13370,7 @@ func TestBruMultipartBodyRoundTrip(t *testing.T) {
 		},
 		Settings: RequestSettings{TimeoutMs: 30000, FollowRedirects: true, MaxRedirects: 5, EncodeURL: true, StoreCookies: true, VerifyTLS: true},
 	}
-	content := stringifyBru(item)
+	content := brustore.StringifyBru(item)
 	if !strings.Contains(content, "body:multipart-form {") || !strings.Contains(content, "  title: {{uploadTitle}} @contentType(text/plain)") || !strings.Contains(content, "  asset: @file(fixtures/image.png) @contentType(image/png)") || !strings.Contains(content, "  ~disabled: nope") {
 		t.Fatalf("multipart body was not written:\n%s", content)
 	}
@@ -13466,7 +13466,7 @@ func TestBruFileBodyRoundTrip(t *testing.T) {
 		},
 		Settings: RequestSettings{TimeoutMs: 30000, FollowRedirects: true, MaxRedirects: 5, EncodeURL: true, StoreCookies: true, VerifyTLS: true},
 	}
-	content := stringifyBru(item)
+	content := brustore.StringifyBru(item)
 	if !strings.Contains(content, "body:file {") || !strings.Contains(content, "  file: @file(fixtures/payload.json) @contentType(application/json)") {
 		t.Fatalf("file body was not written:\n%s", content)
 	}
@@ -13498,7 +13498,7 @@ func TestBruMultiFileBodyRoundTrip(t *testing.T) {
 		},
 		Settings: RequestSettings{TimeoutMs: 30000, FollowRedirects: true, MaxRedirects: 5, EncodeURL: true, StoreCookies: true, VerifyTLS: true},
 	}
-	content := stringifyBru(item)
+	content := brustore.StringifyBru(item)
 	if !strings.Contains(content, "  file: @file(fixtures/selected.json) @contentType(application/json)") || !strings.Contains(content, "  ~file: @file(fixtures/old.bin) @contentType(application/octet-stream)") {
 		t.Fatalf("multi-file body was not written with selected and disabled rows:\n%s", content)
 	}
@@ -13677,7 +13677,7 @@ body:grpc {
 		t.Fatalf("gRPC messages were not parsed: %#v", item.GrpcMessages)
 	}
 
-	roundTrip := stringifyBru(item)
+	roundTrip := brustore.StringifyBru(item)
 	for _, expected := range []string{"grpc {", "methodType: unary", "protoPath: protos/greeter.proto", "metadata {", "~x-disabled: off", "body:grpc {", "name: second"} {
 		if !strings.Contains(roundTrip, expected) {
 			t.Fatalf("gRPC .bru did not preserve %q:\n%s", expected, roundTrip)
@@ -13721,7 +13721,7 @@ func TestRequestDocsRoundTripForWebSocketAndGRPCBru(t *testing.T) {
 			item.PostScript = `bru.setVar("done", true);`
 			item.Tests = `expect status equals 200`
 
-			content := stringifyBru(item)
+			content := brustore.StringifyBru(item)
 			for _, expected := range []string{"vars:pre-request {", "vars:post-response {", "script:pre-request {", "script:post-response {", "tests {", "docs {", item.Docs} {
 				if !strings.Contains(content, expected) {
 					t.Fatalf("%s .bru missing %q:\n%s", tc.name, expected, content)
@@ -15827,7 +15827,7 @@ func TestWebSocketMessagesBruAndYAMLRoundTrip(t *testing.T) {
 		{Name: "xml", Type: "xml", Content: "<hello />", Selected: false},
 	}
 
-	content := stringifyBru(item)
+	content := brustore.StringifyBru(item)
 	for _, expected := range []string{"ws {", "body: ws", "body:ws {", "name: hello", "type: json", "selected: true", `{"hello":"world"}`} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("websocket .bru missing %q:\n%s", expected, content)
@@ -19563,7 +19563,7 @@ func TestDigestAuthChallengeRetrySucceeds(t *testing.T) {
 func TestDigestAuthBruRoundTrip(t *testing.T) {
 	item := types.NewRequestItem("Digest", "http", 1)
 	item.Auth = AuthConfig{Mode: "digest", Username: "alice", Password: "secret"}
-	content := stringifyBru(item)
+	content := brustore.StringifyBru(item)
 	if !strings.Contains(content, "auth:digest") {
 		t.Fatalf("digest auth was not serialized:\n%s", content)
 	}
@@ -19647,7 +19647,7 @@ func TestNTLMAuthChallengeFlowSucceeds(t *testing.T) {
 func TestNTLMAuthBruRoundTrip(t *testing.T) {
 	item := types.NewRequestItem("NTLM", "http", 1)
 	item.Auth = AuthConfig{Mode: "ntlm", Username: "alice", Password: "secret", Domain: "DOMAIN"}
-	content := stringifyBru(item)
+	content := brustore.StringifyBru(item)
 	for _, expected := range []string{"auth:ntlm", "username: alice", "password: secret", "domain: DOMAIN"} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("NTLM auth was not serialized with %q:\n%s", expected, content)
@@ -21246,7 +21246,7 @@ func TestOAuth2AuthBruRoundTrip(t *testing.T) {
 			{Name: "refresh_body", Value: "refresh-body", SendIn: "body", Enabled: true},
 		},
 	}}
-	content := stringifyBru(item)
+	content := brustore.StringifyBru(item)
 	for _, expected := range []string{"auth:oauth2", "grant_type: password", "access_token_url: https://auth.example.test/token", "client_id: client-id", "credentials_placement: body", "token_source: id_token", "token_placement: url", "token_query_key: custom_token", "access_token: static-token", "auth:oauth2:additional_params:access_token_req:headers", "X-Token-Header: token-header", "auth:oauth2:additional_params:access_token_req:queryparams", "token_query: token-query", "auth:oauth2:additional_params:access_token_req:body", "~disabled_body: disabled", "auth:oauth2:additional_params:refresh_token_req:body", "refresh_body: refresh-body"} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("OAuth2 auth was not serialized with %q:\n%s", expected, content)
@@ -21308,7 +21308,7 @@ func TestOAuth2BrowserGrantFieldsRoundTrip(t *testing.T) {
 		AutoRefreshToken:     true,
 	}}
 
-	content := stringifyBru(item)
+	content := brustore.StringifyBru(item)
 	for _, expected := range []string{"grant_type: authorization_code", "callback_url: http://127.0.0.1:3000/callback", "authorization_url: https://auth.example.test/authorize", "state: csrf-state", "pkce: true"} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("OAuth2 browser grant field was not serialized with %q:\n%s", expected, content)
@@ -21930,7 +21930,7 @@ func TestAWSV4AuthBruRoundTrip(t *testing.T) {
 		Region:          "us-west-2",
 		ProfileName:     "dev",
 	}}
-	content := stringifyBru(item)
+	content := brustore.StringifyBru(item)
 	for _, expected := range []string{"auth:awsv4", "accessKeyId: AKID", "secretAccessKey: SECRET", "sessionToken: TOKEN", "service: execute-api", "region: us-west-2", "profileName: dev"} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("AWS SigV4 auth was not serialized with %q:\n%s", expected, content)
@@ -22002,7 +22002,7 @@ func TestWSSEAuthHeaderSucceeds(t *testing.T) {
 func TestWSSEAuthBruRoundTrip(t *testing.T) {
 	item := types.NewRequestItem("WSSE", "http", 1)
 	item.Auth = AuthConfig{Mode: "wsse", Username: "john", Password: "secret"}
-	content := stringifyBru(item)
+	content := brustore.StringifyBru(item)
 	if !strings.Contains(content, "auth:wsse") || !strings.Contains(content, "username: john") || !strings.Contains(content, "password: secret") {
 		t.Fatalf("WSSE auth was not serialized:\n%s", content)
 	}
@@ -22222,7 +22222,7 @@ func TestOAuth1AuthBruRoundTrip(t *testing.T) {
 		Placement:         "query",
 		IncludeBodyHash:   true,
 	}}
-	content := stringifyBru(item)
+	content := brustore.StringifyBru(item)
 	for _, expected := range []string{"auth:oauth1", "consumer_key: ck", "consumer_secret: cs", "access_token: at", "token_secret: ts", "callback_url: https://example.test/callback", "signature_method: HMAC-SHA256", "private_key: @file(keys/private.pem)", "placement: query", "include_body_hash: true"} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("OAuth1 auth was not serialized with %q:\n%s", expected, content)
@@ -22635,12 +22635,12 @@ paths:
 	if traceReq.Method != http.MethodTrace || traceReq.Name != "Trace diagnostics" || traceReq.FolderPath != "Diagnostics" {
 		t.Fatalf("TRACE operation was not imported: %#v", traceReq)
 	}
-	traceRoundTrip, err := brustore.Parse(stringifyBru(traceReq))
+	traceRoundTrip, err := brustore.Parse(brustore.StringifyBru(traceReq))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if traceRoundTrip.Method != http.MethodTrace || traceRoundTrip.URL != traceReq.URL {
-		t.Fatalf("TRACE .bru round-trip failed:\n%s\n%#v", stringifyBru(traceReq), traceRoundTrip)
+		t.Fatalf("TRACE .bru round-trip failed:\n%s\n%#v", brustore.StringifyBru(traceReq), traceRoundTrip)
 	}
 	baseReq := imported.Items[1]
 	if baseReq.Name != "Create normal" || baseReq.Method != http.MethodPost || !strings.Contains(baseReq.Body.JSON, `"mode": "normal"`) || len(baseReq.Examples) != 1 || baseReq.Examples[0].Response.Status != http.StatusOK {

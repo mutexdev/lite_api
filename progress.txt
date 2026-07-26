@@ -3643,3 +3643,45 @@ US-026 - Store layer. DONE. Both named collapses complete.
     internal/interp        ~400     internal/codegen       ~380
     internal/scalar         220     internal/auth/oauth1    407
     internal/auth/digest    159     internal/auth/wsse       41
+
+--- US-070 completed — the .bru WRITE side joins the read side ---
+
+  1,208 more lines out of app.go: .bru serialisation, environment import/export,
+  and the Postman parity ledger. app.go: 18,657 -> 17,314.
+
+  Read and write live in ONE package on purpose. A format has exactly one
+  definition of what a block looks like, and splitting the reader from the
+  writer is how the two drift until a file this app wrote can no longer be read
+  back by it.
+
+  AN IMPORT CYCLE, AND WHAT IT ACTUALLY MEANT. bru began importing yamlstore
+  while yamlstore already imported bru. Go refused it, and Go was right: the
+  functions causing it (ParseYAMLEnvironmentContent, parseImportedGlobalEnvironments,
+  environmentFromYAMLMap) read YAML, so they belonged in yamlstore all along. I
+  had put them in bru earlier only because bru happened to need them first. The
+  cycle was the compiler pointing at a misplacement, not an obstacle to route
+  around.
+
+  !!! THE STRING-BOUNDARY MISTAKE, TWICE IN ONE FILE !!!
+
+  1. `"Imported types.Environment"` - the prefixer hit a string literal again,
+     the same class as the scripting JS corruption.
+  2. Then my FIX was worse. A regex meant to strip qualifiers "inside strings"
+     matched `", scalar.FirstNonEmpty(auth.APILocation, "` - which is Go code
+     BETWEEN two string literals, not a string. It stripped 16 real call sites.
+     Caught by the compiler; restored by re-qualifying, which was unambiguous
+     because FirstNonEmpty appears nowhere in the prose.
+
+  The lesson is the one from the scripting extraction, sharpened: a regex cannot
+  tell a string from code, and a regex written to CLEAN UP after that mistake
+  cannot either. Only a real scanner can, and I have one in
+  tools/extraction/split.py - I should have reached for it both times.
+
+  I ALSO FIXED THE TOOL THIS TIME. move_helper.py's signature parser anchored on
+  the FIRST '{', which is inside `[]interface{}` and `map[string]interface{}`.
+  That produced `func yamlVariables(...) []map[string]interface { return ... }`
+  - the identical failure as listValue in US-071, which I recorded and then did
+  not fix. It now anchors on the last brace of the signature line.
+
+  Controls: the bru block writer emitting nothing fails 3; dropping existing
+  secrets on merge fails 2.

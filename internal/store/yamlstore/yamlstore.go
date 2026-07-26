@@ -10,8 +10,10 @@ import (
 	"LiteAPI/internal/store/bru"
 	"LiteAPI/internal/types"
 	"LiteAPI/internal/wsexec"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
@@ -666,4 +668,51 @@ func applyYAMLSettings(item *types.RequestItem, settings map[string]interface{})
 	if keepAliveInterval, ok := scalar.IntValueOK(settings["keepAliveInterval"]); ok {
 		item.Settings.KeepAliveInterval = keepAliveInterval
 	}
+}
+
+func EnvironmentFromYAMLMap(root map[string]interface{}, fallbackName string) types.Environment {
+	name := strings.TrimSpace(scalar.YAMLString(root["name"]))
+	if name == "" {
+		name = strings.TrimSpace(fallbackName)
+	}
+	if name == "" {
+		name = "types.Environment"
+	}
+	return types.Environment{
+		ID:        scalar.NewID("env"),
+		Name:      name,
+		Color:     scalar.YAMLString(root["color"]),
+		Variables: ParseVariables(root["variables"]),
+	}
+}
+
+func ParseYAMLEnvironmentContent(content, fallbackName string) (types.Environment, error) {
+	var root map[string]interface{}
+	if err := yaml.Unmarshal([]byte(content), &root); err != nil {
+		return types.Environment{}, err
+	}
+	return EnvironmentFromYAMLMap(root, fallbackName), nil
+}
+
+func ParseImportedGlobalEnvironments(content string) ([]types.Environment, error) {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return nil, errors.New("environment import content is empty")
+	}
+	var raw interface{}
+	decoder := json.NewDecoder(strings.NewReader(trimmed))
+	decoder.UseNumber()
+	if err := decoder.Decode(&raw); err == nil {
+		if decoder.Decode(&struct{}{}) != io.EOF {
+			return nil, errors.New("environment import JSON contains trailing content")
+		}
+		return bru.ParseImportedGlobalEnvironmentsJSON(raw)
+	} else if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+		return nil, fmt.Errorf("invalid environment JSON: %w", err)
+	}
+	env, err := ParseYAMLEnvironmentContent(content, "Imported Environment")
+	if err != nil {
+		return nil, err
+	}
+	return []types.Environment{env}, nil
 }
