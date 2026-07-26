@@ -56,11 +56,6 @@
     bulkLabel?: string
     variableOverlay?: boolean
     multilineValues?: boolean
-    activeVariableTooltip?: string
-    editingVariableTooltip?: string
-    variableTooltipDraft?: string
-    revealedVariableTooltips?: Record<string, boolean>
-    copiedVariableTooltips?: Record<string, boolean>
     busy?: string
     onAdd?: () => void
     onChange?: (index: number, field: 'name' | 'value' | 'enabled', value: string | boolean) => void
@@ -70,14 +65,10 @@
     onRemove?: (index: number) => void
     valueVariableSegments?: (value: string, index: number) => VariableTextSegment[]
     displayTooltipValue?: (info: VariableTooltipInfo, revealed: boolean) => string
-    onToggleActive?: (name: string) => void
-    onBeginEdit?: (info: VariableTooltipInfo) => void
     onEditorKey?: (event: KeyboardEvent, info: VariableTooltipInfo) => void
     onEditorBlur?: (event: FocusEvent, info: VariableTooltipInfo) => void
     onSave?: (info: VariableTooltipInfo) => void | Promise<void>
-    onCancel?: () => void
     onCopy?: (info: VariableTooltipInfo) => void | Promise<void>
-    onToggleSecret?: (name: string) => void
   }
 
   let {
@@ -92,11 +83,6 @@
     bulkLabel = 'Bulk edit rows',
     variableOverlay = false,
     multilineValues = false,
-    activeVariableTooltip = '',
-    editingVariableTooltip = '',
-    variableTooltipDraft = $bindable(''),
-    revealedVariableTooltips = {},
-    copiedVariableTooltips = {},
     busy = '',
     onAdd = () => {},
     onChange = () => {},
@@ -106,14 +92,10 @@
     onRemove = () => {},
     valueVariableSegments = () => [],
     displayTooltipValue = (info) => info.resolvedValue,
-    onToggleActive = () => {},
-    onBeginEdit = () => {},
     onEditorKey = () => {},
     onEditorBlur = () => {},
     onSave = () => {},
-    onCancel = () => {},
-    onCopy = () => {},
-    onToggleSecret = () => {}
+    onCopy = () => {}
   }: Props = $props()
 
   // $state, not a bare let: in runes mode a plain let is not reactive, so the
@@ -280,23 +262,14 @@
 	              {/if}
 	              <VariableTextOverlay
 	                segments={valueVariableSegments(row.value ?? '', index)}
-                {activeVariableTooltip}
-                {editingVariableTooltip}
-                bind:variableTooltipDraft
-                {revealedVariableTooltips}
-                {copiedVariableTooltips}
                 {busy}
                 scrollLeft={valueScrollLeft[index] ?? 0}
 	                scrollTop={valueScrollTop[index] ?? 0}
                 {displayTooltipValue}
-                {onToggleActive}
-                {onBeginEdit}
                 {onEditorKey}
                 {onEditorBlur}
                 {onSave}
-                {onCancel}
                 {onCopy}
-                {onToggleSecret}
               />
             </div>
           {:else}

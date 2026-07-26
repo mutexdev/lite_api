@@ -19,6 +19,7 @@
   import { memoized, KeyedMemo, type Memo } from './lib/memo'
   import { computeWindow } from './lib/virtualList'
   import { workspaceStore } from './lib/stores/workspaceStore.svelte'
+  import { variableTooltips } from './lib/stores/variableTooltipStore.svelte'
   import {
     keyBindingSections,
     keyBindingPresets,
@@ -618,12 +619,9 @@
   let grpcMethods = $state<main.GRPCMethodInfo[]>([])
   let grpcMethodsRequestId = $state('')
   let grpcMethodMessage = $state('')
-  let revealedVariableTooltips = $state<Record<string, boolean>>({})
-  let copiedVariableTooltips = $state<Record<string, boolean>>({})
+
   let copiedVariableTooltipTimers = $state<Record<string, ReturnType<typeof window.setTimeout>>>({})
-  let activeVariableTooltip = $state('')
-  let editingVariableTooltip = $state('')
-  let variableTooltipDraft = $state('')
+
   let urlInputScrollLeft = $state(0)
   let bodyTextScrollLeft = $state(0)
   let bodyTextScrollTop = $state(0)
@@ -2136,24 +2134,24 @@
   }
 
   function toggleTooltipSecret(name: string) {
-    revealedVariableTooltips = { ...revealedVariableTooltips, [name]: !revealedVariableTooltips[name] }
+    variableTooltips.toggleRevealed(name)
   }
 
   async function copyVariableTooltipValue(info: VariableTooltipInfo) {
     const latestInfo = info.source === 'path'
       ? pathParamTooltipInfo(info.name, activeRequest?.pathParams ?? [])
       : requestVariableTooltips.find((candidate) => candidate.name === info.name) ?? info
-    if (!latestInfo.found || !latestInfo.validName || copiedVariableTooltips[latestInfo.name]) return
+    if (!latestInfo.found || !latestInfo.validName || variableTooltips.isCopied(latestInfo.name)) return
     try {
       await navigator.clipboard.writeText(latestInfo.resolvedValue ?? '')
       if (copiedVariableTooltipTimers[latestInfo.name]) {
         window.clearTimeout(copiedVariableTooltipTimers[latestInfo.name])
       }
-      copiedVariableTooltips = { ...copiedVariableTooltips, [latestInfo.name]: true }
+      variableTooltips.markCopied(latestInfo.name, true)
       copiedVariableTooltipTimers = {
         ...copiedVariableTooltipTimers,
         [latestInfo.name]: window.setTimeout(() => {
-          copiedVariableTooltips = { ...copiedVariableTooltips, [latestInfo.name]: false }
+          variableTooltips.markCopied(latestInfo.name, false)
           const { [latestInfo.name]: _removed, ...remaining } = copiedVariableTooltipTimers
           copiedVariableTooltipTimers = remaining
         }, 1200)
@@ -2164,7 +2162,7 @@
   }
 
   function toggleActiveVariableTooltip(name: string) {
-    activeVariableTooltip = activeVariableTooltip === name ? '' : name
+    variableTooltips.toggleActive(name)
   }
 
   function handleInlineVariableTokenKey(event: KeyboardEvent, name: string) {
@@ -2173,7 +2171,7 @@
       toggleActiveVariableTooltip(name)
     } else if (event.key === 'Escape') {
       event.preventDefault()
-      activeVariableTooltip = ''
+      variableTooltips.close()
     }
   }
 
@@ -2182,7 +2180,7 @@
     if (!target) return
     if (!target.closest('.request-actions')) closeRequestActionMenus()
     if (target.closest('.variable-chip-wrapper, .url-variable-token-wrapper, .inline-variable-token-wrapper, .CodeMirror-brunoVarInfo, .variable-tooltip')) return
-    activeVariableTooltip = ''
+    variableTooltips.close()
   }
 
   function closeRequestActionMenus() {
@@ -2216,15 +2214,11 @@
 
   function beginVariableTooltipEdit(info: VariableTooltipInfo) {
     if (!info.editable) return
-    activeVariableTooltip = info.name
-    editingVariableTooltip = info.name
-    variableTooltipDraft = info.found ? info.rawValue : ''
-    copiedVariableTooltips = { ...copiedVariableTooltips, [info.name]: false }
+    variableTooltips.beginEdit(info.name, info.rawValue, info.found, info.editable)
   }
 
   function cancelVariableTooltipEdit() {
-    editingVariableTooltip = ''
-    variableTooltipDraft = ''
+    variableTooltips.cancelEdit()
   }
 
   function handleVariableTooltipEditorKey(event: KeyboardEvent, info: VariableTooltipInfo) {
@@ -2244,7 +2238,7 @@
     void saveVariableTooltipEdit(info, (event.currentTarget as HTMLTextAreaElement).value)
   }
 
-  async function saveVariableTooltipEdit(info: VariableTooltipInfo, nextValue = variableTooltipDraft) {
+  async function saveVariableTooltipEdit(info: VariableTooltipInfo, nextValue = variableTooltips.draft) {
     if (!activeWorkspace || !activeCollection || !activeRequest || !info.editable) return
     const value = nextValue
     await runAction('save variable', async () => {
@@ -2283,9 +2277,9 @@
         workspaceStore.appState = await UpdateRequest(collectionId, requestId, { vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as main.RequestPatch)
         workspaceStore.appState = await SaveRequest(collectionId, requestId)
       }
-      editingVariableTooltip = ''
-      variableTooltipDraft = ''
-      activeVariableTooltip = info.name
+      variableTooltips.cancelEdit()
+      variableTooltips.cancelEdit()
+      variableTooltips.toggleActive(info.name)
     })
   }
 
@@ -9113,7 +9107,7 @@
                         {#if segment.variable}
                           <span
                             class="url-variable-token-wrapper"
-                            class:open={activeVariableTooltip === segment.name}
+                            class:open={variableTooltips.active === segment.name}
                           >
                             <span
                               role="button"
@@ -9131,11 +9125,11 @@
                                 </div>
                                 {#if !segment.info.validName}
                                   <small class="var-warning-note">{invalidVariableWarning}</small>
-                                {:else if editingVariableTooltip === segment.info.name}
+                                {:else if variableTooltips.editing === segment.info.name}
                                   <textarea
                                     class="var-value-editor"
                                     aria-label={'Edit variable ' + segment.info.name}
-                                    bind:value={variableTooltipDraft}
+                                    bind:value={variableTooltips.draft}
                                     onkeydown={(event) => handleVariableTooltipEditorKey(event, segment.info)}
                                     onblur={(event) => handleVariableTooltipEditorBlur(event, segment.info)}
                                   ></textarea>
@@ -9145,10 +9139,10 @@
                                   </div>
                                 {:else if segment.info.editable}
                                   <button type="button" class="var-value-editable-display" onclick={(event) => { event.stopPropagation(); beginVariableTooltipEdit(segment.info) }}>
-                                    {displayTooltipValue(segment.info, Boolean(revealedVariableTooltips[segment.info.name]))}
+                                    {displayTooltipValue(segment.info, variableTooltips.isRevealed(segment.info.name))}
                                   </button>
                                 {:else}
-                                  <div class="var-value-editable-display">{displayTooltipValue(segment.info, Boolean(revealedVariableTooltips[segment.info.name]))}</div>
+                                  <div class="var-value-editable-display">{displayTooltipValue(segment.info, variableTooltips.isRevealed(segment.info.name))}</div>
                                 {/if}
                                 {#if segment.info.readOnly}
                                   <small class="var-readonly-note">read-only</small>
@@ -9156,15 +9150,15 @@
                                 <div class="button-row compact">
                                   <button
                                     class="copy-button"
-                                    class:copy-success={copiedVariableTooltips[segment.info.name]}
+                                    class:copy-success={variableTooltips.isCopied(segment.info.name)}
                                     onclick={(event) => { event.stopPropagation(); copyVariableTooltipValue(segment.info) }}
-                                    disabled={!segment.info.found || !segment.info.validName || copiedVariableTooltips[segment.info.name]}
+                                    disabled={!segment.info.found || !segment.info.validName || variableTooltips.isCopied(segment.info.name)}
                                   >
-                                    {copiedVariableTooltips[segment.info.name] ? 'Copied' : 'Copy'}
+                                    {variableTooltips.isCopied(segment.info.name) ? 'Copied' : 'Copy'}
                                   </button>
                                   {#if segment.info.secret}
                                     <button class="secret-toggle-button" onclick={(event) => { event.stopPropagation(); toggleTooltipSecret(segment.info.name) }}>
-                                      {revealedVariableTooltips[segment.info.name] ? 'Hide' : 'Show'}
+                                      {variableTooltips.isRevealed(segment.info.name) ? 'Hide' : 'Show'}
                                     </button>
                                   {/if}
                                 </div>
@@ -9197,7 +9191,7 @@
             {#if requestVariableTooltips.length > 0}
               <div class="variable-inspector" aria-label="Variable inspector">
                 {#each requestVariableTooltips as variableInfo (variableInfo.name)}
-                  <div class="variable-chip-wrapper" class:invalid={!variableInfo.found} class:open={activeVariableTooltip === variableInfo.name}>
+                  <div class="variable-chip-wrapper" class:invalid={!variableInfo.found} class:open={variableTooltips.active === variableInfo.name}>
                     <button type="button" class="variable-chip" onclick={() => toggleActiveVariableTooltip(variableInfo.name)}>
                       <span class="var-token">{'{{' + variableInfo.name + '}}'}</span>
                     </button>
@@ -9208,11 +9202,11 @@
                       </div>
                       {#if !variableInfo.validName}
                         <small class="var-warning-note">{invalidVariableWarning}</small>
-                      {:else if editingVariableTooltip === variableInfo.name}
+                      {:else if variableTooltips.editing === variableInfo.name}
                         <textarea
                           class="var-value-editor"
                           aria-label={'Edit variable ' + variableInfo.name}
-                          bind:value={variableTooltipDraft}
+                          bind:value={variableTooltips.draft}
                           onkeydown={(event) => handleVariableTooltipEditorKey(event, variableInfo)}
                           onblur={(event) => handleVariableTooltipEditorBlur(event, variableInfo)}
                         ></textarea>
@@ -9222,10 +9216,10 @@
                         </div>
                       {:else if variableInfo.editable}
                         <button type="button" class="var-value-editable-display" onclick={(event) => { event.stopPropagation(); beginVariableTooltipEdit(variableInfo) }}>
-                          {displayTooltipValue(variableInfo, Boolean(revealedVariableTooltips[variableInfo.name]))}
+                          {displayTooltipValue(variableInfo, variableTooltips.isRevealed(variableInfo.name))}
                         </button>
                       {:else}
-                        <div class="var-value-editable-display">{displayTooltipValue(variableInfo, Boolean(revealedVariableTooltips[variableInfo.name]))}</div>
+                        <div class="var-value-editable-display">{displayTooltipValue(variableInfo, variableTooltips.isRevealed(variableInfo.name))}</div>
                       {/if}
                       {#if variableInfo.readOnly}
                         <small class="var-readonly-note">read-only</small>
@@ -9233,15 +9227,15 @@
                       <div class="button-row compact">
                         <button
                           class="copy-button"
-                          class:copy-success={copiedVariableTooltips[variableInfo.name]}
+                          class:copy-success={variableTooltips.isCopied(variableInfo.name)}
                           onclick={(event) => { event.stopPropagation(); copyVariableTooltipValue(variableInfo) }}
-                          disabled={!variableInfo.found || !variableInfo.validName || copiedVariableTooltips[variableInfo.name]}
+                          disabled={!variableInfo.found || !variableInfo.validName || variableTooltips.isCopied(variableInfo.name)}
                         >
-                          {copiedVariableTooltips[variableInfo.name] ? 'Copied' : 'Copy'}
+                          {variableTooltips.isCopied(variableInfo.name) ? 'Copied' : 'Copy'}
                         </button>
                         {#if variableInfo.secret}
                           <button class="secret-toggle-button" onclick={(event) => { event.stopPropagation(); toggleTooltipSecret(variableInfo.name) }}>
-                            {revealedVariableTooltips[variableInfo.name] ? 'Hide' : 'Show'}
+                            {variableTooltips.isRevealed(variableInfo.name) ? 'Hide' : 'Show'}
                           </button>
                         {/if}
                       </div>
@@ -9277,22 +9271,13 @@
 	                  bulkLabel="Request params bulk edit"
 	                  rows={activeRequest.params}
 	                  variableOverlay={true}
-                  {activeVariableTooltip}
-                  {editingVariableTooltip}
-                  bind:variableTooltipDraft
-                  {revealedVariableTooltips}
-                  {copiedVariableTooltips}
                   {busy}
                   valueVariableSegments={(value) => urlVariableSegments(value, requestVariableTooltips)}
                   {displayTooltipValue}
-                  onToggleActive={toggleActiveVariableTooltip}
-                  onBeginEdit={beginVariableTooltipEdit}
                   onEditorKey={handleVariableTooltipEditorKey}
                   onEditorBlur={handleVariableTooltipEditorBlur}
                   onSave={saveVariableTooltipEdit}
-                  onCancel={cancelVariableTooltipEdit}
                   onCopy={copyVariableTooltipValue}
-                  onToggleSecret={toggleTooltipSecret}
                   onAdd={() => addKeyValue('params')}
 	                  onChange={(index, field, value) => updateKeyValue('params', index, field, value)}
 	                  onBulkChange={(rows) => replaceKeyValues('params', rows as unknown as main.KeyValue[])}
@@ -9309,22 +9294,13 @@
 	                    showEnabled={false}
 	                    showActions={false}
 	                    showAddRow={false}
-	                    {activeVariableTooltip}
-	                    {editingVariableTooltip}
-	                    bind:variableTooltipDraft
-	                    {revealedVariableTooltips}
-	                    {copiedVariableTooltips}
 	                    {busy}
 	                    valueVariableSegments={(value) => urlVariableSegments(value, requestVariableTooltips)}
 	                    {displayTooltipValue}
-	                    onToggleActive={toggleActiveVariableTooltip}
-	                    onBeginEdit={beginVariableTooltipEdit}
 	                    onEditorKey={handleVariableTooltipEditorKey}
 	                    onEditorBlur={handleVariableTooltipEditorBlur}
 	                    onSave={saveVariableTooltipEdit}
-	                    onCancel={cancelVariableTooltipEdit}
 	                    onCopy={copyVariableTooltipValue}
-	                    onToggleSecret={toggleTooltipSecret}
 	                    onChange={(index, field, value) => updateKeyValue('pathParams', index, field, value)}
                   onBulkChange={(rows) => replaceKeyValues('pathParams', rows as unknown as main.KeyValue[])}
 	                  />
@@ -9335,22 +9311,13 @@
                   bulkLabel="Request headers bulk edit"
                   rows={activeRequest.headers}
                   variableOverlay={true}
-                  {activeVariableTooltip}
-                  {editingVariableTooltip}
-                  bind:variableTooltipDraft
-                  {revealedVariableTooltips}
-                  {copiedVariableTooltips}
                   {busy}
                   valueVariableSegments={(value) => urlVariableSegments(value, requestVariableTooltips)}
                   {displayTooltipValue}
-                  onToggleActive={toggleActiveVariableTooltip}
-                  onBeginEdit={beginVariableTooltipEdit}
                   onEditorKey={handleVariableTooltipEditorKey}
                   onEditorBlur={handleVariableTooltipEditorBlur}
                   onSave={saveVariableTooltipEdit}
-                  onCancel={cancelVariableTooltipEdit}
                   onCopy={copyVariableTooltipValue}
-                  onToggleSecret={toggleTooltipSecret}
                   onAdd={() => addKeyValue('headers')}
                   onChange={(index, field, value) => updateKeyValue('headers', index, field, value)}
                   onBulkChange={(rows) => replaceKeyValues('headers', rows as unknown as main.KeyValue[])}
@@ -9494,22 +9461,13 @@
 	                      rows={activeRequest.body.formUrlEncoded ?? []}
 	                      variableOverlay={true}
 	                      multilineValues={true}
-	                      {activeVariableTooltip}
-	                      {editingVariableTooltip}
-	                      bind:variableTooltipDraft
-	                      {revealedVariableTooltips}
-	                      {copiedVariableTooltips}
 	                      {busy}
 	                      valueVariableSegments={(value) => urlVariableSegments(value, requestVariableTooltips)}
 	                      {displayTooltipValue}
-	                      onToggleActive={toggleActiveVariableTooltip}
-	                      onBeginEdit={beginVariableTooltipEdit}
 	                      onEditorKey={handleVariableTooltipEditorKey}
 	                      onEditorBlur={handleVariableTooltipEditorBlur}
 	                      onSave={saveVariableTooltipEdit}
-	                      onCancel={cancelVariableTooltipEdit}
 	                      onCopy={copyVariableTooltipValue}
-	                      onToggleSecret={toggleTooltipSecret}
 	                      onAdd={addFormUrlEncodedRow}
 	                      onChange={updateFormUrlEncodedRow}
 	                      onRemove={removeFormUrlEncodedRow}
@@ -9517,22 +9475,13 @@
 	                  {:else if activeRequest.body.mode === 'multipartForm'}
 	                    <MultipartTable
 	                      rows={activeRequest.body.multipart ?? []}
-	                      {activeVariableTooltip}
-	                      {editingVariableTooltip}
-	                      bind:variableTooltipDraft
-	                      {revealedVariableTooltips}
-	                      {copiedVariableTooltips}
 	                      {busy}
 	                      valueVariableSegments={(value) => urlVariableSegments(value, requestVariableTooltips)}
 	                      {displayTooltipValue}
-	                      onToggleActive={toggleActiveVariableTooltip}
-	                      onBeginEdit={beginVariableTooltipEdit}
 	                      onEditorKey={handleVariableTooltipEditorKey}
 	                      onEditorBlur={handleVariableTooltipEditorBlur}
 	                      onSave={saveVariableTooltipEdit}
-	                      onCancel={cancelVariableTooltipEdit}
 	                      onCopy={copyVariableTooltipValue}
-	                      onToggleSecret={toggleTooltipSecret}
 	                      onAdd={addMultipartRow}
 	                      onChange={updateMultipartRow}
 	                      onRemove={removeMultipartRow}

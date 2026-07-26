@@ -2647,3 +2647,33 @@ US-026 continued - selection chain into the store, command bar collapsed. DONE
 
   Gates: svelte-check 205/0/0, eslint 0, npm test 223/223, vite build succeeds,
   go test 38.5s 0.
+
+US-026 - Store layer. DONE. Both named collapses complete.
+
+  KeyValueTable      33 -> 24 props
+  MultipartTable     24 -> 15 props
+  VariableTextOverlay 18 -> 9 props
+  WorkspaceCommandBar 23 -> 10 props (earlier commit)
+
+  The tooltip cluster is gone from all three tables AND from 45 lines of
+  drilled markup in App.svelte. Neither table ever USED those nine props -
+  they existed solely to hand them to VariableTextOverlay one level down. That
+  is the shape prop drilling always takes, and the cost is that each hop is a
+  place where a rename silently stops the tooltip responding.
+
+  App.svelte's five tooltip locals and its inline tooltip markup (rendered
+  twice, for the URL overlay and the variable chips) now read the store too, so
+  there is one copy of this state in the app rather than four.
+
+  WHAT DELIBERATELY STAYED AS PROPS: onSave, onCopy, onEditorKey, onEditorBlur
+  and displayTooltipValue. Every one needs the collection actions or the error
+  channel, and a store reaching for those would need the whole app injected and
+  would stop being testable - which is the property that made the 13 transition
+  tests possible in the first place.
+
+  The negative control closes the loop between the tests and the UI: breaking
+  toggleActive in the pure module fails 3 tests, and that module is now what
+  the real tooltips call.
+
+  Gates: svelte-check 205/0/0, eslint 0, npm test 223/223, vite build succeeds,
+  go test 38.6s 0.
