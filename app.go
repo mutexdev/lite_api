@@ -37796,11 +37796,14 @@ type postmanItem struct {
 }
 
 type postmanRequest struct {
-	Method string          `json:"method"`
-	URL    interface{}     `json:"url"`
-	Header []postmanHeader `json:"header"`
-	Auth   *postmanAuth    `json:"auth"`
-	Body   struct {
+	Method string `json:"method"`
+	// US-053. Read as well as written, so a description survives a round trip
+	// instead of the exporter emitting a field nothing ever reads back.
+	Description interface{}     `json:"description"`
+	URL         interface{}     `json:"url"`
+	Header      []postmanHeader `json:"header"`
+	Auth        *postmanAuth    `json:"auth"`
+	Body        struct {
 		Mode       string             `json:"mode"`
 		Raw        string             `json:"raw"`
 		URLEncoded []postmanHeader    `json:"urlencoded"`
@@ -37903,6 +37906,12 @@ func postmanRequestItem(entry postmanItem, folderPath string, seq int, translate
 	item.PreScript, item.PostScript = postmanEventScripts(entry.Event, translateScripts)
 	if item.Body.Mode == "graphql" {
 		item.Type = "graphql"
+	}
+	// Postman allows description to be either a string or an object with a
+	// content field; yamlScalarString handles the scalar case and an object
+	// falls through to empty rather than serialising Go map syntax into docs.
+	if description, ok := entry.Request.Description.(string); ok {
+		item.Docs = strings.TrimSpace(description)
 	}
 	item.Examples = postmanResponseExamples(entry.Response, item)
 	return item
@@ -39940,6 +39949,19 @@ func buildPostmanCollectionExport(collection Collection) (string, int, []string,
 		},
 		"item": items,
 	}
+	// US-053. Collection-level state was previously dropped entirely, so an
+	// export round trip silently lost every collection variable, the
+	// collection auth every request inherits, and the collection scripts that
+	// run before each one. The result imported cleanly and behaved differently.
+	if events := sharePostmanEvents(collection.PreScript, collection.PostScript, ""); len(events) > 0 {
+		payload["event"] = events
+	}
+	if auth := sharePostmanAuth(collection.Auth); auth != nil {
+		payload["auth"] = auth
+	}
+	if variables := sharePostmanVariables(collection.Variables); len(variables) > 0 {
+		payload["variable"] = variables
+	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return "", 0, nil, err
@@ -39952,10 +39974,17 @@ func postmanCollectionItems(collection Collection, parentPath string, skipped *[
 	count := 0
 	for _, folder := range collectionDocsChildFolders(collection.Folders, parentPath) {
 		children, childCount := postmanCollectionItems(collection, folder.DisplayPath, skipped, skippedSeen)
-		out = append(out, map[string]interface{}{
+		entry := map[string]interface{}{
 			"name": firstNonEmpty(folder.Name, filepath.Base(filepath.FromSlash(folder.DisplayPath)), filepath.Base(filepath.FromSlash(folder.Path))),
 			"item": children,
-		})
+		}
+		if events := sharePostmanEvents(folder.PreScript, folder.PostScript, ""); len(events) > 0 {
+			entry["event"] = events
+		}
+		if auth := sharePostmanAuth(folder.Auth); auth != nil {
+			entry["auth"] = auth
+		}
+		out = append(out, entry)
 		count += childCount
 	}
 	for _, item := range collectionDocsChildRequests(collection.Items, parentPath) {
@@ -39995,10 +40024,80 @@ func sharePostmanRequestItem(item RequestItem) map[string]interface{} {
 	if auth := sharePostmanAuth(item.Auth); auth != nil {
 		request["auth"] = auth
 	}
-	return map[string]interface{}{
+	if description := strings.TrimSpace(item.Docs); description != "" {
+		request["description"] = description
+	}
+	entry := map[string]interface{}{
 		"name":    item.Name,
 		"request": request,
 	}
+	if events := sharePostmanEvents(item.PreScript, item.PostScript, item.Tests); len(events) > 0 {
+		entry["event"] = events
+	}
+	return entry
+}
+
+// sharePostmanEvents builds the event blocks a Postman collection carries.
+//
+// Postman has TWO events, prerequest and test, while this model has THREE
+// script slots: PreScript, PostScript and Tests. PostScript and Tests are
+// therefore joined into the single test event.
+//
+// That merge is lossless for the collections that matter here. The importer
+// maps Postman's test event onto PostScript and never populates Tests, so a
+// Postman-origin collection round-trips byte-for-byte. A natively authored
+// collection using both slots collapses them into one on the way out — and
+// once collapsed it stays collapsed, which is exactly what makes
+// import -> export -> import idempotent rather than drifting on every cycle.
+func sharePostmanEvents(preScript, postScript, tests string) []interface{} {
+	var events []interface{}
+	add := func(listen, script string) {
+		if strings.TrimSpace(script) == "" {
+			return
+		}
+		events = append(events, map[string]interface{}{
+			"listen": listen,
+			"script": map[string]interface{}{
+				"type": "text/javascript",
+				// exec is a line array, which is how Postman writes it. A
+				// single string is accepted by most readers but diffs as one
+				// enormous line, making an exported collection unreviewable in
+				// version control.
+				"exec": strings.Split(script, "\n"),
+			},
+		})
+	}
+	add("prerequest", preScript)
+
+	post := strings.TrimRight(postScript, "\n")
+	if strings.TrimSpace(tests) != "" {
+		if strings.TrimSpace(post) != "" {
+			post += "\n"
+		}
+		post += tests
+	}
+	add("test", post)
+	return events
+}
+
+// sharePostmanVariables exports collection variables.
+func sharePostmanVariables(variables []Variable) []interface{} {
+	out := make([]interface{}, 0, len(variables))
+	for _, variable := range variables {
+		name := strings.TrimSpace(variable.Name)
+		if name == "" {
+			continue
+		}
+		entry := map[string]interface{}{
+			"key":   name,
+			"value": scriptVariableString(variable.Value),
+		}
+		if !variable.Enabled {
+			entry["disabled"] = true
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 func sharePostmanURL(item RequestItem) map[string]interface{} {
@@ -40017,6 +40116,21 @@ func sharePostmanURL(item RequestItem) map[string]interface{} {
 		}
 		if len(query) > 0 {
 			url["query"] = query
+		}
+	}
+	// US-053. Path params are a separate Postman key from query params, and
+	// omitting them meant a :id placeholder round-tripped with no value — the
+	// request imported looking complete and sent a literal ":id" to the server.
+	if len(item.PathParams) > 0 {
+		variables := []map[string]interface{}{}
+		for _, param := range item.PathParams {
+			if strings.TrimSpace(param.Name) == "" {
+				continue
+			}
+			variables = append(variables, map[string]interface{}{"key": param.Name, "value": param.Value})
+		}
+		if len(variables) > 0 {
+			url["variable"] = variables
 		}
 	}
 	return url

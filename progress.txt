@@ -1448,3 +1448,49 @@ US-052 - Swagger 2 import. DONE.
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 38.2s 0,
   svelte-check 198/0/0, eslint 0, npm test 105/105.
+
+US-053 - Postman export fidelity. DONE.
+  The exporter previously emitted only info + item + per-request
+  method/url/header/body/auth. Everything else was dropped SILENTLY: the export
+  imported cleanly and behaved differently. Now also emitted:
+    collection level  event blocks, auth, variables
+    folder level      event blocks, auth
+    request level     event blocks, description, path params
+  And the importer now READS description into Docs, so it round-trips instead
+  of the exporter writing a field nothing ever reads back.
+
+  WHY IDEMPOTENCE IS THE RIGHT CRITERION, and worth stating because "export
+  equals input" sounds stronger and is wrong. This model is richer than
+  Postman's in places (three script slots vs Postman's two events) and poorer
+  in others, so ONE cycle can legitimately lose something. What must never
+  happen is DRIFT - each cycle losing a little more, so a collection shared
+  back and forth degrades. Idempotence from the first import onward rules that
+  out. The test runs THREE cycles, because a two-cycle test passes on an
+  exporter losing something at a steady rate.
+
+  The PostScript/Tests merge is the one deliberate collapse. Postman has two
+  events; this model has three slots, so PostScript and Tests are joined into
+  the single test event. It is lossless where it matters: the importer maps
+  Postman's test event onto PostScript and never populates Tests, so a
+  Postman-origin collection round-trips exactly. A natively authored collection
+  using both collapses once and then stays collapsed - which is precisely what
+  makes the cycle idempotent rather than drifting.
+
+  exec is written as a LINE ARRAY, not a joined string. Both are read by most
+  tools, but a joined string diffs as one enormous line and makes an exported
+  collection unreviewable in version control.
+
+  Idempotence alone is satisfied by an exporter that drops everything - an
+  empty collection round-trips perfectly - so each field is asserted directly
+  as well. The fingerprint used for comparison deliberately ignores generated
+  ids and timestamps, which differ on every import by design.
+
+  Negative controls, all five run and all five caught:
+    request events dropped        idempotence + content test fail
+    path params dropped           "got 0 path params, want 1"
+    exec as one joined string     no multi-line exec produced
+    collection variables dropped  idempotence + content test fail
+    description not imported      description round-tripped as ""
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 38.5s 0,
+  -race clean.
