@@ -394,6 +394,10 @@ export function MarkNotificationRead(arg1) {
   return window['go']['main']['App']['MarkNotificationRead'](arg1);
 }
 
+export function MockServerStatusFor(arg1) {
+  return window['go']['main']['App']['MockServerStatusFor'](arg1);
+}
+
 export function MoveOpenTab(arg1, arg2) {
   return window['go']['main']['App']['MoveOpenTab'](arg1, arg2);
 }
@@ -452,6 +456,10 @@ export function RefreshChangedCollections() {
 
 export function RefreshCollection(arg1) {
   return window['go']['main']['App']['RefreshCollection'](arg1);
+}
+
+export function RefreshMockServer(arg1) {
+  return window['go']['main']['App']['RefreshMockServer'](arg1);
 }
 
 export function RemoveCollection(arg1) {
@@ -624,6 +632,14 @@ export function SetCollectionGitRemote(arg1, arg2, arg3) {
 
 export function StageCollectionGitPaths(arg1, arg2) {
   return window['go']['main']['App']['StageCollectionGitPaths'](arg1, arg2);
+}
+
+export function StartMockServer(arg1, arg2) {
+  return window['go']['main']['App']['StartMockServer'](arg1, arg2);
+}
+
+export function StopMockServer(arg1) {
+  return window['go']['main']['App']['StopMockServer'](arg1);
 }
 
 export function StringifyBru(arg1) {

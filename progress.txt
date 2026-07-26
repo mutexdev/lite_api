@@ -2076,3 +2076,58 @@ US-032 - Virtualize the DevTools network log. DONE.
 
   Gates: go test 39.2s 0, vet 0, golangci-lint 0 issues, svelte-check 205/0/0,
   eslint 0, npm test 197/197 (+16 virtualList).
+
+US-072 - Mock server core. DONE.
+  mock_server.go: per-collection loopback HTTP listener matching method+path
+  against the request tree and replying from RequestItem.Examples. Bindings
+  Start/Stop/Refresh/StatusFor. Selection via x-mock-response-name (Postman's
+  header, so an imported collection's tests keep working) or first match.
+
+  LOOPBACK ONLY, AND NOT AS A DEFAULT TO BE RELAXED. A mock replays whatever
+  the user recorded, which routinely includes tokens, internal hostnames and
+  customer data captured from a real API. Binding 0.0.0.0 would publish all of
+  it to every machine on the network - a coffee-shop Wi-Fi away from a data
+  leak - from a feature whose entire purpose is local development. NC1 confirms
+  the test catches a change to 0.0.0.0.
+
+  AN UNKNOWN x-mock-response-name IS AN ERROR, not a fallback to the first
+  example. Someone asking for the "not found" case and being handed the 200
+  watches their test pass for the wrong reason. The 400 lists the available
+  names, because otherwise the user cannot tell a typo from a deleted example.
+
+  A ROUTE WITH NO RECORDED EXAMPLE 404s rather than inventing a 200. An
+  invented success is worse than a miss the user can act on. The 404 body
+  carries the route count, since a bare one is indistinguishable from a typo in
+  the request.
+
+  PATH MATCHING DOES NOT INTERPOLATE VARIABLES. Example URLs are stored with
+  {{baseUrl}} intact, and resolving per request would make which mock answers
+  depend on the SELECTED ENVIRONMENT - the same request hitting a different
+  mock after an environment switch, with nothing to explain why. Only the path
+  is compared, and mockPathFromURL handles both real URLs and placeholder ones.
+
+  Recorded Content-Length is dropped: net/http recomputes it from what is
+  actually written, and a stale one truncates the client's read. NC3 reproduced
+  exactly that - "unexpected EOF".
+
+  Port 0 by default so the OS picks a free one; a fixed default collides with
+  whatever else is running and fails at bind time. update() swaps the routing
+  table without rebinding, so saving an example takes effect without changing
+  the address open clients point at. stopAllMockServers runs on shutdown - a
+  listener left bound blocks its own port on the next launch, which reads as
+  "the mock is broken".
+
+  The collection is COPIED under the state lock and used outside it, and the
+  mock map has its OWN mutex: binding a socket while holding the state lock
+  would be a long operation under the app's hottest lock, and holding a
+  collection pointer across the release is the US-076 bug.
+
+  Negative controls, all five run and all five caught:
+    bind 0.0.0.0                 "bound ::, reachable from the network"
+    unknown name falls back      first example returned silently
+    Content-Length passed through client read failed with unexpected EOF
+    disabled headers sent        X-Disabled reached the wire
+    invent a 200                 unrecorded routes answered 200
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 38.7s 0,
+  -race clean.

@@ -3122,6 +3122,28 @@ export namespace main {
 	
 	
 	
+	export class MockServerStatus {
+	    collectionId: string;
+	    running: boolean;
+	    port: number;
+	    url?: string;
+	    routes: number;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MockServerStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.collectionId = source["collectionId"];
+	        this.running = source["running"];
+	        this.port = source["port"];
+	        this.url = source["url"];
+	        this.routes = source["routes"];
+	        this.error = source["error"];
+	    }
+	}
 	
 	
 	

@@ -198,6 +198,8 @@ export function MarkAllNotificationsRead():Promise<main.AppState>;
 
 export function MarkNotificationRead(arg1:string):Promise<main.AppState>;
 
+export function MockServerStatusFor(arg1:string):Promise<main.MockServerStatus>;
+
 export function MoveOpenTab(arg1:string,arg2:number):Promise<main.AppState>;
 
 export function MoveOpenTabNarrow(arg1:string,arg2:number):Promise<main.TabsMutation>;
@@ -227,6 +229,8 @@ export function ReadResponseBody(arg1:string,arg2:number,arg3:number):Promise<ma
 export function RefreshChangedCollections():Promise<main.CollectionWatchRefreshResult>;
 
 export function RefreshCollection(arg1:string):Promise<main.AppState>;
+
+export function RefreshMockServer(arg1:string):Promise<main.MockServerStatus>;
 
 export function RemoveCollection(arg1:string):Promise<main.AppState>;
 
@@ -313,6 +317,10 @@ export function SetActiveWorkspace(arg1:string):Promise<main.AppState>;
 export function SetCollectionGitRemote(arg1:string,arg2:string,arg3:string):Promise<main.CollectionGitOperationResult>;
 
 export function StageCollectionGitPaths(arg1:string,arg2:Array<string>):Promise<main.CollectionGitOperationResult>;
+
+export function StartMockServer(arg1:string,arg2:number):Promise<main.MockServerStatus>;
+
+export function StopMockServer(arg1:string):Promise<main.MockServerStatus>;
 
 export function StringifyBru(arg1:main.RequestItem):Promise<string>;
 

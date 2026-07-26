@@ -217,7 +217,12 @@ type App struct {
 	// US-048. History lives outside state.json; see history_store.go for why.
 	historyOnce  sync.Once
 	historyStore *historyStore
-	responses    *responseStore
+	// US-072. Per-collection mock listeners, guarded by their own mutex so
+	// binding a socket never happens under the state lock.
+	mockOnce    sync.Once
+	mockMu      sync.Mutex
+	mockServers map[string]*mockServer
+	responses   *responseStore
 
 	// US-013. Fingerprints of what each auxiliary file last contained, so a
 	// persist that changes nothing in a file does no work for that file.
@@ -1458,6 +1463,11 @@ func (a *App) handleSecondInstanceArgs(args []string) {
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	// US-072. Before anything else: a mock listener left bound outlives the
+	// process on some platforms and blocks its own port on the next launch,
+	// which reads as "the mock server is broken" rather than "the last one is
+	// still holding the socket".
+	a.stopAllMockServers()
 	// Retire the background writer before the flush, not after. It waits out a
 	// write already in flight, so the flush below is the last write of the
 	// process: nothing can land concurrently with — or after — the workspace
