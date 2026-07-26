@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/mutexdev/lite_api/internal/localserver"
 )
 
 func docsFixture(t *testing.T) (*App, string) {
@@ -36,17 +38,17 @@ func docsFixture(t *testing.T) (*App, string) {
 }
 
 func TestDocsServerBindsLoopbackOnly(t *testing.T) {
-	server, err := startDocsServer("c", 0, func() (GenerateCollectionDocsResult, error) {
+	server, err := localserver.StartDocs("c", 0, func() (GenerateCollectionDocsResult, error) {
 		return GenerateCollectionDocsResult{HTML: "<p>ok</p>"}, nil
 	})
 	if err != nil {
-		t.Fatalf("startDocsServer: %v", err)
+		t.Fatalf("localserver.StartDocs: %v", err)
 	}
-	defer func() { _ = server.stop() }()
+	defer func() { _ = server.Stop() }()
 
-	addr, ok := server.listener.Addr().(*net.TCPAddr)
+	addr, ok := server.Addr().(*net.TCPAddr)
 	if !ok {
-		t.Fatalf("listener address is not TCP: %v", server.listener.Addr())
+		t.Fatalf("listener address is not TCP: %v", server.Addr())
 	}
 	if !addr.IP.IsLoopback() {
 		t.Fatalf("docs server bound %s; generated docs describe an internal API and must not be published to the network", addr.IP)
@@ -58,23 +60,23 @@ func TestDocsServerBindsLoopbackOnly(t *testing.T) {
 func TestDocsAreRegeneratedOnEveryRequest(t *testing.T) {
 	var renders int64
 	body := "<p>first</p>"
-	server, err := startDocsServer("c", 0, func() (GenerateCollectionDocsResult, error) {
+	server, err := localserver.StartDocs("c", 0, func() (GenerateCollectionDocsResult, error) {
 		atomic.AddInt64(&renders, 1)
 		return GenerateCollectionDocsResult{HTML: body}, nil
 	})
 	if err != nil {
-		t.Fatalf("startDocsServer: %v", err)
+		t.Fatalf("localserver.StartDocs: %v", err)
 	}
-	defer func() { _ = server.stop() }()
+	defer func() { _ = server.Stop() }()
 
-	first := fetchDocs(t, server.status().URL+"/")
+	first := fetchDocs(t, server.Status().URL+"/")
 	if first != "<p>first</p>" {
 		t.Fatalf("first fetch = %q", first)
 	}
 
 	// Simulate the user editing the collection between refreshes.
 	body = "<p>edited</p>"
-	second := fetchDocs(t, server.status().URL+"/")
+	second := fetchDocs(t, server.Status().URL+"/")
 	if second != "<p>edited</p>" {
 		t.Errorf("second fetch = %q; the preview is serving a snapshot from start time", second)
 	}
@@ -99,16 +101,16 @@ func fetchDocs(t *testing.T, url string) string {
 
 // A cached preview stops updating, which defeats the reload it exists for.
 func TestDocsAreNotCacheable(t *testing.T) {
-	server, err := startDocsServer("c", 0, func() (GenerateCollectionDocsResult, error) {
+	server, err := localserver.StartDocs("c", 0, func() (GenerateCollectionDocsResult, error) {
 		return GenerateCollectionDocsResult{HTML: "<p>ok</p>", YAML: "name: ok"}, nil
 	})
 	if err != nil {
-		t.Fatalf("startDocsServer: %v", err)
+		t.Fatalf("localserver.StartDocs: %v", err)
 	}
-	defer func() { _ = server.stop() }()
+	defer func() { _ = server.Stop() }()
 
 	for _, path := range []string{"/", "/collection.yaml"} {
-		response, err := http.Get(server.status().URL + path)
+		response, err := http.Get(server.Status().URL + path)
 		if err != nil {
 			t.Fatalf("GET %s: %v", path, err)
 		}
@@ -120,13 +122,13 @@ func TestDocsAreNotCacheable(t *testing.T) {
 }
 
 func TestDocsServerServesHTMLAndYAML(t *testing.T) {
-	server, err := startDocsServer("c", 0, func() (GenerateCollectionDocsResult, error) {
+	server, err := localserver.StartDocs("c", 0, func() (GenerateCollectionDocsResult, error) {
 		return GenerateCollectionDocsResult{HTML: "<h1>Docs</h1>", YAML: "name: fixture"}, nil
 	})
 	if err != nil {
-		t.Fatalf("startDocsServer: %v", err)
+		t.Fatalf("localserver.StartDocs: %v", err)
 	}
-	defer func() { _ = server.stop() }()
+	defer func() { _ = server.Stop() }()
 
 	for _, tc := range []struct{ path, want, contentType string }{
 		{"/", "<h1>Docs</h1>", "text/html"},
@@ -134,7 +136,7 @@ func TestDocsServerServesHTMLAndYAML(t *testing.T) {
 		{"/collection.yaml", "name: fixture", "application/yaml"},
 		{"/collection.yml", "name: fixture", "application/yaml"},
 	} {
-		response, err := http.Get(server.status().URL + tc.path)
+		response, err := http.Get(server.Status().URL + tc.path)
 		if err != nil {
 			t.Fatalf("GET %s: %v", tc.path, err)
 		}
@@ -153,15 +155,15 @@ func TestDocsServerServesHTMLAndYAML(t *testing.T) {
 // An unknown path names what IS served. A bare 404 from a local preview leaves
 // the user guessing at the routes.
 func TestDocsServerUnknownPathNamesWhatItServes(t *testing.T) {
-	server, err := startDocsServer("c", 0, func() (GenerateCollectionDocsResult, error) {
+	server, err := localserver.StartDocs("c", 0, func() (GenerateCollectionDocsResult, error) {
 		return GenerateCollectionDocsResult{HTML: "<p>ok</p>"}, nil
 	})
 	if err != nil {
-		t.Fatalf("startDocsServer: %v", err)
+		t.Fatalf("localserver.StartDocs: %v", err)
 	}
-	defer func() { _ = server.stop() }()
+	defer func() { _ = server.Stop() }()
 
-	response, err := http.Get(server.status().URL + "/nope")
+	response, err := http.Get(server.Status().URL + "/nope")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -179,15 +181,15 @@ func TestDocsServerUnknownPathNamesWhatItServes(t *testing.T) {
 // A generation failure is the user's own malformed collection, so the message
 // has to reach them rather than being swallowed into a blank page.
 func TestDocsServerShowsAGenerationFailure(t *testing.T) {
-	server, err := startDocsServer("c", 0, func() (GenerateCollectionDocsResult, error) {
+	server, err := localserver.StartDocs("c", 0, func() (GenerateCollectionDocsResult, error) {
 		return GenerateCollectionDocsResult{}, io.ErrUnexpectedEOF
 	})
 	if err != nil {
-		t.Fatalf("startDocsServer: %v", err)
+		t.Fatalf("localserver.StartDocs: %v", err)
 	}
-	defer func() { _ = server.stop() }()
+	defer func() { _ = server.Stop() }()
 
-	response, err := http.Get(server.status().URL + "/")
+	response, err := http.Get(server.Status().URL + "/")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -252,10 +254,10 @@ func TestStartDocsServerRejectsAnUnknownCollection(t *testing.T) {
 
 func TestStartDocsServerRejectsABadPort(t *testing.T) {
 	render := func() (GenerateCollectionDocsResult, error) { return GenerateCollectionDocsResult{}, nil }
-	if _, err := startDocsServer("c", -1, render); err == nil {
+	if _, err := localserver.StartDocs("c", -1, render); err == nil {
 		t.Error("a negative port should be rejected")
 	}
-	if _, err := startDocsServer("c", 70000, render); err == nil {
+	if _, err := localserver.StartDocs("c", 70000, render); err == nil {
 		t.Error("a port above the range should be rejected")
 	}
 }

@@ -253,6 +253,53 @@ export namespace history {
 
 }
 
+export namespace localserver {
+	
+	export class DocsServerStatus {
+	    collectionId: string;
+	    running: boolean;
+	    port: number;
+	    url?: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocsServerStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.collectionId = source["collectionId"];
+	        this.running = source["running"];
+	        this.port = source["port"];
+	        this.url = source["url"];
+	        this.error = source["error"];
+	    }
+	}
+	export class MockServerStatus {
+	    collectionId: string;
+	    running: boolean;
+	    port: number;
+	    url?: string;
+	    routes: number;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MockServerStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.collectionId = source["collectionId"];
+	        this.running = source["running"];
+	        this.port = source["port"];
+	        this.url = source["url"];
+	        this.routes = source["routes"];
+	        this.error = source["error"];
+	    }
+	}
+
+}
+
 export namespace main {
 	
 	export class CollectionImportSelection {
@@ -595,48 +642,6 @@ export namespace main {
 	
 	
 	
-	export class DocsServerStatus {
-	    collectionId: string;
-	    running: boolean;
-	    port: number;
-	    url?: string;
-	    error?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new DocsServerStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.collectionId = source["collectionId"];
-	        this.running = source["running"];
-	        this.port = source["port"];
-	        this.url = source["url"];
-	        this.error = source["error"];
-	    }
-	}
-	export class MockServerStatus {
-	    collectionId: string;
-	    running: boolean;
-	    port: number;
-	    url?: string;
-	    routes: number;
-	    error?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new MockServerStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.collectionId = source["collectionId"];
-	        this.running = source["running"];
-	        this.port = source["port"];
-	        this.url = source["url"];
-	        this.routes = source["routes"];
-	        this.error = source["error"];
-	    }
-	}
 	export class RecoveryEntry {
 	    id: string;
 	    kind: string;

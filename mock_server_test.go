@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/mutexdev/lite_api/internal/localserver"
 )
 
 func mockCollectionFixture() Collection {
@@ -81,13 +83,13 @@ func mockCollectionFixture() Collection {
 	}
 }
 
-func startFixtureMock(t *testing.T) *mockServer {
+func startFixtureMock(t *testing.T) *localserver.MockServer {
 	t.Helper()
-	mock, err := startMockServer(mockCollectionFixture(), 0, nil)
+	mock, err := localserver.StartMock(mockCollectionFixture(), 0, nil)
 	if err != nil {
-		t.Fatalf("startMockServer: %v", err)
+		t.Fatalf("localserver.StartMock: %v", err)
 	}
-	t.Cleanup(func() { _ = mock.stop() })
+	t.Cleanup(func() { _ = mock.Stop() })
 	return mock
 }
 
@@ -98,22 +100,22 @@ func startFixtureMock(t *testing.T) *mockServer {
 func TestMockServerBindsLoopbackOnly(t *testing.T) {
 	mock := startFixtureMock(t)
 
-	addr, ok := mock.listener.Addr().(*net.TCPAddr)
+	addr, ok := mock.Addr().(*net.TCPAddr)
 	if !ok {
-		t.Fatalf("listener address is not TCP: %v", mock.listener.Addr())
+		t.Fatalf("listener address is not TCP: %v", mock.Addr())
 	}
 	if !addr.IP.IsLoopback() {
 		t.Fatalf("mock bound %s, which is reachable from the network; it must be loopback only", addr.IP)
 	}
-	if mock.status().URL != fmt.Sprintf("http://127.0.0.1:%d", mock.port) {
-		t.Errorf("advertised URL %q is not the loopback address", mock.status().URL)
+	if mock.Status().URL != fmt.Sprintf("http://127.0.0.1:%d", mock.Status().Port) {
+		t.Errorf("advertised URL %q is not the loopback address", mock.Status().URL)
 	}
 }
 
 func TestMockServerAnswersFromASavedExample(t *testing.T) {
 	mock := startFixtureMock(t)
 
-	response, err := http.Get(mock.status().URL + "/v1/users")
+	response, err := http.Get(mock.Status().URL + "/v1/users")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -136,8 +138,8 @@ func TestMockServerAnswersFromASavedExample(t *testing.T) {
 func TestMockServerSelectsByName(t *testing.T) {
 	mock := startFixtureMock(t)
 
-	request, _ := http.NewRequest(http.MethodGet, mock.status().URL+"/v1/users", nil)
-	request.Header.Set(mockSelectionHeader, "no users")
+	request, _ := http.NewRequest(http.MethodGet, mock.Status().URL+"/v1/users", nil)
+	request.Header.Set(localserver.MockSelectionHeader, "no users")
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("GET: %v", err)
@@ -159,8 +161,8 @@ func TestMockServerSelectsByName(t *testing.T) {
 func TestMockServerRejectsAnUnknownExampleName(t *testing.T) {
 	mock := startFixtureMock(t)
 
-	request, _ := http.NewRequest(http.MethodGet, mock.status().URL+"/v1/users", nil)
-	request.Header.Set(mockSelectionHeader, "does not exist")
+	request, _ := http.NewRequest(http.MethodGet, mock.Status().URL+"/v1/users", nil)
+	request.Header.Set(localserver.MockSelectionHeader, "does not exist")
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("GET: %v", err)
@@ -195,7 +197,7 @@ func TestMockServerDoesNotInventResponses(t *testing.T) {
 		{http.MethodGet, "/nothing/here"},  // not in the collection at all
 		{http.MethodPut, "/v1/users"},      // right path, wrong method
 	} {
-		request, _ := http.NewRequest(target.method, mock.status().URL+target.path, nil)
+		request, _ := http.NewRequest(target.method, mock.Status().URL+target.path, nil)
 		response, err := http.DefaultClient.Do(request)
 		if err != nil {
 			t.Fatalf("%s %s: %v", target.method, target.path, err)
@@ -214,48 +216,6 @@ func TestMockServerDoesNotInventResponses(t *testing.T) {
 	}
 }
 
-// TestMockPathIgnoresUnresolvedVariables. Example URLs are stored with
-// {{baseUrl}} intact. Interpolating per request would make which mock answers
-// depend on the selected environment, so only the path is compared.
-func TestMockPathFromURL(t *testing.T) {
-	for _, tc := range []struct{ in, want string }{
-		{"{{baseUrl}}/v1/users", "/v1/users"},
-		{"https://api.example.test/v1/users", "/v1/users"},
-		{"https://api.example.test/v1/users/", "/v1/users"},
-		{"{{protocol}}://{{host}}/a/b", "/a/b"},
-		{"{{baseUrl}}/v1/users?page=2", "/v1/users"},
-		{"{{baseUrl}}", "/"},
-		{"", "/"},
-		{"https://api.example.test", "/"},
-	} {
-		if got := mockPathFromURL(tc.in); got != tc.want {
-			t.Errorf("mockPathFromURL(%q) = %q, want %q", tc.in, got, tc.want)
-		}
-	}
-}
-
-// A trailing slash is a formatting accident in a saved example, not a
-// different endpoint.
-func TestMockRouteKeyNormalises(t *testing.T) {
-	base := mockRouteKey("GET", "/v1/users")
-	for _, variant := range []struct{ method, path string }{
-		{"get", "/v1/users"},
-		{"GET", "v1/users"},
-		{"GET", "/v1/users/"},
-		{" GET ", " /v1/users "},
-	} {
-		if got := mockRouteKey(variant.method, variant.path); got != base {
-			t.Errorf("mockRouteKey(%q, %q) = %q, want %q", variant.method, variant.path, got, base)
-		}
-	}
-	if mockRouteKey("", "/x") != mockRouteKey("GET", "/x") {
-		t.Error("an empty method should default to GET")
-	}
-	if mockRouteKey("POST", "/x") == mockRouteKey("GET", "/x") {
-		t.Error("different methods must not collide")
-	}
-}
-
 // TestMockServerDropsRecordedContentLength. net/http recomputes it from what is
 // actually written; a stale recorded value makes the client read a truncated
 // response.
@@ -265,13 +225,13 @@ func TestMockServerDropsRecordedContentLength(t *testing.T) {
 		collection.Items[0].Examples[0].Response.Headers,
 		KeyValue{Name: "Content-Length", Value: "99999", Enabled: true},
 	)
-	mock, err := startMockServer(collection, 0, nil)
+	mock, err := localserver.StartMock(collection, 0, nil)
 	if err != nil {
-		t.Fatalf("startMockServer: %v", err)
+		t.Fatalf("localserver.StartMock: %v", err)
 	}
-	defer func() { _ = mock.stop() }()
+	defer func() { _ = mock.Stop() }()
 
-	response, err := http.Get(mock.status().URL + "/v1/users")
+	response, err := http.Get(mock.Status().URL + "/v1/users")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -293,13 +253,13 @@ func TestMockServerDisabledHeadersAreNotSent(t *testing.T) {
 		collection.Items[0].Examples[0].Response.Headers,
 		KeyValue{Name: "X-Disabled", Value: "should not appear", Enabled: false},
 	)
-	mock, err := startMockServer(collection, 0, nil)
+	mock, err := localserver.StartMock(collection, 0, nil)
 	if err != nil {
-		t.Fatalf("startMockServer: %v", err)
+		t.Fatalf("localserver.StartMock: %v", err)
 	}
-	defer func() { _ = mock.stop() }()
+	defer func() { _ = mock.Stop() }()
 
-	response, err := http.Get(mock.status().URL + "/v1/users")
+	response, err := http.Get(mock.Status().URL + "/v1/users")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -313,16 +273,16 @@ func TestMockServerDisabledHeadersAreNotSent(t *testing.T) {
 // changing the address every open client is pointed at.
 func TestMockServerUpdateKeepsThePort(t *testing.T) {
 	mock := startFixtureMock(t)
-	port := mock.port
+	port := mock.Status().Port
 
 	updated := mockCollectionFixture()
 	updated.Items[0].Examples[0].Response.Body = `{"users":["grace"]}`
-	mock.update(updated)
+	mock.Update(updated)
 
-	if mock.port != port {
-		t.Errorf("the port changed from %d to %d on a routing update", port, mock.port)
+	if mock.Status().Port != port {
+		t.Errorf("the port changed from %d to %d on a routing update", port, mock.Status().Port)
 	}
-	response, err := http.Get(mock.status().URL + "/v1/users")
+	response, err := http.Get(mock.Status().URL + "/v1/users")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -330,26 +290,6 @@ func TestMockServerUpdateKeepsThePort(t *testing.T) {
 	body, _ := io.ReadAll(response.Body)
 	if string(body) != `{"users":["grace"]}` {
 		t.Errorf("body = %q, want the updated example", body)
-	}
-}
-
-func TestSelectMockExample(t *testing.T) {
-	examples := []ResponseExample{{Name: "first"}, {Name: "second"}}
-
-	if got, err := selectMockExample(examples, ""); err != nil || got.Name != "first" {
-		t.Errorf("no name should select the first: %v %v", got.Name, err)
-	}
-	if got, err := selectMockExample(examples, "SECOND"); err != nil || got.Name != "second" {
-		t.Errorf("name matching should be case-insensitive: %v %v", got.Name, err)
-	}
-	if got, err := selectMockExample(examples, "  second  "); err != nil || got.Name != "second" {
-		t.Errorf("a padded name should still match: %v %v", got.Name, err)
-	}
-	if _, err := selectMockExample(examples, "missing"); err == nil {
-		t.Error("an unknown name must be an error, not a fallback")
-	}
-	if _, err := selectMockExample(nil, ""); err == nil {
-		t.Error("no examples must be an error")
 	}
 }
 
@@ -385,7 +325,7 @@ func TestMockServerLifecycleThroughTheBindings(t *testing.T) {
 	if restarted.Port == 0 {
 		t.Error("the restarted mock has no port")
 	}
-	if _, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", firstPort), mockShutdownGrace); err == nil && firstPort != restarted.Port {
+	if _, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", firstPort), localserver.MockShutdownGrace); err == nil && firstPort != restarted.Port {
 		t.Error("the original listener is still bound after a restart")
 	}
 
@@ -410,10 +350,10 @@ func TestMockServerLifecycleThroughTheBindings(t *testing.T) {
 }
 
 func TestStartMockServerRejectsABadPort(t *testing.T) {
-	if _, err := startMockServer(mockCollectionFixture(), -1, nil); err == nil {
+	if _, err := localserver.StartMock(mockCollectionFixture(), -1, nil); err == nil {
 		t.Error("a negative port should be rejected")
 	}
-	if _, err := startMockServer(mockCollectionFixture(), 70000, nil); err == nil {
+	if _, err := localserver.StartMock(mockCollectionFixture(), 70000, nil); err == nil {
 		t.Error("a port above the range should be rejected")
 	}
 }
@@ -558,27 +498,27 @@ func TestSelfTestSendRequestAgainstOwnMock(t *testing.T) {
 func TestMockCallsAreLoggedForEveryExitPath(t *testing.T) {
 	var logged []NetworkLog
 	var mu sync.Mutex
-	mock, err := startMockServer(mockCollectionFixture(), 0, func(entry NetworkLog) {
+	mock, err := localserver.StartMock(mockCollectionFixture(), 0, func(entry NetworkLog) {
 		mu.Lock()
 		logged = append(logged, entry)
 		mu.Unlock()
 	})
 	if err != nil {
-		t.Fatalf("startMockServer: %v", err)
+		t.Fatalf("localserver.StartMock: %v", err)
 	}
-	defer func() { _ = mock.stop() }()
+	defer func() { _ = mock.Stop() }()
 
 	// Success.
-	if _, err := http.Get(mock.status().URL + "/v1/users"); err != nil {
+	if _, err := http.Get(mock.Status().URL + "/v1/users"); err != nil {
 		t.Fatalf("GET: %v", err)
 	}
 	// 404, no such route.
-	if _, err := http.Get(mock.status().URL + "/nothing"); err != nil {
+	if _, err := http.Get(mock.Status().URL + "/nothing"); err != nil {
 		t.Fatalf("GET: %v", err)
 	}
 	// 400, unknown example name.
-	request, _ := http.NewRequest(http.MethodGet, mock.status().URL+"/v1/users", nil)
-	request.Header.Set(mockSelectionHeader, "missing")
+	request, _ := http.NewRequest(http.MethodGet, mock.Status().URL+"/v1/users", nil)
+	request.Header.Set(localserver.MockSelectionHeader, "missing")
 	if _, err := http.DefaultClient.Do(request); err != nil {
 		t.Fatalf("GET: %v", err)
 	}

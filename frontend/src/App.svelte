@@ -221,7 +221,7 @@
     WriteTerminalSession,
     UpdateResponseExample
   } from '../wailsjs/go/main/App'
-  import type { gitworkbench, history, main, types } from '../wailsjs/go/models'
+  import type { gitworkbench, history, localserver, main, types } from '../wailsjs/go/models'
   import { BrowserOpenURL, EventsOn, OnFileDrop, OnFileDropOff, Quit } from '../wailsjs/runtime/runtime'
 
   type View = 'request' | 'collection' | 'git' | 'runner' | 'environments' | 'import' | 'features' | 'network' | 'cookies' | 'history' | 'preferences' | 'devtools'
@@ -1046,12 +1046,12 @@
   // US-073 — mock server controls. Port 0 means "let the OS choose", which is
   // the default because a fixed port collides with whatever else is running and
   // fails at bind time with an error the user then has to diagnose.
-  let mockServerStatus = $state<main.MockServerStatus | undefined>()
+  let mockServerStatus = $state<localserver.MockServerStatus | undefined>()
   let mockServerPort = $state(0)
 
   // US-074 — docs preview. Same shape and the same reasoning as the mock
   // controls: loopback only, port 0 lets the OS choose.
-  let docsServerStatus = $state<main.DocsServerStatus | undefined>()
+  let docsServerStatus = $state<localserver.DocsServerStatus | undefined>()
   let docsServerPort = $state(0)
 
   async function refreshDocsServerStatus(collectionID: string | undefined) {

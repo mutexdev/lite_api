@@ -4,6 +4,7 @@ import {types} from '../models';
 import {main} from '../models';
 import {gitworkbench} from '../models';
 import {codegen} from '../models';
+import {localserver} from '../models';
 import {history} from '../models';
 
 export function AddCookieFromHeader(arg1:string,arg2:string):Promise<types.AppState>;
@@ -128,7 +129,7 @@ export function DisconnectOpenAPISync(arg1:string):Promise<types.AppState>;
 
 export function DisconnectWebSocket(arg1:string,arg2:string):Promise<types.AppState>;
 
-export function DocsServerStatusFor(arg1:string):Promise<main.DocsServerStatus>;
+export function DocsServerStatusFor(arg1:string):Promise<localserver.DocsServerStatus>;
 
 export function EndGRPCStream(arg1:string,arg2:string):Promise<types.AppState>;
 
@@ -204,7 +205,7 @@ export function MarkAllNotificationsRead():Promise<types.AppState>;
 
 export function MarkNotificationRead(arg1:string):Promise<types.AppState>;
 
-export function MockServerStatusFor(arg1:string):Promise<main.MockServerStatus>;
+export function MockServerStatusFor(arg1:string):Promise<localserver.MockServerStatus>;
 
 export function MoveOpenTab(arg1:string,arg2:number):Promise<types.AppState>;
 
@@ -236,7 +237,7 @@ export function RefreshChangedCollections():Promise<types.CollectionWatchRefresh
 
 export function RefreshCollection(arg1:string):Promise<types.AppState>;
 
-export function RefreshMockServer(arg1:string):Promise<main.MockServerStatus>;
+export function RefreshMockServer(arg1:string):Promise<localserver.MockServerStatus>;
 
 export function RemoveCollection(arg1:string):Promise<types.AppState>;
 
@@ -324,13 +325,13 @@ export function SetCollectionGitRemote(arg1:string,arg2:string,arg3:string):Prom
 
 export function StageCollectionGitPaths(arg1:string,arg2:Array<string>):Promise<gitworkbench.CollectionGitOperationResult>;
 
-export function StartDocsServer(arg1:string,arg2:number,arg3:types.GenerateCollectionDocsOptions):Promise<main.DocsServerStatus>;
+export function StartDocsServer(arg1:string,arg2:number,arg3:types.GenerateCollectionDocsOptions):Promise<localserver.DocsServerStatus>;
 
-export function StartMockServer(arg1:string,arg2:number):Promise<main.MockServerStatus>;
+export function StartMockServer(arg1:string,arg2:number):Promise<localserver.MockServerStatus>;
 
-export function StopDocsServer(arg1:string):Promise<main.DocsServerStatus>;
+export function StopDocsServer(arg1:string):Promise<localserver.DocsServerStatus>;
 
-export function StopMockServer(arg1:string):Promise<main.MockServerStatus>;
+export function StopMockServer(arg1:string):Promise<localserver.MockServerStatus>;
 
 export function StringifyBru(arg1:types.RequestItem):Promise<string>;
 

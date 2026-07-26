@@ -5891,3 +5891,42 @@ US-026 - Store layer. DONE. Both named collapses complete.
   validation on a security-adjacent path, the workaround is the spelling most
   people already use, and I had just demonstrated what happens when I change
   one of these on judgement. Pinned as a test so a future change is deliberate.
+
+=== RESTRUCTURE PHASE 4 — internal/localserver ===
+
+  mock_server.go 458 -> 130, docs_server.go 199 -> 68. The two listeners, their
+  routing and status types move; the App methods that own the sync.Once and the
+  per-collection maps stay. 25 test packages.
+
+  The tests reached past the API for `server.listener.Addr()` to assert
+  LOOPBACK-ONLY BINDING. Rather than export the field, both types gained an
+  Addr() accessor: the port alone cannot distinguish 127.0.0.1 from 0.0.0.0,
+  and that difference is whether a mock API is local or published to the
+  network. Three pure routing tests moved into the package with the code.
+
+  I CORRUPTED EMBEDDED JAVASCRIPT WITH A BLANKET REGEX — the exact hazard I
+  built decls.go on go/parser to avoid, then bypassed because it was "just a
+  method rename".
+
+      python3 -c "re.sub(r'\.update\(', '.Update(', s)"  over every *.go
+
+  Two call sites needed it (MockServer.Update). ELEVEN did not: Node's crypto
+  API is `.update()`, and app_test.go embeds JavaScript conformance fixtures in
+  backtick literals —
+
+      crypto.createHash("sha256").update("hello bruno").digest("hex")
+   -> crypto.createHash("sha256").Update("hello bruno").digest("hex")
+
+  which the shim answers with "Object has no member 'Update'".
+
+  Caught by TestJavaScriptRuntimeSupportsCommonRequireShims, which is the only
+  reason this did not ship. Note what the test suite did NOT catch: gofmt was
+  clean, go vet was clean, golangci-lint was clean, and the code compiled — a
+  string literal is valid Go whatever is inside it. Only a test that actually
+  RUNS the embedded script could see it.
+
+  The sibling renames (.stop() -> .Stop(), .status() -> .Status()) were audited
+  the same way and are all genuine Go call sites; those names do not appear in
+  the embedded JS. The lesson is not "regexes are bad" but that the raw-string
+  hazard is specific and checkable: before a blanket rename, ask whether the
+  identifier is also a JavaScript API name.

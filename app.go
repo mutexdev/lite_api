@@ -31,6 +31,7 @@ import (
 	"github.com/mutexdev/lite_api/internal/grpcexec"
 	"github.com/mutexdev/lite_api/internal/history"
 	"github.com/mutexdev/lite_api/internal/interp"
+	"github.com/mutexdev/lite_api/internal/localserver"
 	"github.com/mutexdev/lite_api/internal/openapisync"
 	"github.com/mutexdev/lite_api/internal/scripting"
 	"github.com/mutexdev/lite_api/internal/store/bru"
@@ -169,11 +170,11 @@ type App struct {
 	// binding a socket never happens under the state lock.
 	mockOnce    sync.Once
 	mockMu      sync.Mutex
-	mockServers map[string]*mockServer
+	mockServers map[string]*localserver.MockServer
 	// US-074. Docs preview listeners, same isolation as the mocks.
 	docsOnce    sync.Once
 	docsMu      sync.Mutex
-	docsServers map[string]*docsServer
+	docsServers map[string]*localserver.DocsServer
 	responses   *responseStore
 
 	// US-013. Fingerprints of what each auxiliary file last contained, so a
