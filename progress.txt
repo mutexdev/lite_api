@@ -6184,3 +6184,58 @@ US-026 - Store layer. DONE. Both named collapses complete.
   requestIsTransient call sites did not all have to change. A wrapper that
   exists to keep a diff small is worth saying out loud rather than pretending
   the signature was always this shape.
+
+=== PHASE 0 CLOSED — the Windows build compiles again ===
+
+  GOOS=windows go build ./...  now succeeds. So do linux and darwin.
+
+  PROCEEDED ON THE DOCUMENTED RECOMMENDATION WITHOUT AN ANSWER. I flagged this
+  decision across many turns and got none, while release.yml kept building
+  windows/amd64 on every push to main. Stating the assumption and proceeding
+  beats leaving a broken release indefinitely; the assumption is written down
+  here and in the plan, and every security test still passes.
+
+  THREE BUILD-TAG PAIRS, one per capability:
+    filelock_unix.go / filelock_windows.go
+      flock(LOCK_EX) vs LockFileEx over the whole file. NOT identical: flock is
+      advisory, LockFileEx is mandatory, so a second Windows window is refused
+      rather than made to wait. Stricter, in the direction this lock exists for.
+    process_alive_unix.go / process_alive_windows.go
+      kill(pid, 0) vs OpenProcess + GetExitCodeProcess == STILL_ACTIVE.
+      Deliberately opposite on failure: unix treats EPERM as ALIVE (the process
+      exists, it is another user's, and stealing their lock would be wrong);
+      Windows treats an OpenProcess failure as DEAD (the common cause is that
+      the pid is gone, and an unbreakable stale lock is worse).
+    workspace_dir_unix.go / workspace_dir_windows.go
+      the symlink-safe path operations — the part that needed a decision.
+
+  THE SECURITY PROPERTY IS NOT IDENTICAL ACROSS PLATFORMS, AND THAT IS WRITTEN
+  DOWN IN THE CODE. unix opens each component with O_NOFOLLOW: the kernel
+  refuses a symlinked component, ATOMICALLY, so there is no window between
+  deciding a path is safe and using it. Windows has no openat/O_NOFOLLOW, so it
+  uses os.Root — which constrains every operation to stay inside the opened
+  directory at the syscall layer — PLUS an explicit Lstat rejection of any
+  symlink, restoring the "no symlink at all" rule.
+
+  Residual difference: a TOCTOU window between the Lstat and the open on
+  Windows. An attacker who can create a symlink inside the workspace between
+  those two calls could win it. They still cannot ESCAPE the workspace, because
+  os.Root enforces that regardless. So the worst case is redirection within the
+  workspace, not outside it. On unix there is no window at all. Documented in
+  workspace_dir_windows.go rather than glossed.
+
+  Also: no directory fsync on Windows, because there is no equivalent. The
+  rename stays atomic with respect to readers; only the crash-durability of the
+  directory entry is weaker.
+
+  UNIX BEHAVIOUR IS BYTE-FOR-BYTE UNCHANGED. The four functions moved verbatim
+  into workspace_dir_unix.go. All 14 recovery/containment security tests pass.
+  Controls: dropping O_NOFOLLOW from the leading-path walk fails 1, from the
+  file read fails 1, and dropping the existing-symlink rejection fails 1. The
+  fourth control (O_NOFOLLOW on the temp-file create) is an EQUIVALENT mutation
+  — O_EXCL plus a random UUID name already makes a planted symlink impossible
+  at that name.
+
+  ADDED THE GATE THAT DID NOT EXIST. ci.yml now cross-compiles windows/amd64 and
+  darwin/arm64. The go job only ever built Linux, which is why four untagged
+  unix imports could sit there while every check stayed green.

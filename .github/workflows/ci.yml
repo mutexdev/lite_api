@@ -52,6 +52,18 @@ jobs:
       - name: Vet
         run: go vet -tags webkit2_41 ./...
 
+      # The gate that did not exist. Four root files imported golang.org/x/sys/unix
+      # without a build tag, so the Windows build was broken while every gate here
+      # stayed green — this job only ever compiled Linux. release.yml builds
+      # windows/amd64 on every push to main, so the failure surfaced at release
+      # time rather than on the PR that caused it.
+      #
+      # Cheap: no cgo, no WebKit, no toolchain beyond the one already set up.
+      - name: Cross-compile for Windows and macOS
+        run: |
+          GOOS=windows GOARCH=amd64 go build ./...
+          GOOS=darwin GOARCH=arm64 go build ./...
+
       - name: Test
         run: go test -tags webkit2_41 ./...
 

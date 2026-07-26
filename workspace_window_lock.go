@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/sys/unix"
-
 	"github.com/mutexdev/lite_api/internal/atomicfile"
 	"github.com/mutexdev/lite_api/internal/workspacestate"
 )
@@ -36,13 +34,6 @@ func NewWorkspaceWindowLockStore(dataDir string) WorkspaceWindowLockStore {
 	return WorkspaceWindowLockStore{DataDir: dataDir, Now: time.Now, ProcessAlive: workspaceWindowProcessAlive, StaleAfter: 30 * time.Second}
 }
 
-func workspaceWindowProcessAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	err := unix.Kill(pid, 0)
-	return err == nil || errors.Is(err, unix.EPERM)
-}
 func (s WorkspaceWindowLockStore) lockPath(workspace string) (string, error) {
 	workspace, err := workspacestate.CanonicalWorkspaceIdentity(workspace)
 	if err != nil {
