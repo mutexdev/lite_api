@@ -2997,3 +2997,42 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Controls: deleting the DIRECT branch now fails 1 test (it failed 0 before);
   dropping the SOCKS5 alias fails 1.
+
+--- US-063 — internal/grpcexec (DONE) + internal/auth/wsse ---
+
+  912 lines of gRPC out of app.go: method resolution from .proto files and from
+  server reflection, request messages, metadata, message templates built from
+  descriptors, and grpcurl command generation. app.go: 38,939 -> 38,079.
+
+  WHAT STAYED: dialling and streaming. Those are *App methods holding session
+  state, and the story's boundary is exactly the free/method line again.
+
+  TWO THINGS ENDED UP IN THE WRONG PACKAGE FIRST, AND BOTH ARE WORTH THE NOTE:
+
+  1. applyWSSEHeader followed the dependency graph into grpcexec, because a gRPC
+     function applies WSSE auth to its metadata. But WSSE is HTTP-era
+     authentication used by BOTH paths, and burying its crypto in a gRPC package
+     puts it where nobody would look. It now has internal/auth/wsse, beside
+     awsv4. Following the compiler is how you find dependencies; it is not how
+     you decide where something belongs.
+
+  2. websocketSessionKey came along because my end-of-block walk overshot by one
+     declaration - it walks to the next closing brace, and the gRPC block ended
+     one function earlier than I passed in. Returned to app.go. Deriving a
+     boundary is safer than guessing one, but it still needs checking.
+
+  A wrapper generated earlier had `return f(...)` for a function returning
+  NOTHING, which only surfaced when a later rename touched the same line. It had
+  been sitting there compiling because nothing called it.
+
+  Controls (all landing-checked): grpcurl full-method assembly -> 3 failing,
+  EnabledKeyValues -> 4 failing.
+
+  RUNNING TOTAL for the package extraction:
+    app.go        44,000ish -> 38,079
+    internal/     7,979 lines across 7 packages
+      types 1311  importers 2632  awsv4 1797  transport 1116
+      grpcexec 912  scalar 170  wsse 41
+
+  Gates: go build, go vet, go test all ok; svelte-check 209/0/0; eslint 0;
+  npm test 223/223; vite build ok.

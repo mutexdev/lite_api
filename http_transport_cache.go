@@ -2,6 +2,7 @@ package main
 
 import (
 	"LiteAPI/internal/auth/awsv4"
+	"LiteAPI/internal/grpcexec"
 	xport "LiteAPI/internal/transport"
 	"crypto/sha256"
 	"crypto/tls"
@@ -692,4 +693,5 @@ func init() {
 	// variables. Wiring both here keeps the dependency pointing one way.
 	xport.SetPACHTTPClient(sharedPACHTTPClient)
 	xport.SetInterpolator(interpolate)
+	grpcexec.SetInterpolator(interpolate)
 }

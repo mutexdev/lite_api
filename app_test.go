@@ -1,6 +1,8 @@
 package main
 
 import (
+	"LiteAPI/internal/auth/wsse"
+	"LiteAPI/internal/grpcexec"
 	"LiteAPI/internal/importers"
 	"LiteAPI/internal/transport"
 	"LiteAPI/internal/types"
@@ -247,7 +249,7 @@ func startDynamicGreeterServerOnListener(t *testing.T, protoPath string, listene
 	item := types.NewRequestItem("Greeter", "grpc", 1)
 	item.ProtoPath = protoPath
 	item.Method = "helloworld.Greeter/SayHello"
-	binding, err := compileGRPCMethod(context.Background(), item, Collection{}, nil)
+	binding, err := grpcexec.CompileMethod(context.Background(), item, Collection{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21954,7 +21956,7 @@ func TestWSSEAuthHeaderSucceeds(t *testing.T) {
 		if !strings.HasSuffix(values["Created"], "Z") {
 			t.Fatalf("unexpected WSSE created timestamp: %#v", values)
 		}
-		expected := wssePasswordDigest(values["Nonce"], values["Created"], "wsse-pass")
+		expected := wsse.PasswordDigest(values["Nonce"], values["Created"], "wsse-pass")
 		if values["PasswordDigest"] != expected {
 			t.Fatalf("bad WSSE digest: got %s expected %s values=%#v", values["PasswordDigest"], expected, values)
 		}
