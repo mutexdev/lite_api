@@ -7121,3 +7121,47 @@ US-026 - Store layer. DONE. Both named collapses complete.
   the resolver stops honouring it. Control fails 2.
 
   Ten controls, ten failures.
+
+=== PHASE 6 — the native menu dispatcher ===
+
+  New src/lib/nativeMenu.ts, 9 tests. App.svelte 11,052 -> 10,991 — UNDER 11k.
+  Suite 593 -> 602.
+
+  THE FIRST CROSS-LANGUAGE CONTRACT TEST IN THE REPO. The native menu is built
+  in Go and reaches the frontend as bare command strings over an event. NOTHING
+  TYPE-CHECKS ACROSS THAT BOUNDARY: a menu item whose string the frontend does
+  not handle is still drawn, still enabled, still clickable — it just does
+  nothing, with no error anywhere. So the test reads native_menu.go, extracts
+  the constant block, and asserts every declared command is handled. Control
+  fails 1.
+
+  Pinned:
+    - THREE NAMES DIFFER ACROSS THE BOUNDARY and only those three break on a
+      rename: open-git -> open-git-workbench, open-workspace-in-new-window ->
+      open-workspace, and both import and open-collection -> import. Matching
+      names survive a careless find-and-replace; these do not, and nothing but a
+      runtime click would say so. Controls fail 1, 1 and 2.
+    - send-or-start is the one context-sensitive item: "Send" over a request,
+      "Run" over the runner. Two items would be the alternative and one would
+      always be greyed out. Control fails 1.
+    - save and save-all are DIFFERENT. One writes the active request, the other
+      writes every open tab; collapsing them silently writes files the user did
+      not have in front of them. Control fails 1.
+    - the reverse direction is asserted too: open-history is handled but never
+      emitted. Dead, harmless, and now a DECISION rather than an accumulation.
+
+  A CONTROL THAT FAILED 0 BECAUSE MY MUTATION WAS WRONG, NOT THE TEST. I tried
+  to break "every workbench target has a case in the runner" by repointing a
+  target at cancel-run — which HAS a case. Every id in the union has one, so the
+  test cannot be violated from inside this module at all. The real mutation is
+  in the other file: deleting a case from runWorkbenchCommand. Ran that instead;
+  it compiles cleanly (the union only constrains the id, not that anyone acts on
+  it) and the test fails 1. A forward to an unhandled id is the same silent
+  nothing as an unhandled menu string, one layer further in.
+
+  Also worth recording: the first version of that test checked
+  commandPaletteCommandIDs, and FAILED ON A COMMAND THAT WORKS. That list is
+  what the palette DISPLAYS; import, new-collection and command-palette itself
+  are correctly absent from it. Wrong oracle, not a wrong mapping.
+
+  Nine controls, nine failures.

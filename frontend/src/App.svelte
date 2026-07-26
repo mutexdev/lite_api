@@ -88,6 +88,7 @@
     sanitizeCollectionFolderName,
     slashPathBase
   } from './lib/filesystemNames'
+  import { resolveNativeMenuCommand } from './lib/nativeMenu'
   import { resolveShortcut, shortcutTabNumber } from './lib/shortcuts'
   import { workspaceStore } from './lib/stores/workspaceStore.svelte'
   import { variableTooltips } from './lib/stores/variableTooltipStore.svelte'
@@ -7282,83 +7283,21 @@
   }
 
   async function handleNativeMenuCommand(command: string) {
-    switch (command) {
-      case 'new-window':
-        await openNativeNewWindow()
-        return
-      case 'open-workspace-in-new-window':
-        await runWorkbenchCommand('open-workspace')
-        return
-      case 'new-request':
-        await runWorkbenchCommand('new-request')
-        return
-      case 'save':
-        await saveRequest()
-        return
-      case 'save-all':
-        await saveAllOpenTabs()
-        return
-      case 'close-tab':
-        await closeActiveTab()
-        return
-      case 'reopen-tab':
-        await reopenLastClosedTab()
-        return
-      case 'import':
-      case 'open-collection':
-        await runWorkbenchCommand('import')
-        return
-      case 'command-palette':
-        await runWorkbenchCommand('command-palette')
-        return
-      case 'workspace-search':
-        await runWorkbenchCommand('workspace-search')
-        return
-      case 'toggle-sidebar':
-        await runWorkbenchCommand('toggle-sidebar')
-        return
-      case 'toggle-devtools':
-        await runWorkbenchCommand('toggle-devtools')
-        return
-      case 'change-orientation':
-        await runWorkbenchCommand('change-orientation')
-        return
-      case 'send-or-start':
-        if (activeView === 'runner') await runCollection()
-        else await sendRequest()
-        return
-      case 'cancel-active':
-        await cancelActiveRequest()
-        return
-      case 'open-runner':
-        await runWorkbenchCommand('open-runner')
-        return
-      case 'new-collection':
-        await runWorkbenchCommand('new-collection')
-        return
-      case 'open-environments':
-        await runWorkbenchCommand('open-environments')
-        return
-      case 'open-git':
-		await runWorkbenchCommand('open-git-workbench')
-        return
-      case 'open-preferences':
-        await runWorkbenchCommand('open-preferences')
-        return
-      case 'open-network':
-        await runWorkbenchCommand('open-network')
-        return
-      case 'open-cookies':
-        await runWorkbenchCommand('open-cookies')
-        return
-      case 'open-history':
-        await runWorkbenchCommand('open-history')
-        return
-      case 'open-capabilities':
-        await runWorkbenchCommand('open-capabilities')
-        return
-      case 'open-keyboard-shortcuts':
-        await runWorkbenchCommand('open-keyboard-shortcuts')
+    const resolved = resolveNativeMenuCommand(command, { activeView })
+    if (!resolved) return
+    if (resolved.kind === 'workbench') {
+      await runWorkbenchCommand(resolved.command)
+      return
+    }
+    switch (resolved.action) {
+      case 'open-native-new-window': await openNativeNewWindow(); return
+      case 'save-request': await saveRequest(); return
+      case 'save-all-tabs': await saveAllOpenTabs(); return
+      case 'close-active-tab': await closeActiveTab(); return
+      case 'reopen-last-closed-tab': await reopenLastClosedTab(); return
+      case 'cancel-active-request': await cancelActiveRequest(); return
+      case 'send-request': await sendRequest(); return
+      case 'run-collection': await runCollection(); return
     }
   }
 
