@@ -36,6 +36,21 @@ evidence for each story; this file carries the cross-story findings.
 
   US-010 + US-011 COMPLETE. US-009 is at step 4 of 5.
 
+--- END-OF-SESSION REGRESSION CHECK (all 69 commits) ---
+  Driven against the real Wails dev endpoint, not vite:
+    app boots, workspaces load ............... yes
+    AppState.revision present on the bridge .. yes
+    ReadResponseBody / UpdateRequestNarrow /
+      SetActiveTabNarrow / FlushPendingWrites . all reachable
+    every lazily-imported panel cycled ....... yes (Runner, Import, DevTools,
+                                               Preferences, cookies, notifications)
+    console errors ........................... 0
+    unhandled rejections ..................... 0
+  A failed dynamic import surfaces as an unhandled rejection, so cycling the
+  panels with that listener attached is what makes "the 60% bundle reduction did
+  not break anything" a measurement rather than a hope. Connection-refused
+  noise from the deliberate loopback request is filtered out.
+
 --- US-009/010/011 — the response body trio ---
   US-011 DONE. io.ReadAll on the response body replaced with a bounded read,
     100 MB default, configurable via preferences.Request.MaxResponseBytes.
