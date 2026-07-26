@@ -4947,3 +4947,29 @@ US-026 - Store layer. DONE. Both named collapses complete.
   today, in a file whose header comment warns about exactly this. Knowing the
   failure mode is not the same as not committing it — the control is what
   caught it, not the knowledge.
+
+--- Prompt-variable scanning across body modes — 10.5% -> 100% ---
+
+  scanBodyPromptVariables dispatches on body mode and scans the fields that mode
+  actually uses, looking for {{?name}} prompts. A mode whose fields go unscanned
+  is not an error: the user is never prompted, and the request goes out with the
+  literal "{{?token}}" in its body. The server rejects it — or accepts it — and
+  nothing points at the prompt that never appeared.
+
+  The bug this guards against is PER-MODE: one missing case in a switch,
+  invisible to any test that only exercises JSON. So the test covers every mode
+  rather than a representative one.
+
+  Two behaviours worth stating:
+    - a DISABLED multipart part is not scanned. It is not sent, so prompting for
+      it would ask the user to fill in a value that goes nowhere.
+    - an UNKNOWN mode scans nothing rather than guessing a field. Guessing would
+      prompt for text the request does not contain.
+
+  Controls: dropping graphql variables fails 1, dropping the sparql alias fails
+  1, dropping the multipart filename fails 1, scanning disabled parts fails 1.
+
+  THREE OF FOUR CONTROLS WERE REFUSED FIRST TIME for not landing — multi-line
+  perl patterns against tab-indented Go. The runner caught every one. Without
+  it I would have recorded four "0 failing" results and concluded the scanner
+  was untestable, which is the opposite of true.
