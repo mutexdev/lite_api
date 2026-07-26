@@ -3685,3 +3685,32 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Controls: the bru block writer emitting nothing fails 3; dropping existing
   secrets on merge fails 2.
+
+=== EXTRACTION STATUS — a full -race pass, and where the floor is ===
+
+  go test -race -count=1, checking ALL THREE signals (races, test failures AND
+  build failures - the lesson from the flake at the top of this file):
+
+    ./internal/...   exit 0, 0 races, 0 failures
+    .  (main)        exit 0, 0 races, 0 failures, 75.1s
+
+  FINAL SHAPE
+    app.go        ~44,000 -> 17,314 lines  (down 61%)
+    internal/     29,466 lines across 17 packages, + 2,656 lines of tests
+    808 Go tests
+
+  WHERE THE FLOOR IS. Of app.go's remaining 17,314 lines, roughly 8,341 are
+  inside methods on *App. Those cannot move: a method needs its receiver, and
+  App is what Wails binds. The other ~8,974 are free functions, but the easy
+  boundaries are gone - the next candidate (collection disk I/O, 619 lines) has
+  EIGHTEEN external dependencies pulling in a web of collection-config readers.
+
+  That is the honest stopping point for mechanical extraction. What is left
+  needs the App methods themselves broken up first, which is a different and
+  much more invasive change than moving free functions between packages.
+
+  WHAT MADE THE BIG ONE POSSIBLE. US-068 (scripting, 14,829 lines) failed my own
+  feasibility check twice before succeeding. Nothing about it changed - what
+  changed is that cookies, interp, scalar, types and codegen had moved out from
+  under it, so its external-need count fell from 22 to a handful. Ordering was
+  the whole trick: extract the leaves first and the trunk becomes movable.
