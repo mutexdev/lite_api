@@ -251,3 +251,17 @@ frontend/dist/assets/index-*.css        113609
 # picking the next one.
 #
 # Running total: 1,159,933 -> 514,465 (55.7% smaller). 14,465 above target.
+
+# Hand extractions #11 and #12 — rename-request + clone-request (7,262 B source):
+#   initial chunk 514,465 -> 511,007  (-3,458)
+#
+# Done as a PAIR in one commit, which is the payoff from grouping by structural
+# family. They are the same dialog twice — name draft, filesystem-name toggle,
+# filename draft, editing toggle, two validators — differing only in prefix, so
+# one generator function produced both components and both call sites, and both
+# landed with zero svelte-check corrections.
+#
+# Ordering note: when extracting two blocks in one pass, do the HIGHER line
+# numbers first. Splicing the earlier block first shifts every index after it.
+#
+# Running total: 1,159,933 -> 511,007 (55.9% smaller). 11,007 above target.
