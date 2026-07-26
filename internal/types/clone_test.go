@@ -93,11 +93,43 @@ func TestCloneRequestItemForFolderCloneIsDeep(t *testing.T) {
 
 // An empty input must not come back as a shared non-nil slice either, since
 // appending to that would write into whatever the caller kept.
+//
+// This test used to append to the clone and then assert `len(original) != 0`.
+// That could never fail: append returns a NEW slice header, so the original's
+// length is unreachable from it no matter what the clone shares. The assertion
+// held whether CloneKeyValues copied, aliased, or returned the input untouched.
+//
+// The property that actually matters is about the BACKING ARRAY, and it is only
+// observable when the input has spare capacity — which is exactly the case a
+// zero-length literal cannot produce.
 func TestCloneOfEmptyInputIsIndependent(t *testing.T) {
-	original := []KeyValue{}
+	if cloned := CloneKeyValues([]KeyValue{}); cloned != nil {
+		t.Errorf("got %#v, want nil — there is then no array for a later append to reach", cloned)
+	}
+	if cloned := CloneKeyValues(nil); cloned != nil {
+		t.Errorf("got %#v, want nil", cloned)
+	}
+}
+
+// Appending to a clone must not reach into the caller's spare capacity.
+//
+// A clone that returned `values[:len(values)]` would pass every length and
+// equality check and still corrupt the caller: the append lands in the shared
+// array at index len, which the caller can still see by re-slicing.
+func TestCloneDoesNotWriteIntoTheOriginalsSpareCapacity(t *testing.T) {
+	original := make([]KeyValue, 1, 4)
+	original[0] = KeyValue{Name: "kept"}
+
 	cloned := CloneKeyValues(original)
 	cloned = append(cloned, KeyValue{Name: "added"})
-	if len(original) != 0 {
-		t.Fatal("appending to the clone of an empty slice changed the original")
+
+	if spare := original[:2]; spare[1].Name != "" {
+		t.Errorf("append to the clone wrote %q into the original's spare capacity", spare[1].Name)
+	}
+	if original[0].Name != "kept" {
+		t.Errorf("the original's first element became %q", original[0].Name)
+	}
+	if cloned[1].Name != "added" {
+		t.Errorf("the clone did not receive the appended value: %#v", cloned)
 	}
 }

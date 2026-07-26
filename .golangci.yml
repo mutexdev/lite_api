@@ -27,15 +27,21 @@ linters:
       # interoperate with older gRPC servers that never implemented reflection v1.
       # The v1 API is not a drop-in for those peers, so the deprecated v1alpha
       # message types are load-bearing compatibility code, not an oversight.
-      # Scoped to the reflection helpers in app.go by path + message text.
-      - path: ^app\.go$
+      # Scoped to the reflection helpers by path + message text.
+      #
+      # Re-anchored from ^app\.go$: this code moved to internal/grpcexec during
+      # the package extraction and the exclusion did not follow it, so all 17
+      # findings had been firing unsuppressed. A path anchor does not fail when
+      # it stops matching — it just silently stops suppressing.
+      - path: ^internal/grpcexec/grpcexec\.go$
         linters: [staticcheck]
         text: 'SA1019: .*grpc/reflection/v1alpha/reflection\.proto is marked as deprecated'
 
       # reason: required to load legacy RFC-1423-encrypted client-certificate keys
       # that users already have on disk. Go deprecated these without providing a
       # replacement, so refusing such keys would drop a working feature.
-      - path: ^app\.go$
+      # Re-anchored from ^app\.go$ — moved to internal/transport.
+      - path: ^internal/transport/transport\.go$
         linters: [staticcheck]
         text: 'SA1019: x509\.(IsEncryptedPEMBlock|DecryptPEMBlock) has been deprecated'
 
@@ -52,7 +58,8 @@ linters:
       # embedded conformance tests in app_test.go, e.g. `expect(...).to.throw(
       # "Cannot find module")`) match on that exact string, so lowercasing it to
       # satisfy Go's error-string convention would be a compatibility regression.
-      - path: ^app\.go$
+      # Re-anchored from ^app\.go$ — moved to internal/scripting.
+      - path: ^internal/scripting/scripting\.go$
         linters: [staticcheck]
-        text: 'ST1005: error strings should not be capitalized'
+        text: 'error strings should not be capitalized'
         source: 'Cannot find module'

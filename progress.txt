@@ -5325,3 +5325,70 @@ US-026 - Store layer. DONE. Both named collapses complete.
   does not change its combo, and the palette hint depends on the combo, not the
   id. Removing the binding outright fails 1, which is the sensitivity that
   matters.
+
+=== RESTRUCTURE PHASE 0b — the lint gate was already red ===
+
+  Plan: /Users/mostafi/.claude/plans/tender-hopping-acorn.md
+
+  THE WARNING IN THE PLAN WAS A DESCRIPTION OF THE PRESENT, NOT A FORECAST.
+  The plan said "moving code silently stops a path-anchored lint exclusion from
+  matching — it does not error, it just stops applying." That had already
+  happened. golangci-lint reported 45 live issues:
+
+    17 staticcheck  internal/grpcexec    v1alpha reflection
+     3 staticcheck  internal/scripting   "Cannot find module" capitalisation
+     2 staticcheck  internal/transport   RFC-1423 PEM
+    21 unused       app.go               dead shims left by the extraction
+     1 unused       app_test.go          orphaned helper
+     1 ineffassign  internal/types       a tautological test
+
+  The earlier extraction moved the protected code into internal/ and left three
+  exclusions anchored to ^app\.go$ behind. RE-ANCHORED, NOT DELETED — the
+  suppressed constructs are all still live and load-bearing (v1alpha for old
+  gRPC servers, RFC-1423 for keys users already have, the Node-compatible error
+  string that user scripts match on). Deleting them would have turned 22
+  deliberate suppressions off. A design pass advised deleting; checking first
+  showed why that was wrong.
+
+  45 -> 0 issues. Standing rule recorded in the plan: re-anchor to the exact new
+  filename, never widen to ^app_.*\.go$.
+
+  A TAUTOLOGICAL TEST, SAME CLASS AS THE SELF-VERIFYING SIGNERS.
+  internal/types/clone_test.go asserted, after appending to a clone, that
+  len(original) != 0. append returns a NEW SLICE HEADER, so the original's
+  length is unreachable from it — the assertion held whether CloneKeyValues
+  copied, aliased, or returned its input untouched. golangci-lint found it as
+  ineffassign; no test could have.
+
+  The property that matters is about the BACKING ARRAY and is only observable
+  when the input has spare capacity, which a zero-length literal cannot produce.
+  Rewritten as two tests: empty input returns nil, and appending to a clone of
+  a make([]KeyValue, 1, 4) must not write into the original's spare region.
+  Controls: aliasing the input fails 4, returning a non-nil empty slice fails 1.
+  The old test caught neither.
+
+  NEW TOOL: tools/extraction/decls.go — AST-based list/delete/move of top-level
+  declarations BY NAME. Built now rather than later because app_test.go contains
+  174 column-0 `}` and 62 column-0 func/type/const/var lines inside backtick
+  JavaScript fixtures; any line-walking splitter truncates a test mid-literal
+  and leaves a file that still compiles. go/parser cannot make that mistake.
+  Carries doc comments with their declaration — an orphaned comment does not
+  fail to build, it re-attaches to the next declaration and describes the wrong
+  function. Refuses non-contiguous runs and duplicate names.
+
+  THE CHEAP INVARIANT THAT GATES THE WHOLE RESTRUCTURE:
+      go doc -all . | grep -E '^func \(a \*App\) [A-Z]' | sort
+  188 lines, matching App.d.ts exactly. Diff the LIST, not the count. Verified
+  identical across all of today's edits without regenerating anything.
+
+  THREE PLAN CLAIMS WERE WRONG AND WERE CORRECTED BEFORE ACTING:
+    - The 91 `type X = types.Y` aliases do NOT produce main.* names. A Go alias
+      IS the aliased type, so reflect reports types.Y. Verified: TerminalSession
+      lands in `export namespace types` at models.ts:3819. The 29 main.* classes
+      come from struct types in other root files entirely.
+    - 135 of 188 bindings are in app.go; 53 already live in 16 other root files.
+      The split-within-main technique is already proven 16 times here.
+    - Three of the four lint exclusions were misanchored, not merely stale.
+
+  Verified: 0 lint issues, gofmt clean, go vet clean, 19 packages ok,
+  1,045 tests, coverage 83.3% (-count=1), -race clean, bindings identical.

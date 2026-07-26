@@ -73,8 +73,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var processEnvInterpolationPattern = regexp.MustCompile(`\{\{\s*process\.env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}`)
-
 var environmentSecretMachineIDOnce sync.Once
 var environmentSecretMachineIDValue string
 
@@ -9731,10 +9729,6 @@ func (a *App) grpcDialConfigForRequest(collection Collection, item RequestItem, 
 // internal/auth/wsse with the header they build. Wrapped because package main
 // still uses them for HTTP digest auth.
 
-func randomHex(size int) string { return wsse.RandomHex(size) }
-
-func quoteDigestValue(value string) string { return wsse.QuoteDigestValue(value) }
-
 func websocketSessionKey(collectionID, itemID string) string {
 	return collectionID + "\x00" + itemID
 }
@@ -10452,8 +10446,6 @@ func setRequestBodyString(req *http.Request, value string) {
 	}
 	req.ContentLength = int64(len(data))
 }
-
-func hmacSHA256Bytes(key []byte, value string) []byte { return oauth1.HMACSHA256Bytes(key, value) }
 
 type oauth2TokenResponse struct {
 	AccessToken  string
@@ -12208,10 +12200,6 @@ func evaluateAssertions(assertions []Assertion, response Response) []Assertion {
 }
 
 // The scripting runtime moved to internal/scripting.
-
-func folderChain(collection Collection, item RequestItem) []FolderConfig {
-	return scripting.FolderChain(collection, item)
-}
 
 // Wrapped rather than renamed at 138 call sites in app.go alone.
 func interpolate(input string, vars map[string]string) string {
@@ -15055,11 +15043,6 @@ func nestedString(raw map[string]interface{}, path ...string) (string, bool) {
 	return value, ok && strings.TrimSpace(value) != ""
 }
 
-// OpenAPI, Postman and Insomnia import moved to internal/importers.
-func parseYAMLEnvironmentContent(content, fallbackName string) (Environment, error) {
-	return yamlstore.ParseYAMLEnvironmentContent(content, fallbackName)
-}
-
 func scrubEnvironmentSecretValues(environments []Environment) []Environment {
 	return bru.ScrubEnvironmentSecretValues(environments)
 }
@@ -15104,44 +15087,16 @@ func previewModeFromHeaders(headers map[string]string) string {
 	return scripting.PreviewModeFromHeaders(headers)
 }
 
-func evaluateScriptTests(script string, response Response) []TestResult {
-	return scripting.EvaluateScriptTests(script, response)
-}
-
 func normalizeJSSandboxMode(mode string) string { return scripting.NormalizeJSSandboxMode(mode) }
 
 func timelineSourceFileForItem(collectionPath string, item RequestItem) string {
 	return scripting.TimelineSourceFileForItem(collectionPath, item)
 }
 
-func sameSiteString(value http.SameSite) string { return cookiejar.SameSiteString(value) }
-
-func setKeyValue(values []KeyValue, name, value string) []KeyValue {
-	return types.SetKeyValue(values, name, value)
-}
-
 func intValue(raw interface{}, fallback int) int { return scalar.IntValue(raw, fallback) }
-
-func intValueOK(raw interface{}) (int, bool) { return scalar.IntValueOK(raw) }
-
-func selectedFileBodyFields(entries []FileBodyEntry) (string, string) {
-	return types.SelectedFileBodyFields(entries)
-}
-
-func responseVariableRuntimeName(name string) string { return types.ResponseVariableRuntimeName(name) }
 
 func normalizeOAuth2AdditionalPlacement(value string) string {
 	return types.NormalizeOAuth2AdditionalPlacement(value)
-}
-
-func looksLikeJSON(value string) bool { return scalar.LooksLikeJSON(value) }
-
-func cloneOAuth2AdditionalParams(values []OAuth2AdditionalParam) []OAuth2AdditionalParam {
-	return types.CloneOAuth2AdditionalParams(values)
-}
-
-func cloneResponseExamples(values []ResponseExample) []ResponseExample {
-	return types.CloneResponseExamples(values)
 }
 
 func cloneFolderConfigForFolderClone(folder FolderConfig) FolderConfig {
@@ -15154,14 +15109,6 @@ func cloneRequestItemForFolderClone(item RequestItem) RequestItem {
 
 func cloneResponseExample(example ResponseExample) ResponseExample {
 	return types.CloneResponseExample(example)
-}
-
-func applyWSSEHeader(headers http.Header, username, password string, now time.Time) {
-	wsse.ApplyHeader(headers, username, password, now)
-}
-
-func grpcMethodStorageType(method protoreflect.MethodDescriptor) string {
-	return grpcexec.GRPCMethodStorageType(method)
 }
 
 func getKeyValue(values []KeyValue, name string) string { return types.GetKeyValue(values, name) }
@@ -15200,8 +15147,6 @@ func requestBodySnapshot(body RequestBody) string { return types.RequestBodySnap
 func sanitizeFilename(value string) string { return scalar.SanitizeFilename(value) }
 
 func deterministicID(prefix, input string) string { return scalar.DeterministicID(prefix, input) }
-
-func normalizeWhitespace(value string) string { return scalar.NormalizeWhitespace(value) }
 
 //
 // mapValue, yamlScalarString, firstNonEmpty and newID moved to internal/scalar,
@@ -16985,26 +16930,11 @@ func firstYAMLString(raw map[string]interface{}, keys ...string) string {
 	return ""
 }
 
-func firstMapValue(raw map[string]interface{}, keys ...string) interface{} {
-	for _, key := range keys {
-		if value, ok := raw[key]; ok {
-			return value
-		}
-	}
-	return nil
-}
-
-func yamlEnabled(raw map[string]interface{}) bool { return bru.YAMLEnabled(raw) }
-
 // Bruno .bru parsing moved to internal/store/bru, along with the YAML body
 // readers it shares with the YAML request reader still here.
 
 func parseYAMLKeyValues(raw interface{}, queryOnly bool) []KeyValue {
 	return bru.ParseYAMLKeyValues(raw, queryOnly)
-}
-
-func assignYAMLBodyData(body *RequestBody, mode string, raw interface{}) {
-	bru.AssignYAMLBodyData(body, mode, raw)
 }
 
 func readCollectionEnvironments(collectionPath string, ignorePatterns []string) ([]Environment, error) {

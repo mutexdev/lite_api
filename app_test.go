@@ -22247,19 +22247,6 @@ func TestOAuth1AuthBruRoundTrip(t *testing.T) {
 	}
 }
 
-func parseAWSV4Authorization(header string) map[string]string {
-	out := map[string]string{}
-	header = strings.TrimSpace(strings.TrimPrefix(header, "AWS4-HMAC-SHA256"))
-	for _, part := range strings.Split(header, ",") {
-		key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
-		if !ok {
-			continue
-		}
-		out[key] = value
-	}
-	return out
-}
-
 func testNTLMChallenge(t *testing.T) string {
 	t.Helper()
 	const defaultNTLMFlags = (1 << 23) | (1 << 31) | (1 << 29) | (1 << 0) | (1 << 19) | (1 << 9) | (1 << 15)
