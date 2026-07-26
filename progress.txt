@@ -6013,3 +6013,42 @@ US-026 - Store layer. DONE. Both named collapses complete.
   way Vite does, so a src/lib module importing another needs the .ts extension.
   Enabled allowImportingTsExtensions + noEmit, which satisfies tsc,
   svelte-check, Vite and node --test at once.
+
+=== RESTRUCTURE PHASE 6 — third slice, global search ===
+
+  src/lib/globalSearch.ts — 125 lines, 15 tests. App.svelte 11,959 -> 11,866.
+  Frontend suite 295 -> 310.
+
+  THE RANKING IS THE FEATURE. Someone types three characters, presses Enter and
+  gets result zero, so the order decides which request opens. A ranking that put
+  a URL match above a name match would send people somewhere they did not ask
+  for while looking, from outside, like search is simply bad at its job. Ranks:
+
+      0  collection
+      1  folder, and every collection when the query is empty
+      2  request matched on NAME
+      3  request matched on URL
+      4  request matched on path or method
+
+  MY ASSUMPTION WAS WRONG, NOT THE CODE. I asserted that a request name match
+  takes result zero for the query "invoice", and it does not: the FOLDER
+  "invoices" is rank 1 and outranks the request "Create invoice" at rank 2.
+  That is deliberate — the container is the broader answer to an ambiguous
+  query. Test corrected to record the real ordering, and a second test added
+  specifically for it, since it is surprising enough that the next person will
+  assume what I assumed.
+
+  The rank test now uses "health", which matches only a request name, because
+  any query that also hits a folder cannot demonstrate the name-vs-url ordering
+  at all.
+
+  Controls: OR-ing the terms fails 2, swapping the name/url ranks fails 1,
+  dropping the meaningless-query guard fails 1, disabling path matching fails 1,
+  sorting by name instead of rank fails 2, not collapsing slashes fails 1, not
+  lowercasing fails 1.
+
+  Tightened the control runner: it now refuses a pattern that is NOT UNIQUE in
+  the file rather than silently replacing the first occurrence. That is the trap
+  that produced a false "0 failing" twice already — once in app.go at 10,800
+  lines' distance, once in requestScanning.ts between two near-identical
+  scanners.
