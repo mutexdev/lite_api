@@ -224,3 +224,42 @@ export function findKeyBindingCollisions(
   }
   return collisions
 }
+
+/**
+ * validateKeyBinding reports why a combo cannot be assigned, or "" if it can.
+ *
+ * The caller supplies the RESOLVED bindings (what effectiveKeyBindings returns,
+ * merged with the user's overrides) rather than this reading them, because the
+ * merge depends on app state that has no business in this module.
+ *
+ * Note the deliberate difference from findKeyBindingCollisions: that one SKIPS
+ * hidden definitions, because the tab-number row is declared both as a hidden
+ * range and as eight individual actions and counting both would report a
+ * collision that does not exist. This one does NOT skip them, because a hidden
+ * binding still occupies its combo — telling a user that Cmd+1 is free when
+ * switchToTab1 owns it would hand them a shortcut that silently never fires.
+ */
+export function validateKeyBinding(
+  action: string,
+  combo: string,
+  bindings: Record<string, KeyBindingDefinition>,
+  os: KeyBindingOS
+): string {
+  const parts = keyBindingParts(combo)
+  const nonModifiers = parts.filter((part) => !isKeyBindingModifier(part))
+  if (parts.length < 2 || parts.length > 4 || nonModifiers.length !== 1) {
+    return 'Use one key plus at least one modifier.'
+  }
+  if (!parts.some(isKeyBindingModifier)) {
+    return 'Use at least one modifier.'
+  }
+  const signature = keyBindingSignature(combo)
+  for (const [otherAction, definition] of Object.entries(bindings)) {
+    if (otherAction === action) continue
+    const other = definition[os]
+    if (other && keyBindingSignature(other) === signature) {
+      return 'This shortcut is already in use.'
+    }
+  }
+  return ''
+}

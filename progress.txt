@@ -6558,3 +6558,40 @@ US-026 - Store layer. DONE. Both named collapses complete.
   artifact: a clean server start produces a clean console. That is what makes
   the first run's ReferenceError identifiable as noise rather than signal — two
   runs, one dirty from hot-reloading and one not.
+
+=== PHASE 6 — validateKeyBinding, finishing the keybinding unification ===
+
+  Frontend suite 381 -> 386. App.svelte 11,569 -> 11,561.
+
+  MEASURED BEFORE CLAIMING, having been wrong about this once already. 272 PURE
+  functions totalling 1,717 lines still sit in App.svelte's script, against 374
+  reactive ones totalling 3,577. So the pure seam is NOT exhausted — it is
+  fragmented: the largest remaining pure function is 24 lines. Clusters are what
+  is worth extracting now, not size.
+
+  Also measured: the script is 7,943 lines against 3,626 of markup, so the bulk
+  is logic rather than template, and all modals are already in lib/modals/.
+
+  validateKeyBinding is the settings-UI validator whose OTHER half
+  (keyBindingSignature) I unified earlier. It could not move as-is because it
+  reaches appState through mergedKeyBinding, so the RULE moved and the MERGE
+  stayed: the module takes resolved bindings and an OS, App.svelte supplies them.
+
+  A DELIBERATE DIFFERENCE FROM ITS NEIGHBOUR, now documented in both.
+  findKeyBindingCollisions SKIPS hidden definitions, because the tab-number row
+  is declared both as a hidden range and as eight individual actions and
+  counting both reports a collision that does not exist. validateKeyBinding does
+  NOT skip them, because a hidden binding still OWNS its combo — telling a user
+  Cmd+1 is free when switchToTab1 has it hands them a shortcut that never fires.
+  Same data, opposite treatment, both correct.
+
+  ANOTHER VACUOUS TEST CAUGHT BY A CONTROL. My "modifier order does not defeat
+  the collision check" test built its different-order combo with
+  'shift+bind+command+bind+s'.replace('shift+bind+', '') — which is
+  'command+bind+s', raw-identical to the stored one. It passed whether the
+  comparison used signatures or raw strings. Rewritten with a genuinely
+  reordered combo (stored alt+command+k, typed command+alt+k); the control that
+  swaps signature comparison for string equality now fails 1.
+
+  That is the fourth vacuous test this restructure, and every one was found the
+  same way: a control reporting 0, then asking what the two paths have in common.

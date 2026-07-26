@@ -13,6 +13,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   isKeyBindingModifier,
+  validateKeyBinding,
   keyBindingParts,
   keyBindingSections,
   keyBindingPresets,
@@ -199,4 +200,66 @@ test('isKeyBindingModifier knows exactly the four modifiers', () => {
   for (const key of ['k', 'enter', 'meta', 'super', '']) {
     assert.equal(isKeyBindingModifier(key), false, key)
   }
+})
+
+const validationBindings: Record<string, { mac?: string; windows?: string; name: string; hidden?: boolean }> = {
+  save: { mac: 'command+bind+s', windows: 'ctrl+bind+s', name: 'Save' },
+  find: { mac: 'command+bind+f', windows: 'ctrl+bind+f', name: 'Find' },
+  switchToTab1: { mac: 'command+bind+1', windows: 'ctrl+bind+1', name: 'Tab 1', hidden: true }
+}
+
+// A combo with no modifier would swallow a plain keystroke everywhere in the
+// app, so the shape rules come before the collision check.
+test('a binding needs exactly one key and at least one modifier', () => {
+  const check = (combo: string) => validateKeyBinding('new', combo, validationBindings as never, 'mac')
+  assert.match(check('k'), /at least one modifier/, 'a bare key is not a shortcut')
+  assert.match(check('command+bind+k+bind+j'), /one key/, 'two non-modifier keys is not a shortcut')
+  assert.match(check('command+bind+shift+bind+alt+bind+ctrl+bind+k'), /one key/, 'four modifiers plus a key is too long')
+  assert.equal(check('command+bind+k'), '', 'one modifier and one key is valid')
+  assert.equal(check('command+bind+shift+bind+k'), '', 'two modifiers are fine')
+})
+
+test('a combo already in use is rejected', () => {
+  assert.match(
+    validateKeyBinding('new', 'command+bind+s', validationBindings as never, 'mac'),
+    /already in use/
+  )
+  assert.equal(
+    validateKeyBinding('save', 'command+bind+s', validationBindings as never, 'mac'),
+    '',
+    'an action keeping its own combo is not a collision with itself'
+  )
+})
+
+test('collision detection is per operating system', () => {
+  assert.match(validateKeyBinding('new', 'ctrl+bind+s', validationBindings as never, 'windows'), /already in use/)
+  assert.equal(
+    validateKeyBinding('new', 'ctrl+bind+s', validationBindings as never, 'mac'),
+    '',
+    'a Windows combo does not collide on mac, where the actions use command'
+  )
+})
+
+// findKeyBindingCollisions skips hidden entries to avoid double-reporting the
+// tab range; this must NOT, because a hidden binding still owns its combo and
+// saying otherwise hands the user a shortcut that never fires.
+test('a hidden binding still occupies its combo', () => {
+  assert.match(
+    validateKeyBinding('new', 'command+bind+1', validationBindings as never, 'mac'),
+    /already in use/,
+    'switchToTab1 is hidden but owns Cmd+1'
+  )
+})
+
+// The stored combo and the typed one must compare by SIGNATURE, not as raw
+// strings. My first attempt at this test built the "different order" combo with
+// a .replace that produced a raw-identical string, so it passed with either
+// comparison and proved nothing — the control caught that.
+test('modifier order does not defeat the collision check', () => {
+  const ordered = { reorder: { mac: 'alt+bind+command+bind+k', name: 'Reorder' } }
+  assert.match(
+    validateKeyBinding('new', 'command+bind+alt+bind+k', ordered as never, 'mac'),
+    /already in use/,
+    'the same modifiers in a different order are the same shortcut'
+  )
 })

@@ -25,6 +25,7 @@
     keyBindingParts,
     keyBindingSeparator,
     keyBindingSignature,
+    validateKeyBinding as validateKeyBindingRule,
     keyBindingSections,
     keyBindingPresets,
     normalizeKeyBindingPreset,
@@ -1709,27 +1710,18 @@
     return Object.entries(section.bindings).filter(([, binding]) => !binding.hidden)
   }
 
+  // Delegates to the module, supplying the resolved bindings and the current
+  // OS. The merge with the user's overrides depends on app state, which is why
+  // that half stays here and only the rule lives in lib/keybindings.
   function validateKeyBinding(action: string, combo: string) {
-    const parts = keyBindingParts(combo)
-    const nonModifiers = parts.filter((part) => !isKeyBindingModifier(part))
-    if (parts.length < 2 || parts.length > 4 || nonModifiers.length !== 1) {
-      return 'Use one key plus at least one modifier.'
-    }
-    if (!parts.some(isKeyBindingModifier)) {
-      return 'Use at least one modifier.'
-    }
-    const signature = keyBindingSignature(combo)
-    const os = currentKeyBindingOS()
+    const resolved: Record<string, KeyBindingDefinition> = {}
     for (const section of keyBindingSections) {
       for (const otherAction of Object.keys(section.bindings)) {
-        if (otherAction === action) continue
-        const other = keyBindingValue(otherAction, os)
-        if (other && keyBindingSignature(other) === signature) {
-          return 'This shortcut is already in use.'
-        }
+        const merged = mergedKeyBinding(otherAction)
+        if (merged) resolved[otherAction] = merged
       }
     }
-    return ''
+    return validateKeyBindingRule(action, combo, resolved, currentKeyBindingOS())
   }
 
   function stopDotEnvRefresh() {
