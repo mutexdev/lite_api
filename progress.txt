@@ -82,9 +82,23 @@ evidence for each story; this file carries the cross-story findings.
   dialog remains, so a stacked case degrades to "still inert" rather than
   "wrongly interactive".
 
-  CONVERTED SO FAR: 3 of 29 — delete-request, delete-folder, remove-collection
-  (the destructive confirmations, deliberately first, and with
-  closeOnBackdrop={false} so a stray click cannot dismiss a delete prompt).
+  CONVERTED: 23 of 29. The 3 destructive confirmations first (with
+  closeOnBackdrop={false} so a stray click cannot dismiss a delete prompt), then
+  20 more driven by a script that locates each dialog's matching close by
+  tracking div depth and derives its onClose from the header's cancel button.
+  Applied ONE AT A TIME with a typecheck between and an automatic revert on
+  failure — 20/20 converted clean, 0 reverts.
+
+  6 REMAIN, each for a stated reason rather than because the script gave up:
+    new-request-title, command-palette-title  — the only two that ALREADY had
+      keydown handlers and app-shell inert. Converting them means retiring
+      handleCreationDialogKeydown / handleCommandPaletteKeydown and the
+      `inert={creationOpen || commandPaletteOpen}` binding without regressing
+      behaviour that currently works. Deliberately last.
+    import-replace-confirmation-title, unsaved-tabs-title — non-standard
+      structure (their own returnFocus bookkeeping already).
+    oauth2-auth-title — contains an iframe surface.
+    git-not-found-title — no cancel handler to derive; needs one chosen by hand.
 
   VERIFIED IN THE BROWSER on the converted delete-request dialog:
     app shell inert ................ true

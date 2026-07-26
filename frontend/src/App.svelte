@@ -12117,8 +12117,7 @@
 {/if}
 
 {#if globalSearchOpen}
-  <div class="prompt-backdrop">
-    <div class="global-search-modal" role="dialog" aria-modal="true" aria-labelledby="global-search-title" tabindex="-1">
+  <Modal labelledBy="global-search-title" onClose={closeGlobalSearch} dialogClass="global-search-modal">
       <header>
         <div>
           <h2 id="global-search-title">Global Search</h2>
@@ -12154,13 +12153,11 @@
           {/each}
         </div>
       {/if}
-    </div>
-  </div>
+  </Modal>
 {/if}
 
 {#if notificationsOpen}
-  <div class="prompt-backdrop">
-    <div class="notification-modal" role="dialog" aria-modal="true" aria-labelledby="notifications-title" tabindex="-1">
+  <Modal labelledBy="notifications-title" onClose={closeNotifications} dialogClass="notification-modal">
       <header>
         <div>
           <h2 id="notifications-title">Notifications</h2>
@@ -12214,8 +12211,7 @@
           {/if}
         </article>
       </div>
-    </div>
-  </div>
+  </Modal>
 {/if}
 
 {#if oauth2AuthorizationRequest}
@@ -12255,8 +12251,7 @@
 {/if}
 
 {#if creatingResponseExample && activeRequest}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog create-example-dialog" role="dialog" aria-modal="true" aria-labelledby="create-example-title">
+  <Modal labelledBy="create-example-title" onClose={cancelCreateResponseExample} dialogClass="prompt-dialog create-example-dialog">
       <form on:submit|preventDefault={createResponseExample}>
         <header>
           <h2 id="create-example-title">Create Response Example</h2>
@@ -12287,13 +12282,11 @@
           <button class="primary" type="submit" disabled={busy !== '' || !createResponseExampleName.trim()}>Create Example</button>
         </div>
       </form>
-    </div>
-  </div>
+  </Modal>
 {/if}
 
 {#if showShareCollectionModal && activeCollection}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog share-collection-dialog" role="dialog" aria-modal="true" aria-labelledby="share-collection-title" data-testid="share-collection-modal">
+  <Modal labelledBy="share-collection-title" onClose={cancelShareCollectionModal} dialogClass="prompt-dialog share-collection-dialog" testId="share-collection-modal">
       <form on:submit|preventDefault={shareCollectionProceed}>
         <header>
           <h2 id="share-collection-title">Share Collection</h2>
@@ -12369,13 +12362,11 @@
           <button class="primary" type="submit" data-testid="share-collection-proceed" disabled={busy !== ''}>{busy === 'share collection' ? 'Exporting...' : 'Proceed'}</button>
         </div>
       </form>
-    </div>
-  </div>
+  </Modal>
 {/if}
 
 {#if newFolderTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="new-folder-title" data-testid="new-folder-modal">
+  <Modal labelledBy="new-folder-title" onClose={cancelNewFolderModal} testId="new-folder-modal">
       <form on:submit|preventDefault={confirmNewFolder}>
         <header>
           <h2 id="new-folder-title">New Folder</h2>
@@ -12447,13 +12438,11 @@
           >{busy === 'new folder' ? 'Creating...' : 'Create'}</button>
         </div>
       </form>
-    </div>
-  </div>
+  </Modal>
 {/if}
 
 {#if renameFolderTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="rename-folder-title" data-testid="rename-folder-modal">
+  <Modal labelledBy="rename-folder-title" onClose={cancelRenameFolderModal} testId="rename-folder-modal">
       <form on:submit|preventDefault={confirmRenameFolder}>
         <header>
           <h2 id="rename-folder-title">Rename Folder</h2>
@@ -12525,13 +12514,11 @@
           >{busy === 'rename folder' ? 'Renaming...' : 'Rename'}</button>
         </div>
       </form>
-    </div>
-  </div>
+  </Modal>
 {/if}
 
 {#if cloneFolderTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="clone-folder-title">
+  <Modal labelledBy="clone-folder-title" onClose={cancelCloneFolderModal}>
       <form on:submit|preventDefault={confirmCloneFolder}>
         <header>
           <h2 id="clone-folder-title">Clone Folder</h2>
@@ -12603,13 +12590,11 @@
           >{busy === 'clone folder' ? 'Cloning...' : 'Clone'}</button>
         </div>
       </form>
-    </div>
-  </div>
+  </Modal>
 {/if}
 
 {#if renameRequestTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="rename-request-title">
+  <Modal labelledBy="rename-request-title" onClose={cancelRenameRequestModal}>
       <form on:submit|preventDefault={confirmRenameRequest}>
         <header>
           <h2 id="rename-request-title">Rename Request</h2>
@@ -12684,13 +12669,11 @@
           >{busy === 'rename request' ? 'Renaming...' : 'Rename'}</button>
         </div>
       </form>
-    </div>
-  </div>
+  </Modal>
 {/if}
 
 {#if cloneRequestTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="clone-request-title">
+  <Modal labelledBy="clone-request-title" onClose={cancelCloneRequestModal}>
       <form on:submit|preventDefault={confirmCloneRequest}>
         <header>
           <h2 id="clone-request-title">Clone Request</h2>
@@ -12765,13 +12748,11 @@
           >{busy === 'clone request' ? 'Cloning...' : 'Clone'}</button>
         </div>
       </form>
-    </div>
-  </div>
+  </Modal>
 {/if}
 
 {#if itemInfoTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog item-info-dialog" role="dialog" aria-modal="true" aria-labelledby="item-info-title">
+  <Modal labelledBy="item-info-title" onClose={closeItemInfoModal} dialogClass="prompt-dialog item-info-dialog">
       <header>
         <h2 id="item-info-title">Info</h2>
         <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={closeItemInfoModal}>x</button>
@@ -12797,8 +12778,7 @@
           </tbody>
         </table>
       </div>
-    </div>
-  </div>
+  </Modal>
 {/if}
 
 {#if deleteRequestTarget}
@@ -12848,8 +12828,7 @@
 {/if}
 
 {#if cloneCollectionTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="clone-collection-title" data-testid="clone-collection-modal">
+  <Modal labelledBy="clone-collection-title" onClose={cancelCloneCollectionModal} testId="clone-collection-modal">
       <form on:submit|preventDefault={confirmCloneCollection}>
         <header>
           <h2 id="clone-collection-title">Clone Collection</h2>
@@ -12919,13 +12898,11 @@
           >{busy === 'clone collection' ? 'Creating...' : 'Create'}</button>
         </div>
       </form>
-    </div>
-  </div>
+  </Modal>
 {/if}
 
 {#if renameCollectionTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="rename-collection-title" data-testid="rename-collection-modal">
+  <Modal labelledBy="rename-collection-title" onClose={cancelRenameCollectionModal} testId="rename-collection-modal">
       <form on:submit|preventDefault={confirmRenameCollection}>
         <header>
           <h2 id="rename-collection-title">Rename Collection</h2>
@@ -12947,8 +12924,7 @@
           <button class="primary" type="submit" data-testid="rename-collection-confirm" disabled={busy !== '' || renameCollectionDraft === ''}>{busy === 'rename collection' ? 'Renaming...' : 'Rename'}</button>
         </div>
       </form>
-    </div>
-  </div>
+  </Modal>
 {/if}
 
 {#if removeCollectionTarget}
@@ -12967,8 +12943,7 @@
 {/if}
 
 	{#if showGenerateDocsModal && activeCollection}
-	  <div class="prompt-backdrop">
-	    <div class="prompt-dialog generate-docs-dialog" role="dialog" aria-modal="true" aria-labelledby="generate-docs-title" data-testid="generate-docs-modal">
+	  <Modal labelledBy="generate-docs-title" onClose={cancelGenerateDocsModal} dialogClass="prompt-dialog generate-docs-dialog" testId="generate-docs-modal">
       <form on:submit|preventDefault={generateCollectionDocs}>
         <header>
           <h2 id="generate-docs-title">Generate Documentation</h2>
@@ -13031,13 +13006,11 @@
           <button class="primary" type="submit" data-testid="generate-docs-generate" disabled={busy !== ''}>Generate</button>
         </div>
       </form>
-    </div>
-	  </div>
+	  </Modal>
 		{/if}
 
 		{#if openAPISpecViewerOpen && openAPISpecViewerResult}
-		  <div class="prompt-backdrop">
-		    <div class="prompt-dialog openapi-spec-dialog" role="dialog" aria-modal="true" aria-labelledby="openapi-spec-title" data-testid="openapi-spec-viewer-modal">
+		  <Modal labelledBy="openapi-spec-title" onClose={closeOpenAPISyncSpecViewer} dialogClass="prompt-dialog openapi-spec-dialog" testId="openapi-spec-viewer-modal">
 		      <header>
 		        <h2 id="openapi-spec-title">API Spec</h2>
 		        <button type="button" class="icon-button" title="Close" on:click={closeOpenAPISyncSpecViewer}>x</button>
@@ -13057,13 +13030,11 @@
 		        <button type="button" data-testid="openapi-spec-viewer-close" on:click={closeOpenAPISyncSpecViewer}>Close</button>
 		        <button class="primary" type="button" data-testid="openapi-spec-viewer-copy" on:click={copyOpenAPISyncSpec}>Copy</button>
 		      </div>
-		    </div>
-		  </div>
+		  </Modal>
 		{/if}
 
 		{#if openAPISpecDiffOpen && openAPISpecDiffResult}
-		  <div class="prompt-backdrop">
-		    <div class="prompt-dialog openapi-spec-diff-dialog" role="dialog" aria-modal="true" aria-labelledby="openapi-spec-diff-title" data-testid="openapi-spec-diff-modal">
+		  <Modal labelledBy="openapi-spec-diff-title" onClose={closeOpenAPISyncSpecDiff} dialogClass="prompt-dialog openapi-spec-diff-dialog" testId="openapi-spec-diff-modal">
 		      <header>
 		        <h2 id="openapi-spec-diff-title">Spec Diff</h2>
 		        <button type="button" class="icon-button" title="Close" on:click={closeOpenAPISyncSpecDiff}>x</button>
@@ -13106,13 +13077,11 @@
 		      <div class="button-row">
 		        <button type="button" data-testid="openapi-spec-diff-close" on:click={closeOpenAPISyncSpecDiff}>Close</button>
 		      </div>
-		    </div>
-		  </div>
+		  </Modal>
 		{/if}
 
 		{#if openAPISyncSettingsOpen && activeCollection}
-		  <div class="prompt-backdrop">
-		    <div class="prompt-dialog openapi-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="openapi-settings-title" data-testid="openapi-sync-settings-modal">
+		  <Modal labelledBy="openapi-settings-title" onClose={cancelOpenAPISyncSettings} dialogClass="prompt-dialog openapi-settings-dialog" testId="openapi-sync-settings-modal">
 		      <form on:submit|preventDefault={saveOpenAPISyncSettings}>
 	        <header>
 	          <h2 id="openapi-settings-title">Connection Settings</h2>
@@ -13156,8 +13125,7 @@
 	          <button class="primary" type="submit" data-testid="openapi-sync-settings-save" disabled={busy !== ''}>Save</button>
 	        </div>
 	      </form>
-	    </div>
-	  </div>
+		  </Modal>
 	{/if}
 
 	{#if tabLifecycleDialog}
@@ -13217,8 +13185,7 @@
 	{/if}
 
 	{#if promptDialog}
-	  <div class="prompt-backdrop">
-	    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="prompt-dialog-title">
+	  <Modal labelledBy="prompt-dialog-title" onClose={cancelPromptDialog}>
       <form on:submit|preventDefault={submitPromptDialog}>
         <header>
           <h2 id="prompt-dialog-title">Input Required</h2>
@@ -13237,8 +13204,7 @@
           <button class="primary" type="submit">Continue</button>
         </div>
       </form>
-    </div>
-  </div>
+	  </Modal>
 {/if}
 
 {#if gitNotFoundMessage}
@@ -13257,8 +13223,7 @@
 {/if}
 
 {#if generatedGrpcurlCommand}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog code-generator-dialog" role="dialog" aria-modal="true" aria-labelledby="grpcurl-code-title">
+  <Modal labelledBy="grpcurl-code-title" onClose={closeGrpcurlCommand} dialogClass="prompt-dialog code-generator-dialog">
       <header>
         <h2 id="grpcurl-code-title">Generate grpcurl Command</h2>
         <button type="button" class="icon-button" title="Close" on:click={closeGrpcurlCommand}>x</button>
@@ -13268,13 +13233,11 @@
         <button type="button" on:click={closeGrpcurlCommand}>Close</button>
         <button class="primary" type="button" on:click={copyGrpcurlCommand}>Copy</button>
       </div>
-    </div>
-  </div>
+  </Modal>
 {/if}
 
 {#if requestCodeTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog code-generator-dialog" role="dialog" aria-modal="true" aria-labelledby="request-code-title">
+  <Modal labelledBy="request-code-title" onClose={closeRequestCode} dialogClass="prompt-dialog code-generator-dialog">
       <header>
         <h2 id="request-code-title">Generate Code</h2>
         <button type="button" class="icon-button" title="Close" on:click={closeRequestCode}>x</button>
@@ -13296,15 +13259,13 @@
         <button type="button" on:click={closeRequestCode}>Close</button>
         <button class="primary" type="button" on:click={copyRequestCode} disabled={!requestGeneratedCode}>Copy</button>
       </div>
-    </div>
-  </div>
+  </Modal>
 {/if}
 
 {#if generatingResponseExampleID && activeRequest}
   {@const generatedExample = (activeRequest.examples ?? []).find((example) => responseExampleIdentifier(example) === generatingResponseExampleID)}
   {#if generatedExample}
-    <div class="prompt-backdrop">
-      <div class="prompt-dialog code-generator-dialog" role="dialog" aria-modal="true" aria-labelledby="response-example-code-title">
+    <Modal labelledBy="response-example-code-title" onClose={closeResponseExampleCode} dialogClass="prompt-dialog code-generator-dialog">
         <header>
           <h2 id="response-example-code-title">Generate Code - {generatedExample.name}</h2>
           <button type="button" class="icon-button" title="Close" on:click={closeResponseExampleCode}>x</button>
@@ -13325,8 +13286,7 @@
           <button type="button" on:click={closeResponseExampleCode}>Close</button>
           <button class="primary" type="button" on:click={copyResponseExampleCode} disabled={!responseExampleGeneratedCode}>Copy</button>
         </div>
-      </div>
-    </div>
+    </Modal>
   {/if}
 {/if}
 
