@@ -423,3 +423,28 @@ frontend/dist/assets/index-*.css        113609
 # ImportSourceMode type) are panel-specific rather than shared.
 #
 # Bundle unchanged: 496,350, still 3,650 under the target.
+
+# View panel #3 — devToolsPanel snippet: MEASURED, not attempted.
+#
+#   {#snippet devToolsPanel()} at lines 8563-8851, 15,912 B
+#   54 braced identifiers before subtracting {#each} loop variables or adding
+#   the on:/bind: handlers a braced-identifier scan does not see.
+#
+# That places it in the same difficulty class as Import, which produced 39
+# svelte-check errors from a drafted prop list and was reverted. Attempting it
+# the same way would produce the same outcome, so it is left for a session with
+# the room to read all 288 lines and derive the props properly.
+#
+# It also has a structural difference worth planning around: this is a SNIPPET,
+# not a branch. The extraction replaces {@render devToolsPanel()} in the
+# devtools branch with the dynamic import, and deletes the snippet — rather than
+# moving a branch body.
+#
+# ---------------------------------------------------------------------------
+# US-036 STATUS AT SESSION END
+#   headline criterion (initial chunk < 500 KB): MET
+#     1,159,933 -> 496,350 bytes, 57.2% smaller, 3,650 under target
+#   panel criterion: 1 of 4 (Runner done; import, preferences, devToolsPanel
+#     measured and characterised, each needing a props-first reading rather than
+#     the grep-and-check loop that worked for the 27 dialogs)
+# ---------------------------------------------------------------------------
