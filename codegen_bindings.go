@@ -1,0 +1,19 @@
+// The Wails-bound side of code generation.
+//
+// These stayed in package main when internal/codegen was extracted: they are
+// methods on *App, which is what Wails binds, and a method cannot move to
+// another package without its receiver.
+package main
+
+import "LiteAPI/internal/codegen"
+
+func (a *App) CodeGenerationTargets() []codegen.Target {
+	out := []codegen.Target{
+		{ID: "curl", Label: "cURL"},
+		{ID: "fetch", Label: "JavaScript (fetch)"},
+	}
+	for _, target := range codegen.Languages {
+		out = append(out, codegen.Target{ID: target.ID, Label: target.Label})
+	}
+	return out
+}

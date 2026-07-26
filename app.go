@@ -3,6 +3,7 @@ package main
 import (
 	"LiteAPI/internal/auth/awsv4"
 	"LiteAPI/internal/auth/wsse"
+	"LiteAPI/internal/codegen"
 	"LiteAPI/internal/grpcexec"
 	"LiteAPI/internal/importers"
 	"LiteAPI/internal/interp"
@@ -86,7 +87,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var pathParamTokenPattern = regexp.MustCompile(`:([A-Za-z_][A-Za-z0-9_-]*)`)
 var processEnvInterpolationPattern = regexp.MustCompile(`\{\{\s*process\.env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}`)
 var promptVariableInterpolationPattern = regexp.MustCompile(`\{\{\?([^{}\s](?:[^{}]*[^{}\s])?)\}\}`)
 var dotEnvFilenamePattern = regexp.MustCompile(`^\.env(?:\.[A-Za-z0-9._-]+)?$`)
@@ -2803,13 +2803,13 @@ func (a *App) GenerateRequestCode(collectionID, itemID, environmentID, language 
 	if err != nil {
 		return "", err
 	}
-	if !requestTypeSupportsCodeGeneration(requestCopy.Type) {
+	if !codegen.RequestTypeSupportsCodeGeneration(requestCopy.Type) {
 		return "", errors.New("request code generation is only available for HTTP and GraphQL requests")
 	}
 	if strings.TrimSpace(requestCopy.URL) == "" {
 		return "", errors.New("URL is required")
 	}
-	return generateRequestCode(requestCopy, vars, language)
+	return codegen.GenerateRequestCode(requestCopy, vars, language)
 }
 
 func (a *App) SaveRequest(collectionID, itemID string) (AppState, error) {
@@ -3125,7 +3125,7 @@ func (a *App) GenerateResponseExampleCode(collectionID, itemID, exampleID, langu
 	if err != nil {
 		return "", err
 	}
-	return generateResponseExampleCode(*example, language)
+	return codegen.GenerateResponseExampleCode(*example, language)
 }
 
 func (a *App) DeleteCookie(cookieID string) (AppState, error) {
@@ -3296,7 +3296,7 @@ func responseExampleFromItem(item RequestItem, name string) ResponseExample {
 	if name == "" {
 		name = fmt.Sprintf("%s example %d", item.Name, len(item.Examples)+1)
 	}
-	bodyType := responseBodyType(*response)
+	bodyType := codegen.ResponseBodyType(*response)
 	requestURL := firstNonEmpty(response.RequestedURL, item.URL)
 	example := ResponseExample{
 		ID:          deterministicID("example", firstNonEmpty(item.FilePath, item.ID, item.Name)+"#example#"+strconv.Itoa(len(item.Examples))+"#"+name),
@@ -3355,16 +3355,6 @@ func blankResponseExampleFromItem(item RequestItem, name, description string) Re
 			Size:       0,
 		},
 	}
-}
-
-func cloneResponseExample(example ResponseExample) ResponseExample {
-	example.Request.Headers = cloneKeyValues(example.Request.Headers)
-	example.Request.Params = cloneKeyValues(example.Request.Params)
-	example.Request.FormURLEncoded = cloneKeyValues(example.Request.FormURLEncoded)
-	example.Request.MultipartForm = cloneFormParts(example.Request.MultipartForm)
-	example.Request.File = cloneFileBodyEntries(example.Request.File)
-	example.Response.Headers = cloneKeyValues(example.Response.Headers)
-	return example
 }
 
 func normalizeResponseExampleUpdate(existing, updated ResponseExample, item RequestItem) (ResponseExample, error) {
@@ -3450,408 +3440,7 @@ func findResponseExample(item *RequestItem, exampleID string) (*ResponseExample,
 	return nil, -1, fmt.Errorf("response example %s not found", target)
 }
 
-func generateResponseExampleCode(example ResponseExample, language string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(language)) {
-	case "", "curl", "c-url", "c url":
-		return generateCurlForResponseExample(example), nil
-	case "fetch", "javascript", "js", "node":
-		return generateFetchForResponseExample(example), nil
-	default:
-		// US-054. The extended targets live in code_generation.go and are
-		// dispatched from the same list the UI picker is built from, so a
-		// language can never appear in the picker and be unsupported here.
-		if code, ok := generateExtendedCode(example, language); ok {
-			return code, nil
-		}
-		return "", fmt.Errorf("unsupported code language %q", language)
-	}
-}
-
-func generateRequestCode(item RequestItem, vars map[string]string, language string) (string, error) {
-	example := ResponseExample{
-		Name:    firstNonEmpty(item.Name, "Request"),
-		Type:    firstNonEmpty(item.Type, "http"),
-		Request: responseExampleRequestFromItem(item, vars),
-	}
-	return generateResponseExampleCode(example, language)
-}
-
-func requestTypeSupportsCodeGeneration(requestType string) bool {
-	switch strings.ToLower(strings.TrimSpace(requestType)) {
-	case "", "http", "graphql":
-		return true
-	default:
-		return false
-	}
-}
-
-func responseExampleRequestFromItem(item RequestItem, vars map[string]string) ResponseExampleRequest {
-	bodyMode := firstNonEmpty(item.Body.Mode, "none")
-	return ResponseExampleRequest{
-		Method:         strings.ToUpper(firstNonEmpty(item.Method, http.MethodGet)),
-		URL:            requestURLWithParams(item.URL, nil, item.PathParams, vars),
-		BodyMode:       bodyMode,
-		Body:           requestCodeBodySnapshot(item, vars),
-		Headers:        interpolatedKeyValues(item.Headers, vars),
-		Params:         interpolatedKeyValues(item.Params, vars),
-		FormURLEncoded: interpolatedKeyValues(item.Body.FormURLEncoded, vars),
-		MultipartForm:  interpolatedFormParts(item.Body.Multipart, vars),
-		File:           interpolatedFileBodyEntries(fileBodyEntries(item.Body), vars),
-	}
-}
-
-func requestCodeBodySnapshot(item RequestItem, vars map[string]string) string {
-	body := item.Body
-	switch normalizedBodyMode(body.Mode) {
-	case "json":
-		return interpolate(body.JSON, vars)
-	case "xml":
-		return interpolate(body.XML, vars)
-	case "graphql":
-		return graphqlRequestBodySnapshot(body, vars)
-	case "formUrlEncoded":
-		values := make([]string, 0, len(body.FormURLEncoded))
-		for _, row := range body.FormURLEncoded {
-			if row.Enabled {
-				values = append(values, interpolate(row.Name, vars)+"="+interpolate(row.Value, vars))
-			}
-		}
-		return strings.Join(values, "&")
-	case "multipartForm":
-		values := make([]string, 0, len(body.Multipart))
-		for _, row := range body.Multipart {
-			if row.Enabled {
-				values = append(values, interpolate(row.Name, vars)+"="+firstNonEmpty(interpolate(row.Value, vars), interpolate(row.FilePath, vars)))
-			}
-		}
-		return strings.Join(values, "\n")
-	case "file":
-		if selected, ok := selectedFileBodyEntry(body); ok {
-			return interpolate(selected.FilePath, vars)
-		}
-		return interpolate(body.FilePath, vars)
-	default:
-		return interpolate(body.Text, vars)
-	}
-}
-
-func graphqlRequestBodySnapshot(body RequestBody, vars map[string]string) string {
-	payload := map[string]interface{}{
-		"query": interpolate(body.GraphQLQuery, vars),
-	}
-	if variablesText := strings.TrimSpace(interpolate(body.GraphQLVariables, vars)); variablesText != "" {
-		var variables interface{}
-		if err := json.Unmarshal([]byte(variablesText), &variables); err == nil {
-			payload["variables"] = variables
-		} else {
-			payload["variables"] = variablesText
-		}
-	}
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return interpolate(body.GraphQLQuery, vars)
-	}
-	return string(encoded)
-}
-
-func interpolatedKeyValues(rows []KeyValue, vars map[string]string) []KeyValue {
-	if len(rows) == 0 {
-		return nil
-	}
-	next := make([]KeyValue, len(rows))
-	for i, row := range rows {
-		next[i] = row
-		next[i].Name = interpolate(row.Name, vars)
-		next[i].Value = interpolate(row.Value, vars)
-		next[i].Description = interpolate(row.Description, vars)
-	}
-	return next
-}
-
-func interpolatedFormParts(rows []FormPart, vars map[string]string) []FormPart {
-	if len(rows) == 0 {
-		return nil
-	}
-	next := make([]FormPart, len(rows))
-	for i, row := range rows {
-		next[i] = row
-		next[i].Name = interpolate(row.Name, vars)
-		next[i].Value = interpolate(row.Value, vars)
-		next[i].FilePath = interpolate(row.FilePath, vars)
-		next[i].ContentType = interpolate(row.ContentType, vars)
-	}
-	return next
-}
-
-func interpolatedFileBodyEntries(rows []FileBodyEntry, vars map[string]string) []FileBodyEntry {
-	if len(rows) == 0 {
-		return nil
-	}
-	next := make([]FileBodyEntry, len(rows))
-	for i, row := range rows {
-		next[i] = row
-		next[i].FilePath = interpolate(row.FilePath, vars)
-		next[i].ContentType = interpolate(row.ContentType, vars)
-	}
-	return next
-}
-
-func generateCurlForResponseExample(example ResponseExample) string {
-	req := example.Request
-	method := strings.ToUpper(strings.TrimSpace(firstNonEmpty(req.Method, http.MethodGet)))
-	targetURL := requestURLWithParams(req.URL, req.Params, nil, nil)
-	lines := []string{"curl --request " + shellSingleQuote(method) + " " + shellSingleQuote(targetURL)}
-	headers := enabledKeyValues(req.Headers)
-	autoContentType := responseExampleRequestContentType(req)
-	if autoContentType != "" && !hasHeaderName(headers, "content-type") {
-		headers = append(headers, KeyValue{Name: "Content-Type", Value: autoContentType, Enabled: true})
-	}
-	for _, header := range headers {
-		lines = append(lines, "  --header "+shellSingleQuote(strings.TrimSpace(header.Name)+": "+header.Value))
-	}
-	switch normalizedBodyMode(req.BodyMode) {
-	case "formUrlEncoded":
-		body := encodedKeyValueBody(req.FormURLEncoded)
-		if body != "" {
-			lines = append(lines, "  --data-raw "+shellSingleQuote(body))
-		}
-	case "multipartForm":
-		for _, part := range req.MultipartForm {
-			if !part.Enabled || strings.TrimSpace(part.Name) == "" {
-				continue
-			}
-			lines = append(lines, "  --form "+shellSingleQuote(curlFormPart(part)))
-		}
-	case "file":
-		if file, ok := selectedExampleFile(req.File); ok && strings.TrimSpace(file.FilePath) != "" {
-			lines = append(lines, "  --data-binary "+shellSingleQuote("@"+file.FilePath))
-		}
-	default:
-		if body := responseExampleRawBody(req); body != "" {
-			lines = append(lines, "  --data-raw "+shellSingleQuote(body))
-		}
-	}
-	return strings.Join(lines, " \\\n")
-}
-
-func generateFetchForResponseExample(example ResponseExample) string {
-	req := example.Request
-	method := strings.ToUpper(strings.TrimSpace(firstNonEmpty(req.Method, http.MethodGet)))
-	targetURL := requestURLWithParams(req.URL, req.Params, nil, nil)
-	headers := enabledKeyValues(req.Headers)
-	autoContentType := responseExampleRequestContentType(req)
-	if autoContentType != "" && !hasHeaderName(headers, "content-type") && normalizedBodyMode(req.BodyMode) != "multipartForm" {
-		headers = append(headers, KeyValue{Name: "Content-Type", Value: autoContentType, Enabled: true})
-	}
-
-	lines := []string{}
-	bodyReference := ""
-	switch normalizedBodyMode(req.BodyMode) {
-	case "formUrlEncoded":
-		lines = append(lines, "const body = new URLSearchParams();")
-		for _, field := range req.FormURLEncoded {
-			if field.Enabled && strings.TrimSpace(field.Name) != "" {
-				lines = append(lines, fmt.Sprintf("body.append(%s, %s);", jsString(field.Name), jsString(field.Value)))
-			}
-		}
-		if len(lines) > 1 {
-			bodyReference = "body"
-		} else {
-			lines = lines[:0]
-		}
-	case "multipartForm":
-		lines = append(lines, "const body = new FormData();")
-		for _, part := range req.MultipartForm {
-			if !part.Enabled || strings.TrimSpace(part.Name) == "" {
-				continue
-			}
-			if strings.TrimSpace(part.FilePath) != "" {
-				filename := filepath.Base(part.FilePath)
-				if filename == "." || filename == string(filepath.Separator) {
-					filename = "file"
-				}
-				comment := fmt.Sprintf(" // %s", part.FilePath)
-				if strings.TrimSpace(part.ContentType) != "" {
-					comment += " (" + strings.TrimSpace(part.ContentType) + ")"
-				}
-				lines = append(lines, fmt.Sprintf("body.append(%s, new Blob([]), %s);%s", jsString(part.Name), jsString(filename), comment))
-			} else {
-				lines = append(lines, fmt.Sprintf("body.append(%s, %s);", jsString(part.Name), jsString(part.Value)))
-			}
-		}
-		if len(lines) > 1 {
-			bodyReference = "body"
-		} else {
-			lines = lines[:0]
-		}
-	case "file":
-		if file, ok := selectedExampleFile(req.File); ok && strings.TrimSpace(file.FilePath) != "" {
-			comment := " // " + file.FilePath
-			if strings.TrimSpace(file.ContentType) != "" {
-				comment += " (" + strings.TrimSpace(file.ContentType) + ")"
-			}
-			lines = append(lines, "const body = new Blob([]);"+comment)
-			bodyReference = "body"
-		}
-	default:
-		if body := responseExampleRawBody(req); body != "" {
-			lines = append(lines, "const body = "+jsBodyLiteral(body, normalizedBodyMode(req.BodyMode))+";")
-			bodyReference = "body"
-		}
-	}
-
-	if len(lines) > 0 {
-		lines = append(lines, "")
-	}
-	lines = append(lines, fmt.Sprintf("const response = await fetch(%s, {", jsString(targetURL)))
-	lines = append(lines, "  method: "+jsString(method)+",")
-	if len(headers) > 0 {
-		lines = append(lines, "  headers: {")
-		for index, header := range headers {
-			suffix := ","
-			if index == len(headers)-1 {
-				suffix = ""
-			}
-			lines = append(lines, fmt.Sprintf("    %s: %s%s", jsString(strings.TrimSpace(header.Name)), jsString(header.Value), suffix))
-		}
-		lines = append(lines, "  },")
-	}
-	if bodyReference != "" {
-		lines = append(lines, "  body: "+bodyReference+",")
-	}
-	lines = append(lines, "});")
-	return strings.Join(lines, "\n")
-}
-
-func normalizedBodyMode(mode string) string {
-	switch strings.TrimSpace(mode) {
-	case "form-url-encoded", "formUrlEncoded":
-		return "formUrlEncoded"
-	case "multipart-form", "multipartForm", "multipart":
-		return "multipartForm"
-	default:
-		return strings.TrimSpace(mode)
-	}
-}
-
-func hasHeaderName(headers []KeyValue, name string) bool {
-	for _, header := range headers {
-		if strings.EqualFold(strings.TrimSpace(header.Name), name) {
-			return true
-		}
-	}
-	return false
-}
-
-func responseExampleRequestContentType(req ResponseExampleRequest) string {
-	switch normalizedBodyMode(req.BodyMode) {
-	case "json":
-		return "application/json"
-	case "xml":
-		return "application/xml"
-	case "text":
-		return "text/plain"
-	case "graphql":
-		return "application/json"
-	case "formUrlEncoded":
-		if encodedKeyValueBody(req.FormURLEncoded) != "" {
-			return "application/x-www-form-urlencoded"
-		}
-	case "file":
-		if file, ok := selectedExampleFile(req.File); ok {
-			contentType := strings.TrimSpace(file.ContentType)
-			if contentType == "" {
-				contentType = mime.TypeByExtension(strings.ToLower(filepath.Ext(file.FilePath)))
-			}
-			if contentType == "" {
-				contentType = "application/octet-stream"
-			}
-			return contentType
-		}
-	}
-	return ""
-}
-
-func responseExampleRawBody(req ResponseExampleRequest) string {
-	if normalizedBodyMode(req.BodyMode) == "" || normalizedBodyMode(req.BodyMode) == "none" {
-		return ""
-	}
-	return req.Body
-}
-
-func encodedKeyValueBody(rows []KeyValue) string {
-	values := url.Values{}
-	for _, row := range rows {
-		if row.Enabled && strings.TrimSpace(row.Name) != "" {
-			values.Add(row.Name, row.Value)
-		}
-	}
-	return values.Encode()
-}
-
-func selectedExampleFile(rows []FileBodyEntry) (FileBodyEntry, bool) {
-	if len(rows) == 0 {
-		return FileBodyEntry{}, false
-	}
-	for _, row := range rows {
-		if row.Selected {
-			return row, true
-		}
-	}
-	return FileBodyEntry{}, false
-}
-
-func curlFormPart(part FormPart) string {
-	name := strings.TrimSpace(part.Name)
-	if strings.TrimSpace(part.FilePath) != "" {
-		value := name + "=@" + strings.TrimSpace(part.FilePath)
-		if contentType := strings.TrimSpace(part.ContentType); contentType != "" {
-			value += ";type=" + contentType
-		}
-		return value
-	}
-	return name + "=" + part.Value
-}
-
-func jsString(value string) string {
-	var b bytes.Buffer
-	encoder := json.NewEncoder(&b)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(value); err != nil {
-		return `""`
-	}
-	return strings.TrimSpace(b.String())
-}
-
-func jsBodyLiteral(body, mode string) string {
-	if mode == "json" || mode == "graphql" {
-		var parsed interface{}
-		if err := json.Unmarshal([]byte(body), &parsed); err == nil {
-			encoded, encodeErr := json.Marshal(parsed)
-			if encodeErr == nil {
-				return "JSON.stringify(" + string(encoded) + ")"
-			}
-		}
-	}
-	return jsString(body)
-}
-
-func responseBodyType(response Response) string {
-	if response.PreviewMode == "json" || looksLikeJSON(response.Body) {
-		return "json"
-	}
-	switch response.PreviewMode {
-	case "xml", "sse", "image":
-		return response.PreviewMode
-	default:
-		return "text"
-	}
-}
-
-func looksLikeJSON(value string) bool {
-	trimmed := strings.TrimSpace(value)
-	return strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")
-}
+// Request/response-example code generation moved to internal/codegen.
 
 func keyValuesFromHeaders(headers map[string]string) []KeyValue {
 	keys := make([]string, 0, len(headers))
@@ -3864,118 +3453,6 @@ func keyValuesFromHeaders(headers map[string]string) []KeyValue {
 		values = append(values, KeyValue{Name: key, Value: headers[key], Enabled: true})
 	}
 	return values
-}
-
-func cloneVariables(values []Variable) []Variable {
-	if len(values) == 0 {
-		return nil
-	}
-	cloned := make([]Variable, len(values))
-	copy(cloned, values)
-	return cloned
-}
-
-func cloneOAuth2AdditionalParams(values []OAuth2AdditionalParam) []OAuth2AdditionalParam {
-	if len(values) == 0 {
-		return nil
-	}
-	cloned := make([]OAuth2AdditionalParam, len(values))
-	copy(cloned, values)
-	return cloned
-}
-
-func cloneAuthConfig(auth AuthConfig) AuthConfig {
-	auth.OAuth2.AuthorizationAdditionalParams = cloneOAuth2AdditionalParams(auth.OAuth2.AuthorizationAdditionalParams)
-	auth.OAuth2.TokenAdditionalParams = cloneOAuth2AdditionalParams(auth.OAuth2.TokenAdditionalParams)
-	auth.OAuth2.RefreshAdditionalParams = cloneOAuth2AdditionalParams(auth.OAuth2.RefreshAdditionalParams)
-	auth.OAuth2.AdditionalParams = cloneKeyValues(auth.OAuth2.AdditionalParams)
-	return auth
-}
-
-func cloneRequestVars(vars RequestVars) RequestVars {
-	return RequestVars{
-		Req: cloneVariables(vars.Req),
-		Res: cloneVariables(vars.Res),
-	}
-}
-
-func cloneRequestBody(body RequestBody) RequestBody {
-	body.FormURLEncoded = cloneKeyValues(body.FormURLEncoded)
-	body.Multipart = cloneFormParts(body.Multipart)
-	body.Files = cloneFileBodyEntries(body.Files)
-	return body
-}
-
-func cloneAssertions(values []Assertion) []Assertion {
-	if len(values) == 0 {
-		return nil
-	}
-	cloned := make([]Assertion, len(values))
-	copy(cloned, values)
-	return cloned
-}
-
-func cloneGrpcMessages(values []GrpcMessage) []GrpcMessage {
-	if len(values) == 0 {
-		return nil
-	}
-	cloned := make([]GrpcMessage, len(values))
-	copy(cloned, values)
-	return cloned
-}
-
-func cloneWSMessages(values []WSMessage) []WSMessage {
-	if len(values) == 0 {
-		return nil
-	}
-	cloned := make([]WSMessage, len(values))
-	copy(cloned, values)
-	return cloned
-}
-
-func cloneTags(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	cloned := make([]string, len(values))
-	copy(cloned, values)
-	return cloned
-}
-
-func cloneResponseExamples(values []ResponseExample) []ResponseExample {
-	if len(values) == 0 {
-		return nil
-	}
-	cloned := make([]ResponseExample, len(values))
-	for i := range values {
-		cloned[i] = cloneResponseExample(values[i])
-	}
-	return cloned
-}
-
-func cloneFolderConfigForFolderClone(folder FolderConfig) FolderConfig {
-	folder.Headers = cloneKeyValues(folder.Headers)
-	folder.Variables = cloneVariables(folder.Variables)
-	folder.ResVariables = cloneVariables(folder.ResVariables)
-	folder.Auth = cloneAuthConfig(folder.Auth)
-	return folder
-}
-
-func cloneRequestItemForFolderClone(item RequestItem) RequestItem {
-	item.Params = cloneKeyValues(item.Params)
-	item.PathParams = cloneKeyValues(item.PathParams)
-	item.Headers = cloneKeyValues(item.Headers)
-	item.Body = cloneRequestBody(item.Body)
-	item.GrpcMessages = cloneGrpcMessages(item.GrpcMessages)
-	item.WSMessages = cloneWSMessages(item.WSMessages)
-	item.Auth = cloneAuthConfig(item.Auth)
-	item.Vars = cloneRequestVars(item.Vars)
-	item.Assertions = cloneAssertions(item.Assertions)
-	item.Tags = cloneTags(item.Tags)
-	item.Examples = cloneResponseExamples(item.Examples)
-	item.Response = nil
-	item.Timeline = nil
-	return item
 }
 
 func assignExampleIDs(item *RequestItem) {
@@ -4095,7 +3572,7 @@ func mergeScriptCookieJar(current, initial, runtime []CookieEntry) []CookieEntry
 }
 
 func previewRequestURL(item RequestItem, vars map[string]string) string {
-	return requestURLWithParams(item.URL, item.Params, item.PathParams, vars)
+	return codegen.RequestURLWithParams(item.URL, item.Params, item.PathParams, vars)
 }
 
 func responseCookies(res *http.Response, rawURL string) []CookieEntry {
@@ -9141,7 +8618,7 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 		return result
 	}
 
-	targetURL := requestURLWithParams(item.URL, item.Params, item.PathParams, vars)
+	targetURL := codegen.RequestURLWithParams(item.URL, item.Params, item.PathParams, vars)
 	if item.Settings.EncodeURL {
 		targetURL = encodeRequestURL(targetURL)
 	}
@@ -11370,7 +10847,7 @@ func websocketOutboundMessageAt(item RequestItem, vars map[string]string, index 
 }
 
 func websocketTargetURL(item RequestItem, vars map[string]string) string {
-	targetURL := requestURLWithParams(item.URL, item.Params, item.PathParams, vars)
+	targetURL := codegen.RequestURLWithParams(item.URL, item.Params, item.PathParams, vars)
 	if strings.HasPrefix(targetURL, "http://") {
 		targetURL = "ws://" + strings.TrimPrefix(targetURL, "http://")
 	}
@@ -11516,7 +10993,7 @@ func buildBody(body RequestBody, vars map[string]string, basePath ...string) (io
 	case "xml":
 		return strings.NewReader(interpolate(body.XML, vars)), "application/xml", nil
 	case "graphql":
-		return strings.NewReader(graphqlRequestBodySnapshot(body, vars)), "application/json", nil
+		return strings.NewReader(codegen.GraphQLRequestBodySnapshot(body, vars)), "application/json", nil
 	case "text", "sparql":
 		return strings.NewReader(interpolate(body.Text, vars)), "text/plain", nil
 	case "formUrlEncoded":
@@ -14601,7 +14078,7 @@ func newScriptRuntimeWithMeta(item RequestItem, response Response, vars map[stri
 		if rawURL == nil || goja.IsUndefined(rawURL) || goja.IsNull(rawURL) {
 			return ""
 		}
-		return requestURLWithParams(rawURL.String(), item.Params, item.PathParams, vars)
+		return codegen.RequestURLWithParams(rawURL.String(), item.Params, item.PathParams, vars)
 	}
 	syncRequestHeaders := func() {
 		_ = reqObject.Set("headers", keyValuesToMap(reqState.headers))
@@ -27310,12 +26787,6 @@ func scriptBufferValue(runtime *goja.Runtime, data []byte) goja.Value {
 	return value
 }
 
-func requestURLWithParams(rawURL string, queryParams, pathParams []KeyValue, vars map[string]string) string {
-	targetURL := interpolate(rawURL, vars)
-	targetURL = applyEnabledPathParams(targetURL, pathParams, vars)
-	return appendEnabledQuery(targetURL, queryParams, vars)
-}
-
 func encodeRequestURL(rawURL string) string {
 	if rawURL == "" {
 		return rawURL
@@ -27463,51 +26934,6 @@ func hexDigit(c byte) (byte, bool) {
 	default:
 		return 0, false
 	}
-}
-
-func applyEnabledPathParams(rawURL string, pathParams []KeyValue, vars map[string]string) string {
-	if rawURL == "" || len(pathParams) == 0 {
-		return rawURL
-	}
-	values := map[string]string{}
-	for _, param := range pathParams {
-		if param.Enabled && param.Name != "" {
-			values[param.Name] = interpolate(param.Value, vars)
-		}
-	}
-	if len(values) == 0 {
-		return rawURL
-	}
-	return pathParamTokenPattern.ReplaceAllStringFunc(rawURL, func(token string) string {
-		name := strings.TrimPrefix(token, ":")
-		if value, ok := values[name]; ok {
-			return value
-		}
-		return token
-	})
-}
-
-func appendEnabledQuery(rawURL string, params []KeyValue, vars map[string]string) string {
-	if rawURL == "" {
-		return rawURL
-	}
-	pairs := make([]string, 0, len(params))
-	for _, param := range params {
-		if param.Enabled && param.Name != "" {
-			pairs = append(pairs, interpolate(param.Name, vars)+"="+interpolate(param.Value, vars))
-		}
-	}
-	if len(pairs) == 0 {
-		return rawURL
-	}
-	separator := "?"
-	if strings.Contains(rawURL, "?") {
-		separator = "&"
-	}
-	if strings.HasSuffix(rawURL, "?") || strings.HasSuffix(rawURL, "&") {
-		separator = ""
-	}
-	return rawURL + separator + strings.Join(pairs, "&")
 }
 
 func buildVariableMap(globalEnvs []Environment, collection *Collection, environmentID string, item RequestItem, workspacePath ...string) map[string]string {
@@ -32333,17 +31759,56 @@ func itemFolderPhysicalPath(collection Collection, item RequestItem) string {
 }
 
 // OpenAPI, Postman and Insomnia import moved to internal/importers.
+
+func looksLikeJSON(value string) bool { return scalar.LooksLikeJSON(value) }
+
+func cloneVariables(values []Variable) []Variable { return types.CloneVariables(values) }
+
+func cloneOAuth2AdditionalParams(values []OAuth2AdditionalParam) []OAuth2AdditionalParam {
+	return types.CloneOAuth2AdditionalParams(values)
+}
+
+func cloneAuthConfig(auth AuthConfig) AuthConfig { return types.CloneAuthConfig(auth) }
+
+func cloneRequestVars(vars RequestVars) RequestVars { return types.CloneRequestVars(vars) }
+
+func cloneRequestBody(body RequestBody) RequestBody { return types.CloneRequestBody(body) }
+
+func cloneAssertions(values []Assertion) []Assertion { return types.CloneAssertions(values) }
+
+func cloneGrpcMessages(values []GrpcMessage) []GrpcMessage { return types.CloneGrpcMessages(values) }
+
+func cloneWSMessages(values []WSMessage) []WSMessage { return types.CloneWSMessages(values) }
+
+func cloneTags(values []string) []string { return types.CloneTags(values) }
+
+func cloneResponseExamples(values []ResponseExample) []ResponseExample {
+	return types.CloneResponseExamples(values)
+}
+
+func cloneFolderConfigForFolderClone(folder FolderConfig) FolderConfig {
+	return types.CloneFolderConfigForFolderClone(folder)
+}
+
+func cloneRequestItemForFolderClone(item RequestItem) RequestItem {
+	return types.CloneRequestItemForFolderClone(item)
+}
+
+func cloneResponseExample(example ResponseExample) ResponseExample {
+	return types.CloneResponseExample(example)
+}
+
 func applyWSSEHeader(headers http.Header, username, password string, now time.Time) {
 	wsse.ApplyHeader(headers, username, password, now)
 }
 
-func enabledKeyValues(rows []KeyValue) []KeyValue { return grpcexec.EnabledKeyValues(rows) }
+func enabledKeyValues(rows []KeyValue) []KeyValue { return types.EnabledKeyValues(rows) }
 
 func grpcMethodStorageType(method protoreflect.MethodDescriptor) string {
 	return grpcexec.GRPCMethodStorageType(method)
 }
 
-func shellSingleQuote(value string) string { return grpcexec.ShellSingleQuote(value) }
+func shellSingleQuote(value string) string { return scalar.ShellSingleQuote(value) }
 
 func getKeyValue(values []KeyValue, name string) string { return types.GetKeyValue(values, name) }
 

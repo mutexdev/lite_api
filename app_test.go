@@ -2,6 +2,7 @@ package main
 
 import (
 	"LiteAPI/internal/auth/wsse"
+	"LiteAPI/internal/codegen"
 	"LiteAPI/internal/grpcexec"
 	"LiteAPI/internal/importers"
 	"LiteAPI/internal/transport"
@@ -608,7 +609,7 @@ func TestEncodeRequestURLMatchesBrunoToggleBehavior(t *testing.T) {
 		})
 	}
 
-	withParamRows := requestURLWithParams("https://example.com/api", []KeyValue{{Name: "name", Value: "John Doe", Enabled: true}}, nil, nil)
+	withParamRows := codegen.RequestURLWithParams("https://example.com/api", []KeyValue{{Name: "name", Value: "John Doe", Enabled: true}}, nil, nil)
 	if got, want := encodeRequestURL(withParamRows), "https://example.com/api?name=John%20Doe"; got != want {
 		t.Fatalf("query param rows were encoded incorrectly: %q, want %q", got, want)
 	}
@@ -17534,7 +17535,7 @@ func TestGenerateResponseExampleCodeUsesRequestSnapshot(t *testing.T) {
 		},
 	}
 
-	curl, err := generateResponseExampleCode(example, "curl")
+	curl, err := codegen.GenerateResponseExampleCode(example, "curl")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -17552,7 +17553,7 @@ func TestGenerateResponseExampleCodeUsesRequestSnapshot(t *testing.T) {
 		t.Fatalf("curl snippet included disabled rows:\n%s", curl)
 	}
 
-	fetch, err := generateResponseExampleCode(example, "fetch")
+	fetch, err := codegen.GenerateResponseExampleCode(example, "fetch")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -17585,14 +17586,14 @@ func TestGenerateResponseExampleCodeBodyModes(t *testing.T) {
 			},
 		},
 	}
-	curl, err := generateResponseExampleCode(form, "curl")
+	curl, err := codegen.GenerateResponseExampleCode(form, "curl")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(curl, "--header 'Content-Type: application/x-www-form-urlencoded'") || !strings.Contains(curl, "--data-raw 'email=ada%40example.test&notes=hello+there'") || strings.Contains(curl, "disabled") {
 		t.Fatalf("form cURL snippet mismatch:\n%s", curl)
 	}
-	fetch, err := generateResponseExampleCode(form, "fetch")
+	fetch, err := codegen.GenerateResponseExampleCode(form, "fetch")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -17617,14 +17618,14 @@ func TestGenerateResponseExampleCodeBodyModes(t *testing.T) {
 			},
 		},
 	}
-	curl, err = generateResponseExampleCode(multipartExample, "curl")
+	curl, err = codegen.GenerateResponseExampleCode(multipartExample, "curl")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(curl, "--form 'title=Sample Document'") || !strings.Contains(curl, "--form 'document=@examples/sample.pdf;type=application/pdf'") || strings.Contains(curl, "skip") {
 		t.Fatalf("multipart cURL snippet mismatch:\n%s", curl)
 	}
-	fetch, err = generateResponseExampleCode(multipartExample, "fetch")
+	fetch, err = codegen.GenerateResponseExampleCode(multipartExample, "fetch")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -17648,14 +17649,14 @@ func TestGenerateResponseExampleCodeBodyModes(t *testing.T) {
 			},
 		},
 	}
-	curl, err = generateResponseExampleCode(fileExample, "curl")
+	curl, err = codegen.GenerateResponseExampleCode(fileExample, "curl")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(curl, "--request 'PUT'") || !strings.Contains(curl, "--header 'Content-Type: application/json'") || !strings.Contains(curl, "--data-binary '@examples/backup.json'") || strings.Contains(curl, "ignored.bin") {
 		t.Fatalf("file cURL snippet mismatch:\n%s", curl)
 	}
-	fetch, err = generateResponseExampleCode(fileExample, "fetch")
+	fetch, err = codegen.GenerateResponseExampleCode(fileExample, "fetch")
 	if err != nil {
 		t.Fatal(err)
 	}

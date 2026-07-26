@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	reflectionpb "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 	"net"
 	"net/http"
 	"net/url"
@@ -28,6 +27,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	reflectionpb "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 
 	"github.com/bufbuild/protocompile"
 	"google.golang.org/grpc"
@@ -120,23 +121,23 @@ func GenerateGrpcurlCommand(collection types.Collection, item types.RequestItem,
 			certPath := transport.ResolveCollectionRelativePath(collection.Path, interp.Interpolate(cert.CertFilePath, vars))
 			keyPath := transport.ResolveCollectionRelativePath(collection.Path, interp.Interpolate(cert.KeyFilePath, vars))
 			if strings.TrimSpace(certPath) != "" && strings.TrimSpace(keyPath) != "" {
-				parts = append(parts, "-cert "+ShellSingleQuote(certPath), "-key "+ShellSingleQuote(keyPath))
+				parts = append(parts, "-cert "+scalar.ShellSingleQuote(certPath), "-key "+scalar.ShellSingleQuote(keyPath))
 			}
 		}
 	default:
 		parts = append(parts, "-plaintext")
 	}
-	for _, header := range EnabledKeyValues(item.Headers) {
+	for _, header := range types.EnabledKeyValues(item.Headers) {
 		name := strings.TrimSpace(interp.Interpolate(header.Name, vars))
 		if name == "" {
 			continue
 		}
-		parts = append(parts, "-H "+ShellSingleQuote(name+": "+interp.Interpolate(header.Value, vars)))
+		parts = append(parts, "-H "+scalar.ShellSingleQuote(name+": "+interp.Interpolate(header.Value, vars)))
 	}
 	if protoPath := strings.TrimSpace(interp.Interpolate(item.ProtoPath, vars)); protoPath != "" {
 		resolvedProtoPath := transport.ResolveCollectionRelativePath(collection.Path, protoPath)
-		parts = append(parts, "-import-path "+ShellSingleQuote(filepath.Dir(resolvedProtoPath)))
-		parts = append(parts, "-proto "+ShellSingleQuote(filepath.Base(resolvedProtoPath)))
+		parts = append(parts, "-import-path "+scalar.ShellSingleQuote(filepath.Dir(resolvedProtoPath)))
+		parts = append(parts, "-proto "+scalar.ShellSingleQuote(filepath.Base(resolvedProtoPath)))
 	}
 	messages := GrpcurlRequestMessages(item, vars)
 	streamingClient := item.GrpcMethodType == "client-streaming" || item.GrpcMethodType == "bidi-streaming"
@@ -144,11 +145,11 @@ func GenerateGrpcurlCommand(collection types.Collection, item types.RequestItem,
 		if streamingClient {
 			parts = append(parts, "-d @")
 		} else {
-			parts = append(parts, "-d "+ShellSingleQuote(GrpcurlMessageContent(messages[0])))
+			parts = append(parts, "-d "+scalar.ShellSingleQuote(GrpcurlMessageContent(messages[0])))
 		}
 	}
 	if target.SocketPath != "" {
-		parts = append(parts, ShellSingleQuote(target.SocketPath))
+		parts = append(parts, scalar.ShellSingleQuote(target.SocketPath))
 	} else {
 		parts = append(parts, target.Host)
 	}
@@ -851,16 +852,6 @@ func grpcMetadataDisplayValue(name string, values []string) string {
 	return strings.Join(display, ", ")
 }
 
-func EnabledKeyValues(rows []types.KeyValue) []types.KeyValue {
-	result := []types.KeyValue{}
-	for _, row := range rows {
-		if row.Enabled && strings.TrimSpace(row.Name) != "" {
-			result = append(result, types.KeyValue{Name: strings.TrimSpace(row.Name), Value: row.Value, Enabled: true})
-		}
-	}
-	return result
-}
-
 func GRPCMethodStorageType(method protoreflect.MethodDescriptor) string {
 	switch {
 	case method.IsStreamingClient() && method.IsStreamingServer():
@@ -872,10 +863,6 @@ func GRPCMethodStorageType(method protoreflect.MethodDescriptor) string {
 	default:
 		return "unary"
 	}
-}
-
-func ShellSingleQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 type MethodBinding struct {

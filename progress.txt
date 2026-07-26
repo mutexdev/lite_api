@@ -3080,3 +3080,46 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Gates: go build, go vet, go test all ok; svelte-check 209/0/0; eslint 0;
   npm test 223/223.
+
+--- internal/codegen + the clone family into internal/types (DONE) ---
+
+  app.go: 37,899 -> 37,364. code_generation.go merged in: the block in app.go
+  and that file were the same concern, split across two files by nothing but
+  when each was written.
+
+  A CORRECTION TO US-063: EnabledKeyValues and ShellSingleQuote had landed in
+  internal/grpcexec, because gRPC was extracted first and happened to be what
+  needed them. Neither has anything to do with gRPC. They now live in
+  internal/types and internal/scalar. That is the SECOND time this exact mistake
+  has happened (applyWSSEHeader was the first) and the rule is now proven twice:
+  the compiler tells you what depends on what, never where something belongs.
+
+  The Wails binding CodeGenerationTargets stayed in package main as
+  codegen_bindings.go - it is a method on *App, and a method cannot move to
+  another package without its receiver.
+
+  !!! A SECOND UNTESTED CONTRACT, FOUND THE SAME WAY !!!
+
+  Making CloneVariables return its input directly - aliasing instead of copying
+  - failed ZERO tests. Every clone function exists so a caller can edit a copy
+  without the original changing underneath it, and nothing checked that.
+
+  This failure does not look like a failure. An aliased clone works perfectly
+  until someone edits the copy, at which point a request the user never touched
+  changes, usually in a different pane, with no error anywhere.
+
+  Seven tests added. Controls now: aliasing CloneVariables fails 1, CloneTags
+  fails 2, and sharing AuthConfig's nested OAuth2 params fails 1. The nested
+  case is the one worth having - a struct copied by value shares its slice
+  headers, so a shallow copy looks right at the top level and is wrong one field
+  down.
+
+  A TOOLING BUG WORTH RECORDING: the type-prefixing loop stalled, repeating the
+  same two names forever without changing anything. My "do not touch struct
+  field declarations" guard was `(?!\s+[\[\*\w])`, and \s MATCHES NEWLINES - so
+  a type at the END of a line looked like a field declaration whenever the NEXT
+  line happened to start with an identifier. Fixed to `[^\S\n]+`. It stalled
+  rather than corrupting, which is the good failure mode, but only by luck.
+
+  Gates: go build, go vet, go test all ok across 8 packages; svelte-check
+  209/0/0; eslint 0; npm test 223/223.

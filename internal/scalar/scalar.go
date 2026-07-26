@@ -168,3 +168,13 @@ func BoolValueOK(raw interface{}) (bool, bool) {
 		return false, false
 	}
 }
+
+// ShellSingleQuote moved here from internal/grpcexec; it is generic quoting.
+func ShellSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func LooksLikeJSON(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	return strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")
+}

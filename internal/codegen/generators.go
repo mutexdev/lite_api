@@ -1,4 +1,14 @@
-package main
+package codegen
+
+import (
+	"LiteAPI/internal/scalar"
+	"LiteAPI/internal/types"
+	"fmt"
+	"net/http"
+	"path/filepath"
+	"strconv"
+	"strings"
+)
 
 // US-054 — code generation targets beyond curl and fetch.
 //
@@ -15,38 +25,30 @@ package main
 // a body containing quotes, backslashes, newlines and a dollar sign through
 // every target.
 
-import (
-	"fmt"
-	"net/http"
-	"path/filepath"
-	"strconv"
-	"strings"
-)
-
 // codegenRequest is the single normalised view every emitter reads.
 type codegenRequest struct {
 	Method  string
 	URL     string
-	Headers []KeyValue
+	Headers []types.KeyValue
 	// BodyKind is one of "none", "raw", "form", "multipart", "file".
 	BodyKind    string
 	RawBody     string
 	ContentType string
-	FormFields  []KeyValue
-	Multipart   []FormPart
+	FormFields  []types.KeyValue
+	Multipart   []types.FormPart
 	FilePath    string
 }
 
-func newCodegenRequest(example ResponseExample) codegenRequest {
+func newCodegenRequest(example types.ResponseExample) codegenRequest {
 	req := example.Request
 	out := codegenRequest{
-		Method: strings.ToUpper(strings.TrimSpace(firstNonEmpty(req.Method, http.MethodGet))),
-		URL:    requestURLWithParams(req.URL, req.Params, nil, nil),
+		Method: strings.ToUpper(strings.TrimSpace(scalar.FirstNonEmpty(req.Method, http.MethodGet))),
+		URL:    RequestURLWithParams(req.URL, req.Params, nil, nil),
 	}
-	out.Headers = enabledKeyValues(req.Headers)
+	out.Headers = types.EnabledKeyValues(req.Headers)
 
-	mode := normalizedBodyMode(req.BodyMode)
-	out.ContentType = responseExampleRequestContentType(req)
+	mode := NormalizedBodyMode(req.BodyMode)
+	out.ContentType = ResponseExampleRequestContentType(req)
 
 	switch mode {
 	case "formUrlEncoded":
@@ -79,12 +81,12 @@ func newCodegenRequest(example ResponseExample) codegenRequest {
 			out.BodyKind = "none"
 		}
 	default:
-		// responseExampleRawBody, not req.Body: it is what suppresses the body
+		// ResponseExampleRawBody, not req.Body: it is what suppresses the body
 		// for mode "none". The app keeps the text when the user switches body
 		// mode away so nothing is lost, so req.Body is routinely non-empty for
 		// a request that sends nothing — reading it directly generates a
 		// snippet that posts a payload the app itself would not send.
-		if raw := responseExampleRawBody(req); strings.TrimSpace(raw) != "" {
+		if raw := ResponseExampleRawBody(req); strings.TrimSpace(raw) != "" {
 			out.BodyKind = "raw"
 			out.RawBody = raw
 		} else {
@@ -96,8 +98,8 @@ func newCodegenRequest(example ResponseExample) codegenRequest {
 	// has not already set. Multipart is excluded because its header carries a
 	// boundary the client generates — writing one by hand produces a request
 	// the server cannot parse.
-	if out.ContentType != "" && !hasHeaderName(out.Headers, "content-type") && out.BodyKind != "multipart" && out.BodyKind != "none" {
-		out.Headers = append(out.Headers, KeyValue{Name: "Content-Type", Value: out.ContentType, Enabled: true})
+	if out.ContentType != "" && !HasHeaderName(out.Headers, "content-type") && out.BodyKind != "multipart" && out.BodyKind != "none" {
+		out.Headers = append(out.Headers, types.KeyValue{Name: "Content-Type", Value: out.ContentType, Enabled: true})
 	}
 	return out
 }
@@ -387,7 +389,7 @@ func generateJavaHTTPClient(r codegenRequest) string {
 		b.WriteString("// java.net.http has no built-in multipart publisher; build the\n")
 		b.WriteString("// body with an HTTP client that does, or assemble it by hand:\n")
 		for _, part := range r.Multipart {
-			b.WriteString("//   " + part.Name + " = " + firstNonEmpty(part.FilePath, part.Value) + "\n")
+			b.WriteString("//   " + part.Name + " = " + scalar.FirstNonEmpty(part.FilePath, part.Value) + "\n")
 		}
 		b.WriteString("\n")
 	}
@@ -422,7 +424,7 @@ func generateCSharpHTTPClient(r codegenRequest) string {
 
 	switch r.BodyKind {
 	case "raw":
-		b.WriteString("request.Content = new StringContent(" + csharpString(r.RawBody) + ", Encoding.UTF8, " + csharpString(firstNonEmpty(r.ContentType, "text/plain")) + ");\n")
+		b.WriteString("request.Content = new StringContent(" + csharpString(r.RawBody) + ", Encoding.UTF8, " + csharpString(scalar.FirstNonEmpty(r.ContentType, "text/plain")) + ");\n")
 	case "form":
 		b.WriteString("request.Content = new FormUrlEncodedContent(new[]\n{\n")
 		for _, field := range r.FormFields {
@@ -528,16 +530,16 @@ func generateRubyNetHTTP(r codegenRequest) string {
 }
 
 func generateHTTPie(r codegenRequest) string {
-	parts := []string{"http", "--print=hb", r.Method, shellSingleQuote(r.URL)}
+	parts := []string{"http", "--print=hb", r.Method, scalar.ShellSingleQuote(r.URL)}
 	for _, header := range r.Headers {
-		parts = append(parts, shellSingleQuote(header.Name+":"+header.Value))
+		parts = append(parts, scalar.ShellSingleQuote(header.Name+":"+header.Value))
 	}
 
 	switch r.BodyKind {
 	case "form":
 		parts = append(parts, "--form")
 		for _, field := range r.FormFields {
-			parts = append(parts, shellSingleQuote(field.Name+"="+field.Value))
+			parts = append(parts, scalar.ShellSingleQuote(field.Name+"="+field.Value))
 		}
 	case "multipart":
 		parts = append(parts, "--form")
@@ -545,18 +547,18 @@ func generateHTTPie(r codegenRequest) string {
 			if strings.TrimSpace(part.FilePath) != "" {
 				// @ tells HTTPie to upload the file rather than send its path
 				// as a string value.
-				parts = append(parts, shellSingleQuote(part.Name+"@"+part.FilePath))
+				parts = append(parts, scalar.ShellSingleQuote(part.Name+"@"+part.FilePath))
 			} else {
-				parts = append(parts, shellSingleQuote(part.Name+"="+part.Value))
+				parts = append(parts, scalar.ShellSingleQuote(part.Name+"="+part.Value))
 			}
 		}
 	case "file":
-		return strings.Join(parts, " \\\n  ") + " \\\n  < " + shellSingleQuote(r.FilePath) + "\n"
+		return strings.Join(parts, " \\\n  ") + " \\\n  < " + scalar.ShellSingleQuote(r.FilePath) + "\n"
 	case "raw":
 		// Piped in rather than passed as an argument: a large JSON body as an
 		// argument hits the shell's argument length limit, and quoting a body
 		// containing single quotes on the command line is where this breaks.
-		return "echo " + shellSingleQuote(r.RawBody) + " | \\\n  " + strings.Join(parts, " \\\n  ") + "\n"
+		return "echo " + scalar.ShellSingleQuote(r.RawBody) + " | \\\n  " + strings.Join(parts, " \\\n  ") + "\n"
 	}
 	return strings.Join(parts, " \\\n  ") + "\n"
 }
@@ -610,11 +612,11 @@ func generatePowerShell(r codegenRequest) string {
 	return b.String()
 }
 
-// codegenLanguages lists every target and the aliases it answers to.
+// Languages lists every target and the aliases it answers to.
 //
 // Ordered, because this list drives the UI picker and a map would reorder it on
 // every render.
-var codegenLanguages = []struct {
+var Languages = []struct {
 	ID      string
 	Label   string
 	Aliases []string
@@ -633,12 +635,12 @@ var codegenLanguages = []struct {
 
 // generateExtendedCode returns the code for one of the US-054 targets, and
 // reports whether the language was one of them.
-func generateExtendedCode(example ResponseExample, language string) (string, bool) {
+func generateExtendedCode(example types.ResponseExample, language string) (string, bool) {
 	wanted := strings.ToLower(strings.TrimSpace(language))
 	if wanted == "" {
 		return "", false
 	}
-	for _, target := range codegenLanguages {
+	for _, target := range Languages {
 		if target.ID == wanted {
 			return target.Emit(newCodegenRequest(example)), true
 		}
@@ -651,8 +653,8 @@ func generateExtendedCode(example ResponseExample, language string) (string, boo
 	return "", false
 }
 
-// CodeGenerationTarget is one entry in the language picker.
-type CodeGenerationTarget struct {
+// Target is one entry in the language picker.
+type Target struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
 }
@@ -660,13 +662,3 @@ type CodeGenerationTarget struct {
 // CodeGenerationTargets lists every language the generator supports, so the UI
 // picker is built from the same list the generator dispatches on and the two
 // cannot disagree.
-func (a *App) CodeGenerationTargets() []CodeGenerationTarget {
-	out := []CodeGenerationTarget{
-		{ID: "curl", Label: "cURL"},
-		{ID: "fetch", Label: "JavaScript (fetch)"},
-	}
-	for _, target := range codegenLanguages {
-		out = append(out, CodeGenerationTarget{ID: target.ID, Label: target.Label})
-	}
-	return out
-}
