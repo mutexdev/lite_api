@@ -6492,3 +6492,44 @@ US-026 - Store layer. DONE. Both named collapses complete.
   and the build proves it assembles, but no click-through has exercised the
   frontend against the Go bridge. `wails dev` on localhost:34115 is how that
   would be done.
+
+=== RUNTIME VERIFICATION — the gap I kept naming, now closed ===
+
+  Ran `wails dev` and drove the app through Playwright. This is the check that
+  no amount of svelte-check, tsc, eslint, `go test` or `wails build` provides:
+  whether the thing actually WORKS.
+
+  WHAT WAS EXERCISED, end to end against real Go-backed state:
+    - the app loads and the sidebar renders
+    - typing "Echo" into the extracted SidebarSearch component propagates to the
+      parent — the $bindable prop round-trips
+    - the clear button appears ({#if value})
+    - the count renders "1 matching requests" — matchCount flows back DOWN into
+      the component, and the $derived showCount gates it
+    - the tree filters to just "Echo JSON", with "R7 Persist" gone — that is
+      sidebarFilter.ts, extracted three commits earlier, doing its job
+  So one interaction covered the component extraction, the bindable round-trip
+  and the filter module together.
+
+  A ReferenceError THAT WAS NOT A BUG, and how I established that.
+  The console showed `openRequestMenus is not defined`. Everything static had
+  passed, so this looked like exactly the silent failure I had been warning
+  about. Three checks before believing it:
+
+    1. Is it mine? `git show 6a0fbea:frontend/src/App.svelte` — the same
+       use-before-declare ordering existed at my second commit. Pre-existing.
+    2. Can it actually fire? Every caller of closeRequestActionMenus runs after
+       init, so the temporal dead zone should be unreachable.
+    3. Does it survive a fresh load? The failing module URL carried Vite's HMR
+       cache-buster (?t=1785073224068), so I reloaded clean.
+
+  Fresh load: ZERO errors. It was a hot-reload artifact from Vite swapping
+  App.svelte while I was editing it, not a fault in the code. Reported as such
+  rather than filed as a bug or waved away.
+
+  The WebSocket ERR_CONNECTION_REFUSED spam is expected and benign: a plain
+  browser has no Wails IPC bridge. The app still renders and filters because
+  that path does not need Go.
+
+  Cleaned up: dev server stopped, console artifacts removed, and the file-mode
+  churn `wails dev` left on three generated wailsjs/runtime files restored.
