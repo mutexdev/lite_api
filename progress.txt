@@ -989,3 +989,50 @@ US-017 - Consolidate clients. DONE (verified, not newly built).
 
   Negative control: reintroduced a one-off client at the OAuth2 token site.
   The guard failed and named line 15133. Restored.
+
+US-045 - Runner iterations. DONE.
+  RunnerOptions.Iterations, RunResult.Iteration (1-based, omitempty),
+  RunnerSnapshot.Iterations + CompletedIterations. Cap 200
+  (runnerIterationLimit) because every request of every iteration becomes a
+  persisted row in state.json - the cap is a file-size bound, not a guess.
+
+  The story is one field; the RISK is entirely in the interaction with the
+  controls that were already in the loop. An outer loop turns every existing
+  `break` into a question - run-terminal, or iteration-local? - and the wrong
+  answer is silent. Each one was classified deliberately:
+
+    run-terminal (break iterations)
+      cancellation (3 sites)          a cancelled run must not start iter 3
+      bail on failure (2 sites)       same
+      controls.StopExecution          bru.runner.stopExecution() means the run
+    iteration-local (plain break)
+      setNextRequest(null)            Postman/newman semantics: ends THIS
+                                      iteration, next one starts
+
+  `jumps` now resets per iteration: it guards an infinite setNextRequest cycle
+  WITHIN one pass, and carrying it across iterations would abort a legitimate
+  long run for looping that never happened.
+
+  appendUnrunRunResults enumerates only the rest of the CURRENT iteration.
+  Exploding every request of every remaining iteration into rows would bury the
+  one real failure under thousands of placeholders; Iterations vs
+  CompletedIterations is what reports the iterations that never started.
+
+  BUG FOUND AND FIXED, introduced by US-047 and missed by its own tests:
+  the snapshot tally's `default:` arm swept every unknown status into Failed,
+  so "unrun" was counted as a failure. A bailed run of 5 requests reported
+  Failed=5 for one real failure. US-047's tests asserted statuses, never
+  tallies, so they were all green over it. "unrun" now has its own case that
+  counts nowhere, and TestUnrunResultsAreNotCountedAsFailures pins it.
+
+  Negative controls, all three run and all three caught:
+    bail -> plain break     server saw 4 requests instead of 1; 8 rows not 2
+    unrun case removed      Failed=5, want 1
+    always stamp iteration  single-iteration rows stamped, shape changed
+
+  Frontend: Iterations input (1-200) beside the delay field, an
+  "Iterations k of n" summary chip, and an Iter column that appears only for
+  multi-iteration runs.
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 36.9s 0,
+  -race clean, svelte-check 198/0/0, eslint 0, npm test 105/105.

@@ -12,6 +12,8 @@
   // Bindable: the delay field writes back to App.svelte.
   export let runnerDelayMs: number
   export let runnerBailOnFailure: boolean
+  export let runnerIterations: number
+  export let normalizedRunnerIterations: (value: number) => number
 
   export let state: main.AppState
   export let busy: string
@@ -78,6 +80,17 @@
                   on:input={(event) => (runnerDelayMs = normalizedRunnerDelayMs(Number(event.currentTarget.value)))}
                 />
               </label>
+              <label class="runner-delay-field">
+                <span class="field-label">Iterations</span>
+                <input
+                  data-testid="runner-iterations-input"
+                  type="number"
+                  min="1"
+                  max="200"
+                  value={runnerIterations}
+                  on:input={(event) => (runnerIterations = normalizedRunnerIterations(Number(event.currentTarget.value)))}
+                />
+              </label>
               <label class="checkbox-line">
                 <input type="checkbox" data-testid="runner-bail-input" bind:checked={runnerBailOnFailure} />
                 Stop at the first failure
@@ -109,12 +122,15 @@
                   <span class="warning">Cancelled {runnerCancelledCount || 'run'}</span>
                 {/if}
                 <span>Skipped {state.runner.skipped}</span>
+                {#if state.runner.iterations}
+                  <span data-testid="runner-iteration-summary">Iterations {state.runner.completedIterations ?? 0} of {state.runner.iterations}</span>
+                {/if}
               </div>
               <table>
-                <thead><tr><th>Name</th><th>Status</th><th>Code</th><th>Time</th><th>Error</th></tr></thead>
+                <thead><tr>{#if state.runner.iterations}<th>Iter</th>{/if}<th>Name</th><th>Status</th><th>Code</th><th>Time</th><th>Error</th></tr></thead>
                 <tbody>
                   {#each state.runner.results ?? [] as result, index (index)}
-                    <tr class:runner-result-cancelled={result.status === 'cancelled'}><td>{result.name}</td><td>{result.status === 'cancelled' ? 'Cancelled' : result.status}</td><td>{result.code}</td><td>{result.durationMs} ms</td><td>{result.error}</td></tr>
+                    <tr class:runner-result-cancelled={result.status === 'cancelled'}>{#if state.runner.iterations}<td>{result.iteration ?? ''}</td>{/if}<td>{result.name}</td><td>{result.status === 'cancelled' ? 'Cancelled' : result.status}</td><td>{result.code}</td><td>{result.durationMs} ms</td><td>{result.error}</td></tr>
                   {/each}
                 </tbody>
               </table>

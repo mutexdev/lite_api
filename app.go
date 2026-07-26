@@ -1218,6 +1218,12 @@ type RunnerSnapshot struct {
 	Cancelled int         `json:"cancelled,omitempty"`
 	Results   []RunResult `json:"results"`
 	Finished  time.Time   `json:"finished"`
+	// US-045. Iterations is what was asked for; CompletedIterations is what
+	// actually ran. They differ when a run is cancelled or bails, and the gap
+	// is the only way a reader can tell "10 iterations, all green" from
+	// "stopped during iteration 2 of 10".
+	Iterations          int `json:"iterations,omitempty"`
+	CompletedIterations int `json:"completedIterations,omitempty"`
 }
 
 type RunnerOptions struct {
@@ -1225,6 +1231,8 @@ type RunnerOptions struct {
 	DelayMs         int      `json:"delayMs,omitempty"`
 	// US-047. Stop the run at the first failure instead of continuing.
 	BailOnFailure bool `json:"bailOnFailure,omitempty"`
+	// US-045. How many times to run the selection. Zero and negative mean one.
+	Iterations int `json:"iterations,omitempty"`
 }
 
 type GenerateCollectionDocsOptions struct {
@@ -1241,6 +1249,10 @@ type GenerateCollectionDocsResult struct {
 }
 
 type RunResult struct {
+	// Iteration is 1-based and omitted for single-iteration runs, so an
+	// existing consumer that never asked for iterations sees the shape it
+	// always saw.
+	Iteration  int       `json:"iteration,omitempty"`
 	ItemID     string    `json:"itemId"`
 	Name       string    `json:"name"`
 	Status     string    `json:"status"`
@@ -7061,16 +7073,21 @@ func (a *App) RunCollection(collectionID, environmentID string) (AppState, error
 // means the user stopped the run, and "unrun" means an earlier failure ended
 // the run before this request had a turn. Collapsing them would leave someone
 // unable to tell a failing suite from an abandoned one.
-func appendUnrunRunResults(results []RunResult, items []RequestItem, from int) []RunResult {
+// Only the rest of the CURRENT iteration is enumerated. Exploding every
+// request of every remaining iteration into rows would bury the one failure
+// that matters under thousands of identical placeholders; the snapshot's
+// Iterations vs CompletedIterations pair is what reports the iterations that
+// never started.
+func appendUnrunRunResults(results []RunResult, items []RequestItem, from, iteration, totalIterations int) []RunResult {
 	now := time.Now()
 	for i := from; i < len(items); i++ {
-		results = append(results, RunResult{
+		results = append(results, stampIteration(RunResult{
 			ItemID: items[i].ID,
 			Name:   items[i].Name,
 			Status: "unrun",
 			Error:  "not run: the run stopped at an earlier failure",
 			At:     now,
-		})
+		}, iteration, totalIterations))
 	}
 	return results
 }
@@ -7100,124 +7117,143 @@ func (a *App) RunCollectionWithOptions(collectionID, environmentID string, optio
 	runContext, finishRun := a.startCancellableCollectionRun(collectionID)
 	defer finishRun()
 
-	results := make([]RunResult, 0, len(items))
-	currentRequestIndex := 0
-	jumps := 0
-	for currentRequestIndex < len(items) {
-		item := items[currentRequestIndex]
-		if requestContextCancelled(runContext) {
-			results = append(results, cancelledRunResult(item))
-			break
-		}
-		if item.Type != "http" && item.Type != "graphql" && item.Type != "grpc" {
-			results = append(results, RunResult{ItemID: item.ID, Name: item.Name, Status: "skipped", At: time.Now(), Error: "protocol runner is not implemented yet"})
-			if !sleepRunnerDelay(runContext, delayMs, currentRequestIndex, len(items)) {
-				currentRequestIndex++
-				continue
-			}
-			currentRequestIndex++
-			continue
-		}
-		if prompts := promptVariablesForRequest(globalEnvs, &collectionCopy, environmentID, item); len(prompts) > 0 {
-			results = append(results, RunResult{ItemID: item.ID, Name: item.Name, Status: "skipped", At: time.Now(), Error: runnerPromptVariableSkipMessage(prompts)})
-			if !sleepRunnerDelay(runContext, delayMs, currentRequestIndex, len(items)) {
-				currentRequestIndex++
-				continue
-			}
-			currentRequestIndex++
-			continue
-		}
-		state, controls, res, err := a.sendRequestWithControlsContext(runContext, collectionID, item.ID, environmentID, nil, lookupIndex)
-		if err != nil {
+	totalIterations := normalizeRunnerIterations(options.Iterations)
+	results := make([]RunResult, 0, len(items)*totalIterations)
+	completedIterations := 0
+	// US-045. The labelled loop is what makes "stop the run" mean the RUN and
+	// not just this iteration. Every break below is explicitly one or the
+	// other, and the difference is behavioural: a cancelled or bailed run must
+	// not quietly start iteration 3.
+iterations:
+	for iteration := 1; iteration <= totalIterations; iteration++ {
+		currentRequestIndex := 0
+		// jumps resets per iteration because it guards against an infinite
+		// setNextRequest cycle WITHIN one pass. Carrying it across iterations
+		// would abort a legitimate long run for looping that never happened.
+		jumps := 0
+		for currentRequestIndex < len(items) {
+			item := items[currentRequestIndex]
 			if requestContextCancelled(runContext) {
-				results = append(results, cancelledRunResult(item))
-				break
+				results = append(results, stampIteration(cancelledRunResult(item), iteration, totalIterations))
+				break iterations
 			}
-			results = append(results, RunResult{ItemID: item.ID, Name: item.Name, Status: "failed", Error: err.Error(), At: time.Now()})
-			if options.BailOnFailure {
-				results = appendUnrunRunResults(results, items, currentRequestIndex+1)
-				break
-			}
-			if !sleepRunnerDelay(runContext, delayMs, currentRequestIndex, len(items)) {
-				currentRequestIndex++
-				continue
-			}
-			currentRequestIndex++
-			continue
-		}
-		// res is the *Response sendRequestWithControlsContext just stored on this
-		// item, returned directly instead of being re-found by scanning the
-		// state for the item that call had already resolved.
-		status := "passed"
-		errText := ""
-		code := 0
-		duration := int64(0)
-		if res != nil {
-			code = res.Status
-			duration = res.DurationMs
-			errText = res.Error
-			if res.Cancelled {
-				status = "cancelled"
-			} else if res.Error != "" || res.Status >= 400 {
-				status = "failed"
-			}
-		}
-		if requestContextCancelled(runContext) {
-			status = "cancelled"
-			errText = "collection run cancelled"
-		}
-		if controls.SkipRequest && status != "cancelled" {
-			status = "skipped"
-		}
-		results = append(results, RunResult{ItemID: item.ID, Name: item.Name, Status: status, Code: code, DurationMs: duration, Error: errText, At: time.Now()})
-		if status == "cancelled" {
-			break
-		}
-		// US-047. Deliberately AFTER the cancelled check: a cancelled run is not
-		// a failure, and reporting the remaining requests as "unrun because
-		// something failed" would misattribute the user's own cancellation.
-		if options.BailOnFailure && status == "failed" {
-			results = appendUnrunRunResults(results, items, currentRequestIndex+1)
-			break
-		}
-		if controls.StopExecution {
-			break
-		}
-		if controls.NextRequestSet {
-			jumps++
-			if jumps > 10000 {
-				return state, errors.New("too many jumps, possible infinite loop")
-			}
-			if controls.NextRequestName == nil {
-				break
-			}
-			nextRequestIndex := -1
-			if index, ok := itemsByName[*controls.NextRequestName]; ok {
-				nextRequestIndex = index
-			}
-			if nextRequestIndex >= 0 {
-				if nextRequestIndex != currentRequestIndex {
-					currentRequestIndex = nextRequestIndex
-					if !sleepRunnerDelay(runContext, delayMs, 0, 2) {
-						continue
-					}
-					continue
-				}
-				currentRequestIndex = nextRequestIndex
-			} else {
+			if item.Type != "http" && item.Type != "graphql" && item.Type != "grpc" {
+				results = append(results, stampIteration(RunResult{ItemID: item.ID, Name: item.Name, Status: "skipped", At: time.Now(), Error: "protocol runner is not implemented yet"}, iteration, totalIterations))
 				if !sleepRunnerDelay(runContext, delayMs, currentRequestIndex, len(items)) {
 					currentRequestIndex++
 					continue
 				}
 				currentRequestIndex++
+				continue
 			}
-			continue
-		}
-		if !sleepRunnerDelay(runContext, delayMs, currentRequestIndex, len(items)) {
+			if prompts := promptVariablesForRequest(globalEnvs, &collectionCopy, environmentID, item); len(prompts) > 0 {
+				results = append(results, stampIteration(RunResult{ItemID: item.ID, Name: item.Name, Status: "skipped", At: time.Now(), Error: runnerPromptVariableSkipMessage(prompts)}, iteration, totalIterations))
+				if !sleepRunnerDelay(runContext, delayMs, currentRequestIndex, len(items)) {
+					currentRequestIndex++
+					continue
+				}
+				currentRequestIndex++
+				continue
+			}
+			state, controls, res, err := a.sendRequestWithControlsContext(runContext, collectionID, item.ID, environmentID, nil, lookupIndex)
+			if err != nil {
+				if requestContextCancelled(runContext) {
+					results = append(results, stampIteration(cancelledRunResult(item), iteration, totalIterations))
+					break iterations
+				}
+				results = append(results, stampIteration(RunResult{ItemID: item.ID, Name: item.Name, Status: "failed", Error: err.Error(), At: time.Now()}, iteration, totalIterations))
+				if options.BailOnFailure {
+					results = appendUnrunRunResults(results, items, currentRequestIndex+1, iteration, totalIterations)
+					break iterations
+				}
+				if !sleepRunnerDelay(runContext, delayMs, currentRequestIndex, len(items)) {
+					currentRequestIndex++
+					continue
+				}
+				currentRequestIndex++
+				continue
+			}
+			// res is the *Response sendRequestWithControlsContext just stored on this
+			// item, returned directly instead of being re-found by scanning the
+			// state for the item that call had already resolved.
+			status := "passed"
+			errText := ""
+			code := 0
+			duration := int64(0)
+			if res != nil {
+				code = res.Status
+				duration = res.DurationMs
+				errText = res.Error
+				if res.Cancelled {
+					status = "cancelled"
+				} else if res.Error != "" || res.Status >= 400 {
+					status = "failed"
+				}
+			}
+			if requestContextCancelled(runContext) {
+				status = "cancelled"
+				errText = "collection run cancelled"
+			}
+			if controls.SkipRequest && status != "cancelled" {
+				status = "skipped"
+			}
+			results = append(results, stampIteration(RunResult{ItemID: item.ID, Name: item.Name, Status: status, Code: code, DurationMs: duration, Error: errText, At: time.Now()}, iteration, totalIterations))
+			if status == "cancelled" {
+				break iterations
+			}
+			// US-047. Deliberately AFTER the cancelled check: a cancelled run is not
+			// a failure, and reporting the remaining requests as "unrun because
+			// something failed" would misattribute the user's own cancellation.
+			if options.BailOnFailure && status == "failed" {
+				results = appendUnrunRunResults(results, items, currentRequestIndex+1, iteration, totalIterations)
+				break iterations
+			}
+			// bru.runner.stopExecution() stops the RUN, not the iteration —
+			// that is what the script author asked for.
+			if controls.StopExecution {
+				break iterations
+			}
+			if controls.NextRequestSet {
+				jumps++
+				if jumps > 10000 {
+					return state, errors.New("too many jumps, possible infinite loop")
+				}
+				// setNextRequest(null) ends THIS iteration and lets the next
+				// one start, matching Postman/newman. Escalating it to
+				// break iterations would silently turn a per-iteration
+				// early exit into a whole-run abort.
+				if controls.NextRequestName == nil {
+					break
+				}
+				nextRequestIndex := -1
+				if index, ok := itemsByName[*controls.NextRequestName]; ok {
+					nextRequestIndex = index
+				}
+				if nextRequestIndex >= 0 {
+					if nextRequestIndex != currentRequestIndex {
+						currentRequestIndex = nextRequestIndex
+						if !sleepRunnerDelay(runContext, delayMs, 0, 2) {
+							continue
+						}
+						continue
+					}
+					currentRequestIndex = nextRequestIndex
+				} else {
+					if !sleepRunnerDelay(runContext, delayMs, currentRequestIndex, len(items)) {
+						currentRequestIndex++
+						continue
+					}
+					currentRequestIndex++
+				}
+				continue
+			}
+			if !sleepRunnerDelay(runContext, delayMs, currentRequestIndex, len(items)) {
+				currentRequestIndex++
+				continue
+			}
 			currentRequestIndex++
-			continue
 		}
-		currentRequestIndex++
+		completedIterations = iteration
 	}
 	if finishRun() || requestContextCancelled(runContext) {
 		if len(results) == 0 || results[len(results)-1].Status != "cancelled" {
@@ -7228,6 +7264,10 @@ func (a *App) RunCollectionWithOptions(collectionID, environmentID string, optio
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	snapshot := RunnerSnapshot{Total: len(results), Results: results, Finished: time.Now()}
+	if totalIterations > 1 {
+		snapshot.Iterations = totalIterations
+		snapshot.CompletedIterations = completedIterations
+	}
 	for _, result := range results {
 		switch result.Status {
 		case "passed":
@@ -7236,6 +7276,12 @@ func (a *App) RunCollectionWithOptions(collectionID, environmentID string, optio
 			snapshot.Skipped++
 		case "cancelled":
 			snapshot.Cancelled++
+		case "unrun":
+			// US-047. Deliberately counted nowhere. An unrun request did not
+			// pass, fail, get skipped or get cancelled — it never ran. Letting
+			// it fall through to the default arm would inflate Failed, so a
+			// bailed run of 50 requests would report 49 failures when one
+			// request failed.
 		default:
 			snapshot.Failed++
 		}
@@ -7262,6 +7308,36 @@ func filterRunnerItems(items []RequestItem, selectedItemIDs []string) []RequestI
 		}
 	}
 	return out
+}
+
+// runnerIterationLimit caps a run at a size that stays workable.
+//
+// Every request of every iteration becomes a row in RunnerSnapshot.Results,
+// which is persisted in state.json and rendered in full — so the cap is a
+// memory and file-size bound, not an arbitrary number. 200 iterations of a
+// 100-request collection is already 20,000 rows.
+const runnerIterationLimit = 200
+
+func normalizeRunnerIterations(iterations int) int {
+	if iterations < 1 {
+		return 1
+	}
+	if iterations > runnerIterationLimit {
+		return runnerIterationLimit
+	}
+	return iterations
+}
+
+// stampIteration records which iteration a row belongs to.
+//
+// Only for multi-iteration runs: a single-iteration run leaves Iteration at
+// zero so the field stays omitted and the JSON shape is unchanged for every
+// consumer that never asked for iterations.
+func stampIteration(result RunResult, iteration, totalIterations int) RunResult {
+	if totalIterations > 1 {
+		result.Iteration = iteration
+	}
+	return result
 }
 
 func normalizeRunnerDelayMs(delayMs int) int {

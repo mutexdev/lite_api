@@ -27,6 +27,7 @@ export namespace main {
 	    }
 	}
 	export class RunResult {
+	    iteration?: number;
 	    itemId: string;
 	    name: string;
 	    status: string;
@@ -42,6 +43,7 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.iteration = source["iteration"];
 	        this.itemId = source["itemId"];
 	        this.name = source["name"];
 	        this.status = source["status"];
@@ -78,6 +80,8 @@ export namespace main {
 	    results: RunResult[];
 	    // Go type: time
 	    finished: any;
+	    iterations?: number;
+	    completedIterations?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new RunnerSnapshot(source);
@@ -92,6 +96,8 @@ export namespace main {
 	        this.cancelled = source["cancelled"];
 	        this.results = this.convertValues(source["results"], RunResult);
 	        this.finished = this.convertValues(source["finished"], null);
+	        this.iterations = source["iterations"];
+	        this.completedIterations = source["completedIterations"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -3550,6 +3556,7 @@ export namespace main {
 	    selectedItemIds: string[];
 	    delayMs?: number;
 	    bailOnFailure?: boolean;
+	    iterations?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new RunnerOptions(source);
@@ -3560,6 +3567,7 @@ export namespace main {
 	        this.selectedItemIds = source["selectedItemIds"];
 	        this.delayMs = source["delayMs"];
 	        this.bailOnFailure = source["bailOnFailure"];
+	        this.iterations = source["iterations"];
 	    }
 	}
 	

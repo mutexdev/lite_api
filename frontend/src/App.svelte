@@ -502,6 +502,7 @@
   let runnerSelectedCount = 0
   let runnerDelayMs = 0
   let runnerBailOnFailure = false
+  let runnerIterations = 1
   let appZoomPercentage = 100
   let codeFont = 'default'
   let codeFontSize = 13
@@ -1042,6 +1043,7 @@
     runnerSelectedItemIds = runnerConfigItems.map((item) => item.id)
     runnerDelayMs = 0
     runnerBailOnFailure = false
+    runnerIterations = 1
   }
   $: responsePaneOrientation = normalizedResponsePaneOrientation(state?.preferences?.layout?.responsePaneOrientation)
   $: appZoomPercentage = normalizedZoomPercentage(state?.preferences?.display?.zoomPercentage)
@@ -3257,6 +3259,7 @@
     runnerSelectedItemIds = runnerConfigItems.map((item) => item.id)
     runnerDelayMs = 0
     runnerBailOnFailure = false
+    runnerIterations = 1
   }
 
   function normalizedRunnerDelayMs(value: number) {
@@ -3264,6 +3267,16 @@
     if (delay < 0) return 0
     if (delay > 600000) return 600000
     return delay
+  }
+
+  // Mirrors normalizeRunnerIterations in app.go, including the 200 cap. The Go
+  // side normalizes again — this only keeps the input from showing a value the
+  // backend will not honour.
+  function normalizedRunnerIterations(value: number): number {
+    const iterations = Math.floor(Number(value) || 0)
+    if (iterations < 1) return 1
+    if (iterations > 200) return 200
+    return iterations
   }
 
   async function runCollection() {
@@ -3282,7 +3295,8 @@
         completedRunState = await RunCollectionWithOptions(collection.id, environmentId, {
           selectedItemIds,
           delayMs: normalizedRunnerDelayMs(runnerDelayMs),
-          bailOnFailure: runnerBailOnFailure
+          bailOnFailure: runnerBailOnFailure,
+          iterations: normalizedRunnerIterations(runnerIterations)
         } as main.RunnerOptions)
         state = completedRunState
         if (activeView === viewAtStart && activeCollection?.id === collection.id) activeView = 'runner'
@@ -10612,6 +10626,8 @@
             this={RunnerPanel.default}
             bind:runnerDelayMs
             bind:runnerBailOnFailure
+            bind:runnerIterations
+            {normalizedRunnerIterations}
             {state}
             {busy}
             {activeCollectionRun}
