@@ -34241,6 +34241,12 @@ func collectionFromImport(payload ImportPayload) (Collection, error) {
 		return collection, err
 	case "insomnia":
 		return importInsomnia(payload.Content, name)
+	case "swagger-2", "swagger2", "swagger":
+		converted, err := convertSwagger2ToOpenAPI3(payload.Content)
+		if err != nil {
+			return Collection{}, err
+		}
+		return importOpenAPI(converted, name, payload.GroupBy)
 	case "openapi":
 		return importOpenAPI(payload.Content, name, payload.GroupBy)
 	case "curl":

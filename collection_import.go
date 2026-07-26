@@ -586,8 +586,20 @@ func detectCollectionImport(content, name, override string) (string, Collection,
 			return "har", collection, warnings, err
 		}
 	}
+	if isSwagger2Document(raw) {
+		// US-052. Converted to OpenAPI 3 and handed to that importer, rather
+		// than taught as a second dialect: the OpenAPI 3 path already handles
+		// servers, parameters, request bodies, security schemes and $ref
+		// resolution, and a parallel implementation would drift from it.
+		converted, err := convertSwagger2ToOpenAPI3(content)
+		if err != nil {
+			return "swagger-2", Collection{}, nil, err
+		}
+		collection, err := collectionFromImport(ImportPayload{Kind: "openapi", Name: strings.TrimSuffix(name, filepath.Ext(name)), Content: converted})
+		return "swagger-2", collection, nil, err
+	}
 	if _, ok := raw["swagger"]; ok {
-		return "swagger-2", Collection{}, nil, errors.New("imports from Swagger 2 are not supported; provide OpenAPI 3")
+		return "swagger-2", Collection{}, nil, errors.New("only Swagger 2.0 can be converted; this document declares an older version")
 	}
 	if _, ok := raw["openapi"]; ok {
 		if _, _, err := validateOpenAPISyncSpec(content); err != nil {

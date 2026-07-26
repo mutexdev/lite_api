@@ -1386,3 +1386,65 @@ US-051 - HAR import. DONE.
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 38.7s 0,
   svelte-check 198/0/0, eslint 0, npm test 105/105.
+
+US-052 - Swagger 2 import. DONE.
+  swagger2_import.go converts Swagger 2 -> OpenAPI 3 and hands the result to
+  the existing OpenAPI importer, per the story. Converting rather than teaching
+  the importer a second dialect is right: the OpenAPI 3 path already handles
+  servers, parameters, request bodies, security schemes and $ref resolution,
+  and a parallel implementation would reimplement all of it and then drift.
+  Fixture at docs/qa/import-fixtures/swagger2.json.
+
+  The conversions that change what request gets built - as opposed to what
+  merely satisfies a validator - and what each looks like when omitted:
+
+    host+basePath+schemes -> servers[]
+      Without it the collection imports PERFECTLY and every request 404s. The
+      importer parameterises the server as a {{baseUrl}} collection variable,
+      so that is where the value has to land.
+    in: body param -> requestBody
+      Left in place it has no OpenAPI 3 meaning; the payload is simply lost.
+      NC3 showed the imported request with mode="none".
+    in: formData -> requestBody
+      type: file became type: string + format: binary. Unconverted, a file is
+      encoded as a urlencoded form value - a corrupted upload.
+    type/format/default -> parameter.schema
+      OpenAPI 3 moved them; left inline they are ignored and the parameter
+      imports with no example value.
+    type: basic -> type: http + scheme: basic
+      Unconverted, the importer reads NO auth, so the request imports with auth
+      mode none and 401s pointing nowhere.
+    oauth2 flow -> flows{}, accessCode -> authorizationCode.
+
+  The $ref rewrite is recursive over the WHOLE document and runs LAST, after
+  operation conversion, so pointers created during conversion are rewritten
+  too. Recursive rather than targeted at known locations because a $ref appears
+  anywhere a schema can - inside allOf, inside array items, inside a nested
+  property. A missed pointer resolves to nothing and the schema comes back
+  EMPTY, which reads as an API with no documented payload rather than a broken
+  conversion. The fixture deliberately nests one (User.manager -> User) and
+  puts one in array items.
+
+  isSwagger2Document checks the VERSION VALUE, not key presence: Swagger 1.x
+  also has the key, and converting one as 2.0 gives a plausible document with
+  the wrong shape instead of a clear rejection.
+
+  Path-level body/formData parameters are legal Swagger 2 with no OpenAPI 3
+  equivalent at that level; they are promoted onto every operation under the
+  path rather than dropped, and an operation's own body wins.
+
+  MY OWN TEST WAS WRONG FIRST: I asserted the host appeared in the item URL.
+  The importer correctly parameterises it as {{baseUrl}}. Assertion moved to
+  the collection variable, which is the real contract.
+
+  Negative controls, all five run and all five caught:
+    no servers built        baseUrl stayed "{{baseUrl}}"
+    top-level-only $ref     nested pointer still #/definitions/User
+    body left a parameter   imported request mode="none"
+    file not made binary    file field type stayed "file"
+    basic auth unconverted  type stayed "basic", no scheme
+
+  Frontend: Swagger 2 added to the manual format override list.
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 38.2s 0,
+  svelte-check 198/0/0, eslint 0, npm test 105/105.
