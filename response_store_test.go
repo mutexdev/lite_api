@@ -11,6 +11,8 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -413,5 +415,145 @@ func TestResponseBodyHeadTruncatesOnRuneBoundary(t *testing.T) {
 	// And it must not have thrown away more than one rune's worth.
 	if responseBodyHeadLimit-len(head) >= 3 {
 		t.Errorf("head lost %d bytes to boundary alignment, expected under 3", responseBodyHeadLimit-len(head))
+	}
+}
+
+// TestMigrateResponseBodiesBackfillsAPreMigrationStateFile is the step-3
+// acceptance: a state.json written before US-009 — bodies inline, no handles —
+// must load, keep every body intact, and come back with handles attached.
+//
+// The fixture is built by hand rather than by running the current code, because
+// the whole question is whether the OLD shape still loads. Generating it from
+// today's structs would test nothing.
+func TestMigrateResponseBodiesBackfillsAPreMigrationStateFile(t *testing.T) {
+	dir := t.TempDir()
+
+	// Seed a real workspace, then rewrite its state.json into the pre-migration
+	// shape: a response with body/bodyBase64 and no bodyHandle/bodyHead.
+	seed := newAppInDirForTest(t, dir)
+	state, err := seed.GetState()
+	if err != nil {
+		t.Fatalf("GetState: %v", err)
+	}
+	collectionID := state.Workspaces[0].Collections[0].ID
+	created, err := seed.CreateRequest(collectionID, "http", "cached response")
+	if err != nil {
+		t.Fatalf("CreateRequest: %v", err)
+	}
+	var itemID string
+	for _, c := range created.Workspaces[0].Collections {
+		for _, item := range c.Items {
+			if item.Name == "cached response" {
+				itemID = item.ID
+			}
+		}
+	}
+	if itemID == "" {
+		t.Fatal("could not find the seeded request")
+	}
+	if err := seed.flushPersist(); err != nil {
+		t.Fatalf("flushPersist: %v", err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatalf("read state.json: %v", err)
+	}
+	var onDisk map[string]any
+	if err := json.Unmarshal(raw, &onDisk); err != nil {
+		t.Fatalf("parse state.json: %v", err)
+	}
+	const legacyBody = `{"legacy":"body stored before US-009"}`
+	workspaces := onDisk["workspaces"].([]any)
+	collections := workspaces[0].(map[string]any)["collections"].([]any)
+	for _, c := range collections {
+		cm := c.(map[string]any)
+		if cm["id"] != collectionID {
+			continue
+		}
+		for _, it := range cm["items"].([]any) {
+			im := it.(map[string]any)
+			if im["id"] != itemID {
+				continue
+			}
+			im["response"] = map[string]any{
+				"status": 200, "statusText": "OK",
+				"body":       legacyBody,
+				"bodyBase64": base64.StdEncoding.EncodeToString([]byte(legacyBody)),
+				"size":       len(legacyBody),
+				// deliberately NO bodyHandle / bodyHead
+			}
+		}
+	}
+	patched, err := json.Marshal(onDisk)
+	if err != nil {
+		t.Fatalf("marshal patched state: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), patched, 0o600); err != nil {
+		t.Fatalf("write patched state.json: %v", err)
+	}
+
+	// Load it the way a restart would.
+	reopened := newAppInDirForTest(t, dir)
+	loaded, err := reopened.GetState()
+	if err != nil {
+		t.Fatalf("GetState after reload: %v", err)
+	}
+	item, ok := findItemInState(loaded, collectionID, itemID)
+	if !ok || item.Response == nil {
+		t.Fatal("the pre-migration response did not survive the load")
+	}
+	if item.Response.Body != legacyBody {
+		t.Errorf("body changed across migration: got %q want %q", item.Response.Body, legacyBody)
+	}
+	if item.Response.BodyHandle == "" {
+		t.Fatal("migration did not attach a handle")
+	}
+	if item.Response.BodyHead != legacyBody {
+		t.Errorf("head should hold a short body whole: got %q", item.Response.BodyHead)
+	}
+
+	store, err := reopened.responseStore()
+	if err != nil {
+		t.Fatalf("responseStore: %v", err)
+	}
+	stored, err := store.Get(responseHandle(item.Response.BodyHandle))
+	if err != nil {
+		t.Fatalf("Get migrated body: %v", err)
+	}
+	if string(stored) != legacyBody {
+		t.Errorf("stored body differs from the original: %q", stored)
+	}
+}
+
+// TestMigrateResponseBodiesDoesNotFailLoadWhenTheStoreIsUnwritable pins the
+// best-effort contract. At this step Body is still authoritative, so an
+// unwritable store must degrade to "no handles" rather than "workspace will not
+// open". This stops being acceptable at step 5, when Body is deleted.
+func TestMigrateResponseBodiesDoesNotFailLoadWhenTheStoreIsUnwritable(t *testing.T) {
+	dir := t.TempDir()
+	seed := newAppInDirForTest(t, dir)
+	if _, err := seed.GetState(); err != nil {
+		t.Fatalf("GetState: %v", err)
+	}
+	if err := seed.flushPersist(); err != nil {
+		t.Fatalf("flushPersist: %v", err)
+	}
+
+	// Occupy responses/ with a regular file so MkdirAll must fail.
+	if err := os.WriteFile(filepath.Join(dir, "responses"), []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("block responses dir: %v", err)
+	}
+
+	reopened := newAppInDirForTest(t, dir)
+	state, err := reopened.GetState()
+	if err != nil {
+		t.Fatalf("load failed because the response store was unwritable: %v", err)
+	}
+	if len(state.Workspaces) == 0 {
+		t.Error("workspace did not load")
+	}
+	if _, err := reopened.responseStore(); err == nil {
+		t.Error("responseStore should report the unwritable directory")
 	}
 }

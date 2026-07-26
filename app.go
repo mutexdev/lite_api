@@ -7921,6 +7921,11 @@ func (a *App) load() error {
 	}
 	state.Cookies = decryptCookieValuesForRuntime(a.dataDir, state.Cookies)
 	a.state = state
+	// US-009 step 3. Backfill body handles for responses loaded from a
+	// state.json written before the store existed. Deliberately best-effort and
+	// deliberately not part of `changed`: it must not fail a load, and it must
+	// not force a rewrite of state.json on every startup. See the function.
+	a.migrateResponseBodiesLocked()
 	changed := a.normalizeStateLocked()
 	scratchChanged, err := a.ensureScratchCollectionsLocked()
 	if err != nil {
@@ -8729,6 +8734,39 @@ const (
 // error (improvement_v2.md §8 risk 4) it is parked and handed to the next
 // mutation, which does have a caller — the Wails binding, and through it the
 // user. Reading it clears it, so a single failure is reported once.
+// migrateResponseBodiesLocked gives every already-loaded response body a handle
+// in the store, so that a workspace created before US-009 is on the same
+// footing as a new one. a.mu is held by the caller.
+//
+// BEST-EFFORT ON PURPOSE, and this is the important part. At this step
+// Response.Body is still populated and still authoritative, so a handle that
+// fails to be written costs nothing — the body is right there. Failing the load
+// instead would mean an unwritable or full disk turns "your cached responses
+// are slow" into "your workspace will not open", which is a far worse outcome
+// than the one this story set out to fix.
+//
+// The picture changes at step 5, when Body is deleted. From that point a
+// missing handle IS data loss and this function must become fallible. That
+// transition is the single most dangerous moment in this story and is called
+// out here so it is not discovered later.
+func (a *App) migrateResponseBodiesLocked() {
+	for wi := range a.state.Workspaces {
+		for ci := range a.state.Workspaces[wi].Collections {
+			collection := &a.state.Workspaces[wi].Collections[ci]
+			for ii := range collection.Items {
+				item := &collection.Items[ii]
+				if item.Response == nil {
+					continue
+				}
+				// The error is dropped rather than logged: this runs once per
+				// response on every startup, and a broken store would otherwise
+				// emit one line per cached response before the window appears.
+				_ = a.attachResponseBody(item.Response)
+			}
+		}
+	}
+}
+
 // responseBodyHeadLimit is how much of a body BodyHead carries inline.
 //
 // 8 KiB matches the story's "~8 KB inline head". It is sized to the job it
