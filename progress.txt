@@ -2487,3 +2487,51 @@ US-031 - Virtualize the collection tree. PARTIAL, deliberately. The flattening
   proven; the wiring wants a session with the app open.
 
   Gates: svelte-check 205/0/0, eslint 0, npm test 210/210 (+13), go test 43.9s 0.
+
+=== VERIFICATION PASS + ACCURATE REMAINING STATE ===
+
+  Full gates, all green:
+    go build 0, go vet 0, gofmt clean, golangci-lint 0 issues
+    go test ./...        39.1s, all packages ok
+    go test -race ./...  77.3s, all packages ok, no data races
+    svelte-check         205 files, 0 errors, 0 warnings
+    eslint               0
+    npm test             210/210
+    vite build           succeeds
+    working tree clean
+
+  A CORRECTION TO THE PLAN'S BOOKKEEPING. US-077 is recorded in this file as a
+  prerequisite that "must land before Phase 4". Checking the commit
+  (47fa3c8) shows it is a SPEC commit - it added the story to improvement_v2.md
+  and argued which parts of the referenced layout to adopt. It did NOT create
+  internal/, and there is no internal/ directory. So Phase 4's nine package
+  extractions (US-060..US-071) are entirely ahead, and the restructure is their
+  first step rather than something already done.
+
+  Worth stating because the earlier note reads as though the layout exists.
+
+  WHAT REMAINS, honestly sized:
+
+    US-026  Store layer. Feasible now that everything is on runes. The real
+            cost is that its criterion - collapsing WorkspaceCommandBar's 22
+            props and KeyValueTable's 33 to store reads - means moving
+            `appState` out of App.svelte into a .svelte.ts module, and
+            `appState` has 296 references. Bounded and verifiable, but it is a
+            single large edit, not a slice.
+
+    US-031  Wiring only. The flattening core is done and tested; the markup
+            restructure needs the app open to check keyboard nav, context menus
+            and drag-to-reorder.
+
+    US-037  Design tokens. 1,183 px literals plus a 12-theme screenshot diff.
+            The diff is the criterion and needs a browser.
+
+    US-060  Go package extraction, nine stories over ~85,000 lines starting
+    ..071   with creating internal/. Safer than the Svelte work in one
+            important way - go build catches every missed qualification, so
+            there is no silent failure mode - but it is very large and each
+            move touches thousands of references.
+
+  Three of these four want a browser or are single large edits. None is a good
+  fit for being started and left half-finished, which is the state this file
+  already warns about twice.
