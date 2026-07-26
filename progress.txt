@@ -2978,3 +2978,22 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Gates: go build, go vet, go test all ok (LiteAPI 38.4s); svelte-check 209/0/0;
   eslint 0; npm test 223/223.
+
+--- PAC directive coverage (closes the gap found above) ---
+
+  The uncovered "DIRECT" branch is now tested, and the diagnosis is the
+  interesting part: a BARE "DIRECT" cannot detect the bug. The directive has
+  fewer than two fields, so the fallthrough skips it and the function returns
+  "no proxy" either way. Any test written the obvious way would have passed with
+  the branch deleted - which is presumably how it ended up untested.
+
+  The branch only earns its keep on ORDERING. A PAC return value is a preference
+  list, so "DIRECT; PROXY 10.0.0.1:8080" means go direct; without the explicit
+  check the loop skips DIRECT and uses the proxy, sending traffic through a
+  proxy the script explicitly asked it to bypass.
+
+  Five tests added: DIRECT-first, PROXY-first, bare DIRECT, the four scheme
+  keywords, and an unknown keyword falling through to the next preference.
+
+  Controls: deleting the DIRECT branch now fails 1 test (it failed 0 before);
+  dropping the SOCKS5 alias fails 1.
