@@ -3477,3 +3477,35 @@ US-026 - Store layer. DONE. Both named collapses complete.
     YAML body-mode canonicalisation
 
   Sixteen, in code that was fully green the whole time.
+
+--- Recovery path containment tests — and a control that was NOT a bug ---
+
+  Control found validateRecoveryWorkspaceID untested: disabling it failed
+  nothing. I nearly wrote that up as a path-traversal hole.
+
+  IT IS NOT ONE. The workspace id is SHA-256 hashed before it becomes a
+  directory name, so "../../etc/passwd" cannot escape regardless of what the
+  validator does. The validator is defence in depth; the hashing is the control.
+
+  This is worth recording as its own lesson: a control failing zero tests means
+  the behaviour is UNVERIFIED, not that it is BROKEN. Reading the code before
+  reporting is what separates the two, and I have been finding real gaps often
+  enough this session that assuming the worst would have been easy.
+
+  SO THE TESTS PIN THE PROPERTY, NOT THE MECHANISM. Six tests assert that every
+  derived path stays inside its root, for nine hostile ids including
+  "../../etc/passwd", absolute paths, Windows separators, a newline and a
+  512-character id. They do not assert that hashing is used.
+
+  That distinction has teeth. Controls:
+    remove the HASHING (use the raw id as the path)  -> 4 findings
+    accept any entry id (drop the UUID check)        -> 9 findings
+    accept a blank workspace id                      -> 5 findings
+
+  A test written against the validator would have passed while someone removed
+  the hashing. This one fails whichever way containment is lost.
+
+  Two more properties pinned while there: different workspaces never share a
+  root (one workspace's recovery data overwriting another's), and the same id
+  always resolves to the same root (recovery data becoming unreachable after a
+  restart).
