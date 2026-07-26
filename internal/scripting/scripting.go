@@ -10924,8 +10924,16 @@ func expectDeepEqual(actual, expected goja.Value) bool {
 }
 
 func expectContains(runtime *goja.Runtime, actual, expected goja.Value) bool {
-	if strings.Contains(actual.String(), expected.String()) {
-		return true
+	// The substring shortcut only applies when the actual value really is a
+	// string. Every plain JavaScript object stringifies to "[object Object]", so
+	// running this unconditionally made ANY object "contain" any other one —
+	// expect({a:1}).to.contain({b:2}) passed, and so did
+	// expect([{id:1}]).to.contain({id:999}). In a testing tool that is the worst
+	// possible failure: the assertion reports green while checking nothing.
+	if _, actualIsString := actual.Export().(string); actualIsString {
+		if strings.Contains(actual.String(), expected.String()) {
+			return true
+		}
 	}
 	expectedExport := expected.Export()
 	exported := actual.Export()

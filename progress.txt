@@ -4766,3 +4766,47 @@ US-026 - Store layer. DONE. Both named collapses complete.
   wrong.
 
   Coverage, measured properly: 81.1%.
+
+!!! A THIRD REAL BUG: expect(...).to.contain() PASSED FOR ANY TWO OBJECTS !!!
+
+  Found by testing the low-coverage list rather than only the zero-coverage one.
+  expectContains sat at 8.3%.
+
+  Its first line was an unconditional substring shortcut:
+
+      if strings.Contains(actual.String(), expected.String()) { return true }
+
+  Every plain JavaScript object stringifies to "[object Object]". So:
+
+      expect({a: 1}).to.contain({b: 2})              -> PASSED
+      expect([{id: 1}]).to.contain({id: 999})        -> PASSED
+
+  Any object "contained" any other object. A user writing
+  pm.expect(body).to.contain({ id: expectedId }) got a GREEN test whatever the
+  response actually held — the assertion checked nothing at all and said so
+  never. In an API testing tool this is the worst class of defect there is, and
+  it is the third one this session in the assertion family, after the
+  endsWith/startsWith operators and the four signer tautologies.
+
+  FIXED by applying the substring shortcut only when the actual value really is
+  a string. The object, array and key-presence branches below it were already
+  correct — they were simply unreachable for object comparisons, because the
+  shortcut answered first.
+
+  Six tests. "contains" is unusually broad in this vocabulary — substring for a
+  string, membership for an array, KEY presence for an object — and only the
+  first was exercised. The key-presence case is worth stating: matching on
+  VALUES instead would silently change what every
+  expect(body).to.contain('id') test means.
+
+  Controls: restoring the unconditional shortcut fails 1, breaking object key
+  presence fails 1.
+
+  AND A CONTROL TAUGHT ME SOMETHING I HAD NOT ASKED: disabling the
+  []interface{} array branch failed NOTHING, because the expectType(...,
+  "array") walk below it finds the same matches. The two paths are redundant. I
+  am leaving both — the fast path avoids a goja round trip — but I would rather
+  record that it is belt-and-braces than let the next person assume it is
+  load-bearing.
+
+  Coverage 81.2%; expectContains 8.3% -> 84.0%.
