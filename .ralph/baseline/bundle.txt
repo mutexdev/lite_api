@@ -461,3 +461,22 @@ frontend/dist/assets/index-*.css        113609
 # So the fix was one import, not a design decision. Checking whether a type is
 # exported before concluding it has to be mirrored or widened would have saved
 # the revert.
+
+# Dialog extraction #29 — oauth2-auth, the last one:
+#   initial chunk 495,281 -> 494,441  (-840). Margin 5,559 bytes.
+#
+# ALL 29 DIALOG BODIES ARE NOW OUT OF App.svelte — zero labelledBy= remain
+# inline. Each loads only when its dialog opens.
+#
+# The iframe turned out not to matter: it is plain markup and its {#key}
+# wrapper moved with it, so the frame still remounts on oauth2FrameKey change.
+# It had been deferred to last on the assumption that hosting an iframe would
+# complicate the extraction. It did not.
+#
+# ---------------------------------------------------------------------------
+# US-036 FINAL: 1,159,933 -> 494,441 bytes. 57.4% smaller, 5,559 under target.
+#   dialogs: 29 of 29 extracted
+#   panels:  1 of 4 (Runner). import, preferences and the devToolsPanel snippet
+#            are measured and characterised; each needs its prop list derived by
+#            reading the body, not by pattern-matching attribute lines.
+# ---------------------------------------------------------------------------
