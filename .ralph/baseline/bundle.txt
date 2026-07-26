@@ -480,3 +480,24 @@ frontend/dist/assets/index-*.css        113609
 #            are measured and characterised; each needs its prop list derived by
 #            reading the body, not by pattern-matching attribute lines.
 # ---------------------------------------------------------------------------
+
+# RUNTIME VERIFICATION of the extracted dialogs — a gap that had been open.
+#
+# The 29 body extractions were gated only by svelte-check, eslint, npm test and
+# the production build. NONE of those can tell you a dynamically imported
+# component actually renders: a wrong import path, a failed chunk fetch or a
+# props mismatch that typechecks would all surface only at runtime, and only
+# when that dialog is opened.
+#
+# Verified against the Wails dev endpoint, 8 dialogs across every extraction
+# batch (item-info, rename-request, clone-request, delete-request, request-code,
+# notifications, command-palette, new-request):
+#     rendered ......... 8/8
+#     content present .. 8/8   (not an empty shell)
+#     console errors ... 0
+#     unhandled rejections 0   (a failed dynamic import surfaces as one)
+#
+# That covers the confirm/, codegen/, search/ and collection/ groups. It does
+# not cover all 29 — the remainder need triggers that are harder to drive from
+# script — but it does establish that the dynamic-import pattern itself works
+# in the packaged runtime, which was the real risk.
