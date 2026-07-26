@@ -1936,3 +1936,52 @@ point.
 
   Gates: go test 40.7s 0, svelte-check 202/0/0, eslint 0, npm test 158/158
   (67 in response.test.mts).
+
+US-033 - CodeEditor per-keystroke cost. DONE.
+  THREE full-document TextEncoder().encode() calls per keystroke, not the one
+  the story names:
+    :43  the reactive `byteLength` for the large-document threshold
+    :138 updateLocalPresentation, on every local edit
+    :221 buildDecorations, from the CodeMirror docChanged listener
+  All three answered the same THRESHOLD question and none needed the exact
+  count. variableSignature re-serialised every variable on every keystroke too.
+
+  MY FIRST IMPLEMENTATION WAS WORSE THAN WHAT IT REPLACED, and I only knew
+  because I measured instead of asserting. I wrote a hand-rolled code-point
+  scan: it removed the allocation as the story asked (504 KB -> 8 KB per 200
+  keystrokes) but was 27x SLOWER (327 ms vs 12 ms), because TextEncoder is
+  native and a JS char loop is not. That trades half a megabyte of garbage for
+  1.6 ms of blocking main-thread work per keystroke - the worse end of the
+  deal, and it would have shipped looking like a win against the story's
+  stated criterion.
+
+  Replaced with TextEncoder.encodeInto into a shared, lazily allocated buffer.
+  encodeInto writes into a caller-supplied array rather than returning a new
+  one, so the encoding stays native AND nothing is allocated per call.
+
+  Measured, 200 keystrokes on the story's 500 KB body:
+    before  11.9 ms, heap +504 KB
+    after    3.3 ms, heap +37 KB
+  3.6x faster and 13.6x less heap. The one-time 1 MB buffer is external
+  (typed-array backing stores are not on the JS heap), which is why it does not
+  appear in the figure.
+
+  Two O(1) bounds short-circuit most documents before any encoding: UTF-8
+  length >= UTF-16 length, so length > limit is already large; and <= 3x, since
+  a surrogate pair is two units encoding to four bytes, so the worst case is a
+  3-byte BMP character per unit.
+
+  Correctness bar: the tests do NOT assert hand-computed numbers. They compare
+  against TextEncoder across a corpus at every limit within +/-6 bytes of each
+  fixture's true size, because a cheaper check that disagrees near the boundary
+  flips the editor into large-document mode at a different point than the code
+  measuring real size, silently. Lone surrogates are covered explicitly - they
+  encode as the 3-byte replacement character, and getting that wrong shifts the
+  count on exactly the input most likely to sit near a boundary.
+
+  variableSignature memoised on ARRAY IDENTITY, which is the correct key: the
+  array is rebuilt only when the variables change, and hashing contents to
+  detect that would cost what the memo saves.
+
+  Gates: go test 38.7s 0, svelte-check 203/0/0, eslint 0, npm test 171/171
+  (+13 documentSize).

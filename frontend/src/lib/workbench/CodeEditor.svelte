@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isLargeDocument, utf8ExceedsLimit, variableSignature, type DocumentSizeMemo, type SignatureMemo } from './documentSize'
   import { onDestroy, onMount } from 'svelte'
   import { Compartment, EditorSelection, EditorState, RangeSetBuilder } from '@codemirror/state'
   import { Decoration, EditorView, ViewPlugin, type DecorationSet } from '@codemirror/view'
@@ -40,9 +41,26 @@
   let editorVariables: EditorVariable[] = []
   let configuredKey = ''
 
-  $: byteLength = new TextEncoder().encode(value).byteLength
-  $: large = byteLength > largeDocumentBytes
-  $: configurationKey = `${language}:${large}:${fontSize}:${ariaLabel}:${variableSignature(variableInfo)}`
+  // US-033. Both of these ran on every keystroke: the encode allocated a
+  // Uint8Array the size of the whole document — half a megabyte per keystroke
+  // on a 500 KB body — and the signature re-serialised every variable. Neither
+  // result was needed exactly; both are threshold/identity questions.
+  let documentSizeMemo: DocumentSizeMemo | null = null
+  let signatureMemo: SignatureMemo | null = null
+
+  $: large = (() => {
+    const result = isLargeDocument(value, largeDocumentBytes, documentSizeMemo)
+    documentSizeMemo = result.memo
+    return result.large
+  })()
+
+  $: currentVariableSignature = (() => {
+    const result = variableSignature(variableInfo, signatureMemo)
+    signatureMemo = result.memo
+    return result.signature
+  })()
+
+  $: configurationKey = `${language}:${large}:${fontSize}:${ariaLabel}:${currentVariableSignature}`
   $: if (view && configurationKey !== configuredKey) configureEditor()
   $: if (view) synchronizeEditor()
   $: if (!view) updateLocalPresentation(value)
@@ -135,7 +153,9 @@
   }
 
   function updateLocalPresentation(next: string) {
-    const nextLarge = new TextEncoder().encode(next).byteLength > largeDocumentBytes
+    // Same threshold, same non-allocating path. This runs on the local
+    // presentation update, which is also per-keystroke when no view exists.
+    const nextLarge = utf8ExceedsLimit(next, largeDocumentBytes)
     editorVariables = nextLarge ? [] : variablesIn(next)
     const state = validationFor(next, language, nextLarge)
     validation = state.message
@@ -198,7 +218,9 @@
   }
 
   function buildDecorations(text: string) {
-    if (new TextEncoder().encode(text).byteLength > largeDocumentBytes) return Decoration.none
+    // US-033. Called from the CodeMirror update listener on every docChanged,
+    // so this was the third per-keystroke full-document allocation.
+    if (utf8ExceedsLimit(text, largeDocumentBytes)) return Decoration.none
     const builder = new RangeSetBuilder<Decoration>()
     const infoByName = new Map(variableInfo.map((item) => [item.name, item]))
     const pattern = /\{\{([^{}]*)\}\}/g
@@ -231,7 +253,6 @@
   }
 
   function isVariableName(name: string) { return /^(?:process\.env\.)?[A-Za-z_][A-Za-z0-9_.-]*$/.test(name) }
-  function variableSignature(items: VariableInfo[]) { return items.map((item) => `${item.name}:${item.scope}:${item.secret}:${item.found}:${item.validName}`).join('|') }
   function fingerprint(doc: string) { return `${doc.length}:${doc.slice(0, 96)}:${doc.slice(-96)}` }
 
   function rememberEditorState(key: string) {
