@@ -2032,3 +2032,47 @@ US-034 - Memoize derivations. DONE.
 
   Gates: go test 39.5s 0, vet 0, golangci-lint 0 issues, svelte-check 204/0/0,
   eslint 0, npm test 181/181 (+10 memo).
+
+US-032 - Virtualize the DevTools network log. DONE.
+  lib/virtualList.ts holds the windowing arithmetic; App.svelte renders only
+  devToolsNetworkVisibleRows with spacer rows above and below.
+
+  EVERY FAILURE MODE HERE IS ARITHMETIC THAT RENDERS AS A VISUAL GLITCH, never
+  as an error:
+    padding that does not exactly match the skipped rows changes the scroll
+      height, so the scrollbar thumb drifts under the cursor mid-drag
+    a window one row short leaves a gap at the bottom edge that appears only at
+      certain viewport heights
+    a scrollTop left over from a longer list - which is what a filter produces
+      the instant it is applied - points past the end and renders NOTHING on a
+      table that visibly still has rows
+    a row height measured from a hidden or not-yet-laid-out table is zero, and
+      dividing by it gives Infinity indices and an {#each} over an infinite
+      range
+  So the tests assert INVARIANTS, not indices. The load-bearing one is
+  topPadding + rendered + bottomPadding === total * rowHeight, checked at every
+  scroll position across a 500-row list. A test pinning "startIndex is 12"
+  would lock in today's overscan and catch none of this.
+
+  SPACER ROWS, not transform or absolute positioning. This is a real <table>
+  and the resizable columns depend on <colgroup> widths; anything that takes
+  rows out of flow breaks them. The spacers carry aria-hidden so screen readers
+  do not announce empty rows.
+
+  Row height is MEASURED from a rendered row via ResizeObserver rather than
+  hard-coded, because it follows the app's font-size and density settings; a
+  constant would drift from the stylesheet silently. A fallback covers the
+  window before the first measurement.
+
+  Selection still resolves against the FULL row list, not the visible window -
+  scrolling a selected row out of view must not drop the selection. aria-sort,
+  the column widths and the filters are untouched.
+
+  Negative controls, all four run and all four caught:
+    padding off by one row        the conservation invariant fails
+    scrollTop unclamped           3 tests fail incl. the filter case
+    floor instead of ceil         partly visible rows dropped
+    zero row-height guard removed Infinity indices
+
+  Gates: go test 39.2s 0, vet 0, golangci-lint 0 issues, svelte-check 205/0/0,
+  eslint 0, npm test 197/197 (+16 virtualList).

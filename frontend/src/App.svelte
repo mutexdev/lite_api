@@ -17,6 +17,7 @@
   import { applyRequestMutation, applyTabsMutation, type MergeOutcome } from './lib/narrowMutations'
   import { filterCommands } from './lib/commandPalette'
   import { memoized, KeyedMemo, type Memo } from './lib/memo'
+  import { computeWindow } from './lib/virtualList'
   import {
     keyBindingSections,
     keyBindingPresets,
@@ -1008,6 +1009,49 @@
   // once here so a change has a single place to happen.
   const visualizerSandboxAttribute = 'allow-scripts'
   let visualizerDocument = ''
+
+  // US-032. The network log is virtualised: only the rows near the viewport are
+  // put in the DOM. Spacer rows above and below carry the height of everything
+  // skipped, so the scrollbar stays exactly as long as the full list — see
+  // lib/virtualList.ts for why that invariant is the load-bearing one.
+  //
+  // The row height is measured from the DOM rather than hard-coded, because it
+  // follows the app's font-size and density settings. Until it is measured the
+  // fallback keeps the window sane rather than dividing by zero.
+  const devToolsNetworkRowFallbackHeight = 28
+  let devToolsNetworkScrollTop = 0
+  let devToolsNetworkViewportHeight = 0
+  let devToolsNetworkMeasuredRowHeight = 0
+
+  $: devToolsNetworkRowHeight = devToolsNetworkMeasuredRowHeight || devToolsNetworkRowFallbackHeight
+  $: devToolsNetworkWindow = computeWindow({
+    total: devToolsNetworkRows.length,
+    rowHeight: devToolsNetworkRowHeight,
+    viewportHeight: devToolsNetworkViewportHeight,
+    scrollTop: devToolsNetworkScrollTop
+  })
+  $: devToolsNetworkVisibleRows = devToolsNetworkRows.slice(
+    devToolsNetworkWindow.startIndex,
+    devToolsNetworkWindow.endIndex
+  )
+
+  function measureDevToolsNetworkViewport(node: HTMLElement) {
+    const update = () => {
+      devToolsNetworkViewportHeight = node.clientHeight
+      // Measured from a real rendered row so density and font-size changes are
+      // picked up; a hard-coded height would drift from the stylesheet.
+      const row = node.querySelector<HTMLElement>('tbody tr[data-network-row]')
+      if (row && row.offsetHeight > 0) devToolsNetworkMeasuredRowHeight = row.offsetHeight
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(node)
+    return {
+      destroy() {
+        observer.disconnect()
+      }
+    }
+  }
 
   // US-049 — history surface state. The filter is applied SERVER-SIDE through
   // HistoryQuery rather than by pulling the whole log and filtering here: each
@@ -8764,7 +8808,12 @@
                 </div>
               {:else}
                 <div class="network-layout" style={`--network-details-width: ${devToolsDetailsPanelWidth}px;`}>
-                  <div class="table-scroll network-table-scroll" class:resizing={devToolsNetworkResizingColumn >= 0}>
+                  <div
+                    class="table-scroll network-table-scroll"
+                    class:resizing={devToolsNetworkResizingColumn >= 0}
+                    use:measureDevToolsNetworkViewport
+                    on:scroll={(event) => (devToolsNetworkScrollTop = event.currentTarget.scrollTop)}
+                  >
                     <table class="devtools-network-table" style={`min-width: ${devToolsNetworkTableWidth}px;`}>
                       <colgroup>
                         {#each devToolsNetworkColumnWidths as width, index (index)}
@@ -8790,8 +8839,17 @@
                         </tr>
                       </thead>
                       <tbody>
-                        {#each devToolsNetworkRows as row (row.id)}
-                          <tr class:selected={selectedDevToolsNetworkRow?.id === row.id}>
+                        <!--
+                          Spacer rows rather than a transform or absolute
+                          positioning: this is a real <table>, and anything that
+                          takes rows out of flow breaks the colgroup widths the
+                          resizable columns depend on.
+                        -->
+                        {#if devToolsNetworkWindow.topPadding > 0}
+                          <tr aria-hidden="true" class="network-spacer"><td colspan={devToolsNetworkColumns.length} style={`height: ${devToolsNetworkWindow.topPadding}px; padding: 0; border: none;`}></td></tr>
+                        {/if}
+                        {#each devToolsNetworkVisibleRows as row (row.id)}
+                          <tr data-network-row class:selected={selectedDevToolsNetworkRow?.id === row.id}>
                             <td><button class="table-link" type="button" on:click={() => selectDevToolsNetworkRow(row)}>{normalizedNetworkMethod(row)}</button></td>
                             <td>{statusDisplay(row.status)}</td>
                             <td>{devToolsNetworkDomain(row)}</td>
@@ -8801,6 +8859,9 @@
                             <td>{formatNetworkSize(row.size)}</td>
                           </tr>
                         {/each}
+                        {#if devToolsNetworkWindow.bottomPadding > 0}
+                          <tr aria-hidden="true" class="network-spacer"><td colspan={devToolsNetworkColumns.length} style={`height: ${devToolsNetworkWindow.bottomPadding}px; padding: 0; border: none;`}></td></tr>
+                        {/if}
                       </tbody>
                     </table>
                   </div>
