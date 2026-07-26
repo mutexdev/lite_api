@@ -240,3 +240,18 @@ func NormalizeOAuth2AdditionalPlacement(value string) string {
 		return strings.ToLower(strings.TrimSpace(value))
 	}
 }
+
+func SetKeyValue(values []KeyValue, name, value string) []KeyValue {
+	if strings.TrimSpace(name) == "" {
+		return values
+	}
+	for index := range values {
+		if strings.EqualFold(values[index].Name, name) {
+			values[index].Name = name
+			values[index].Value = value
+			values[index].Enabled = true
+			return values
+		}
+	}
+	return append(values, KeyValue{Name: name, Value: value, Enabled: true})
+}

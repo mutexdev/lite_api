@@ -1,6 +1,7 @@
 package main
 
 import (
+	"LiteAPI/internal/cookiejar"
 	"context"
 	"fmt"
 	"strings"
@@ -71,7 +72,7 @@ func nativeClosePromptMessage(drafts []UnsavedDraft) string {
 		return "Quit LiteAPI?"
 	}
 	var message strings.Builder
-	fmt.Fprintf(&message, "%d unsaved request%s will be affected:\n", len(drafts), pluralSuffix(len(drafts)))
+	fmt.Fprintf(&message, "%d unsaved request%s will be affected:\n", len(drafts), cookiejar.PluralSuffix(len(drafts)))
 	const visibleLimit = 5
 	for i, draft := range drafts {
 		if i == visibleLimit {

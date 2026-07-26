@@ -3366,3 +3366,42 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Gates: go build, go vet, go test ok across 14 packages; svelte-check 209/0/0;
   eslint 0; npm test 223/223.
+
+--- internal/cookiejar (DONE) — US-061 groundwork ---
+
+  442 lines of cookie storage and sending rules out of app.go: domain and path
+  matching, __Host-/__Secure- prefixes, SameSite, expiry, and what a response is
+  allowed to set. app.go: 34,890 -> 34,424.
+
+  These are SECURITY rules and their failure mode is the quiet kind: a domain or
+  path match that is too loose sends a cookie somewhere it should never go, the
+  request succeeds, and nothing in the UI shows it happened.
+
+  !!! FIVE OF THEM WERE UNTESTED !!!
+
+    cookiePathMatch always true       -> 0 failing
+    PrefixValid always true           -> 0 failing
+    Expired always false              -> 0 failing
+    domain match by unanchored suffix -> 0 failing
+    HostOnly ignored                  -> 0 failing
+
+  Only the domain-match function had any coverage at all (2 failing), and even
+  that did not pin the anchoring: replacing `host == domain || HasSuffix(host,
+  "."+domain)` with a bare HasSuffix passed. That bare version sends a cookie
+  for example.com to notexample.com and evil-example.com.
+
+  Eight tests added. All five controls now fail 1-2 tests each.
+
+  The path case is the one I would not have thought to write without the
+  control: /api must NOT match /apikeys. A HasPrefix without the segment
+  boundary looks correct and is wrong for exactly one shape of path.
+
+  A NEW SHAPE OF RENAME BUG: renaming cookieID -> cookiejar.ID rewrote a
+  PARAMETER named cookieID in DeleteCookie(cookieID string). Previous instances
+  hit declarations and struct fields; this one hit a parameter. The general
+  rule now has three faces: renaming an identifier everywhere catches its
+  declaration, its struct-field namesakes, AND any parameter or local that
+  shares the name. Only the last two compile.
+
+  Gates: go build, go vet, go test ok across 15 packages; svelte-check 209/0/0;
+  eslint 0; npm test 223/223.

@@ -6,6 +6,7 @@ import (
 	"LiteAPI/internal/auth/oauth1"
 	"LiteAPI/internal/auth/wsse"
 	"LiteAPI/internal/codegen"
+	"LiteAPI/internal/cookiejar"
 	"LiteAPI/internal/grpcexec"
 	"LiteAPI/internal/importers"
 	"LiteAPI/internal/interp"
@@ -77,7 +78,6 @@ import (
 	"golang.org/x/crypto/pbkdf2"
 	"golang.org/x/crypto/scrypt"
 	xhtml "golang.org/x/net/html"
-	"golang.org/x/net/publicsuffix"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
@@ -1729,7 +1729,7 @@ func (a *App) CloneGitRepository(remoteURL, cloneRoot, repoName string) (GitClon
 		a.emitGitCloneProgress("error", err.Error(), cleanTarget)
 		return GitCloneResult{}, err
 	}
-	a.emitGitCloneProgress("done", fmt.Sprintf("Found %d collection%s", len(candidates), pluralSuffix(len(candidates))), cleanTarget)
+	a.emitGitCloneProgress("done", fmt.Sprintf("Found %d collection%s", len(candidates), cookiejar.PluralSuffix(len(candidates))), cleanTarget)
 	return GitCloneResult{
 		Version:    version,
 		TargetPath: cleanTarget,
@@ -1852,7 +1852,7 @@ func (a *App) OpenGitCollections(workspaceID string, collectionPaths []string, r
 	if haveFirstOpened {
 		a.openFirstCollectionItemLocked(firstOpened)
 	}
-	a.notify("success", fmt.Sprintf("Opened %d Git collection%s", opened, pluralSuffix(opened)))
+	a.notify("success", fmt.Sprintf("Opened %d Git collection%s", opened, cookiejar.PluralSuffix(opened)))
 	return a.state, a.markDirty(persistScopeState)
 }
 
@@ -2910,7 +2910,7 @@ func (a *App) SaveAllTabs(collectionID string) (AppState, error) {
 		}
 	}
 	if saved > 0 {
-		a.notify("success", fmt.Sprintf("Saved %d tab%s", saved, pluralSuffix(saved)))
+		a.notify("success", fmt.Sprintf("Saved %d tab%s", saved, cookiejar.PluralSuffix(saved)))
 	}
 	return a.state, a.markDirty(persistScopeState)
 }
@@ -3159,21 +3159,21 @@ func (a *App) SaveCookie(input CookieInput) (AppState, error) {
 	if err := a.ensureReadyLocked(); err != nil {
 		return AppState{}, err
 	}
-	normalized, err := normalizeManualCookie(input)
+	normalized, err := cookiejar.NormalizeManual(input)
 	if err != nil {
 		return AppState{}, err
 	}
-	if !cookiePrefixValid(normalized) {
+	if !cookiejar.PrefixValid(normalized) {
 		return AppState{}, fmt.Errorf("cookie %s violates prefix requirements", normalized.Name)
 	}
-	if err := validateCookieEntryForStorage(normalized, ""); err != nil {
+	if err := cookiejar.ValidateForStorage(normalized, ""); err != nil {
 		return AppState{}, err
 	}
 	now := time.Now()
 	normalized.UpdatedAt = now
 	next := a.state.Cookies[:0]
 	for _, existing := range a.state.Cookies {
-		if existing.ID == input.ID || cookieKey(existing) == cookieKey(normalized) {
+		if existing.ID == input.ID || cookiejar.Key(existing) == cookiejar.Key(normalized) {
 			if !existing.CreatedAt.IsZero() && normalized.CreatedAt.IsZero() {
 				normalized.CreatedAt = existing.CreatedAt
 			}
@@ -3209,12 +3209,12 @@ func (a *App) AddCookieFromHeader(rawHeader, sourceURL string) (AppState, error)
 			header.Add("Set-Cookie", line)
 		}
 	}
-	cookies := responseCookies(&http.Response{Header: header}, sourceURL)
+	cookies := cookiejar.FromResponse(&http.Response{Header: header}, sourceURL)
 	if len(cookies) == 0 {
 		return AppState{}, errors.New("no valid Set-Cookie values found")
 	}
 	a.storeResponseCookiesLocked(cookies)
-	a.notify("success", fmt.Sprintf("Imported %d cookie%s", len(cookies), pluralSuffix(len(cookies))))
+	a.notify("success", fmt.Sprintf("Imported %d cookie%s", len(cookies), cookiejar.PluralSuffix(len(cookies))))
 	return a.state, a.markDirty(persistScopeState)
 }
 
@@ -3224,14 +3224,14 @@ func (a *App) ClearDomainCookies(domain string) (AppState, error) {
 	if err := a.ensureReadyLocked(); err != nil {
 		return AppState{}, err
 	}
-	domain = normalizeCookieDomain(domain)
+	domain = cookiejar.NormalizeDomain(domain)
 	if domain == "" {
 		return AppState{}, errors.New("cookie domain is required")
 	}
 	next := a.state.Cookies[:0]
 	removed := 0
 	for _, cookie := range a.state.Cookies {
-		if normalizeCookieDomain(cookie.Domain) == domain {
+		if cookiejar.NormalizeDomain(cookie.Domain) == domain {
 			removed++
 			continue
 		}
@@ -3241,7 +3241,7 @@ func (a *App) ClearDomainCookies(domain string) (AppState, error) {
 		return AppState{}, fmt.Errorf("no cookies found for %s", domain)
 	}
 	a.state.Cookies = next
-	a.notify("info", fmt.Sprintf("Cleared %d cookie%s for %s", removed, pluralSuffix(removed), domain))
+	a.notify("info", fmt.Sprintf("Cleared %d cookie%s for %s", removed, cookiejar.PluralSuffix(removed), domain))
 	return a.state, a.markDirty(persistScopeState)
 }
 
@@ -3478,19 +3478,19 @@ func (a *App) storeResponseCookiesLocked(cookies []CookieEntry) {
 			cookie.Path = "/"
 		}
 		if cookie.ID == "" {
-			cookie.ID = cookieID(cookie)
+			cookie.ID = cookiejar.ID(cookie)
 		}
-		if err := validateCookieEntryForStorage(cookie, ""); err != nil {
+		if err := cookiejar.ValidateForStorage(cookie, ""); err != nil {
 			continue
 		}
 		cookie.UpdatedAt = now
 		if cookie.CreatedAt.IsZero() {
 			cookie.CreatedAt = now
 		}
-		key := cookieKey(cookie)
+		key := cookiejar.Key(cookie)
 		next := a.state.Cookies[:0]
 		for _, existing := range a.state.Cookies {
-			if cookieKey(existing) == key {
+			if cookiejar.Key(existing) == key {
 				if !existing.CreatedAt.IsZero() {
 					cookie.CreatedAt = existing.CreatedAt
 				}
@@ -3498,7 +3498,7 @@ func (a *App) storeResponseCookiesLocked(cookies []CookieEntry) {
 			}
 			next = append(next, existing)
 		}
-		if cookieExpired(cookie, now) {
+		if cookiejar.Expired(cookie, now) {
 			a.state.Cookies = next
 			continue
 		}
@@ -3511,471 +3511,14 @@ func (a *App) pruneExpiredCookiesLocked() {
 	now := time.Now()
 	next := a.state.Cookies[:0]
 	for _, cookie := range a.state.Cookies {
-		if !cookieExpired(cookie, now) {
+		if !cookiejar.Expired(cookie, now) {
 			next = append(next, cookie)
 		}
 	}
 	a.state.Cookies = next
 }
 
-func attachCookieHeader(item *RequestItem, cookies []CookieEntry, rawURL string) {
-	matching := cookiesForURL(cookies, rawURL)
-	if len(matching) == 0 {
-		return
-	}
-	merged := mergeCookieHeader(getKeyValue(item.Headers, "Cookie"), cookieHeader(matching))
-	item.Headers = setKeyValue(item.Headers, "Cookie", merged)
-}
-
-func mergeScriptCookieJar(current, initial, runtime []CookieEntry) []CookieEntry {
-	initialKeys := map[string]bool{}
-	for _, cookie := range initial {
-		if cookie.Name != "" && cookie.Domain != "" {
-			initialKeys[cookieKey(cookie)] = true
-		}
-	}
-	runtimeByKey := map[string]CookieEntry{}
-	runtimeKeys := make([]string, 0, len(runtime))
-	now := time.Now()
-	for _, cookie := range runtime {
-		if cookie.Name == "" || cookie.Domain == "" || cookieExpired(cookie, now) {
-			continue
-		}
-		if cookie.Path == "" {
-			cookie.Path = "/"
-		}
-		if cookie.ID == "" {
-			cookie.ID = cookieID(cookie)
-		}
-		if err := validateCookieEntryForStorage(cookie, ""); err != nil {
-			continue
-		}
-		key := cookieKey(cookie)
-		if _, exists := runtimeByKey[key]; !exists {
-			runtimeKeys = append(runtimeKeys, key)
-		}
-		runtimeByKey[key] = cookie
-	}
-	next := make([]CookieEntry, 0, len(current)+len(runtimeByKey))
-	for _, cookie := range current {
-		key := cookieKey(cookie)
-		if _, replaced := runtimeByKey[key]; replaced {
-			continue
-		}
-		if initialKeys[key] {
-			continue
-		}
-		next = append(next, cookie)
-	}
-	for _, key := range runtimeKeys {
-		next = append(next, runtimeByKey[key])
-	}
-	return next
-}
-
-func previewRequestURL(item RequestItem, vars map[string]string) string {
-	return codegen.RequestURLWithParams(item.URL, item.Params, item.PathParams, vars)
-}
-
-func responseCookies(res *http.Response, rawURL string) []CookieEntry {
-	if res == nil {
-		return nil
-	}
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return nil
-	}
-	host := strings.ToLower(parsed.Hostname())
-	if host == "" {
-		return nil
-	}
-	path := parsed.EscapedPath()
-	if path == "" {
-		path = "/"
-	}
-	now := time.Now()
-	result := []CookieEntry{}
-	for _, raw := range res.Cookies() {
-		domain := normalizeCookieDomain(raw.Domain)
-		hostOnly := domain == ""
-		if hostOnly {
-			domain = host
-		}
-		cookiePath := raw.Path
-		if cookiePath == "" {
-			cookiePath = defaultCookiePath(path)
-		} else if !strings.HasPrefix(cookiePath, "/") {
-			cookiePath = "/"
-		}
-		expires := raw.Expires
-		session := expires.IsZero() && raw.MaxAge <= 0
-		if raw.MaxAge > 0 {
-			expires = now.Add(time.Duration(raw.MaxAge) * time.Second)
-			session = false
-		}
-		if raw.MaxAge < 0 {
-			expires = now.Add(-time.Second)
-			session = false
-		}
-		entry := CookieEntry{
-			Name:      raw.Name,
-			Value:     raw.Value,
-			Domain:    domain,
-			Path:      cookiePath,
-			Expires:   expires,
-			Session:   session,
-			Secure:    raw.Secure,
-			HTTPOnly:  raw.HttpOnly,
-			SameSite:  sameSiteString(raw.SameSite),
-			HostOnly:  hostOnly,
-			CreatedAt: now,
-			UpdatedAt: now,
-		}
-		entry.ID = cookieID(entry)
-		if err := validateCookieEntryForStorage(entry, host); err != nil {
-			continue
-		}
-		result = append(result, entry)
-	}
-	return result
-}
-
-func cookiesForURL(cookies []CookieEntry, rawURL string) []CookieEntry {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return nil
-	}
-	host := strings.ToLower(parsed.Hostname())
-	path := parsed.EscapedPath()
-	if path == "" {
-		path = "/"
-	}
-	secure := isPotentiallyTrustworthyCookieURL(parsed)
-	now := time.Now()
-	matching := []CookieEntry{}
-	for _, cookie := range cookies {
-		if cookieExpired(cookie, now) || cookie.Name == "" || !cookiePrefixValid(cookie) {
-			continue
-		}
-		if err := validateCookieEntryForStorage(cookie, ""); err != nil {
-			continue
-		}
-		if cookie.Secure && !secure {
-			continue
-		}
-		if !cookieDomainMatch(cookie, host) || !cookiePathMatch(cookie.Path, path) {
-			continue
-		}
-		matching = append(matching, cookie)
-	}
-	sort.SliceStable(matching, func(i, j int) bool {
-		if len(matching[i].Path) != len(matching[j].Path) {
-			return len(matching[i].Path) > len(matching[j].Path)
-		}
-		return matching[i].CreatedAt.Before(matching[j].CreatedAt)
-	})
-	return matching
-}
-
-func isPotentiallyTrustworthyCookieURL(parsed *url.URL) bool {
-	if parsed == nil {
-		return false
-	}
-	switch strings.ToLower(parsed.Scheme) {
-	case "https", "wss", "file":
-		return true
-	}
-	host := strings.ToLower(parsed.Hostname())
-	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
-		return true
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		return ip.IsLoopback()
-	}
-	return false
-}
-
-func cookieHeader(cookies []CookieEntry) string {
-	parts := make([]string, 0, len(cookies))
-	for _, cookie := range cookies {
-		parts = append(parts, cookie.Name+"="+cookie.Value)
-	}
-	return strings.Join(parts, "; ")
-}
-
-func mergeCookieHeader(manual, stored string) string {
-	type cookiePair struct {
-		name  string
-		value string
-	}
-	order := []string{}
-	values := map[string]cookiePair{}
-	add := func(header string) {
-		for _, part := range strings.Split(header, ";") {
-			name, value, ok := strings.Cut(strings.TrimSpace(part), "=")
-			name = strings.TrimSpace(name)
-			if !ok || name == "" {
-				continue
-			}
-			key := strings.ToLower(name)
-			if _, exists := values[key]; !exists {
-				order = append(order, key)
-			}
-			values[key] = cookiePair{name: name, value: strings.TrimSpace(value)}
-		}
-	}
-	add(manual)
-	add(stored)
-	parts := make([]string, 0, len(order))
-	for _, key := range order {
-		pair := values[key]
-		parts = append(parts, pair.name+"="+pair.value)
-	}
-	return strings.Join(parts, "; ")
-}
-
-func normalizeManualCookie(input CookieInput) (CookieEntry, error) {
-	name := strings.TrimSpace(input.Name)
-	value := strings.TrimSpace(input.Value)
-	domain := normalizeCookieDomain(input.Domain)
-	path := strings.TrimSpace(input.Path)
-	sameSite := normalizeCookieSameSite(input.SameSite)
-	if name == "" {
-		return CookieEntry{}, errors.New("cookie name is required")
-	}
-	if strings.ContainsAny(name, ";\r\n\t ") {
-		return CookieEntry{}, errors.New("cookie name cannot contain whitespace or semicolons")
-	}
-	if domain == "" {
-		return CookieEntry{}, errors.New("cookie domain is required")
-	}
-	if path == "" {
-		path = "/"
-	}
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
-	expires, session, err := parseCookieExpiry(input.Expires, input.Session)
-	if err != nil {
-		return CookieEntry{}, err
-	}
-	cookie := CookieEntry{
-		ID:       input.ID,
-		Name:     name,
-		Value:    value,
-		Domain:   domain,
-		Path:     path,
-		Expires:  expires,
-		Session:  session,
-		Secure:   input.Secure,
-		HTTPOnly: input.HTTPOnly,
-		SameSite: sameSite,
-		HostOnly: input.HostOnly,
-	}
-	cookie.ID = cookieID(cookie)
-	return cookie, nil
-}
-
-func parseCookieExpiry(value string, session bool) (time.Time, bool, error) {
-	value = strings.TrimSpace(value)
-	if session || value == "" {
-		return time.Time{}, true, nil
-	}
-	layouts := []string{
-		time.RFC3339,
-		"2006-01-02T15:04",
-		"2006-01-02 15:04",
-		"2006-01-02",
-	}
-	for _, layout := range layouts {
-		parsed, err := time.Parse(layout, value)
-		if err == nil {
-			return parsed, false, nil
-		}
-	}
-	return time.Time{}, false, fmt.Errorf("cookie expires value must be RFC3339 or YYYY-MM-DD")
-}
-
-func normalizeCookieDomain(domain string) string {
-	domain = strings.ToLower(strings.TrimSpace(domain))
-	domain = strings.TrimPrefix(domain, ".")
-	return strings.TrimSuffix(domain, ".")
-}
-
-func normalizeCookieSameSite(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "default", "lax", "strict", "none":
-		return strings.ToLower(strings.TrimSpace(value))
-	default:
-		return ""
-	}
-}
-
-func pluralSuffix(count int) string {
-	if count == 1 {
-		return ""
-	}
-	return "s"
-}
-
-func cookieExpired(cookie CookieEntry, now time.Time) bool {
-	return !cookie.Session && !cookie.Expires.IsZero() && !cookie.Expires.After(now)
-}
-
-func cookieDomainMatch(cookie CookieEntry, host string) bool {
-	domain := strings.TrimPrefix(strings.ToLower(cookie.Domain), ".")
-	host = strings.ToLower(strings.TrimSpace(host))
-	if cookie.HostOnly {
-		return host == domain
-	}
-	return host == domain || strings.HasSuffix(host, "."+domain)
-}
-
-func cookiePathMatch(cookiePath, requestPath string) bool {
-	if cookiePath == "" {
-		cookiePath = "/"
-	}
-	if requestPath == "" {
-		requestPath = "/"
-	}
-	if cookiePath == "/" {
-		return true
-	}
-	return requestPath == cookiePath || strings.HasPrefix(requestPath, strings.TrimRight(cookiePath, "/")+"/")
-}
-
-func cookiePrefixValid(cookie CookieEntry) bool {
-	if strings.HasPrefix(cookie.Name, "__Host-") {
-		return cookie.Secure && cookie.HostOnly && cookie.Path == "/"
-	}
-	if strings.HasPrefix(cookie.Name, "__Secure-") {
-		return cookie.Secure
-	}
-	return true
-}
-
-func validateCookieEntryForStorage(cookie CookieEntry, sourceHost string) error {
-	name := strings.TrimSpace(cookie.Name)
-	domain := normalizeCookieDomain(cookie.Domain)
-	path := strings.TrimSpace(cookie.Path)
-	if !validCookieName(name) {
-		return errors.New("cookie name cannot contain control characters or separators")
-	}
-	if domain == "" {
-		return errors.New("cookie domain is required")
-	}
-	if !validCookieDomain(domain) {
-		return fmt.Errorf("cookie domain %q is invalid", domain)
-	}
-	if ip := net.ParseIP(domain); ip != nil && !cookie.HostOnly {
-		return fmt.Errorf("cookie domain %q must be host-only", domain)
-	}
-	if cookieDomainIsPublicSuffix(domain) {
-		return fmt.Errorf("cookie domain %q is a public suffix", domain)
-	}
-	if path == "" || !strings.HasPrefix(path, "/") {
-		return errors.New("cookie path must start with /")
-	}
-	if !cookiePrefixValid(cookie) {
-		return fmt.Errorf("cookie %s violates prefix requirements", cookie.Name)
-	}
-	sourceHost = normalizeCookieDomain(sourceHost)
-	if sourceHost == "" {
-		return nil
-	}
-	if !validCookieDomain(sourceHost) {
-		return errors.New("current request URL is required for cookie writes")
-	}
-	if cookie.HostOnly {
-		if domain != sourceHost {
-			return fmt.Errorf("cookie domain %q does not match request host %q", domain, sourceHost)
-		}
-		return nil
-	}
-	if !cookieDomainMatch(cookie, sourceHost) {
-		return fmt.Errorf("cookie domain %q does not match request host %q", domain, sourceHost)
-	}
-	return nil
-}
-
-func validCookieName(name string) bool {
-	if name == "" {
-		return false
-	}
-	for _, r := range name {
-		if r <= 0x20 || r >= 0x7f || strings.ContainsRune("()<>@,;:\\\"/[]?={}", r) {
-			return false
-		}
-	}
-	return true
-}
-
-func validCookieDomain(domain string) bool {
-	if domain == "" {
-		return false
-	}
-	if net.ParseIP(domain) != nil {
-		return true
-	}
-	if strings.ContainsAny(domain, " \t\r\n/:") || strings.Contains(domain, "..") {
-		return false
-	}
-	labels := strings.Split(domain, ".")
-	for _, label := range labels {
-		if label == "" {
-			return false
-		}
-	}
-	return true
-}
-
-func cookieDomainIsPublicSuffix(domain string) bool {
-	if domain == "localhost" || strings.HasSuffix(domain, ".localhost") || net.ParseIP(domain) != nil {
-		return false
-	}
-	suffix, icann := publicsuffix.PublicSuffix(domain)
-	if suffix != domain {
-		return false
-	}
-	return icann || strings.Contains(domain, ".")
-}
-
-func defaultCookiePath(requestPath string) string {
-	if requestPath == "" || requestPath[0] != '/' {
-		return "/"
-	}
-	if requestPath == "/" {
-		return "/"
-	}
-	index := strings.LastIndex(requestPath, "/")
-	if index <= 0 {
-		return "/"
-	}
-	return requestPath[:index]
-}
-
-func cookieID(cookie CookieEntry) string {
-	return deterministicID("cookie", cookieKey(cookie))
-}
-
-func cookieKey(cookie CookieEntry) string {
-	return strings.ToLower(cookie.Domain) + "|" + cookie.Path + "|" + cookie.Name
-}
-
-func sameSiteString(value http.SameSite) string {
-	switch value {
-	case http.SameSiteDefaultMode:
-		return "default"
-	case http.SameSiteLaxMode:
-		return "lax"
-	case http.SameSiteStrictMode:
-		return "strict"
-	case http.SameSiteNoneMode:
-		return "none"
-	default:
-		return ""
-	}
-}
+// Cookie storage rules moved to internal/cookiejar.
 
 func (a *App) SetActiveTab(tabID string) (AppState, error) {
 	a.mu.Lock()
@@ -5021,9 +4564,9 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 		response = scriptSkippedResponse(requestCopy, vars)
 		response.ScriptLogs = scriptLogs
 	} else {
-		requestURL := previewRequestURL(requestCopy, vars)
+		requestURL := cookiejar.PreviewRequestURL(requestCopy, vars)
 		if shouldSendCookies {
-			attachCookieHeader(&requestCopy, scriptCookieJar.snapshot(), requestURL)
+			cookiejar.AttachHeader(&requestCopy, scriptCookieJar.snapshot(), requestURL)
 		}
 		response = a.executeHTTP(executionContext, collectionID, collectionCopy, requestCopy, vars, preState, scriptMeta.RecordTimeline)
 		controls.merge(preState)
@@ -5097,7 +4640,7 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 		return AppState{}, controls, nil, err
 	}
 	if shouldStoreCookies {
-		a.state.Cookies = mergeScriptCookieJar(a.state.Cookies, initialCookies, scriptCookieJar.snapshot())
+		a.state.Cookies = cookiejar.MergeScriptJar(a.state.Cookies, initialCookies, scriptCookieJar.snapshot())
 		a.pruneExpiredCookiesLocked()
 	}
 	applyScriptVariableContextToState(&a.state, liveWorkspace, collection, environmentID, scriptVariables)
@@ -5586,7 +5129,7 @@ func (a *App) runScriptedCollectionRequest(collectionID, targetRef, environmentI
 	preState, err := runPreRequestScriptWithJarStateMeta(scripts.Pre, &requestCopy, nestedVariables.Combined, jar, preMeta, logs)
 	if err != nil {
 		response = scriptErrorResponse("pre-request script", err)
-		response.RequestedURL = previewRequestURL(requestCopy, nestedVariables.Combined)
+		response.RequestedURL = cookiejar.PreviewRequestURL(requestCopy, nestedVariables.Combined)
 		response.ScriptLogs = cloneScriptLogs(logs)
 		scriptMergeVariableContext(parentVariables, nestedVariables)
 		timelineEntry := scriptRunRequestTimelineItem(collectionCopy.Path, requestCopy, response, nestedVariables.Combined)
@@ -5600,9 +5143,9 @@ func (a *App) runScriptedCollectionRequest(collectionID, targetRef, environmentI
 		return response, &timelineEntry, nil
 	}
 
-	requestURL := previewRequestURL(requestCopy, nestedVariables.Combined)
+	requestURL := cookiejar.PreviewRequestURL(requestCopy, nestedVariables.Combined)
 	if shouldSendCookies && jar != nil {
-		attachCookieHeader(&requestCopy, jar.snapshot(), requestURL)
+		cookiejar.AttachHeader(&requestCopy, jar.snapshot(), requestURL)
 	}
 	func() {
 		executionContext, finishExecution := a.startCancellableRequest(collectionID, requestCopy.ID, requestCopy.Type)
@@ -5636,7 +5179,7 @@ func (a *App) runScriptedCollectionRequest(collectionID, targetRef, environmentI
 
 func scriptRunRequestTimelineItem(collectionPath string, item RequestItem, response Response, vars map[string]string) TimelineItem {
 	method := strings.ToUpper(firstNonEmpty(item.Method, http.MethodGet))
-	targetURL := firstNonEmpty(response.RequestedURL, previewRequestURL(item, vars), item.URL)
+	targetURL := firstNonEmpty(response.RequestedURL, cookiejar.PreviewRequestURL(item, vars), item.URL)
 	statusText := cleanStatusText(response.Status, response.StatusText)
 	errorText := strings.TrimSpace(response.Error)
 	if scriptRunRequestResponseIsSkipped(response) {
@@ -9111,7 +8654,7 @@ func (t cookieCapturingTransport) RoundTrip(req *http.Request) (*http.Response, 
 		} else if req != nil && req.URL != nil {
 			sourceURL = req.URL.String()
 		}
-		t.jar.upsertAll(responseCookies(res, sourceURL))
+		t.jar.upsertAll(cookiejar.FromResponse(res, sourceURL))
 	}
 	return res, err
 }
@@ -9120,11 +8663,11 @@ func attachCookiesToHTTPRequest(req *http.Request, cookies []CookieEntry) {
 	if req == nil || req.URL == nil {
 		return
 	}
-	matching := cookiesForURL(cookies, req.URL.String())
+	matching := cookiejar.ForURL(cookies, req.URL.String())
 	if len(matching) == 0 {
 		return
 	}
-	req.Header.Set("Cookie", mergeCookieHeader(req.Header.Get("Cookie"), cookieHeader(matching)))
+	req.Header.Set("Cookie", cookiejar.MergeHeader(req.Header.Get("Cookie"), cookiejar.Header(matching)))
 }
 
 func (a *App) effectiveRequestContextForExecution(collectionID, itemID, environmentID string) (RequestItem, Collection, map[string]string, error) {
@@ -22883,7 +22426,7 @@ func (j *scriptCookieJar) matching(rawURL string) []CookieEntry {
 	if j == nil {
 		return nil
 	}
-	return cookiesForURL(j.cookies, rawURL)
+	return cookiejar.ForURL(j.cookies, rawURL)
 }
 
 func (j *scriptCookieJar) upsert(cookie CookieEntry, sourceHosts ...string) {
@@ -22899,19 +22442,19 @@ func (j *scriptCookieJar) upsert(cookie CookieEntry, sourceHosts ...string) {
 		cookie.Path = "/"
 	}
 	if cookie.ID == "" {
-		cookie.ID = cookieID(cookie)
+		cookie.ID = cookiejar.ID(cookie)
 	}
-	if err := validateCookieEntryForStorage(cookie, sourceHost); err != nil {
+	if err := cookiejar.ValidateForStorage(cookie, sourceHost); err != nil {
 		return
 	}
 	if cookie.CreatedAt.IsZero() {
 		cookie.CreatedAt = now
 	}
 	cookie.UpdatedAt = now
-	key := cookieKey(cookie)
+	key := cookiejar.Key(cookie)
 	next := j.cookies[:0]
 	for _, existing := range j.cookies {
-		if cookieKey(existing) == key {
+		if cookiejar.Key(existing) == key {
 			if !existing.CreatedAt.IsZero() {
 				cookie.CreatedAt = existing.CreatedAt
 			}
@@ -22919,7 +22462,7 @@ func (j *scriptCookieJar) upsert(cookie CookieEntry, sourceHosts ...string) {
 		}
 		next = append(next, existing)
 	}
-	if cookieExpired(cookie, now) {
+	if cookiejar.Expired(cookie, now) {
 		j.cookies = next
 		return
 	}
@@ -22939,7 +22482,7 @@ func (j *scriptCookieJar) removeMatching(rawURL, name string) {
 	removeKeys := map[string]bool{}
 	for _, cookie := range j.matching(rawURL) {
 		if cookie.Name == name {
-			removeKeys[cookieKey(cookie)] = true
+			removeKeys[cookiejar.Key(cookie)] = true
 		}
 	}
 	if len(removeKeys) == 0 {
@@ -22947,7 +22490,7 @@ func (j *scriptCookieJar) removeMatching(rawURL, name string) {
 	}
 	next := j.cookies[:0]
 	for _, cookie := range j.cookies {
-		if !removeKeys[cookieKey(cookie)] {
+		if !removeKeys[cookiejar.Key(cookie)] {
 			next = append(next, cookie)
 		}
 	}
@@ -22960,14 +22503,14 @@ func (j *scriptCookieJar) clearMatching(rawURL string) {
 	}
 	removeKeys := map[string]bool{}
 	for _, cookie := range j.matching(rawURL) {
-		removeKeys[cookieKey(cookie)] = true
+		removeKeys[cookiejar.Key(cookie)] = true
 	}
 	if len(removeKeys) == 0 {
 		return
 	}
 	next := j.cookies[:0]
 	for _, cookie := range j.cookies {
-		if !removeKeys[cookieKey(cookie)] {
+		if !removeKeys[cookiejar.Key(cookie)] {
 			next = append(next, cookie)
 		}
 	}
@@ -23131,7 +22674,7 @@ func newScriptCookiesObject(runtime *goja.Runtime, jar *scriptCookieJar, current
 		return out
 	})
 	_ = cookiesObject.Set("toString", func() string {
-		return cookieHeader(currentRows())
+		return cookiejar.Header(currentRows())
 	})
 	_ = cookiesObject.Set("toJSON", func() goja.Value {
 		return scriptCookieArray(runtime, currentRows())
@@ -23360,7 +22903,7 @@ func scriptCookieArgumentMatches(cookie CookieEntry, value goja.Value) bool {
 	if rawValue, exists := data["value"]; exists && fmt.Sprint(rawValue) != cookie.Value {
 		return false
 	}
-	if domain := normalizeCookieDomain(scriptMapString(data, "domain")); domain != "" && normalizeCookieDomain(cookie.Domain) != domain {
+	if domain := cookiejar.NormalizeDomain(scriptMapString(data, "domain")); domain != "" && cookiejar.NormalizeDomain(cookie.Domain) != domain {
 		return false
 	}
 	if path := scriptMapString(data, "path"); path != "" && cookie.Path != path {
@@ -23378,7 +22921,7 @@ func scriptCookieFromMap(data map[string]interface{}, rawURL string) (CookieEntr
 		return CookieEntry{}, errors.New("current request URL is required for cookie writes")
 	}
 	name := firstNonEmpty(scriptMapString(data, "name"), scriptMapString(data, "key"))
-	domain := normalizeCookieDomain(scriptMapString(data, "domain"))
+	domain := cookiejar.NormalizeDomain(scriptMapString(data, "domain"))
 	explicitDomain := domain != ""
 	hostOnly := scriptMapBool(data, "hostOnly")
 	if domain == "" {
@@ -23389,7 +22932,7 @@ func scriptCookieFromMap(data map[string]interface{}, rawURL string) (CookieEntr
 	}
 	path := scriptMapString(data, "path")
 	if path == "" {
-		path = defaultCookiePath(parsed.EscapedPath())
+		path = cookiejar.DefaultPath(parsed.EscapedPath())
 	} else if !strings.HasPrefix(path, "/") {
 		path = "/"
 	}
@@ -23401,7 +22944,7 @@ func scriptCookieFromMap(data map[string]interface{}, rawURL string) (CookieEntr
 	if rawSession, ok := data["session"]; ok {
 		session = truthyInterface(rawSession)
 	}
-	cookie, err := normalizeManualCookie(CookieInput{
+	cookie, err := cookiejar.NormalizeManual(CookieInput{
 		Name:     name,
 		Value:    scriptMapString(data, "value"),
 		Domain:   domain,
@@ -25475,7 +25018,7 @@ func scriptErrorResponse(label string, err error) Response {
 func scriptSkippedResponse(item RequestItem, vars map[string]string) Response {
 	return Response{
 		SentAt:       time.Now(),
-		RequestedURL: previewRequestURL(item, vars),
+		RequestedURL: cookiejar.PreviewRequestURL(item, vars),
 		StatusText:   "Skipped",
 		Headers:      map[string]string{},
 		PreviewMode:  "raw",
@@ -25607,21 +25150,6 @@ func applyScriptedResponse(response *Response, resObject *goja.Object) {
 	if response.PreviewMode == "auto" && looksLikeJSON(bodyText) {
 		response.PreviewMode = "json"
 	}
-}
-
-func setKeyValue(values []KeyValue, name, value string) []KeyValue {
-	if strings.TrimSpace(name) == "" {
-		return values
-	}
-	for index := range values {
-		if strings.EqualFold(values[index].Name, name) {
-			values[index].Name = name
-			values[index].Value = value
-			values[index].Enabled = true
-			return values
-		}
-	}
-	return append(values, KeyValue{Name: name, Value: value, Enabled: true})
 }
 
 func deleteKeyValue(values []KeyValue, name string) []KeyValue {
@@ -31035,6 +30563,12 @@ func itemFolderPhysicalPath(collection Collection, item RequestItem) string {
 }
 
 // OpenAPI, Postman and Insomnia import moved to internal/importers.
+func sameSiteString(value http.SameSite) string { return cookiejar.SameSiteString(value) }
+
+func setKeyValue(values []KeyValue, name, value string) []KeyValue {
+	return types.SetKeyValue(values, name, value)
+}
+
 func intValue(raw interface{}, fallback int) int { return scalar.IntValue(raw, fallback) }
 
 func intValueOK(raw interface{}) (int, bool) { return scalar.IntValueOK(raw) }

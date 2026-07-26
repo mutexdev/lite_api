@@ -1,6 +1,7 @@
 package main
 
 import (
+	"LiteAPI/internal/cookiejar"
 	"context"
 	"sync"
 	"time"
@@ -140,7 +141,7 @@ func markRequestCancelled(response *Response) {
 func cancelledRequestResponse(item RequestItem, vars map[string]string) Response {
 	response := Response{
 		SentAt:       time.Now(),
-		RequestedURL: previewRequestURL(item, vars),
+		RequestedURL: cookiejar.PreviewRequestURL(item, vars),
 		Headers:      map[string]string{},
 		PreviewMode:  "raw",
 	}
