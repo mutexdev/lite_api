@@ -4015,3 +4015,48 @@ US-026 - Store layer. DONE. Both named collapses complete.
   isolated too hard would break the setVar handoff while making every isolation
   test greener. Both directions are pinned, the same way the original US-019
   suite pinned bru.setVar persistence against over-isolation.
+
+--- Coverage sweep — and a REAL BUG in PAC timeRange ---
+
+  Measured coverage properly for the first time. The naive per-package number
+  is misleading: `go test ./internal/...` reports importers, bru, grpcexec and
+  openapisync at 0.0%, which reads as untested. They are not — they are
+  exercised through package main's suite. With -coverpkg=./internal/... the
+  real figure is 78.2% overall and those packages sit at 80-85%.
+
+  Worth remembering: per-package coverage measures where the TESTS live, not
+  what the CODE runs. Reading it the other way would have sent me rewriting
+  tests that already exist.
+
+  The lowest real numbers were transport (61%) and yamlstore (58%). Every
+  uncovered function in transport was a PAC date/time predicate — the functions
+  a proxy auto-config script calls to decide routing. Ten of them, zero tests.
+
+  !!! pacTimeRange WAS WRONG FOR THE TWO MOST COMMON FORMS !!!
+
+      if len(args) <= 3 { return seconds == point(args) }
+
+  So timeRange(9, 17) — the standard way a PAC script says "business hours" —
+  matched only at exactly 09:17:00, and timeRange(9) only at 09:00:00. A script
+  gating on business hours would essentially never match and would fall through
+  to whatever it returned otherwise. The symptom is not an error: it is traffic
+  quietly going direct when policy said proxy, or through a proxy that should
+  not have seen it.
+
+  Fixed to the semantics every PAC implementation uses: 1 arg covers the whole
+  hour, 2 args run from hour1:00:00 through hour2:59:59, and the 4-argument form
+  is inclusive to h2:m2:59. The 3-argument h,m,s instant keeps equality, which
+  is the one form it was right for.
+
+  FOUND BY WRITING THE TEST AGAINST THE SPEC, NOT THE CODE. Had I read the
+  implementation and asserted what it did, this would have passed and stayed
+  broken. That is the same failure mode as the four signer tautologies, reached
+  from the opposite direction.
+
+  AND ONE OF MY OWN EXPECTATIONS WAS WRONG. I first asserted the range ended at
+  17:00:00. The code — once fixed — was right that it runs to 17:59:59, because
+  "9 to 17" naming a single instant would make the form useless. I corrected the
+  TEST there, and said so, rather than bending the code to a bad assertion.
+
+  Controls: reverting to exact-instant matching fails 1, collapsing the
+  single-hour range fails 1, accepting any weekday name fails 2.

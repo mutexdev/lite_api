@@ -759,12 +759,38 @@ func pacTimeRange(now time.Time, args ...int) bool {
 		}
 		return hour*3600 + minute*60 + second
 	}
-	if len(args) <= 3 {
+	// The 1- and 2-argument forms are RANGES, not instants. timeRange(9) means
+	// the whole 09:00:00-09:59:59 hour and timeRange(9, 17) means 09:00:00
+	// through 17:59:59, which is how every PAC implementation reads them and the
+	// only reading under which a script can express "business hours".
+	//
+	// This previously compared for exact equality, so timeRange(9, 17) matched
+	// only at 09:17:00 -- a script using the standard form to gate on business
+	// hours would essentially never match and would fall through to whatever
+	// the script returned otherwise, routing traffic silently wrongly.
+	switch len(args) {
+	case 1:
+		hour := args[0]
+		return seconds >= hour*3600 && seconds <= hour*3600+3599
+	case 2:
+		start := args[0] * 3600
+		end := args[1]*3600 + 3599
+		if start <= end {
+			return seconds >= start && seconds <= end
+		}
+		return seconds >= start || seconds <= end
+	case 3:
+		// h, m, s -- an instant, which is the one form equality is right for.
 		return seconds == point(args)
 	}
 	mid := len(args) / 2
 	start := point(args[:mid])
 	end := point(args[mid:])
+	// The end bound is inclusive of its finest unit: h1,m1,h2,m2 runs to
+	// h2:m2:59, matching the 1- and 2-argument forms above.
+	if len(args) == 4 {
+		end += 59
+	}
 	if start <= end {
 		return seconds >= start && seconds <= end
 	}
