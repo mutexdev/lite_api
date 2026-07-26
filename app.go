@@ -52,6 +52,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Azure/go-ntlmssp"
 	"github.com/andybalholm/brotli"
@@ -703,6 +704,19 @@ type Response struct {
 	Trailers      []KeyValue        `json:"trailers,omitempty"`
 	Body          string            `json:"body"`
 	BodyBase64    string            `json:"bodyBase64"`
+	// US-009. BodyHandle identifies the body in the response store; BodyHead is
+	// an inline prefix so a list or a collapsed view can render without a disk
+	// read. Both are additive for now — Body and BodyBase64 are still populated
+	// and still authoritative — so this step changes no behaviour and no
+	// existing test. They become the source of truth only once step 4 moves the
+	// readers, and Body/BodyBase64 are deleted last, after the migration has
+	// been exercised. See .ralph/plans/US-009.md.
+	//
+	// omitempty on both: a state.json written before this step has neither, and
+	// a response whose body was never stored should not carry empty strings
+	// into every persist.
+	BodyHandle    string            `json:"bodyHandle,omitempty"`
+	BodyHead      string            `json:"bodyHead,omitempty"`
 	Size          int               `json:"size"`
 	DurationMs    int64             `json:"durationMs"`
 	Error         string            `json:"error"`
@@ -8715,6 +8729,57 @@ const (
 // error (improvement_v2.md §8 risk 4) it is parked and handed to the next
 // mutation, which does have a caller — the Wails binding, and through it the
 // user. Reading it clears it, so a single failure is reported once.
+// responseBodyHeadLimit is how much of a body BodyHead carries inline.
+//
+// 8 KiB matches the story's "~8 KB inline head". It is sized to the job it
+// does: rendering a collapsed row or a list preview without touching the disk.
+// The response inspector's own automatic preview budget is 128 KB (see
+// response.ts), so a head this size is deliberately NOT enough to render the
+// full preview — that read goes through the store, which is the point.
+const responseBodyHeadLimit = 8 << 10
+
+// attachResponseBody stores a response's body and records the handle and inline
+// head on it.
+//
+// Additive by design: Body and BodyBase64 are left exactly as they are. Nothing
+// reads BodyHandle yet, so a failure here must not fail the request — a user
+// who just got a 200 should not see an error because a cache write failed. The
+// error is returned for the caller to log or ignore deliberately rather than
+// swallowed here, but the response stays intact either way.
+func (a *App) attachResponseBody(response *Response) error {
+	if response == nil || response.Body == "" || response.BodyHandle != "" {
+		return nil
+	}
+	store, err := a.responseStore()
+	if err != nil {
+		return err
+	}
+	handle, err := store.Put([]byte(response.Body))
+	if err != nil {
+		return err
+	}
+	response.BodyHandle = string(handle)
+	response.BodyHead = responseBodyHead(response.Body)
+	return nil
+}
+
+// responseBodyHead returns the inline prefix, truncated on a UTF-8 boundary.
+//
+// Slicing a byte count out of a string can split a multi-byte rune and produce
+// invalid UTF-8, which encoding/json then rewrites as U+FFFD — so a body of
+// CJK text or emoji would come back subtly corrupted in the inline view. The
+// backward scan is what response.ts already does for the same reason.
+func responseBodyHead(body string) string {
+	if len(body) <= responseBodyHeadLimit {
+		return body
+	}
+	cut := responseBodyHeadLimit
+	for cut > 0 && !utf8.RuneStart(body[cut]) {
+		cut--
+	}
+	return body[:cut]
+}
+
 // responseStore returns the App's body store, creating it on first use.
 //
 // Returns an error rather than a nil store when the directory cannot be made:

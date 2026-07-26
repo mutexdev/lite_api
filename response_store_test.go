@@ -17,6 +17,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func newTestResponseStore(t *testing.T) (*responseStore, string) {
@@ -321,5 +322,96 @@ func TestAppResponseStoreIsConcurrencySafe(t *testing.T) {
 	defer mu.Unlock()
 	if len(seen) != 1 {
 		t.Errorf("concurrent callers got %d distinct stores, want 1", len(seen))
+	}
+}
+
+// TestAttachResponseBodyIsAdditive — step 2b must change nothing that already
+// works. Body and BodyBase64 stay exactly as they were; the new fields are
+// alongside them, and nothing reads them yet.
+func TestAttachResponseBodyIsAdditive(t *testing.T) {
+	app := newAppForTest(t)
+	body := `{"result":"ok"}`
+	response := &Response{Status: 200, Body: body, BodyBase64: "cHJlc2VydmVk"}
+
+	if err := app.attachResponseBody(response); err != nil {
+		t.Fatalf("attachResponseBody: %v", err)
+	}
+	if response.Body != body {
+		t.Errorf("Body was modified: got %q", response.Body)
+	}
+	if response.BodyBase64 != "cHJlc2VydmVk" {
+		t.Errorf("BodyBase64 was modified: got %q", response.BodyBase64)
+	}
+	if response.BodyHandle == "" {
+		t.Fatal("BodyHandle was not set")
+	}
+	if response.BodyHead != body {
+		t.Errorf("BodyHead should hold a short body whole: got %q", response.BodyHead)
+	}
+
+	store, err := app.responseStore()
+	if err != nil {
+		t.Fatalf("responseStore: %v", err)
+	}
+	stored, err := store.Get(responseHandle(response.BodyHandle))
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if string(stored) != body {
+		t.Errorf("stored body differs from Response.Body: %q vs %q", stored, body)
+	}
+}
+
+func TestAttachResponseBodySkipsEmptyAndRepeatCalls(t *testing.T) {
+	app := newAppForTest(t)
+
+	empty := &Response{Status: 204}
+	if err := app.attachResponseBody(empty); err != nil {
+		t.Fatalf("attachResponseBody(empty): %v", err)
+	}
+	if empty.BodyHandle != "" {
+		t.Error("an empty body should not get a handle")
+	}
+
+	// Re-attaching must not re-store: the request path may pass the same
+	// response through more than once.
+	response := &Response{Body: "payload"}
+	if err := app.attachResponseBody(response); err != nil {
+		t.Fatalf("first attach: %v", err)
+	}
+	first := response.BodyHandle
+	response.Body = "changed after the fact"
+	if err := app.attachResponseBody(response); err != nil {
+		t.Fatalf("second attach: %v", err)
+	}
+	if response.BodyHandle != first {
+		t.Error("a response that already has a handle was re-stored")
+	}
+}
+
+// TestResponseBodyHeadTruncatesOnRuneBoundary. Slicing a byte count out of a
+// string can split a multi-byte rune; encoding/json then rewrites the fragment
+// as U+FFFD, so a CJK or emoji body would come back visibly corrupted.
+func TestResponseBodyHeadTruncatesOnRuneBoundary(t *testing.T) {
+	short := "small body"
+	if got := responseBodyHead(short); got != short {
+		t.Errorf("a short body should be returned whole: got %q", got)
+	}
+
+	// Build a body of 3-byte runes so the 8 KiB limit lands mid-rune.
+	body := strings.Repeat("世", responseBodyHeadLimit)
+	head := responseBodyHead(body)
+	if len(head) > responseBodyHeadLimit {
+		t.Errorf("head is %d bytes, over the %d limit", len(head), responseBodyHeadLimit)
+	}
+	if !utf8.ValidString(head) {
+		t.Error("head is not valid UTF-8 — a rune was split")
+	}
+	if !strings.HasPrefix(body, head) {
+		t.Error("head is not a prefix of the body")
+	}
+	// And it must not have thrown away more than one rune's worth.
+	if responseBodyHeadLimit-len(head) >= 3 {
+		t.Errorf("head lost %d bytes to boundary alignment, expected under 3", responseBodyHeadLimit-len(head))
 	}
 }

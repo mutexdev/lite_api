@@ -1127,6 +1127,8 @@ export namespace main {
 	    trailers?: KeyValue[];
 	    body: string;
 	    bodyBase64: string;
+	    bodyHandle?: string;
+	    bodyHead?: string;
 	    size: number;
 	    durationMs: number;
 	    error: string;
@@ -1155,6 +1157,8 @@ export namespace main {
 	        this.trailers = this.convertValues(source["trailers"], KeyValue);
 	        this.body = source["body"];
 	        this.bodyBase64 = source["bodyBase64"];
+	        this.bodyHandle = source["bodyHandle"];
+	        this.bodyHead = source["bodyHead"];
 	        this.size = source["size"];
 	        this.durationMs = source["durationMs"];
 	        this.error = source["error"];
