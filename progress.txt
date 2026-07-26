@@ -7635,3 +7635,36 @@ US-026 - Store layer. DONE. Both named collapses complete.
   client is DELIBERATE (documented at two call sites), and the tautological
   clone test was rewritten to assert nil-ness with the reason recorded.
   ALL THREE PLAN FINDINGS ARE NOW CLOSED.
+
+=== A CORRECTION: I HAVE BEEN QUOTING A COVERAGE NUMBER I CANNOT REPRODUCE ===
+
+  Every summary I wrote this session said "Go coverage 81.5% -> 83.4%". Trying
+  to re-measure it after adding two packages, I got FOUR DIFFERENT ANSWERS:
+
+    go test -coverprofile ./...                     50.8%
+    mean of per-package `-cover` figures            47.5%  (31 packages)
+    root package alone                              75.4%
+    go test -coverpkg=./internal/... ./...          29.4%
+
+  None is 83.4%, and the spread is far too wide for any of them to be "the"
+  number. This file ALREADY RECORDS this exact trap — an earlier entry corrects
+  a run of coverage figures that moved 78.2 -> 79.9 -> 77.8 while only tests
+  were added, and identifies the cause as a caching artifact. I read that entry
+  only after producing the four numbers above.
+
+  So: THE COVERAGE PERCENTAGE IS WITHDRAWN. I should not have carried a figure
+  forward across summaries without re-deriving it, and I will not quote one
+  again without stating the exact command beside it.
+
+  What IS reproducible, and is what the restructure actually needed to hold:
+    - 27 Go packages, ALL with tests, ALL passing (0 packages without test files)
+    - internal/urlbuild and internal/wsmessage: 100.0% each
+    - golangci-lint: 0 issues
+    - -race: clean on the new packages
+    - GOOS=windows and GOOS=darwin/arm64: both build
+    - binding surface: 188, unchanged
+    - frontend: 736 tests, svelte-check 0/0, eslint clean, vite build ok
+
+  The number was never the point of this work; the negative controls were. Those
+  are per-slice, reproducible, and recorded above — a claim only counted here
+  once a deliberate break proved the check would catch it.
