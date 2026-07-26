@@ -3405,3 +3405,39 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Gates: go build, go vet, go test ok across 15 packages; svelte-check 209/0/0;
   eslint 0; npm test 223/223.
+
+--- internal/scalar tests — the leaf package had none ---
+
+  internal/scalar is what almost every other package depends on, and it had no
+  tests at all. Control found ShellSingleQuote entirely unverified: replacing
+  its escaping with a plain pair of quotes failed NOTHING.
+
+  That one is not just a correctness gap. ShellSingleQuote quotes values into
+  the curl and grpcurl commands the app generates FOR THE USER TO PASTE INTO A
+  SHELL. A value containing an apostrophe does not render oddly - it ends the
+  quoted argument, and everything after it is read by the shell as syntax.
+
+  15 tests added. Controls: escaping removed fails 2, SanitizeFilename
+  passthrough fails 2, the empty-name default fails 2, rejecting
+  interface-keyed maps fails 1.
+
+  !!! I WROTE THE SAME BAD TEST AGAIN, AND THE SUITE CAUGHT ME !!!
+
+  My first injection test asserted the result did NOT contain "'; rm". It failed
+  on correct code, because the POSIX escape idiom ('"'"') legitimately contains
+  those bytes. This is exactly the US-054 mistake from earlier in this session:
+  searching for a string that appears in the CONTENT rather than checking the
+  property.
+
+  Replaced with a ROUND TRIP: the test parses the quoted word the way a shell
+  would and asserts it comes back as the original string, for six payloads
+  including $(whoami) and backticks. That is the actual property - not "the
+  dangerous text is absent" but "a shell reads this as one literal word".
+
+  Worth noting it failed LOUDLY rather than passing vacuously. A wrong assertion
+  that fails is cheap; the four signer tautologies were wrong assertions that
+  passed, which cost far more.
+
+  PACKAGES STILL WITHOUT THEIR OWN TESTS: grpcexec, importers, store/bru.
+  All three are exercised heavily through package main's suite - bru's controls
+  failed 44 and 33 tests - so they are covered, just not locally.
