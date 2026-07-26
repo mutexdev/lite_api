@@ -7,6 +7,7 @@ import (
 	"LiteAPI/internal/codegen"
 	"LiteAPI/internal/grpcexec"
 	"LiteAPI/internal/importers"
+	brustore "LiteAPI/internal/store/bru"
 	"LiteAPI/internal/transport"
 	"LiteAPI/internal/types"
 	"archive/zip"
@@ -3006,7 +3007,7 @@ func TestRequestSettingsEncodeURLRoundTrip(t *testing.T) {
 			t.Fatalf("stringified bru missing %q:\n%s", want, bru)
 		}
 	}
-	parsedBru, err := parseBru(bru)
+	parsedBru, err := brustore.Parse(bru)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -12623,7 +12624,7 @@ func TestImportPostmanAndBruRoundTrip(t *testing.T) {
 	if !strings.Contains(bru, "params:path") || !strings.Contains(bru, "  id: 123") {
 		t.Fatalf("bru export did not include path params:\n%s", bru)
 	}
-	parsed, err := parseBru(bru)
+	parsed, err := brustore.Parse(bru)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -13093,7 +13094,7 @@ example {
   }
 }
 `
-	item, err := parseBru(content)
+	item, err := brustore.Parse(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -13110,7 +13111,7 @@ example {
 	if !strings.Contains(example.Response.Body, `"name":"Ada"`) {
 		t.Fatalf("example body was not parsed: %q", example.Response.Body)
 	}
-	roundTrip, err := parseBru(stringifyBru(item))
+	roundTrip, err := brustore.Parse(stringifyBru(item))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -13154,7 +13155,7 @@ example {
   }
 }
 `
-	item, err := parseBru(content)
+	item, err := brustore.Parse(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -13175,7 +13176,7 @@ example {
 	if !strings.Contains(written, "body:form-urlencoded: {") || !strings.Contains(written, "      email: ada@example.test") || !strings.Contains(written, "      ~disabled: nope") {
 		t.Fatalf("form-url-encoded example body was not written:\n%s", written)
 	}
-	roundTrip, err := parseBru(written)
+	roundTrip, err := brustore.Parse(written)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -13219,7 +13220,7 @@ example {
   }
 }
 `
-	item, err := parseBru(content)
+	item, err := brustore.Parse(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -13240,7 +13241,7 @@ example {
 	if !strings.Contains(written, "body:multipart-form: {") || !strings.Contains(written, "      document: @file(examples/sample.pdf) @contentType(application/pdf)") || !strings.Contains(written, "      ~skip: nope") {
 		t.Fatalf("multipart example body was not written:\n%s", written)
 	}
-	roundTrip, err := parseBru(written)
+	roundTrip, err := brustore.Parse(written)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -13283,7 +13284,7 @@ example {
   }
 }
 `
-	item, err := parseBru(content)
+	item, err := brustore.Parse(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -13304,7 +13305,7 @@ example {
 	if !strings.Contains(written, "body:file: {") || !strings.Contains(written, "      file: @file(examples/selected.bin) @contentType(application/octet-stream)") || !strings.Contains(written, "      ~file: @file(examples/backup.json) @contentType(application/json)") {
 		t.Fatalf("file example body was not written:\n%s", written)
 	}
-	roundTrip, err := parseBru(written)
+	roundTrip, err := brustore.Parse(written)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -13334,7 +13335,7 @@ func TestBruFormURLEncodedBodyRoundTrip(t *testing.T) {
 	if !strings.Contains(content, "body:form-urlencoded {") || !strings.Contains(content, "  email: ada@example.test") || !strings.Contains(content, "  ~disabled: nope") {
 		t.Fatalf("form-url-encoded body was not written:\n%s", content)
 	}
-	roundTrip, err := parseBru(content)
+	roundTrip, err := brustore.Parse(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -13370,7 +13371,7 @@ func TestBruMultipartBodyRoundTrip(t *testing.T) {
 	if !strings.Contains(content, "body:multipart-form {") || !strings.Contains(content, "  title: {{uploadTitle}} @contentType(text/plain)") || !strings.Contains(content, "  asset: @file(fixtures/image.png) @contentType(image/png)") || !strings.Contains(content, "  ~disabled: nope") {
 		t.Fatalf("multipart body was not written:\n%s", content)
 	}
-	roundTrip, err := parseBru(content)
+	roundTrip, err := brustore.Parse(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -13466,7 +13467,7 @@ func TestBruFileBodyRoundTrip(t *testing.T) {
 	if !strings.Contains(content, "body:file {") || !strings.Contains(content, "  file: @file(fixtures/payload.json) @contentType(application/json)") {
 		t.Fatalf("file body was not written:\n%s", content)
 	}
-	roundTrip, err := parseBru(content)
+	roundTrip, err := brustore.Parse(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -13498,7 +13499,7 @@ func TestBruMultiFileBodyRoundTrip(t *testing.T) {
 	if !strings.Contains(content, "  file: @file(fixtures/selected.json) @contentType(application/json)") || !strings.Contains(content, "  ~file: @file(fixtures/old.bin) @contentType(application/octet-stream)") {
 		t.Fatalf("multi-file body was not written with selected and disabled rows:\n%s", content)
 	}
-	roundTrip, err := parseBru(content)
+	roundTrip, err := brustore.Parse(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -13656,7 +13657,7 @@ body:grpc {
   content: {"name":"Grace"}
 }
 `
-	item, err := parseBru(content)
+	item, err := brustore.Parse(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -13682,7 +13683,7 @@ body:grpc {
 	if strings.Contains(roundTrip, "\nheaders {") {
 		t.Fatalf("gRPC .bru should write metadata instead of headers:\n%s", roundTrip)
 	}
-	parsed, err := parseBru(roundTrip)
+	parsed, err := brustore.Parse(roundTrip)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -13724,7 +13725,7 @@ func TestRequestDocsRoundTripForWebSocketAndGRPCBru(t *testing.T) {
 				}
 			}
 
-			parsed, err := parseBru(content)
+			parsed, err := brustore.Parse(content)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -15829,7 +15830,7 @@ func TestWebSocketMessagesBruAndYAMLRoundTrip(t *testing.T) {
 			t.Fatalf("websocket .bru missing %q:\n%s", expected, content)
 		}
 	}
-	parsed, err := parseBru(content)
+	parsed, err := brustore.Parse(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -16896,7 +16897,7 @@ get {
 			t.Fatalf("saved bru missing %q:\n%s", expected, file)
 		}
 	}
-	reopened, err := parseBru(file)
+	reopened, err := brustore.Parse(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -16974,7 +16975,7 @@ body:json {
 			t.Fatalf("manual example file missing %q:\n%s", expected, file)
 		}
 	}
-	reopened, err := parseBru(file)
+	reopened, err := brustore.Parse(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -17060,7 +17061,7 @@ body:form-urlencoded {
 	if !strings.Contains(file, "body:form-urlencoded: {") || !strings.Contains(file, "      email: ada@example.test") || !strings.Contains(file, "      ~disabled: nope") {
 		t.Fatalf("saved example did not write form rows:\n%s", file)
 	}
-	reopened, err := parseBru(file)
+	reopened, err := brustore.Parse(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -17148,7 +17149,7 @@ body:multipart-form {
 	if !strings.Contains(file, "body:multipart-form: {") || !strings.Contains(file, "      document: @file(examples/sample.pdf) @contentType(application/pdf)") || !strings.Contains(file, "      ~skip: nope") {
 		t.Fatalf("saved example did not write multipart rows:\n%s", file)
 	}
-	reopened, err := parseBru(file)
+	reopened, err := brustore.Parse(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -17238,7 +17239,7 @@ body:file {
 	if !strings.Contains(file, "body:file: {") || !strings.Contains(file, "      file: @file(examples/selected.bin) @contentType(application/octet-stream)") || !strings.Contains(file, "      ~file: @file(examples/backup.json) @contentType(application/json)") {
 		t.Fatalf("saved example did not write file rows:\n%s", file)
 	}
-	reopened, err := parseBru(file)
+	reopened, err := brustore.Parse(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -17478,7 +17479,7 @@ get {
 			t.Fatalf("edited example file missing %q:\n%s", expected, file)
 		}
 	}
-	reopened, err := parseBru(file)
+	reopened, err := brustore.Parse(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -17509,7 +17510,7 @@ get {
 	if !strings.Contains(file, "mode: formUrlEncoded") || !strings.Contains(file, "body:form-urlencoded: {") || !strings.Contains(file, "      email: ada@example.test") || !strings.Contains(file, "      ~disabled: nope") {
 		t.Fatalf("form example update was not persisted:\n%s", file)
 	}
-	reopened, err = parseBru(file)
+	reopened, err = brustore.Parse(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19563,7 +19564,7 @@ func TestDigestAuthBruRoundTrip(t *testing.T) {
 	if !strings.Contains(content, "auth:digest") {
 		t.Fatalf("digest auth was not serialized:\n%s", content)
 	}
-	parsed, err := parseBru(content)
+	parsed, err := brustore.Parse(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19649,7 +19650,7 @@ func TestNTLMAuthBruRoundTrip(t *testing.T) {
 			t.Fatalf("NTLM auth was not serialized with %q:\n%s", expected, content)
 		}
 	}
-	parsed, err := parseBru(content)
+	parsed, err := brustore.Parse(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21248,7 +21249,7 @@ func TestOAuth2AuthBruRoundTrip(t *testing.T) {
 			t.Fatalf("OAuth2 auth was not serialized with %q:\n%s", expected, content)
 		}
 	}
-	parsed, err := parseBru(content)
+	parsed, err := brustore.Parse(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21310,7 +21311,7 @@ func TestOAuth2BrowserGrantFieldsRoundTrip(t *testing.T) {
 			t.Fatalf("OAuth2 browser grant field was not serialized with %q:\n%s", expected, content)
 		}
 	}
-	parsed, err := parseBru(content)
+	parsed, err := brustore.Parse(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21932,7 +21933,7 @@ func TestAWSV4AuthBruRoundTrip(t *testing.T) {
 			t.Fatalf("AWS SigV4 auth was not serialized with %q:\n%s", expected, content)
 		}
 	}
-	parsed, err := parseBru(content)
+	parsed, err := brustore.Parse(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22002,7 +22003,7 @@ func TestWSSEAuthBruRoundTrip(t *testing.T) {
 	if !strings.Contains(content, "auth:wsse") || !strings.Contains(content, "username: john") || !strings.Contains(content, "password: secret") {
 		t.Fatalf("WSSE auth was not serialized:\n%s", content)
 	}
-	parsed, err := parseBru(content)
+	parsed, err := brustore.Parse(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22224,7 +22225,7 @@ func TestOAuth1AuthBruRoundTrip(t *testing.T) {
 			t.Fatalf("OAuth1 auth was not serialized with %q:\n%s", expected, content)
 		}
 	}
-	parsed, err := parseBru(content)
+	parsed, err := brustore.Parse(content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22631,7 +22632,7 @@ paths:
 	if traceReq.Method != http.MethodTrace || traceReq.Name != "Trace diagnostics" || traceReq.FolderPath != "Diagnostics" {
 		t.Fatalf("TRACE operation was not imported: %#v", traceReq)
 	}
-	traceRoundTrip, err := parseBru(stringifyBru(traceReq))
+	traceRoundTrip, err := brustore.Parse(stringifyBru(traceReq))
 	if err != nil {
 		t.Fatal(err)
 	}

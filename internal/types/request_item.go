@@ -212,3 +212,31 @@ func firstNonEmpty(values ...string) string {
 func newIDLocal(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 }
+
+func SelectedFileBodyFields(entries []FileBodyEntry) (string, string) {
+	body := RequestBody{Files: entries}
+	if selected, ok := SelectedFileBodyEntry(body); ok {
+		return selected.FilePath, selected.ContentType
+	}
+	return "", ""
+}
+
+func ResponseVariableRuntimeName(name string) string {
+	name = strings.TrimSpace(name)
+	name = strings.TrimPrefix(name, "~")
+	name = strings.TrimPrefix(name, "@")
+	return strings.TrimSpace(name)
+}
+
+func NormalizeOAuth2AdditionalPlacement(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "body", "form", "formdata":
+		return "body"
+	case "headers", "header":
+		return "headers"
+	case "queryparams", "queryparam", "query", "url", "params":
+		return "queryparams"
+	default:
+		return strings.ToLower(strings.TrimSpace(value))
+	}
+}

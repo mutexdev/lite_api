@@ -3288,3 +3288,37 @@ US-026 - Store layer. DONE. Both named collapses complete.
   The UTC one is worth keeping: a server comparing Created against its own
   window rejects a local-time value, and the symptom is an intermittent auth
   failure that looks like anything but a formatting bug.
+
+--- US-070 (part) — internal/store/bru (DONE) ---
+
+  ~1,065 lines of Bruno .bru reading out of app.go: block structure, scalar and
+  key/value maps, and the request, environment and collection documents built
+  from them. app.go: 36,645 -> 35,580.
+
+  A foreign on-disk format is worth isolating for a specific reason: it has no
+  dependency on app state, and every bug in it shows up as a request that
+  silently LOADS WRONG rather than as an error.
+
+  A BOUNDARY I GOT WRONG AND BACKED OUT: AssignYAMLBodyData first went into
+  internal/types, following the pattern that a helper operating on RequestBody
+  belongs with the type. It does not - it needs a YAML key/value reader, and
+  types is the leaf package every other one depends on. Putting a YAML parser
+  underneath everything would have been a genuinely bad structure, and Go said
+  so immediately (undefined: parseYAMLKeyValues). Both moved to store/bru
+  instead, with a note that they are shared with the YAML request reader still
+  in package main and should travel together when that moves.
+
+  THE PACKAGE-NAME COLLISION, SECOND TIME: app_test.go has seven local
+  variables called `bru`, so the import shadows them - exactly what happened
+  with `transport` in US-062. Imported as `brustore` there. Worth expecting now:
+  a package named after a domain noun will collide with variables named after
+  the same noun, and the fix is an alias at the importing site, not a rename of
+  the variables.
+
+  Controls (landing-checked): ParseSections returning nil fails 44 tests,
+  ParseScalarMap returning nil fails 33, ignoring the enabled flag fails 1.
+  This code is genuinely well covered - unlike the four signers, its tests were
+  written against fixtures rather than against itself.
+
+  Gates: go build, go vet, go test ok across 12 packages; svelte-check 209/0/0;
+  eslint 0; npm test 223/223.

@@ -10,6 +10,7 @@ import (
 	"LiteAPI/internal/importers"
 	"LiteAPI/internal/interp"
 	"LiteAPI/internal/scalar"
+	"LiteAPI/internal/store/bru"
 	"LiteAPI/internal/transport"
 	"LiteAPI/internal/types"
 	"LiteAPI/internal/wsexec"
@@ -6563,7 +6564,7 @@ func (a *App) GenerateCollectionDocs(collectionID string, options GenerateCollec
 }
 
 func (a *App) ParseBru(content string) (RequestItem, error) {
-	return parseBru(content)
+	return bru.Parse(content)
 }
 
 func (a *App) StringifyBru(item RequestItem) string {
@@ -10954,14 +10955,6 @@ func resolveBodyFilePath(filePath string, basePath ...string) string {
 	return filepath.Join(basePath[0], filepath.FromSlash(filePath))
 }
 
-func selectedFileBodyFields(entries []FileBodyEntry) (string, string) {
-	body := RequestBody{Files: entries}
-	if selected, ok := selectedFileBodyEntry(body); ok {
-		return selected.FilePath, selected.ContentType
-	}
-	return "", ""
-}
-
 func (a *App) applyAuth(req *http.Request, collectionPath string, item *RequestItem, vars map[string]string, recordTimeline func(TimelineItem)) error {
 	return applyAuthWithOAuth2Fetcher(req, item, vars, func(auth OAuth2Auth, vars map[string]string) (string, error) {
 		token, timelineEntries, err := a.fetchOAuth2TokenWithTimeline(auth, vars)
@@ -12574,19 +12567,6 @@ func applyOAuth2AdditionalParams(req *http.Request, form url.Values, params []OA
 	return nil
 }
 
-func normalizeOAuth2AdditionalPlacement(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "body", "form", "formdata":
-		return "body"
-	case "headers", "header":
-		return "headers"
-	case "queryparams", "queryparam", "query", "url", "params":
-		return "queryparams"
-	default:
-		return strings.ToLower(strings.TrimSpace(value))
-	}
-}
-
 func parseOAuth2TokenResponse(payload map[string]interface{}, now time.Time) oauth2TokenResponse {
 	values := map[string]interface{}{}
 	for key, value := range payload {
@@ -13037,13 +13017,6 @@ func effectiveResponseVariables(collection Collection, item RequestItem) []Varia
 		out = append(out, merged[name])
 	}
 	return out
-}
-
-func responseVariableRuntimeName(name string) string {
-	name = strings.TrimSpace(name)
-	name = strings.TrimPrefix(name, "~")
-	name = strings.TrimPrefix(name, "@")
-	return strings.TrimSpace(name)
 }
 
 func joinScripts(parts ...string) string {
@@ -28932,7 +28905,7 @@ func collectionFromImport(payload ImportPayload) (Collection, error) {
 		imported.UpdatedAt = now
 		return imported, nil
 	case "bru":
-		item, err := parseBru(payload.Content)
+		item, err := bru.Parse(payload.Content)
 		if err != nil {
 			return Collection{}, err
 		}
@@ -30668,7 +30641,7 @@ func readCollectionFromDisk(collectionPath string) (Collection, error) {
 	if rootPath := filepath.Join(collectionPath, "collection.bru"); !collectionPathIgnored(collectionPath, rootPath, ignorePatterns) {
 		if content, err := os.ReadFile(rootPath); err == nil {
 			rootName := collection.Name
-			if err := parseBruCollectionMetadata(&collection, string(content)); err != nil {
+			if err := bru.ParseCollectionMetadata(&collection, string(content)); err != nil {
 				return Collection{}, err
 			}
 			if rootConfigHasName {
@@ -30718,7 +30691,7 @@ func readCollectionFromDisk(collectionPath string) (Collection, error) {
 		var item RequestItem
 		switch ext {
 		case ".bru":
-			item, err = parseBru(string(content))
+			item, err = bru.Parse(string(content))
 			if err != nil {
 				return fmt.Errorf("parse %s: %w", path, err)
 			}
@@ -30804,7 +30777,7 @@ func readFolderConfig(folderPath string) FolderConfig {
 	config := FolderConfig{Auth: AuthConfig{}}
 	if content, err := os.ReadFile(filepath.Join(folderPath, "folder.bru")); err == nil {
 		temp := Collection{Auth: AuthConfig{}}
-		_ = parseBruCollectionMetadata(&temp, string(content))
+		_ = bru.ParseCollectionMetadata(&temp, string(content))
 		config.Headers = temp.Headers
 		config.Variables = temp.Variables
 		config.ResVariables = temp.ResVariables
@@ -30813,8 +30786,8 @@ func readFolderConfig(folderPath string) FolderConfig {
 		config.PostScript = temp.PostScript
 		config.Tests = temp.Tests
 		config.Docs = temp.Docs
-		if meta, ok := parseBruSections(string(content))["meta"]; ok {
-			values := parseBruScalarMap(meta)
+		if meta, ok := bru.ParseSections(string(content))["meta"]; ok {
+			values := bru.ParseScalarMap(meta)
 			config.Name = strings.TrimSpace(values["name"])
 			if seq, err := strconv.Atoi(values["seq"]); err == nil && seq > 0 {
 				config.Seq = seq
@@ -31061,6 +31034,15 @@ func itemFolderPhysicalPath(collection Collection, item RequestItem) string {
 }
 
 // OpenAPI, Postman and Insomnia import moved to internal/importers.
+func selectedFileBodyFields(entries []FileBodyEntry) (string, string) {
+	return types.SelectedFileBodyFields(entries)
+}
+
+func responseVariableRuntimeName(name string) string { return types.ResponseVariableRuntimeName(name) }
+
+func normalizeOAuth2AdditionalPlacement(value string) string {
+	return types.NormalizeOAuth2AdditionalPlacement(value)
+}
 
 func looksLikeJSON(value string) bool { return scalar.LooksLikeJSON(value) }
 
@@ -31343,53 +31325,6 @@ func parseYAMLBody(raw interface{}) RequestBody {
 	return body
 }
 
-func assignYAMLBodyData(body *RequestBody, mode string, data interface{}) {
-	switch mode {
-	case "json":
-		body.JSON = yamlScalarString(data)
-	case "xml":
-		body.XML = yamlScalarString(data)
-	case "formUrlEncoded":
-		body.FormURLEncoded = parseYAMLKeyValues(data, false)
-	case "multipartForm":
-		body.Multipart = parseYAMLMultipart(data)
-	case "file":
-		body.Files = parseYAMLFileBody(data)
-		body.FilePath, body.FileContentType = selectedFileBodyFields(body.Files)
-	case "none", "":
-		body.Mode = "none"
-	default:
-		body.Text = yamlScalarString(data)
-	}
-}
-
-func parseYAMLFileBody(raw interface{}) []FileBodyEntry {
-	if values, ok := listValue(raw); ok {
-		result := make([]FileBodyEntry, 0, len(values))
-		for _, entry := range values {
-			valueMap, ok := mapValue(entry)
-			if !ok {
-				continue
-			}
-			filePath := firstYAMLString(valueMap, "filePath", "path", "value")
-			contentType := firstYAMLString(valueMap, "contentType", "content_type")
-			if strings.TrimSpace(filePath) == "" && strings.TrimSpace(contentType) == "" {
-				continue
-			}
-			result = append(result, FileBodyEntry{
-				FilePath:    filePath,
-				ContentType: contentType,
-				Selected:    boolValue(valueMap["selected"], false),
-			})
-		}
-		return result
-	}
-	if filePath := yamlScalarString(raw); strings.TrimSpace(filePath) != "" {
-		return []FileBodyEntry{{FilePath: filePath, Selected: true}}
-	}
-	return nil
-}
-
 func normalizeBodyMode(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "none":
@@ -31411,39 +31346,6 @@ func normalizeBodyMode(value string) string {
 	default:
 		return "text"
 	}
-}
-
-func parseYAMLKeyValues(raw interface{}, queryOnly bool) []KeyValue {
-	values, ok := listValue(raw)
-	if !ok {
-		return nil
-	}
-	result := make([]KeyValue, 0, len(values))
-	for _, entry := range values {
-		valueMap, ok := mapValue(entry)
-		if !ok {
-			continue
-		}
-		if queryOnly {
-			paramType := strings.ToLower(yamlScalarString(valueMap["type"]))
-			if paramType != "" && paramType != "query" {
-				continue
-			}
-		}
-		name := strings.TrimSpace(yamlScalarString(valueMap["name"]))
-		if name == "" {
-			continue
-		}
-		enabled := yamlEnabled(valueMap)
-		result = append(result, KeyValue{
-			Name:        name,
-			Value:       yamlScalarString(valueMap["value"]),
-			Enabled:     enabled,
-			Secret:      boolValue(valueMap["secret"], false),
-			Description: yamlScalarString(valueMap["description"]),
-		})
-	}
-	return result
 }
 
 func parseYAMLParams(raw interface{}) ([]KeyValue, []KeyValue) {
@@ -31608,34 +31510,6 @@ func parseYAMLOAuth2AdditionalParams(raw interface{}, fallbackSendIn string) []O
 		})
 	}
 	return result
-}
-
-func parseYAMLMultipart(raw interface{}) []FormPart {
-	values, ok := listValue(raw)
-	if !ok {
-		return nil
-	}
-	parts := make([]FormPart, 0, len(values))
-	for _, entry := range values {
-		valueMap, ok := mapValue(entry)
-		if !ok {
-			continue
-		}
-		name := strings.TrimSpace(yamlScalarString(valueMap["name"]))
-		if name == "" {
-			continue
-		}
-		part := FormPart{Name: name, Enabled: yamlEnabled(valueMap)}
-		part.ContentType = firstYAMLString(valueMap, "contentType", "content_type")
-		partType := strings.ToLower(yamlScalarString(valueMap["type"]))
-		if partType == "file" {
-			part.FilePath = firstYAMLString(valueMap, "filePath", "path", "value")
-		} else {
-			part.Value = yamlScalarString(valueMap["value"])
-		}
-		parts = append(parts, part)
-	}
-	return parts
 }
 
 func parseYAMLVariables(raw interface{}) []Variable {
@@ -33737,16 +33611,6 @@ func firstMapValue(raw map[string]interface{}, keys ...string) interface{} {
 	return nil
 }
 
-func yamlEnabled(raw map[string]interface{}) bool {
-	if enabled, ok := boolValueOK(raw["enabled"]); ok {
-		return enabled
-	}
-	if disabled, ok := boolValueOK(raw["disabled"]); ok {
-		return !disabled
-	}
-	return true
-}
-
 func intValue(raw interface{}, fallback int) int {
 	if value, ok := intValueOK(raw); ok {
 		return value
@@ -33770,950 +33634,21 @@ func intValueOK(raw interface{}) (int, bool) {
 	}
 }
 
-func parseBruSections(content string) map[string][]string {
-	sections := map[string][]string{}
-	active := ""
-	closeToken := ""
-	for _, line := range strings.Split(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if active != "" {
-			if isBruSectionClose(line, closeToken) {
-				active = ""
-				closeToken = ""
-				continue
-			}
-			sections[active] = append(sections[active], line)
-			continue
-		}
-		if name, close, ok := bruSectionOpen(line); ok {
-			active = name
-			closeToken = close
-			if _, ok := sections[active]; !ok {
-				sections[active] = []string{}
-			}
-			continue
-		}
-		if trimmed == "" {
-			continue
-		}
-	}
-	return sections
+func yamlEnabled(raw map[string]interface{}) bool { return bru.YAMLEnabled(raw) }
+
+// Bruno .bru parsing moved to internal/store/bru, along with the YAML body
+// readers it shares with the YAML request reader still here.
+
+func parseYAMLMultipart(raw interface{}) []FormPart { return bru.ParseYAMLMultipart(raw) }
+
+func parseYAMLFileBody(raw interface{}) []FileBodyEntry { return bru.ParseYAMLFileBody(raw) }
+
+func parseYAMLKeyValues(raw interface{}, queryOnly bool) []KeyValue {
+	return bru.ParseYAMLKeyValues(raw, queryOnly)
 }
 
-func parseBruNamedBlocks(content, target string) [][]string {
-	blocks := [][]string{}
-	active := false
-	closeToken := ""
-	current := []string{}
-	for _, line := range strings.Split(content, "\n") {
-		if active {
-			if isBruSectionClose(line, closeToken) {
-				blocks = append(blocks, current)
-				active = false
-				closeToken = ""
-				current = []string{}
-				continue
-			}
-			current = append(current, line)
-			continue
-		}
-		if name, close, ok := bruSectionOpen(line); ok && name == target {
-			active = true
-			closeToken = close
-			current = []string{}
-		}
-	}
-	return blocks
-}
-
-func bruSectionOpen(line string) (string, string, bool) {
-	if strings.TrimLeft(line, " \t") != line {
-		return "", "", false
-	}
-	trimmed := strings.TrimSpace(line)
-	if strings.HasSuffix(trimmed, "{") {
-		return strings.TrimSpace(strings.TrimSuffix(trimmed, "{")), "}", true
-	}
-	if strings.HasSuffix(trimmed, "[") {
-		return strings.TrimSpace(strings.TrimSuffix(trimmed, "[")), "]", true
-	}
-	return "", "", false
-}
-
-func isBruSectionClose(line, closeToken string) bool {
-	return strings.TrimLeft(line, " \t") == line && strings.TrimSpace(line) == closeToken
-}
-
-func oauth1PrivateKeyBruValue(auth OAuth1Auth) string {
-	if auth.PrivateKeyType == "file" && auth.PrivateKey != "" {
-		return "@file(" + auth.PrivateKey + ")"
-	}
-	return auth.PrivateKey
-}
-
-func parseBruScalarMap(lines []string) map[string]string {
-	values := map[string]string{}
-	for i := 0; i < len(lines); i++ {
-		trimmed := strings.TrimSpace(lines[i])
-		if trimmed == "" || strings.HasPrefix(trimmed, "@") {
-			continue
-		}
-		key, value, ok := strings.Cut(trimmed, ":")
-		if !ok {
-			continue
-		}
-		key = strings.TrimSpace(key)
-		value = strings.TrimSpace(value)
-		if value == "'''" {
-			collected := []string{}
-			for i++; i < len(lines); i++ {
-				if strings.TrimSpace(lines[i]) == "'''" {
-					break
-				}
-				collected = append(collected, strings.TrimPrefix(lines[i], "    "))
-			}
-			value = strings.TrimRight(strings.Join(collected, "\n"), "\n")
-		}
-		values[key] = strings.TrimSuffix(value, ",")
-	}
-	return values
-}
-
-func parseBruScalarMapDedented(lines []string) map[string]string {
-	values := map[string]string{}
-	for i := 0; i < len(lines); i++ {
-		trimmed := strings.TrimSpace(lines[i])
-		if trimmed == "" || strings.HasPrefix(trimmed, "@") || strings.HasSuffix(trimmed, "{") {
-			continue
-		}
-		key, value, ok := strings.Cut(trimmed, ":")
-		if !ok {
-			continue
-		}
-		key = strings.TrimSpace(key)
-		value = strings.TrimSpace(value)
-		if value == "'''" {
-			collected := []string{}
-			for i++; i < len(lines); i++ {
-				if strings.TrimSpace(lines[i]) == "'''" {
-					break
-				}
-				collected = append(collected, lines[i])
-			}
-			value = strings.TrimRight(dedentBruLines(collected), "\n")
-		}
-		values[key] = strings.TrimSuffix(value, ",")
-	}
-	return values
-}
-
-func dedentBruLines(lines []string) string {
-	minIndent := -1
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		indent := leadingWhitespace(line)
-		if minIndent < 0 || indent < minIndent {
-			minIndent = indent
-		}
-	}
-	if minIndent < 0 {
-		minIndent = 0
-	}
-	out := make([]string, 0, len(lines))
-	for _, line := range lines {
-		if len(line) >= minIndent {
-			out = append(out, line[minIndent:])
-		} else {
-			out = append(out, strings.TrimLeft(line, " \t"))
-		}
-	}
-	return strings.Join(out, "\n")
-}
-
-func leadingWhitespace(line string) int {
-	count := 0
-	for count < len(line) && (line[count] == ' ' || line[count] == '\t') {
-		count++
-	}
-	return count
-}
-
-func collectBruColonBlock(lines []string, name string) []string {
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed != name+": {" && trimmed != name+" {" {
-			continue
-		}
-		indent := leadingWhitespace(line)
-		collected := []string{}
-		for j := i + 1; j < len(lines); j++ {
-			if leadingWhitespace(lines[j]) == indent && strings.TrimSpace(lines[j]) == "}" {
-				return collected
-			}
-			collected = append(collected, lines[j])
-		}
-		return collected
-	}
-	return nil
-}
-
-func parseBruKeyValues(lines []string) []KeyValue {
-	result := []KeyValue{}
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "@") {
-			continue
-		}
-		key, value, ok := strings.Cut(trimmed, ":")
-		if !ok {
-			continue
-		}
-		name := strings.TrimSpace(key)
-		enabled := true
-		if strings.HasPrefix(name, "~") {
-			enabled = false
-			name = strings.TrimPrefix(name, "~")
-		}
-		if name == "" {
-			continue
-		}
-		result = append(result, KeyValue{Name: name, Value: strings.TrimSpace(value), Enabled: enabled})
-	}
-	return result
-}
-
-func parseBruMultipartValues(lines []string) []FormPart {
-	result := []FormPart{}
-	filePattern := regexp.MustCompile(`@file\(([^)]*)\)`)
-	contentTypePattern := regexp.MustCompile(`@contentType\(([^)]*)\)`)
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "@") {
-			continue
-		}
-		key, value, ok := strings.Cut(trimmed, ":")
-		if !ok {
-			continue
-		}
-		name := strings.TrimSpace(key)
-		enabled := true
-		if strings.HasPrefix(name, "~") {
-			enabled = false
-			name = strings.TrimPrefix(name, "~")
-		}
-		if name == "" {
-			continue
-		}
-		value = strings.TrimSpace(value)
-		part := FormPart{Name: name, Enabled: enabled}
-		if match := contentTypePattern.FindStringSubmatch(value); len(match) == 2 {
-			part.ContentType = strings.TrimSpace(match[1])
-			value = strings.TrimSpace(contentTypePattern.ReplaceAllString(value, ""))
-		}
-		if match := filePattern.FindStringSubmatch(value); len(match) == 2 {
-			part.FilePath = strings.TrimSpace(match[1])
-		} else {
-			part.Value = strings.TrimSpace(value)
-		}
-		result = append(result, part)
-	}
-	return result
-}
-
-func parseBruFileBody(lines []string) []FileBodyEntry {
-	parts := parseBruMultipartValues(lines)
-	result := make([]FileBodyEntry, 0, len(parts))
-	for i := range parts {
-		if strings.TrimSpace(parts[i].FilePath) == "" && strings.TrimSpace(parts[i].ContentType) == "" {
-			continue
-		}
-		result = append(result, FileBodyEntry{
-			FilePath:    parts[i].FilePath,
-			ContentType: parts[i].ContentType,
-			Selected:    parts[i].Enabled,
-		})
-	}
-	return result
-}
-
-func parseBruGrpcMessages(content string) []GrpcMessage {
-	blocks := parseBruNamedBlocks(content, "body:grpc")
-	if len(blocks) == 0 {
-		return nil
-	}
-	result := make([]GrpcMessage, 0, len(blocks))
-	for index, block := range blocks {
-		values := parseBruScalarMap(block)
-		name := strings.TrimSpace(firstNonEmpty(values["name"], values["title"]))
-		messageContent := values["content"]
-		if strings.TrimSpace(name) == "" && strings.TrimSpace(messageContent) == "" {
-			continue
-		}
-		if strings.TrimSpace(name) == "" {
-			name = fmt.Sprintf("message %d", index+1)
-		}
-		result = append(result, GrpcMessage{Name: name, Content: messageContent})
-	}
-	return result
-}
-
-func parseBruWSMessages(content string) []WSMessage {
-	blocks := parseBruNamedBlocks(content, "body:ws")
-	if len(blocks) == 0 {
-		return nil
-	}
-	result := make([]WSMessage, 0, len(blocks))
-	for index, block := range blocks {
-		values := parseBruScalarMap(block)
-		name := strings.TrimSpace(firstNonEmpty(values["name"], values["title"]))
-		messageContent := firstNonEmpty(values["content"], values["data"])
-		if strings.TrimSpace(name) == "" && strings.TrimSpace(messageContent) == "" {
-			continue
-		}
-		if strings.TrimSpace(name) == "" && len(blocks) > 1 {
-			name = fmt.Sprintf("message %d", index+1)
-		}
-		result = append(result, WSMessage{
-			Name:     name,
-			Type:     normalizeWSMessageType(values["type"]),
-			Content:  messageContent,
-			Selected: strings.EqualFold(values["selected"], "true"),
-		})
-	}
-	return result
-}
-
-func oauth2AdditionalParamsFromKeyValues(rows []KeyValue, sendIn string) []OAuth2AdditionalParam {
-	result := make([]OAuth2AdditionalParam, 0, len(rows))
-	for _, row := range rows {
-		result = append(result, OAuth2AdditionalParam{
-			Name:        row.Name,
-			Value:       row.Value,
-			SendIn:      normalizeOAuth2AdditionalPlacement(sendIn),
-			Enabled:     row.Enabled,
-			Secret:      row.Secret,
-			Description: row.Description,
-		})
-	}
-	return result
-}
-
-func oauth2KeyValuesFromAdditionalParams(params []OAuth2AdditionalParam, sendIn string) []KeyValue {
-	sendIn = normalizeOAuth2AdditionalPlacement(sendIn)
-	result := []KeyValue{}
-	for _, param := range params {
-		if normalizeOAuth2AdditionalPlacement(param.SendIn) != sendIn || strings.TrimSpace(param.Name) == "" {
-			continue
-		}
-		result = append(result, KeyValue{
-			Name:        param.Name,
-			Value:       param.Value,
-			Enabled:     param.Enabled,
-			Secret:      param.Secret,
-			Description: param.Description,
-		})
-	}
-	return result
-}
-
-func parseBruVariables(lines []string, secret bool) []Variable {
-	variables := []Variable{}
-	currentType := "string"
-	for i := 0; i < len(lines); i++ {
-		trimmed := strings.TrimSpace(lines[i])
-		if trimmed == "" {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "@") && !strings.Contains(trimmed, ":") {
-			currentType = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(trimmed, "@")))
-			if currentType == "" {
-				currentType = "string"
-			}
-			continue
-		}
-		if secret {
-			name := strings.Trim(strings.TrimSuffix(trimmed, ","), " \t")
-			if name == "" {
-				continue
-			}
-			variables = append(variables, Variable{ID: newID("var"), Name: name, Value: "", DataType: currentType, Type: currentType, Enabled: true, Secret: true})
-			currentType = "string"
-			continue
-		}
-		key, value, ok := strings.Cut(trimmed, ":")
-		if !ok {
-			continue
-		}
-		name := strings.TrimSpace(key)
-		enabled := true
-		if strings.HasPrefix(name, "~") {
-			enabled = false
-			name = strings.TrimPrefix(name, "~")
-		}
-		name = responseVariableRuntimeName(name)
-		value = strings.TrimSpace(value)
-		if value == "'''" {
-			collected := []string{}
-			for i++; i < len(lines); i++ {
-				if strings.TrimSpace(lines[i]) == "'''" {
-					break
-				}
-				collected = append(collected, strings.TrimPrefix(lines[i], "    "))
-			}
-			value = strings.TrimRight(strings.Join(collected, "\n"), "\n")
-		}
-		parsed, dataType := parseBruTypedScalar(value, currentType)
-		variables = append(variables, Variable{ID: newID("var"), Name: name, Value: parsed, DataType: dataType, Type: dataType, Enabled: enabled, Secret: false})
-		currentType = "string"
-	}
-	return variables
-}
-
-func parseBruTypedScalar(value, dataType string) (interface{}, string) {
-	switch dataType {
-	case "number":
-		if strings.ContainsAny(value, ".eE") {
-			if parsed, err := strconv.ParseFloat(value, 64); err == nil {
-				return parsed, "number"
-			}
-		}
-		if parsed, err := strconv.Atoi(value); err == nil {
-			return parsed, "number"
-		}
-		return value, "number"
-	case "boolean":
-		if parsed, err := strconv.ParseBool(value); err == nil {
-			return parsed, "boolean"
-		}
-		return value, "boolean"
-	case "object":
-		return value, "object"
-	default:
-		return value, "string"
-	}
-}
-
-func normalizeBruRequestType(value string) string {
-	switch strings.ToLower(value) {
-	case "ws", "websocket":
-		return "websocket"
-	case "graphql":
-		return "graphql"
-	case "grpc":
-		return "grpc"
-	default:
-		return "http"
-	}
-}
-
-func normalizeBruBodyMode(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "graphql":
-		return "graphql"
-	case "ws":
-		return "text"
-	default:
-		return normalizeBodyMode(value)
-	}
-}
-
-func applyBruAuthSections(auth *AuthConfig, sections map[string][]string) {
-	if lines, ok := sections["auth"]; ok {
-		values := parseBruScalarMap(lines)
-		if mode := strings.TrimSpace(values["mode"]); mode != "" {
-			auth.Mode = mode
-		}
-	}
-	if auth.APILocation == "" {
-		auth.APILocation = "header"
-	}
-	if lines, ok := sections["auth:basic"]; ok {
-		values := parseBruScalarMap(lines)
-		auth.Mode = "basic"
-		auth.Username = values["username"]
-		auth.Password = values["password"]
-	}
-	if lines, ok := sections["auth:digest"]; ok {
-		values := parseBruScalarMap(lines)
-		auth.Mode = "digest"
-		auth.Username = values["username"]
-		auth.Password = values["password"]
-	}
-	if lines, ok := sections["auth:wsse"]; ok {
-		values := parseBruScalarMap(lines)
-		auth.Mode = "wsse"
-		auth.Username = values["username"]
-		auth.Password = values["password"]
-	}
-	if lines, ok := sections["auth:ntlm"]; ok {
-		values := parseBruScalarMap(lines)
-		auth.Mode = "ntlm"
-		auth.Username = values["username"]
-		auth.Password = values["password"]
-		auth.Domain = values["domain"]
-	}
-	if lines, ok := sections["auth:bearer"]; ok {
-		values := parseBruScalarMap(lines)
-		auth.Mode = "bearer"
-		auth.Token = firstNonEmpty(values["token"], values["accessToken"])
-	}
-	if lines, ok := sections["auth:apikey"]; ok {
-		values := parseBruScalarMap(lines)
-		auth.Mode = "apikey"
-		auth.APIKey = firstNonEmpty(values["key"], values["name"])
-		auth.APIValue = values["value"]
-		auth.APILocation = firstNonEmpty(strings.ToLower(values["placement"]), strings.ToLower(values["location"]), "header")
-	}
-	if lines, ok := sections["auth:awsv4"]; ok {
-		values := parseBruScalarMap(lines)
-		auth.Mode = "awsv4"
-		auth.AWSV4.AccessKeyID = firstNonEmpty(values["accessKeyId"], values["accessKey"])
-		auth.AWSV4.SecretAccessKey = firstNonEmpty(values["secretAccessKey"], values["secretKey"])
-		auth.AWSV4.SessionToken = values["sessionToken"]
-		auth.AWSV4.Service = values["service"]
-		auth.AWSV4.Region = values["region"]
-		auth.AWSV4.ProfileName = values["profileName"]
-	}
-	if lines, ok := sections["auth:oauth1"]; ok {
-		values := parseBruScalarMap(lines)
-		auth.Mode = "oauth1"
-		auth.OAuth1.ConsumerKey = values["consumer_key"]
-		auth.OAuth1.ConsumerSecret = values["consumer_secret"]
-		auth.OAuth1.AccessToken = values["access_token"]
-		auth.OAuth1.AccessTokenSecret = values["token_secret"]
-		auth.OAuth1.CallbackURL = values["callback_url"]
-		auth.OAuth1.Verifier = values["verifier"]
-		auth.OAuth1.SignatureMethod = values["signature_method"]
-		auth.OAuth1.PrivateKey, auth.OAuth1.PrivateKeyType = oauth1.ParsePrivateKeyValue(values["private_key"])
-		auth.OAuth1.Timestamp = values["timestamp"]
-		auth.OAuth1.Nonce = values["nonce"]
-		auth.OAuth1.Version = values["version"]
-		auth.OAuth1.Realm = values["realm"]
-		auth.OAuth1.Placement = values["placement"]
-		auth.OAuth1.IncludeBodyHash = strings.EqualFold(values["include_body_hash"], "true")
-	}
-	if lines, ok := sections["auth:oauth2"]; ok {
-		values := parseBruScalarMap(lines)
-		auth.Mode = "oauth2"
-		auth.Token = firstNonEmpty(values["accessToken"], values["access_token"], values["token"])
-		auth.OAuth2.GrantType = firstNonEmpty(values["grant_type"], values["grantType"])
-		auth.OAuth2.CallbackURL = firstNonEmpty(values["callback_url"], values["callbackUrl"])
-		auth.OAuth2.AuthorizationURL = firstNonEmpty(values["authorization_url"], values["authorizationUrl"])
-		auth.OAuth2.AccessTokenURL = firstNonEmpty(values["access_token_url"], values["accessTokenUrl"])
-		auth.OAuth2.RefreshTokenURL = firstNonEmpty(values["refresh_token_url"], values["refreshTokenUrl"])
-		auth.OAuth2.Username = values["username"]
-		auth.OAuth2.Password = values["password"]
-		auth.OAuth2.ClientID = firstNonEmpty(values["client_id"], values["clientId"])
-		auth.OAuth2.ClientSecret = firstNonEmpty(values["client_secret"], values["clientSecret"])
-		auth.OAuth2.Scope = values["scope"]
-		auth.OAuth2.State = values["state"]
-		auth.OAuth2.PKCE = strings.EqualFold(values["pkce"], "true")
-		auth.OAuth2.CredentialsPlacement = firstNonEmpty(values["credentials_placement"], values["credentialsPlacement"])
-		auth.OAuth2.CredentialsID = firstNonEmpty(values["credentials_id"], values["credentialsId"])
-		auth.OAuth2.TokenSource = firstNonEmpty(values["token_source"], values["tokenSource"])
-		auth.OAuth2.TokenPlacement = firstNonEmpty(values["token_placement"], values["tokenPlacement"])
-		auth.OAuth2.TokenHeaderPrefix = firstNonEmpty(values["token_header_prefix"], values["tokenHeaderPrefix"])
-		auth.OAuth2.TokenQueryKey = firstNonEmpty(values["token_query_key"], values["tokenQueryKey"])
-		auth.OAuth2.AutoFetchToken = strings.EqualFold(firstNonEmpty(values["auto_fetch_token"], values["autoFetchToken"]), "true")
-		auth.OAuth2.AutoRefreshToken = strings.EqualFold(firstNonEmpty(values["auto_refresh_token"], values["autoRefreshToken"]), "true")
-	}
-	auth.OAuth2.AuthorizationAdditionalParams = append(
-		oauth2AdditionalParamsFromKeyValues(parseBruKeyValues(sections["auth:oauth2:additional_params:auth_req:headers"]), "headers"),
-		oauth2AdditionalParamsFromKeyValues(parseBruKeyValues(sections["auth:oauth2:additional_params:auth_req:queryparams"]), "queryparams")...,
-	)
-	auth.OAuth2.TokenAdditionalParams = append(
-		oauth2AdditionalParamsFromKeyValues(parseBruKeyValues(sections["auth:oauth2:additional_params:access_token_req:headers"]), "headers"),
-		oauth2AdditionalParamsFromKeyValues(parseBruKeyValues(sections["auth:oauth2:additional_params:access_token_req:queryparams"]), "queryparams")...,
-	)
-	auth.OAuth2.TokenAdditionalParams = append(
-		auth.OAuth2.TokenAdditionalParams,
-		oauth2AdditionalParamsFromKeyValues(parseBruKeyValues(sections["auth:oauth2:additional_params:access_token_req:body"]), "body")...,
-	)
-	auth.OAuth2.RefreshAdditionalParams = append(
-		oauth2AdditionalParamsFromKeyValues(parseBruKeyValues(sections["auth:oauth2:additional_params:refresh_token_req:headers"]), "headers"),
-		oauth2AdditionalParamsFromKeyValues(parseBruKeyValues(sections["auth:oauth2:additional_params:refresh_token_req:queryparams"]), "queryparams")...,
-	)
-	auth.OAuth2.RefreshAdditionalParams = append(
-		auth.OAuth2.RefreshAdditionalParams,
-		oauth2AdditionalParamsFromKeyValues(parseBruKeyValues(sections["auth:oauth2:additional_params:refresh_token_req:body"]), "body")...,
-	)
-}
-
-func parseBruAssertions(lines []string) []Assertion {
-	assertions := []Assertion{}
-	for _, line := range lines {
-		key, value, ok := strings.Cut(strings.TrimSpace(line), ":")
-		if !ok {
-			continue
-		}
-		parts := strings.Fields(strings.TrimSpace(value))
-		if len(parts) < 2 {
-			continue
-		}
-		assertions = append(assertions, Assertion{Expression: strings.TrimSpace(key), Operator: bruAssertionOperator(parts[0]), Value: strings.Join(parts[1:], " "), Enabled: true})
-	}
-	return assertions
-}
-
-func bruAssertionOperator(value string) string {
-	switch value {
-	case "eq":
-		return "equals"
-	case "neq":
-		return "notEquals"
-	default:
-		return value
-	}
-}
-
-func applyBruSettings(item *RequestItem, values map[string]string) {
-	if encodeURL, err := strconv.ParseBool(values["encodeUrl"]); err == nil {
-		item.Settings.EncodeURL = encodeURL
-	}
-	if timeout, err := strconv.Atoi(values["timeout"]); err == nil {
-		item.Settings.TimeoutMs = timeout
-	}
-	if follow, err := strconv.ParseBool(values["followRedirects"]); err == nil {
-		item.Settings.FollowRedirects = follow
-	}
-	if maxRedirects, err := strconv.Atoi(values["maxRedirects"]); err == nil {
-		item.Settings.MaxRedirects = maxRedirects
-	}
-	if storeCookies, err := strconv.ParseBool(values["storeCookies"]); err == nil {
-		item.Settings.StoreCookies = storeCookies
-	}
-	if verifyTLS, err := strconv.ParseBool(values["verifyTls"]); err == nil {
-		item.Settings.VerifyTLS = verifyTLS
-	}
-	if keepAliveInterval, err := strconv.Atoi(values["keepAliveInterval"]); err == nil {
-		item.Settings.KeepAliveInterval = keepAliveInterval
-	}
-}
-
-func joinBruLines(lines []string) string {
-	return strings.Join(lines, "\n")
-}
-
-func parseBruExamples(content string, item RequestItem) []ResponseExample {
-	blocks := parseBruNamedBlocks(content, "example")
-	examples := make([]ResponseExample, 0, len(blocks))
-	for index, block := range blocks {
-		examples = append(examples, parseBruExampleBlock(block, item, index))
-	}
-	return examples
-}
-
-func parseBruExampleBlock(lines []string, item RequestItem, index int) ResponseExample {
-	values := parseBruScalarMapDedented(lines)
-	name := strings.TrimSpace(values["name"])
-	if name == "" {
-		name = fmt.Sprintf("Example %d", index+1)
-	}
-	example := ResponseExample{
-		ID:          deterministicID("example", firstNonEmpty(item.FilePath, item.ID, item.Name)+"#example#"+strconv.Itoa(index)),
-		Name:        name,
-		Description: values["description"],
-		Type:        firstNonEmpty(item.Type, "http"),
-		Request: ResponseExampleRequest{
-			Method:   strings.ToUpper(firstNonEmpty(item.Method, http.MethodGet)),
-			URL:      item.URL,
-			BodyMode: "none",
-		},
-		Response: ResponseExamplePayload{
-			Status:     http.StatusOK,
-			StatusText: http.StatusText(http.StatusOK),
-			BodyType:   "text",
-		},
-	}
-	if requestLines := collectBruColonBlock(lines, "request"); len(requestLines) > 0 {
-		applyBruExampleRequest(&example, requestLines)
-	}
-	if responseLines := collectBruColonBlock(lines, "response"); len(responseLines) > 0 {
-		applyBruExampleResponse(&example, responseLines)
-	}
-	return example
-}
-
-func applyBruExampleRequest(example *ResponseExample, lines []string) {
-	values := parseBruScalarMapDedented(lines)
-	if method := strings.TrimSpace(values["method"]); method != "" {
-		example.Request.Method = strings.ToUpper(method)
-	}
-	if targetURL := strings.TrimSpace(values["url"]); targetURL != "" {
-		example.Request.URL = targetURL
-	}
-	if mode := normalizeBruBodyMode(firstNonEmpty(values["mode"], values["body"])); mode != "" {
-		example.Request.BodyMode = mode
-	}
-	if headers := collectBruColonBlock(lines, "headers"); len(headers) > 0 {
-		example.Request.Headers = parseBruKeyValues(headers)
-	}
-	if params := collectBruColonBlock(lines, "params"); len(params) > 0 {
-		example.Request.Params = parseBruKeyValues(params)
-	}
-	if body := collectBruColonBlock(lines, "body"); len(body) > 0 {
-		bodyValues := parseBruScalarMapDedented(body)
-		example.Request.BodyMode = normalizeBruBodyMode(firstNonEmpty(bodyValues["type"], example.Request.BodyMode))
-		example.Request.Body = bodyValues["content"]
-	}
-	if body := collectBruColonBlock(lines, "body:form-urlencoded"); len(body) > 0 {
-		example.Request.BodyMode = "formUrlEncoded"
-		example.Request.FormURLEncoded = parseBruKeyValues(body)
-	}
-	if body := collectBruColonBlock(lines, "body:multipart-form"); len(body) > 0 {
-		example.Request.BodyMode = "multipartForm"
-		example.Request.MultipartForm = parseBruMultipartValues(body)
-	}
-	if body := collectBruColonBlock(lines, "body:file"); len(body) > 0 {
-		example.Request.BodyMode = "file"
-		example.Request.File = parseBruFileBody(body)
-	}
-}
-
-func applyBruExampleResponse(example *ResponseExample, lines []string) {
-	values := parseBruScalarMapDedented(lines)
-	if duration, err := strconv.ParseInt(firstNonEmpty(values["duration"], values["durationMs"]), 10, 64); err == nil && duration >= 0 {
-		example.Response.DurationMs = duration
-	}
-	if statusText := strings.TrimSpace(values["statusText"]); statusText != "" {
-		example.Response.StatusText = statusText
-	}
-	if statusLines := collectBruColonBlock(lines, "status"); len(statusLines) > 0 {
-		statusValues := parseBruScalarMapDedented(statusLines)
-		if status, err := strconv.Atoi(firstNonEmpty(statusValues["code"], statusValues["status"])); err == nil {
-			example.Response.Status = status
-		}
-		if statusText := strings.TrimSpace(firstNonEmpty(statusValues["text"], statusValues["statusText"])); statusText != "" {
-			example.Response.StatusText = cleanStatusText(example.Response.Status, statusText)
-		}
-	}
-	if example.Response.StatusText == "" {
-		example.Response.StatusText = http.StatusText(example.Response.Status)
-	}
-	if headers := collectBruColonBlock(lines, "headers"); len(headers) > 0 {
-		example.Response.Headers = parseBruKeyValues(headers)
-	}
-	if body := collectBruColonBlock(lines, "body"); len(body) > 0 {
-		bodyValues := parseBruScalarMapDedented(body)
-		example.Response.BodyType = firstNonEmpty(bodyValues["type"], "text")
-		example.Response.Body = bodyValues["content"]
-		example.Response.Size = len([]byte(example.Response.Body))
-	}
-}
-
-func parseBru(content string) (RequestItem, error) {
-	sections := parseBruSections(content)
-	item := types.NewRequestItem("Imported request", "http", 1)
-	if meta, ok := sections["meta"]; ok {
-		values := parseBruScalarMap(meta)
-		if name := strings.TrimSpace(values["name"]); name != "" {
-			item.Name = name
-		}
-		if requestType := strings.ToLower(strings.TrimSpace(values["type"])); requestType != "" {
-			item.Type = normalizeBruRequestType(requestType)
-		}
-		if seq, err := strconv.Atoi(values["seq"]); err == nil && seq > 0 {
-			item.Seq = seq
-		}
-	}
-	if item.Type == "graphql" {
-		item.Body.Mode = "graphql"
-	}
-	if item.Type == "websocket" {
-		item.Method = "CONNECT"
-		item.Body.Mode = "ws"
-	}
-	if item.Type == "grpc" {
-		item.Method = "CALL"
-		item.Body.Mode = "grpc"
-		item.URL = "grpc://localhost:50051"
-	}
-	for _, method := range []string{"get", "post", "put", "patch", "delete", "head", "options", "trace"} {
-		lines, ok := sections[method]
-		if !ok {
-			continue
-		}
-		values := parseBruScalarMap(lines)
-		item.Method = strings.ToUpper(method)
-		if targetURL := strings.TrimSpace(values["url"]); targetURL != "" {
-			item.URL = targetURL
-		}
-		if mode := strings.TrimSpace(values["body"]); mode != "" {
-			item.Body.Mode = normalizeBruBodyMode(mode)
-		}
-		if auth := strings.TrimSpace(values["auth"]); auth != "" {
-			item.Auth.Mode = auth
-		}
-	}
-	if lines, ok := sections["ws"]; ok {
-		values := parseBruScalarMap(lines)
-		item.Type = "websocket"
-		item.Method = "CONNECT"
-		if targetURL := strings.TrimSpace(values["url"]); targetURL != "" {
-			item.URL = targetURL
-		}
-		if auth := strings.TrimSpace(values["auth"]); auth != "" {
-			item.Auth.Mode = auth
-		}
-	}
-	if lines, ok := sections["grpc"]; ok {
-		values := parseBruScalarMap(lines)
-		item.Type = "grpc"
-		item.Body.Mode = "grpc"
-		if method := firstNonEmpty(values["method"], values["service"]); strings.TrimSpace(method) != "" {
-			item.Method = method
-		}
-		if targetURL := strings.TrimSpace(values["url"]); targetURL != "" {
-			item.URL = targetURL
-		}
-		if mode := strings.TrimSpace(values["body"]); mode != "" {
-			item.Body.Mode = normalizeBruBodyMode(mode)
-		}
-		if auth := strings.TrimSpace(values["auth"]); auth != "" {
-			item.Auth.Mode = auth
-		}
-		item.GrpcMethodType = strings.TrimSpace(values["methodType"])
-		item.ProtoPath = strings.TrimSpace(values["protoPath"])
-	}
-	if lines, ok := sections["headers"]; ok {
-		item.Headers = parseBruKeyValues(lines)
-	}
-	if item.Type == "grpc" {
-		if lines, ok := sections["metadata"]; ok {
-			item.Headers = parseBruKeyValues(lines)
-		}
-		item.GrpcMessages = parseBruGrpcMessages(content)
-		if len(item.GrpcMessages) > 0 {
-			item.Body.Mode = "grpc"
-		}
-	}
-	if lines, ok := sections["params:query"]; ok {
-		item.Params = parseBruKeyValues(lines)
-	}
-	if lines, ok := sections["params:path"]; ok {
-		item.PathParams = parseBruKeyValues(lines)
-	}
-	if lines, ok := sections["body:json"]; ok {
-		item.Body.Mode = "json"
-		item.Body.JSON = strings.TrimRight(joinBruLines(lines), "\n")
-	}
-	if lines, ok := sections["body:xml"]; ok {
-		item.Body.Mode = "xml"
-		item.Body.XML = strings.TrimRight(joinBruLines(lines), "\n")
-	}
-	if lines, ok := sections["body:text"]; ok {
-		item.Body.Mode = "text"
-		item.Body.Text = strings.TrimRight(joinBruLines(lines), "\n")
-	}
-	if lines, ok := sections["body:sparql"]; ok {
-		item.Body.Mode = "sparql"
-		item.Body.Text = strings.TrimRight(joinBruLines(lines), "\n")
-	}
-	if lines, ok := sections["body:graphql"]; ok {
-		item.Type = "graphql"
-		item.Body.Mode = "graphql"
-		item.Body.GraphQLQuery = strings.TrimRight(joinBruLines(lines), "\n")
-	}
-	if lines, ok := sections["body:graphql:vars"]; ok {
-		item.Type = "graphql"
-		item.Body.Mode = "graphql"
-		item.Body.GraphQLVariables = strings.TrimRight(joinBruLines(lines), "\n")
-	}
-	if lines, ok := sections["body:form-urlencoded"]; ok {
-		item.Body.Mode = "formUrlEncoded"
-		item.Body.FormURLEncoded = parseBruKeyValues(lines)
-	}
-	if lines, ok := sections["body:multipart-form"]; ok {
-		item.Body.Mode = "multipartForm"
-		item.Body.Multipart = parseBruMultipartValues(lines)
-	}
-	if lines, ok := sections["body:file"]; ok {
-		item.Body.Mode = "file"
-		item.Body.Files = parseBruFileBody(lines)
-		item.Body.FilePath, item.Body.FileContentType = selectedFileBodyFields(item.Body.Files)
-	}
-	if lines, ok := sections["body:ws"]; ok {
-		item.Type = "websocket"
-		item.Method = "CONNECT"
-		item.Body.Mode = "ws"
-		item.WSMessages = parseBruWSMessages(content)
-		if len(item.WSMessages) == 0 {
-			values := parseBruScalarMap(lines)
-			mode := normalizeBruBodyMode(values["type"])
-			if mode == "none" {
-				mode = "text"
-			}
-			item.Body.Mode = mode
-			assignYAMLBodyData(&item.Body, mode, firstNonEmpty(values["content"], values["data"]))
-		}
-	}
-	applyBruAuthSections(&item.Auth, sections)
-	if lines, ok := sections["vars:pre-request"]; ok {
-		item.Vars.Req = parseBruVariables(lines, false)
-	}
-	if lines, ok := sections["vars:post-response"]; ok {
-		item.Vars.Res = parseBruVariables(lines, false)
-	}
-	if lines, ok := sections["script:pre-request"]; ok {
-		item.PreScript = strings.TrimRight(joinBruLines(lines), "\n")
-	}
-	if lines, ok := sections["script:post-response"]; ok {
-		item.PostScript = strings.TrimRight(joinBruLines(lines), "\n")
-	}
-	if lines, ok := sections["tests"]; ok {
-		item.Tests = strings.TrimRight(joinBruLines(lines), "\n")
-	}
-	if lines, ok := sections["docs"]; ok {
-		item.Docs = strings.TrimSpace(joinBruLines(lines))
-	}
-	if lines, ok := sections["assert"]; ok {
-		item.Assertions = parseBruAssertions(lines)
-	}
-	if lines, ok := sections["settings"]; ok {
-		applyBruSettings(&item, parseBruScalarMap(lines))
-	}
-	item.Examples = parseBruExamples(content, item)
-	if item.Name == "" {
-		return RequestItem{}, errors.New("bru meta.name is required")
-	}
-	return item, nil
-}
-
-func parseBruCollectionMetadata(collection *Collection, content string) error {
-	sections := parseBruSections(content)
-	if meta, ok := sections["meta"]; ok {
-		values := parseBruScalarMap(meta)
-		if name := strings.TrimSpace(values["name"]); name != "" {
-			collection.Name = name
-		}
-	}
-	if lines, ok := sections["headers"]; ok {
-		collection.Headers = parseBruKeyValues(lines)
-	}
-	if lines, ok := sections["vars:pre-request"]; ok {
-		collection.Variables = parseBruVariables(lines, false)
-	} else if lines, ok := sections["vars"]; ok {
-		collection.Variables = parseBruVariables(lines, false)
-	}
-	if lines, ok := sections["vars:post-response"]; ok {
-		collection.ResVariables = parseBruVariables(lines, false)
-	}
-	applyBruAuthSections(&collection.Auth, sections)
-	if lines, ok := sections["script:pre-request"]; ok {
-		collection.PreScript = strings.TrimRight(joinBruLines(lines), "\n")
-	}
-	if lines, ok := sections["script:post-response"]; ok {
-		collection.PostScript = strings.TrimRight(joinBruLines(lines), "\n")
-	}
-	if lines, ok := sections["tests"]; ok {
-		collection.Tests = strings.TrimRight(joinBruLines(lines), "\n")
-	}
-	if lines, ok := sections["docs"]; ok {
-		collection.Docs = strings.TrimSpace(joinBruLines(lines))
-	}
-	return nil
+func assignYAMLBodyData(body *RequestBody, mode string, raw interface{}) {
+	bru.AssignYAMLBodyData(body, mode, raw)
 }
 
 func readCollectionEnvironments(collectionPath string, ignorePatterns []string) ([]Environment, error) {
@@ -34913,13 +33848,13 @@ func yamlRemoveMappingKey(root *yaml.Node, key string) bool {
 }
 
 func parseBruEnvironmentFile(name, content string) Environment {
-	sections := parseBruSections(content)
+	sections := bru.ParseSections(content)
 	env := Environment{ID: newID("env"), Name: name, Color: parseBruTopLevelScalar(content, "color"), Variables: []Variable{}}
 	if vars, ok := sections["vars"]; ok {
-		env.Variables = parseBruVariables(vars, false)
+		env.Variables = bru.ParseVariables(vars, false)
 	}
 	if secrets, ok := sections["vars:secret"]; ok {
-		env.Variables = mergeSecretVariables(env.Variables, parseBruVariables(secrets, true))
+		env.Variables = mergeSecretVariables(env.Variables, bru.ParseVariables(secrets, true))
 	}
 	return env
 }
@@ -35636,7 +34571,7 @@ func writeBruAuth(b *strings.Builder, auth AuthConfig, includeNone bool) {
 		fmt.Fprintf(b, "  callback_url: %s\n", auth.OAuth1.CallbackURL)
 		fmt.Fprintf(b, "  verifier: %s\n", auth.OAuth1.Verifier)
 		fmt.Fprintf(b, "  signature_method: %s\n", firstNonEmpty(auth.OAuth1.SignatureMethod, "HMAC-SHA1"))
-		fmt.Fprintf(b, "  private_key: %s\n", oauth1PrivateKeyBruValue(auth.OAuth1))
+		fmt.Fprintf(b, "  private_key: %s\n", bru.OAuth1PrivateKeyValue(auth.OAuth1))
 		fmt.Fprintf(b, "  timestamp: %s\n", auth.OAuth1.Timestamp)
 		fmt.Fprintf(b, "  nonce: %s\n", auth.OAuth1.Nonce)
 		fmt.Fprintf(b, "  version: %s\n", firstNonEmpty(auth.OAuth1.Version, "1.0"))
@@ -35682,7 +34617,7 @@ func writeBruAuth(b *strings.Builder, auth AuthConfig, includeNone bool) {
 }
 
 func writeBruOAuth2AdditionalParams(b *strings.Builder, section string, params []OAuth2AdditionalParam, sendIn string) {
-	writeBruKeyValues(b, section, oauth2KeyValuesFromAdditionalParams(params, sendIn))
+	writeBruKeyValues(b, section, bru.OAuth2KeyValuesFromAdditionalParams(params, sendIn))
 }
 
 func writeBruBlock(b *strings.Builder, section, content string) {
@@ -35914,7 +34849,7 @@ func writeBruExample(b *strings.Builder, example ResponseExample) {
 	if strings.TrimSpace(example.Request.Method) != "" {
 		fmt.Fprintf(b, "    method: %s\n", strings.ToLower(example.Request.Method))
 	}
-	requestBodyMode := normalizeBruBodyMode(firstNonEmpty(example.Request.BodyMode, "none"))
+	requestBodyMode := bru.NormalizeBodyMode(firstNonEmpty(example.Request.BodyMode, "none"))
 	fmt.Fprintf(b, "    mode: %s\n", requestBodyMode)
 	writeIndentedKeyValues(b, "headers", example.Request.Headers, "    ")
 	writeIndentedKeyValues(b, "params", example.Request.Params, "    ")
