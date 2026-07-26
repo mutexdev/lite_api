@@ -3509,3 +3509,28 @@ US-026 - Store layer. DONE. Both named collapses complete.
   root (one workspace's recovery data overwriting another's), and the same id
   always resolves to the same root (recovery data becoming unreachable after a
   restart).
+
+--- Draft-guard validation tests — the close-the-app data path ---
+
+  Control: both uniqueUnsavedDrafts and validateUnsavedDraftsLocked were
+  unverified. Disabling either failed no test, and the draft_guard_test.go
+  filter genuinely runs 7 tests, so this was not a filter artefact - I checked,
+  because a -run pattern matching nothing reports 0 exactly the same way.
+
+  These sit on the path that runs WHEN THE USER CLOSES THE APP WITH UNSAVED
+  WORK. The failure modes are the kind nobody sees coming:
+    - a draft listed twice gets written twice
+    - a draft failing validation silently is a request whose edits never reach
+      disk while the app reports a clean save
+
+  Seven tests added. Controls: dedup disabled -> 2 findings, dedup keyed on the
+  item id alone -> 4, the no-draft check disabled -> 2.
+
+  THE SECOND CONTROL IS THE INTERESTING ONE. Keying dedup on ItemID alone looks
+  harmless and is not: the same item id in two different collections is two
+  different requests, and collapsing them loses one request's edits entirely.
+  The test that catches it is four lines and I would not have written it without
+  asking "what if the key were simpler".
+
+  Also pinned: first-occurrence ORDER survives dedup, so drafts save in the
+  order the user's tabs are in rather than whatever a map iteration produces.
