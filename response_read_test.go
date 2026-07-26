@@ -9,6 +9,9 @@ package main
 
 import (
 	"encoding/base64"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -196,5 +199,65 @@ func TestReadResponseBodyRespectsTheCeiling(t *testing.T) {
 	}
 	if big.Length != responseBodyReadCeiling {
 		t.Errorf("oversized length was not capped: %d", big.Length)
+	}
+}
+
+// TestSentRequestsGetABodyHandle is US-009 step 4: a response produced by the
+// live request path — not just one backfilled at load — carries a handle, and
+// the stored bytes match what the user sees.
+func TestSentRequestsGetABodyHandle(t *testing.T) {
+	const payload = `{"served":"by the request path"}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, payload)
+	}))
+	defer server.Close()
+
+	app := newAppForTest(t)
+	state, err := app.GetState()
+	if err != nil {
+		t.Fatalf("GetState: %v", err)
+	}
+	collection := state.Workspaces[0].Collections[0]
+	created, err := app.CreateRequest(collection.ID, "http", "handle probe")
+	if err != nil {
+		t.Fatalf("CreateRequest: %v", err)
+	}
+	var itemID string
+	for _, c := range created.Workspaces[0].Collections {
+		for _, item := range c.Items {
+			if item.Name == "handle probe" {
+				itemID = item.ID
+			}
+		}
+	}
+	url := server.URL
+	if _, err := app.UpdateRequest(collection.ID, itemID, RequestPatch{URL: &url}); err != nil {
+		t.Fatalf("UpdateRequest: %v", err)
+	}
+
+	final, err := app.SendRequest(collection.ID, itemID, "")
+	if err != nil {
+		t.Fatalf("SendRequest: %v", err)
+	}
+	item, ok := findItemInState(final, collection.ID, itemID)
+	if !ok || item.Response == nil {
+		t.Fatal("no response recorded")
+	}
+	if item.Response.Body != payload {
+		t.Errorf("Body changed: %q", item.Response.Body)
+	}
+	if item.Response.BodyHandle == "" {
+		t.Fatal("a sent request produced no body handle")
+	}
+
+	// And the binding must return exactly what the user is looking at — this is
+	// the round trip the frontend will depend on once response.ts is rewired.
+	slice, err := app.ReadResponseBody(item.Response.BodyHandle, 0, 0)
+	if err != nil {
+		t.Fatalf("ReadResponseBody: %v", err)
+	}
+	if slice.Raw != payload {
+		t.Errorf("ReadResponseBody returned %q, want %q", slice.Raw, payload)
 	}
 }

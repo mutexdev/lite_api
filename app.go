@@ -6463,6 +6463,12 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 		a.pruneExpiredCookiesLocked()
 	}
 	applyScriptVariableContextToState(&a.state, liveWorkspace, collection, environmentID, scriptVariables)
+	// US-009 step 4. Store the body and record its handle as the response lands
+	// in state. Best-effort by design at this step: Body is still populated and
+	// still authoritative, so a failed cache write must not fail a request the
+	// user just saw succeed. See migrateResponseBodiesLocked for where that
+	// contract inverts.
+	_ = a.attachResponseBody(&response)
 	item.Response = &response
 	item.Timeline = append(item.Timeline, scriptTimeline...)
 	if controls.SkipRequest {
@@ -11893,6 +11899,12 @@ func (a *App) applyGRPCStreamResponse(collectionID, itemID string, response Resp
 	if err != nil {
 		return AppState{}, err
 	}
+	// US-009 step 4. Store the body and record its handle as the response lands
+	// in state. Best-effort by design at this step: Body is still populated and
+	// still authoritative, so a failed cache write must not fail a request the
+	// user just saw succeed. See migrateResponseBodiesLocked for where that
+	// contract inverts.
+	_ = a.attachResponseBody(&response)
 	item.Response = &response
 	for _, timeline := range timelines {
 		if timeline.ID != "" {
@@ -13464,6 +13476,12 @@ func (a *App) applyWebSocketResponse(collectionID, itemID string, response Respo
 	if err != nil {
 		return AppState{}, err
 	}
+	// US-009 step 4. Store the body and record its handle as the response lands
+	// in state. Best-effort by design at this step: Body is still populated and
+	// still authoritative, so a failed cache write must not fail a request the
+	// user just saw succeed. See migrateResponseBodiesLocked for where that
+	// contract inverts.
+	_ = a.attachResponseBody(&response)
 	item.Response = &response
 	if timeline.ID != "" {
 		item.Timeline = append(item.Timeline, timeline)
