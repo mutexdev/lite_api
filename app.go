@@ -10,6 +10,7 @@ import (
 	"LiteAPI/internal/scalar"
 	"LiteAPI/internal/transport"
 	"LiteAPI/internal/types"
+	"LiteAPI/internal/wsexec"
 	"archive/zip"
 	"bufio"
 	"bytes"
@@ -10513,8 +10514,8 @@ func (a *App) connectWebSocket(collectionID, itemID, environmentID string, promp
 	if item.Type != "websocket" {
 		return AppState{}, errors.New("request is not a WebSocket request")
 	}
-	targetURL := websocketTargetURL(item, vars)
-	headers := websocketHeaders(item, vars)
+	targetURL := wsexec.TargetURL(item, vars)
+	headers := wsexec.Headers(item, vars)
 	timeout := requestTimeoutMilliseconds(item.Settings.TimeoutMs, a.appTLSSettingsSnapshot().Request)
 	response := Response{SentAt: start, Headers: map[string]string{}, PreviewMode: "websocket", RequestedURL: targetURL}
 	dialer, err := a.websocketDialer(collectionID, item, targetURL, vars, time.Duration(timeout)*time.Millisecond)
@@ -10543,7 +10544,7 @@ func (a *App) connectWebSocket(collectionID, itemID, environmentID string, promp
 		statusText:     response.StatusText,
 		headers:        cloneStringMap(response.Headers),
 		timeout:        time.Duration(timeout) * time.Millisecond,
-		keepAliveEvery: websocketKeepAliveInterval(item.Settings),
+		keepAliveEvery: wsexec.KeepAliveInterval(item.Settings),
 		openedAt:       start,
 		lastActivityAt: start,
 		events:         []websocketSessionEvent{},
@@ -10574,7 +10575,7 @@ func (a *App) sendWebSocketMessage(collectionID, itemID, environmentID string, m
 	if item.Type != "websocket" {
 		return AppState{}, errors.New("request is not a WebSocket request")
 	}
-	message, err := websocketOutboundMessageAt(item, vars, messageIndex)
+	message, err := wsexec.OutboundMessageAt(item, vars, messageIndex)
 	if err != nil {
 		return AppState{}, err
 	}
@@ -10595,11 +10596,11 @@ func (a *App) sendWebSocketMessage(collectionID, itemID, environmentID string, m
 		shouldRemove = true
 	} else {
 		now := time.Now()
-		frameType, payload := websocketFramePayload(message)
+		frameType, payload := wsexec.FramePayload(message)
 		sent := websocketSessionEvent{
 			Direction: "sent",
 			Name:      message.Name,
-			Type:      websocketMessageTypeName(frameType),
+			Type:      wsexec.MessageTypeName(frameType),
 			Data:      string(payload),
 			At:        now,
 		}
@@ -10628,7 +10629,7 @@ func (a *App) sendWebSocketMessage(collectionID, itemID, environmentID string, m
 				received := websocketSessionEvent{
 					Direction: "received",
 					Name:      message.Name,
-					Type:      websocketMessageTypeName(responseType),
+					Type:      wsexec.MessageTypeName(responseType),
 					Data:      string(payload),
 					At:        time.Now(),
 				}
@@ -10693,10 +10694,10 @@ func websocketTimelineItem(item RequestItem, response Response, action string) T
 func (a *App) executeWebSocket(collectionID string, item RequestItem, vars map[string]string) Response {
 	start := time.Now()
 	result := Response{SentAt: start, Headers: map[string]string{}, PreviewMode: "websocket"}
-	targetURL := websocketTargetURL(item, vars)
+	targetURL := wsexec.TargetURL(item, vars)
 	result.RequestedURL = targetURL
 
-	headers := websocketHeaders(item, vars)
+	headers := wsexec.Headers(item, vars)
 
 	timeout := requestTimeoutMilliseconds(item.Settings.TimeoutMs, a.appTLSSettingsSnapshot().Request)
 	dialer, err := a.websocketDialer(collectionID, item, targetURL, vars, time.Duration(timeout)*time.Millisecond)
@@ -10720,7 +10721,7 @@ func (a *App) executeWebSocket(collectionID string, item RequestItem, vars map[s
 	}
 	defer func() { _ = conn.Close() }()
 
-	messages := websocketOutboundMessages(item, vars)
+	messages := wsexec.OutboundMessages(item, vars)
 	if len(messages) == 0 {
 		result.DurationMs = time.Since(start).Milliseconds()
 		return result
@@ -10730,7 +10731,7 @@ func (a *App) executeWebSocket(collectionID string, item RequestItem, vars map[s
 	var singlePayload []byte
 	var singleResponseType int
 	for _, message := range messages {
-		frameType, payload := websocketFramePayload(message)
+		frameType, payload := wsexec.FramePayload(message)
 		if err := conn.WriteMessage(frameType, payload); err != nil {
 			result.Error = err.Error()
 			result.DurationMs = time.Since(start).Milliseconds()
@@ -10745,7 +10746,7 @@ func (a *App) executeWebSocket(collectionID string, item RequestItem, vars map[s
 		}
 		event := map[string]string{
 			"name": message.Name,
-			"type": websocketMessageTypeName(responseType),
+			"type": wsexec.MessageTypeName(responseType),
 			"data": string(payload),
 		}
 		if responseType == websocket.BinaryMessage {
@@ -10760,7 +10761,7 @@ func (a *App) executeWebSocket(collectionID string, item RequestItem, vars map[s
 	var body []byte
 	if len(events) == 1 {
 		body = singlePayload
-		result.Headers["x-websocket-message-type"] = websocketMessageTypeName(singleResponseType)
+		result.Headers["x-websocket-message-type"] = wsexec.MessageTypeName(singleResponseType)
 		if singleResponseType == websocket.BinaryMessage {
 			result.Headers["x-websocket-message-base64"] = base64.StdEncoding.EncodeToString(singlePayload)
 			result.Headers["x-websocket-message-hex"] = hex.EncodeToString(singlePayload)
@@ -10783,100 +10784,14 @@ func (a *App) executeWebSocket(collectionID string, item RequestItem, vars map[s
 	return result
 }
 
-type websocketOutboundMessage struct {
-	Name    string
-	Type    string
-	Content string
-}
+// WebSocket message preparation moved to internal/wsexec.
+//
+// normalizeWSMessageType is wrapped rather than renamed at seven call sites.
 
-func websocketOutboundMessages(item RequestItem, vars map[string]string) []websocketOutboundMessage {
-	if len(item.WSMessages) > 0 {
-		hasSelected := false
-		for _, message := range item.WSMessages {
-			if message.Selected {
-				hasSelected = true
-				break
-			}
-		}
-		result := make([]websocketOutboundMessage, 0, len(item.WSMessages))
-		for index, message := range item.WSMessages {
-			if hasSelected && !message.Selected {
-				continue
-			}
-			name := strings.TrimSpace(message.Name)
-			if name == "" {
-				name = fmt.Sprintf("message %d", index+1)
-			}
-			result = append(result, websocketOutboundMessage{
-				Name:    name,
-				Type:    normalizeWSMessageType(message.Type),
-				Content: interpolate(message.Content, vars),
-			})
-		}
-		return result
-	}
-	if message := websocketMessage(item.Body, vars); message != "" {
-		return []websocketOutboundMessage{{Name: "message 1", Type: "text", Content: message}}
-	}
-	return nil
-}
+func normalizeWSMessageType(value string) string { return wsexec.NormalizeMessageType(value) }
 
-func websocketOutboundMessageAt(item RequestItem, vars map[string]string, index int) (websocketOutboundMessage, error) {
-	if len(item.WSMessages) > 0 {
-		if index < 0 || index >= len(item.WSMessages) {
-			return websocketOutboundMessage{}, fmt.Errorf("WebSocket message %d not found", index+1)
-		}
-		message := item.WSMessages[index]
-		name := strings.TrimSpace(message.Name)
-		if name == "" {
-			name = fmt.Sprintf("message %d", index+1)
-		}
-		return websocketOutboundMessage{
-			Name:    name,
-			Type:    normalizeWSMessageType(message.Type),
-			Content: interpolate(message.Content, vars),
-		}, nil
-	}
-	if index > 0 {
-		return websocketOutboundMessage{}, fmt.Errorf("WebSocket message %d not found", index+1)
-	}
-	if message := websocketMessage(item.Body, vars); message != "" {
-		return websocketOutboundMessage{Name: "message 1", Type: "text", Content: message}, nil
-	}
-	return websocketOutboundMessage{}, errors.New("WebSocket message is empty")
-}
-
-func websocketTargetURL(item RequestItem, vars map[string]string) string {
-	targetURL := codegen.RequestURLWithParams(item.URL, item.Params, item.PathParams, vars)
-	if strings.HasPrefix(targetURL, "http://") {
-		targetURL = "ws://" + strings.TrimPrefix(targetURL, "http://")
-	}
-	if strings.HasPrefix(targetURL, "https://") {
-		targetURL = "wss://" + strings.TrimPrefix(targetURL, "https://")
-	}
-	if !strings.HasPrefix(targetURL, "ws://") && !strings.HasPrefix(targetURL, "wss://") {
-		targetURL = "ws://" + targetURL
-	}
-	return targetURL
-}
-
-func websocketHeaders(item RequestItem, vars map[string]string) http.Header {
-	headers := http.Header{}
-	for _, header := range item.Headers {
-		if header.Enabled && header.Name != "" {
-			headers.Set(interpolate(header.Name, vars), interpolate(header.Value, vars))
-		}
-	}
-	applyWebSocketAuth(headers, item.Auth, vars, websocketTargetURL(item, vars))
-	return headers
-}
-
-func websocketKeepAliveInterval(settings RequestSettings) time.Duration {
-	if settings.KeepAliveInterval <= 0 {
-		return 0
-	}
-	return time.Duration(settings.KeepAliveInterval) * time.Millisecond
-}
+// Dialling stays in package main:
+// it reads the app's TLS settings, http client and per-collection certificates.
 
 func (a *App) websocketDialer(collectionID string, item RequestItem, targetURL string, vars map[string]string, timeout time.Duration) (websocket.Dialer, error) {
 	baseTransport := http.RoundTripper(http.DefaultTransport)
@@ -10910,59 +10825,6 @@ func (a *App) websocketDialer(collectionID string, item RequestItem, targetURL s
 		TLSClientConfig:  transport.TLSClientConfig,
 		NetDialContext:   transport.DialContext,
 	}, nil
-}
-
-func websocketFramePayload(message websocketOutboundMessage) (int, []byte) {
-	if message.Type == "binary" {
-		if decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(message.Content)); err == nil {
-			return websocket.BinaryMessage, decoded
-		}
-	}
-	return websocket.TextMessage, []byte(message.Content)
-}
-
-func websocketMessageTypeName(messageType int) string {
-	switch messageType {
-	case websocket.BinaryMessage:
-		return "binary"
-	case websocket.TextMessage:
-		return "text"
-	default:
-		return strconv.Itoa(messageType)
-	}
-}
-
-func websocketMessage(body RequestBody, vars map[string]string) string {
-	switch body.Mode {
-	case "json":
-		return interpolate(body.JSON, vars)
-	case "xml":
-		return interpolate(body.XML, vars)
-	case "text", "sparql", "":
-		return interpolate(body.Text, vars)
-	default:
-		return interpolate(body.Text, vars)
-	}
-}
-
-func applyWebSocketAuth(headers http.Header, auth AuthConfig, vars map[string]string, targetURL string) {
-	switch auth.Mode {
-	case "basic":
-		req, err := http.NewRequest(http.MethodGet, targetURL, nil)
-		if err == nil {
-			req.SetBasicAuth(interpolate(auth.Username, vars), interpolate(auth.Password, vars))
-			headers.Set("Authorization", req.Header.Get("Authorization"))
-		}
-	case "bearer", "oauth2":
-		token := interpolate(auth.Token, vars)
-		if token != "" {
-			headers.Set("Authorization", "Bearer "+token)
-		}
-	case "apikey":
-		if auth.APILocation != "query" && auth.APIKey != "" {
-			headers.Set(interpolate(auth.APIKey, vars), interpolate(auth.APIValue, vars))
-		}
-	}
 }
 
 func previewModeFromHeaders(headers map[string]string) string {
@@ -32111,19 +31973,6 @@ func normalizeBodyMode(value string) string {
 	}
 }
 
-func normalizeWSMessageType(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "json":
-		return "json"
-	case "xml":
-		return "xml"
-	case "binary", "bin":
-		return "binary"
-	default:
-		return "text"
-	}
-}
-
 func parseYAMLKeyValues(raw interface{}, queryOnly bool) []KeyValue {
 	values, ok := listValue(raw)
 	if !ok {
@@ -33760,7 +33609,7 @@ func wsMessagesForStorage(item RequestItem) []WSMessage {
 	if len(item.WSMessages) > 0 {
 		return item.WSMessages
 	}
-	if content := websocketMessage(item.Body, nil); strings.TrimSpace(content) != "" {
+	if content := wsexec.MessageBody(item.Body, nil); strings.TrimSpace(content) != "" {
 		return []WSMessage{{Type: normalizeWSMessageType(item.Body.Mode), Content: content}}
 	}
 	return nil

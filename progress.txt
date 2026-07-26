@@ -3123,3 +3123,49 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Gates: go build, go vet, go test all ok across 8 packages; svelte-check
   209/0/0; eslint 0; npm test 223/223.
+
+--- US-064 — internal/wsexec (DONE) ---
+
+  WebSocket send preparation out of app.go: target URL, handshake headers,
+  keep-alive, and the outbound frames with their opcodes. app.go: 37,364 ->
+  37,213. Dialling and the live session stay on *App - they hold the connection
+  and the per-session goroutines.
+
+  This is the part of a WebSocket session worth testing WITHOUT a socket: what
+  gets sent, and how, is decided entirely before anything is dialled.
+
+  !!! A THIRD UNTESTED CONTRACT, AND THE WORST OF THEM !!!
+
+  Making FramePayload return TextMessage for a BINARY message failed no test.
+  That is a protocol-level bug whose symptom looks like anything but: the frame
+  still goes out, the server either rejects it or reads base64 text as the
+  payload, and nothing on this side reports an error. The base64 decode was
+  equally unverified.
+
+  13 tests added. Controls now: binary-as-text fails 1, dropping the "bin"
+  alias fails 1, downgrading wss to ws fails 1, ignoring message selection
+  fails 1.
+
+  !!! THE CONTROL RUNNER WAS LYING TO ME, A SECOND WAY !!!
+
+  Two of those four controls reported "0 failing" AFTER I had written tests that
+  cover them. Both breaks did not COMPILE - and a build failure produces no
+  "--- FAIL" lines at all, so counting them reads a broken build as a clean pass.
+
+  This is the SAME mistake as the -race flake at the top of this file: `go test`
+  reporting failure without any test failing. I had already written "a build
+  failure reports at the top and a test failure in the middle" and still walked
+  into it from the other direction.
+
+  tools/extraction/control.sh now refuses to report a number unless the edit
+  landed AND the package built. Both lies a control can tell are covered:
+  an edit that matched nothing, and an edit that does not compile.
+
+  A TOOLING GAP CLOSED: block_end's companion names_in only matched
+  `func name(`, so `func (a *App) websocketDialer` sitting INSIDE the range was
+  invisible to the very check meant to catch stray App methods - and it got
+  extracted into a package that cannot have it. names_in now reports methods as
+  (Receiver).name, and the scanner self-check shows it.
+
+  Gates: go build, go vet, go test ok across 9 packages; svelte-check 209/0/0;
+  eslint 0; npm test 223/223.
