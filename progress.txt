@@ -39,6 +39,50 @@ evidence for each story; this file carries the cross-story findings.
     US-077 (internal/ layout) MUST land BEFORE Phase 4 (US-060..US-071), or
     all nine package extractions get moved twice.
 
+--- US-013 — independent dirty scopes for secrets and OAuth2 (PASSED) ---
+  Half of this story was already done: US-012 had added a content compare to
+  writeEnvironmentSecretsLocked (its comment even names US-013). What remained
+  was the OAuth2 file, which had NO gating at all — storeOAuth2Credentials runs
+  on every state persist and reads oauth2.json, DECRYPTS every stored
+  credential, re-encrypts every merged credential, and writes.
+
+  DESIGN CHOICE worth recording: the story says "each get an independent dirty
+  flag", which reads as classifying the 81 markDirty call sites by which files
+  they touch. Rejected. A misclassification there does not fail loudly — it
+  silently stops persisting a user's secret or a refreshed token, and no test
+  in this suite would catch it. Gated on a CONTENT FINGERPRINT instead, which
+  cannot be wrong by construction: the write is skipped exactly when the bytes
+  would be identical.
+
+  The OAuth2 gate hashes (baseline, local), not local alone. The merge is a
+  delta of local against baseline, so a key in baseline and absent from local
+  is a DELETION — a revoked token. Hashing local alone makes that identical to
+  "never existed", and the skip would swallow the revocation. There is a test
+  for exactly this.
+
+  Skipping is SAFE UNDER MULTIPLE WINDOWS in both scopes, and the direction is
+  what makes it safe: if another window rewrote the file, our fingerprint still
+  describes content identical to what we would write, so skipping leaves their
+  newer file intact. Writing is the operation that could clobber.
+
+  MEASURED, same host and settings (-benchtime=200x -count=3), by stashing the
+  change and re-running:
+    BenchmarkMarkDirty   before 67,484 ns/op  3,078 B/op  26 allocs
+                         after  48,742 ns/op  2,290 B/op  24 allocs   (1.38x)
+    BenchmarkPersistLockedSmallState  before 5,916,580  after 5,888,383 ns/op
+                         — unchanged, and NOT a failure of the OAuth2 gate:
+                         that benchmark is ~80% fsync (documented in bench.txt)
+                         and its fixture holds zero OAuth2 credentials, so
+                         there is nothing to decrypt. Allocations do drop 85->77.
+                         The OAuth2 saving scales with credential count, which
+                         this benchmark deliberately does not exercise.
+
+  HONESTY NOTE ON THE TESTS: TestSecretsFileIsNotRewrittenByUnrelatedMutations
+  would ALSO pass before this story, because US-012's byte compare already
+  skipped the write. It is a contract guard, not evidence for US-013. The
+  evidence for US-013's secrets half is the benchmark above and nothing else.
+  Said so in the test's own doc comment rather than letting it look like proof.
+
 --- US-021 + US-022 — push live WebSocket / gRPC events (PASSED) ---
   The push alone would NOT have fixed the quadratic cost, and the story text
   reads as though it would. Emitting each event incrementally is necessary but

@@ -200,6 +200,12 @@ type App struct {
 	// counter living inside that value would travel backwards with it.
 	// Guarded by a.mu, like a.state itself.
 	revision int64
+
+	// US-013. Fingerprints of what each auxiliary file last contained, so a
+	// persist that changes nothing in a file does no work for that file.
+	// secretsFingerprint is guarded by a.mu; oauth2Fingerprint by a.oauth2Mu.
+	secretsFingerprint string
+	oauth2Fingerprint  string
 }
 
 type TerminalSession struct {
@@ -8931,16 +8937,38 @@ func (a *App) writeEnvironmentSecretsLocked(store environmentSecretsFile) error 
 		return err
 	}
 	path := a.environmentSecretsPath()
-	// Skip unchanged content. persistEnvironmentSecretsLocked runs on the
-	// keystroke path, where secrets never change, and this turns that into a
-	// small read and a compare instead of a write plus two fsyncs. (US-013
-	// generalises this to every persisted artifact.)
-	if existing, readErr := os.ReadFile(path); readErr == nil && bytes.Equal(existing, data) {
+	// US-013. Skip unchanged content. persistEnvironmentSecretsLocked runs on
+	// the keystroke path, where secrets almost never change.
+	//
+	// The gate is an in-memory fingerprint of what this App last wrote, not a
+	// re-read of the file, so the common case costs a hash rather than a read
+	// plus a compare. The file is still read once — when the fingerprint is
+	// empty, i.e. before this App has written it — so a process that starts up
+	// and persists without touching a secret still does not rewrite the file.
+	//
+	// Skipping is SAFE UNDER MULTIPLE WINDOWS, and the direction matters: if
+	// another window has rewritten secrets.json since our last write, our
+	// fingerprint still describes content identical to what we would produce,
+	// so skipping leaves their newer file intact. Writing is the operation that
+	// could clobber; declining to write cannot.
+	fingerprint := fmt.Sprintf("%x", sha256.Sum256(data))
+	if a.secretsFingerprint != "" {
+		if fingerprint == a.secretsFingerprint {
+			return nil
+		}
+	} else if existing, readErr := os.ReadFile(path); readErr == nil && bytes.Equal(existing, data) {
+		a.secretsFingerprint = fingerprint
 		return nil
 	}
 	// Atomic for the same reason state.json is: a half-written secrets.json is
 	// every environment secret in the workspace, unrecoverable.
-	return writeFileAtomic(path, data, 0o600)
+	if err := writeFileAtomic(path, data, 0o600); err != nil {
+		// Leave the fingerprint alone on failure. Recording it here would make
+		// the next call skip a write that never landed.
+		return err
+	}
+	a.secretsFingerprint = fingerprint
+	return nil
 }
 
 func (a *App) prepareWorkspaceGlobalEnvironmentsLocked() (bool, error) {
@@ -14375,7 +14403,22 @@ func (a *App) storeOAuth2Credentials() error {
 		local[key] = value
 	}
 	baseline := cloneOAuth2TokenMap(a.oauth2Baseline)
+	// US-013. This function runs on every state persist, and everything below
+	// is expensive: it reads oauth2.json, DECRYPTS every stored credential,
+	// re-encrypts every merged credential, and writes the file. None of that
+	// can change the result when this App's own OAuth2 state has not moved
+	// since the last successful store, because the merge is a function of
+	// (baseline, local, disk) and a no-op delta leaves disk exactly as it is.
+	//
+	// So the gate is on (baseline, local) alone. Deliberately not on disk: a
+	// credential another window obtained is already on disk, and refusing to
+	// rewrite it is the correct outcome, not a lost update.
+	fingerprint, fingerprintErr := oauth2TokenMapFingerprint(baseline, local)
+	unchanged := fingerprintErr == nil && fingerprint != "" && fingerprint == a.oauth2Fingerprint
 	a.oauth2Mu.Unlock()
+	if unchanged {
+		return nil
+	}
 	disk := map[string]oauth2TokenResponse{}
 	if data, err := os.ReadFile(a.oauth2CredentialsPath()); err == nil {
 		var stored oauth2CredentialsFile
@@ -14439,8 +14482,54 @@ func (a *App) storeOAuth2Credentials() error {
 	a.oauth2Mu.Lock()
 	a.oauth2 = cloneOAuth2TokenMap(merged)
 	a.oauth2Baseline = cloneOAuth2TokenMap(merged)
+	// US-013. Recorded only after the write landed, and computed from the maps
+	// that were just installed rather than from the ones read at entry — the
+	// merge may have pulled in another window's credentials, and the gate must
+	// describe the state we actually persisted.
+	if next, err := oauth2TokenMapFingerprint(a.oauth2Baseline, a.oauth2); err == nil {
+		a.oauth2Fingerprint = next
+	} else {
+		// Unhashable state simply disables the gate; the next store does the
+		// full work rather than skipping on a stale fingerprint.
+		a.oauth2Fingerprint = ""
+	}
 	a.oauth2Mu.Unlock()
 	return nil
+}
+
+// oauth2TokenMapFingerprint hashes the (baseline, local) pair that determines
+// whether storeOAuth2Credentials can change anything on disk.
+//
+// Both halves are needed: the merge is a delta of local against baseline, so
+// two different baselines with the same local map produce different results —
+// a credential present in baseline and absent from local is a DELETION, which
+// is indistinguishable from "never existed" if only local is hashed.
+func oauth2TokenMapFingerprint(baseline, local map[string]oauth2TokenResponse) (string, error) {
+	digest := sha256.New()
+	for _, values := range []map[string]oauth2TokenResponse{baseline, local} {
+		keys := make([]string, 0, len(values))
+		for key := range values {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			encoded, err := json.Marshal(values[key])
+			if err != nil {
+				return "", err
+			}
+			// Length-prefixed, so that a key ending where a value begins cannot
+			// collide with a different split of the same bytes.
+			//
+			// hash.Hash.Write is documented never to return an error, which is
+			// why these are discarded rather than propagated.
+			_, _ = fmt.Fprintf(digest, "%d:%s%d:", len(key), key, len(encoded))
+			_, _ = digest.Write(encoded)
+		}
+		// Separator between the baseline and local halves, so that moving a key
+		// from one to the other changes the digest.
+		_, _ = digest.Write([]byte{0})
+	}
+	return fmt.Sprintf("%x", digest.Sum(nil)), nil
 }
 
 func cloneOAuth2TokenMap(values map[string]oauth2TokenResponse) map[string]oauth2TokenResponse {
