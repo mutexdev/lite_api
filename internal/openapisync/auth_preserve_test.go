@@ -162,3 +162,89 @@ func TestExistingAWSCredentialsWinWhenBothSidesAreSet(t *testing.T) {
 		t.Fatalf("spec overwrote user AWS values: %#v", got)
 	}
 }
+
+// Multipart form values across a re-sync, the last of the preserving merges to
+// have no tests.
+//
+// Same shape as the credential merges: the spec knows which parts EXIST, the
+// user knows what goes IN them. A re-sync that adopts the spec wholesale wipes
+// the file paths and values someone entered by hand, and the request still looks
+// correct afterwards — the parts are all there, just empty.
+//
+// The cursor logic is what makes this worth testing rather than reading. A
+// multipart body may legitimately repeat a name (several files under "file"),
+// so matching by name alone would give every repeat the FIRST existing value.
+func TestMultipartValuesSurviveAReSync(t *testing.T) {
+	spec := []types.FormPart{
+		{Name: "file", ContentType: "application/octet-stream"},
+		{Name: "description"},
+	}
+	existing := []types.FormPart{
+		{Name: "file", FilePath: "/home/ada/report.pdf", ContentType: "application/pdf", Enabled: true},
+		{Name: "description", Value: "quarterly report", Enabled: true},
+	}
+
+	got := mergeFormPartListPreserving(spec, existing, true)
+
+	if len(got) != 2 {
+		t.Fatalf("got %d parts, want 2: %+v", len(got), got)
+	}
+	if got[0].FilePath != "/home/ada/report.pdf" {
+		t.Errorf("file path was lost: %q", got[0].FilePath)
+	}
+	if got[0].ContentType != "application/pdf" {
+		t.Errorf("the user's content type was overwritten by the spec's: %q", got[0].ContentType)
+	}
+	if got[1].Value != "quarterly report" {
+		t.Errorf("value was lost: %q", got[1].Value)
+	}
+}
+
+// Repeated names must consume their matches in order, not all take the first.
+func TestRepeatedMultipartNamesTakeTheirOwnValues(t *testing.T) {
+	spec := []types.FormPart{{Name: "file"}, {Name: "file"}, {Name: "file"}}
+	existing := []types.FormPart{
+		{Name: "file", FilePath: "/a.txt", Enabled: true},
+		{Name: "file", FilePath: "/b.txt", Enabled: true},
+	}
+
+	got := mergeFormPartListPreserving(spec, existing, true)
+
+	if len(got) != 3 {
+		t.Fatalf("got %d parts, want 3", len(got))
+	}
+	if got[0].FilePath != "/a.txt" || got[1].FilePath != "/b.txt" {
+		t.Fatalf("repeated names did not consume their matches in order: %q, %q", got[0].FilePath, got[1].FilePath)
+	}
+	// The third has no counterpart and must come through as the spec declared it,
+	// not as a copy of an earlier one.
+	if got[2].FilePath != "" {
+		t.Errorf("a spec part with no existing counterpart inherited %q", got[2].FilePath)
+	}
+}
+
+// preserveValues=false is the "take the spec wholesale" path, used when the user
+// asked for exactly that. It must not quietly preserve anything.
+func TestMultipartMergeWithoutPreserveTakesTheSpec(t *testing.T) {
+	got := mergeFormPartListPreserving(
+		[]types.FormPart{{Name: "file"}},
+		[]types.FormPart{{Name: "file", FilePath: "/should-not-survive.txt"}},
+		false,
+	)
+	if len(got) != 1 || got[0].FilePath != "" {
+		t.Fatalf("preserveValues=false must adopt the spec unchanged, got %+v", got)
+	}
+}
+
+// A part the spec no longer declares is dropped: the body must match the spec's
+// shape, or a re-sync would never remove anything.
+func TestMultipartPartsRemovedFromTheSpecAreDropped(t *testing.T) {
+	got := mergeFormPartListPreserving(
+		[]types.FormPart{{Name: "kept"}},
+		[]types.FormPart{{Name: "kept", Value: "v"}, {Name: "gone", Value: "x"}},
+		true,
+	)
+	if len(got) != 1 || got[0].Name != "kept" {
+		t.Fatalf("a part absent from the spec must not survive: %+v", got)
+	}
+}

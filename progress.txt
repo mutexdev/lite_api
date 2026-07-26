@@ -4216,3 +4216,26 @@ US-026 - Store layer. DONE. Both named collapses complete.
   repeatedly.
 
   0%-covered functions: 30 -> 24. Coverage 78.7%.
+
+--- Multipart preservation across re-sync — the last of the preserving merges ---
+
+  mergeFormPartListPreserving was the last uncovered member of the family. Same
+  shape as the credential merges: the SPEC knows which parts exist, the USER
+  knows what goes in them. A re-sync that adopts the spec wholesale wipes the
+  file paths and values someone entered by hand — and the request still looks
+  correct afterwards, because all the parts are there. They are just empty.
+
+  Four tests. The one that earns its place is repeated names: a multipart body
+  may legitimately repeat a name (several files under "file"), and the merge
+  walks a per-name CURSOR so each repeat takes its own existing value. Matching
+  by name alone would give every repeat the first one.
+
+  Controls: not preserving the file path fails 2, freezing the cursor fails 1,
+  ignoring preserveValues fails 1. The cursor control is the proof that the
+  repeated-name test is doing work rather than restating the simple case.
+
+  Also pinned in both directions, as with the credentials: preserveValues=false
+  must adopt the spec unchanged, and a part the spec no longer declares must be
+  DROPPED — otherwise a re-sync could never remove anything.
+
+  openapisync 0%-covered functions: 6 -> 1. Overall 30 -> 23. Coverage 78.9%.
