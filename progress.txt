@@ -5180,3 +5180,39 @@ US-026 - Store layer. DONE. Both named collapses complete.
   server. Going the other way, a number bound for a string field is formatted
   as plain digits: Go's default gives "1e+21" for a large value, which would be
   sent as that literal text.
+
+--- Crypto and encoding dispatch — 28-40% -> 100% ---
+
+  Each of these is a switch mapping a name a script wrote onto the thing that
+  does the work, which makes them the places where a script asking for one
+  primitive quietly gets another.
+
+  JWT: "alg": "none" is the original JWT forgery — a token signed with nothing
+  verifies against any key — so it must be an ERROR, not a method that signs an
+  empty signature. Asymmetric algorithms are refused too rather than silently
+  HMAC'd with the public key as the secret, the other classic confusion attack.
+  The control that matters here makes an unknown algorithm fall back to HS256,
+  which is precisely how a "none" token gets accepted, and it fires.
+
+  AES: an unknown cipher errors rather than defaulting to a length. Returning 16
+  for an unrecognised name encrypts with AES-128 under a name the script
+  believed meant something stronger.
+
+  Base64: all four alphabet/padding combinations decode, because all four turn
+  up — standard from an API, unpadded base64url from a JWT segment. Failing one
+  makes a decode fail on input that is entirely valid.
+
+  Binary strings round-trip all 256 byte values, including those above 0x7f
+  which a UTF-8 conversion would expand into two bytes; anything above 0xff is
+  refused rather than truncated, since truncation writes 0x41 for U+0141 and
+  corrupts the data with no sign of it.
+
+  scriptOSType stays at 40% and that is the PLATFORM, not a gap: only one branch
+  of a GOOS switch can run in any single test process. Making it measurable
+  would mean reshaping the function for the benefit of the coverage number,
+  which is not a reason to change code.
+
+  One assertion I withdrew rather than "fixed": scriptJWTSigningMethod does not
+  trim its input. Unlike a PEM pasted into a text box, this value comes from a
+  script's own options object, so a stray space means the script wrote one. The
+  test says that instead of asserting a tolerance and then adding it.
