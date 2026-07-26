@@ -220,3 +220,23 @@ frontend/dist/assets/index-*.css        113609
 # list, let svelte-check finish it", and the compiler is what makes that safe.
 #
 # Running total: 1,159,933 -> 517,593 (55.4% smaller). 17,593 above target.
+
+# Hand extraction #9 — rename-folder (3,454 B of source):
+#   initial chunk 517,593 -> 516,039  (-1,554)
+#
+# First one to land with no svelte-check corrections: widening the grep to
+# include {#if lines caught renameFolderDirectoryIsReserved and
+# collectionFolderNameIsValid up front, which were exactly what the previous
+# extraction missed. The heuristic improves as the cases accumulate.
+#
+# Running total: 1,159,933 -> 516,039 (55.5% smaller). 16,039 above target.
+#
+# REMAINING BODIES, size-ordered (work top-down):
+#   3,649 rename-request    3,613 clone-request    3,350 clone-folder
+#   1,587 command-palette   1,472 oauth2-auth      1,427 create-example
+#   1,413 global-search     1,349 openapi-spec     1,319 new-request
+#   1,255 response-example-code  1,241 item-info    1,112 request-code
+#   1,092 delete-request    1,060 delete-folder      942 import-replace
+#     912 remove-collection   883 prompt-dialog      640 grpcurl-code
+#     521 git-not-found     1,762 unsaved-tabs
+# ~29 KB of source against a 16,039-byte gap: comfortable.
