@@ -3981,3 +3981,37 @@ US-026 - Store layer. DONE. Both named collapses complete.
   The proof that the split WORKS, not merely that chunks exist: importing one
   deferred chunk took the fetched count from 2 to 3, with RunnerPanel the only
   addition.
+
+--- US-019 — the decision is now VISIBLE. Four semantics tests added. ---
+
+  The consolidation still needs a product call, but the part of my own
+  recommendation that did NOT need one is now done: "pin the new semantics in
+  tests FIRST — what a tests script sees from the post script, and in what
+  order."
+
+  The existing script_isolation_test.go pins pre-request -> tests isolation,
+  cross-request isolation, bru.setVar persistence, sandbox mode and the cookie
+  jar. It does NOT pin the three things a 3->1 consolidation would actually
+  change. Those now have tests:
+
+    post-response global is NOT visible to tests      (isolation today)
+    post-response bru.setVar IS visible to tests      (the supported channel)
+    the phases run post-script THEN tests             (order, unobservable today)
+    a tests-script global does not survive the request
+
+  WHY THIS IS WORTH DOING BEFORE THE DECISION, not after: today those four
+  sentences are invisible. Nothing anywhere states them, so a consolidation
+  would change them silently and user scripts would discover it in the field.
+  With the tests present the change becomes a DIFF — whoever consolidates sees
+  exactly which visibility rules they are altering and has to update the
+  sentences deliberately.
+
+  CONTROLLED, not assumed. I simulated the consolidation's visible effect by
+  planting the post script's global into the tests runtime — which is precisely
+  what one shared runtime does — and the isolation test failed. So these are a
+  real tripwire, not documentation that happens to pass.
+
+  The second test is the one that keeps the set honest: a consolidation that
+  isolated too hard would break the setVar handoff while making every isolation
+  test greener. Both directions are pinned, the same way the original US-019
+  suite pinned bru.setVar persistence against over-isolation.
