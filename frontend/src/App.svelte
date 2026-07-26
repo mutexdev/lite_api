@@ -105,6 +105,12 @@
   } from './lib/environmentVariables'
   import { resolveNativeMenuCommand } from './lib/nativeMenu'
   import {
+    runnerSelectableItems,
+    runnerSelectedCount as runnerSelectedCountOf,
+    setRunnerItemSelected as setRunnerSelection,
+    toggleRunnerSelectAll as toggleRunnerSelectAllOf
+  } from './lib/runnerSelection'
+  import {
     collectionIsScratch as isScratchCollection,
     findResponseExampleForTab,
     methodLabel,
@@ -155,7 +161,7 @@
     selectedImportRows,
     toggleImportChildID
   } from './lib/importPlanning'
-  import { canPushGitBranch, canStageGitSelection, canSwitchGitBranch, canUnstageGitSelection, reconcileGitRemoteBranch, reconcileGitSelection } from './lib/gitWorkbench'
+  import { canPushGitBranch, canStageGitSelection, canSwitchGitBranch, canUnstageGitSelection, reconcileGitBranch, reconcileGitRemoteBranch, reconcileGitRemoteSelection, reconcileGitSelection } from './lib/gitWorkbench'
   import type { RequestCommandState } from './lib/workbench/types'
   import {
     commandPaletteCommandIDs,
@@ -1045,7 +1051,7 @@
   if (generateDocsSelectAllInput) generateDocsSelectAllInput.indeterminate = generateDocsSelectedCount > 0 && generateDocsSelectedCount < generateDocsEnvironments.length
   })
   const runnerConfigItems = $derived(runnerSelectableItems(activeCollection))
-  const runnerSelectedCount = $derived(runnerSelectedItemIds.filter((id) => runnerConfigItems.some((item) => item.id === id)).length)
+  const runnerSelectedCount = $derived(runnerSelectedCountOf(runnerSelectedItemIds, runnerConfigItems))
   $effect(() => {
   if ((activeCollection?.id ?? '') !== runnerConfigCollectionId) {
       runnerConfigCollectionId = activeCollection?.id ?? ''
@@ -2874,34 +2880,16 @@
     }
   }
 
-  function runnerItemIsRunnable(item: types.RequestItem) {
-    return !item.type || item.type === 'http' || item.type === 'graphql' || item.type === 'grpc'
-  }
-
-  function runnerSelectableItems(collection: types.Collection | undefined) {
-    return (collection?.items ?? []).filter(runnerItemIsRunnable)
-  }
-
   function runnerItemSelected(itemId: string) {
     return runnerSelectedItemIds.includes(itemId)
   }
 
   function setRunnerItemSelected(itemId: string, selected: boolean) {
-    if (selected) {
-      const ids = new Set(runnerSelectedItemIds)
-      ids.add(itemId)
-      runnerSelectedItemIds = runnerConfigItems.filter((item) => ids.has(item.id)).map((item) => item.id)
-    } else {
-      runnerSelectedItemIds = runnerSelectedItemIds.filter((id) => id !== itemId)
-    }
+    runnerSelectedItemIds = setRunnerSelection(runnerSelectedItemIds, runnerConfigItems, itemId, selected)
   }
 
   function toggleRunnerSelectAll() {
-    if (runnerSelectedCount === runnerConfigItems.length) {
-      runnerSelectedItemIds = []
-    } else {
-      runnerSelectedItemIds = runnerConfigItems.map((item) => item.id)
-    }
+    runnerSelectedItemIds = toggleRunnerSelectAllOf(runnerSelectedCount, runnerConfigItems)
   }
 
   function resetRunnerConfiguration() {
@@ -4714,15 +4702,11 @@
     gitWorkbenchSnapshot = snapshot
 		if (!snapshot.available) gitNotFoundMessage = 'Git is not installed or not on PATH.'
     gitWorkbenchSelectedPaths = reconcileGitSelection(gitWorkbenchSelectedPaths, snapshot.files ?? [])
-    if (!gitWorkbenchBranch || !(snapshot.branches ?? []).includes(gitWorkbenchBranch)) gitWorkbenchBranch = snapshot.branch ?? ''
+    gitWorkbenchBranch = reconcileGitBranch(gitWorkbenchBranch, snapshot.branches, snapshot.branch)
 		gitWorkbenchRemoteBranch = reconcileGitRemoteBranch(gitWorkbenchRemoteBranch, previousBranch, snapshot.branch)
-    const selectedRemote = (snapshot.remotes ?? []).find((remote) => remote.name === gitWorkbenchRemoteName) ?? snapshot.remotes?.[0]
-    if (selectedRemote) {
-      gitWorkbenchRemoteName = selectedRemote.name
-      gitWorkbenchRemoteURL = selectedRemote.url
-    } else {
-      gitWorkbenchRemoteURL = ''
-    }
+    const remote = reconcileGitRemoteSelection(gitWorkbenchRemoteName, snapshot.remotes)
+    gitWorkbenchRemoteName = remote.name
+    gitWorkbenchRemoteURL = remote.url
   }
 
   function selectGitWorkbenchRemote(name: string) {

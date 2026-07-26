@@ -38,3 +38,46 @@ export function reconcileGitRemoteBranch(current: string, previousBranch: string
   if (!current || current === (previousBranch ?? '')) return next
   return current
 }
+
+export type GitWorkbenchRemote = { name: string; url: string }
+
+export type GitRemoteSelection = { name: string; url: string }
+
+/**
+ * Picks which remote the workbench shows after a refresh.
+ *
+ * Keeps the one already selected when it still exists, so a refresh does not
+ * move the user off the remote they were about to push to. Falls back to the
+ * first remote, because a repository with remotes and none selected offers a
+ * push button that cannot work.
+ *
+ * With no remotes at all the URL is CLEARED rather than left alone. A stale URL
+ * beside an empty remote list reads as a configured remote, and the connect
+ * dialog would open pre-filled with an address the repository no longer has.
+ */
+export function reconcileGitRemoteSelection(
+  currentName: string,
+  remotes: readonly GitWorkbenchRemote[] | undefined
+): GitRemoteSelection {
+  const list = remotes ?? []
+  const selected = list.find((remote) => remote.name === currentName) ?? list[0]
+  if (!selected) return { name: currentName, url: '' }
+  return { name: selected.name, url: selected.url }
+}
+
+/**
+ * The branch the workbench shows after a refresh.
+ *
+ * Keeps the current choice only while it is still a branch that exists —
+ * otherwise the checkout button would target a branch that was deleted or
+ * renamed elsewhere, and git would refuse with a message about a ref rather
+ * than about the branch picker.
+ */
+export function reconcileGitBranch(
+  current: string,
+  branches: readonly string[] | undefined,
+  head: string | undefined
+): string {
+  if (current && (branches ?? []).includes(current)) return current
+  return head ?? ''
+}

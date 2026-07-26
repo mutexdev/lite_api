@@ -7433,3 +7433,42 @@ US-026 - Store layer. DONE. Both named collapses complete.
   pin a filter.
 
   Nine controls, eight failures and one deletion.
+
+=== PHASE 6 — runner selection and the git remote/branch reconcilers ===
+
+  New src/lib/runnerSelection.ts (14 tests); reconcileGitRemoteSelection and
+  reconcileGitBranch onto gitWorkbench.ts (6 -> 10).
+  App.svelte 10,792 -> 10,776. Suite 698 -> 718.
+
+  THE SELECTION IS A LIST, NOT A SET, AND THE RUNNER EXECUTES IT IN ORDER. That
+  single fact is why adding an id is a REBUILD and not a push: appending would
+  order the run by the sequence the user happened to CLICK checkboxes, and a run
+  that fires the login request third because it was ticked third fails in a way
+  that looks like a broken API rather than a broken selection. Control fails 4.
+
+    - deselecting may filter, because removing an id cannot disturb the order of
+      the ones that remain. The asymmetry is deliberate.
+    - stale ids are dropped on any select — a request deleted while the runner
+      screen was open cannot survive into the run. Control fails 3.
+    - AN ITEM WITH NO TYPE IS RUNNABLE. Requests written before the field
+      existed are HTTP, and excluding them silently empties the runner for every
+      older collection. Control fails 2.
+    - WEBSOCKET IS EXCLUDED: a socket is a session, not a request-response pair,
+      so there is nothing for a sequential runner to wait for. Control fails 2.
+    - the count ignores ids that are gone, and the test asserts the count and
+      select-all AGREE after a deletion — a stale id counted as selected makes
+      the count equal the length and the click CLEARS instead of selecting.
+      Controls fail 2 and 4.
+
+  On the git side:
+    - the selected remote SURVIVES a refresh, so it does not move the user off
+      the remote they were about to push to; and falls back to the first, since
+      remotes with none selected offer a push button that cannot work. 1 and 1.
+    - with NO remotes the URL is CLEARED. A stale URL beside an empty list reads
+      as a configured remote, and connect opens pre-filled with an address the
+      repository no longer has. Control fails 1.
+    - a branch that no longer exists falls back to head, or checkout targets a
+      ref deleted elsewhere and git refuses with a message about a ref rather
+      than about the picker. Controls fail 2 and 1.
+
+  Eleven controls, eleven failures.

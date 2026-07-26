@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { canPushGitBranch, canStageGitSelection, canSwitchGitBranch, canUnstageGitSelection, reconcileGitRemoteBranch, reconcileGitSelection } from '../src/lib/gitWorkbench.ts'
+import { canPushGitBranch, canStageGitSelection, canSwitchGitBranch, canUnstageGitSelection, reconcileGitBranch, reconcileGitRemoteBranch, reconcileGitRemoteSelection, reconcileGitSelection } from '../src/lib/gitWorkbench.ts'
 
 const files = [
   { path: 'changed.bru', staged: false, untracked: false, conflicted: false },
@@ -34,4 +34,51 @@ test('Git remote branch follows active branch transitions without overwriting an
   assert.equal(reconcileGitRemoteBranch('', undefined, 'main'), 'main', 'initial snapshot selects its branch')
   assert.equal(reconcileGitRemoteBranch('main', 'main', 'Qa-r3'), 'Qa-r3', 'default follows a checked-out branch')
   assert.equal(reconcileGitRemoteBranch('release', 'main', 'Qa-r3'), 'release', 'explicit remote branch is preserved')
+})
+
+const remotes = [
+  { name: 'origin', url: 'git@example.test:a/b.git' },
+  { name: 'fork', url: 'git@example.test:me/b.git' }
+]
+
+// A refresh must not move the user off the remote they were about to push to.
+test('the selected remote survives a refresh', () => {
+  assert.deepEqual(reconcileGitRemoteSelection('fork', remotes), {
+    name: 'fork',
+    url: 'git@example.test:me/b.git'
+  })
+})
+
+// A repository with remotes and none selected offers a push button that cannot
+// work.
+test('an unknown remote falls back to the first', () => {
+  assert.deepEqual(reconcileGitRemoteSelection('gone', remotes), {
+    name: 'origin',
+    url: 'git@example.test:a/b.git'
+  })
+  assert.deepEqual(reconcileGitRemoteSelection('', remotes), {
+    name: 'origin',
+    url: 'git@example.test:a/b.git'
+  })
+})
+
+// A stale URL beside an empty remote list reads as a configured remote, and the
+// connect dialog would open pre-filled with an address the repository no longer
+// has.
+test('with no remotes the url is cleared', () => {
+  assert.equal(reconcileGitRemoteSelection('origin', []).url, '')
+  assert.equal(reconcileGitRemoteSelection('origin', undefined).url, '')
+})
+
+// Otherwise the checkout button targets a branch deleted or renamed elsewhere,
+// and git refuses with a message about a ref rather than about the picker.
+test('a branch that no longer exists falls back to head', () => {
+  assert.equal(reconcileGitBranch('feature', ['main', 'feature'], 'main'), 'feature')
+  assert.equal(reconcileGitBranch('deleted', ['main'], 'main'), 'main')
+  assert.equal(reconcileGitBranch('', ['main'], 'main'), 'main')
+})
+
+test('a repository with no head yields no branch', () => {
+  assert.equal(reconcileGitBranch('deleted', [], undefined), '')
+  assert.equal(reconcileGitBranch('', undefined, undefined), '')
 })
