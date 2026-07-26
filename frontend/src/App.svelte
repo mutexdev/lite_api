@@ -11407,59 +11407,19 @@
             />
           {/await}
 
-		            <section>
-		              <div class="settings-section-header">
-		                <h3>Display</h3>
-		                <span class="preference-value" data-testid="zoom-percentage-value">{appZoomPercentage}%</span>
-		              </div>
-		              <div class="font-preference-grid">
-		                <label class="field-label" for="code-font-input">Code Editor Font</label>
-		                <label class="field-label" for="code-font-size-input">Font Size</label>
-		                <input
-		                  id="code-font-input"
-		                  data-testid="code-font-input"
-		                  aria-label="Code Editor Font"
-		                  value={codeFont}
-		                  autocapitalize="off"
-		                  autocomplete="off"
-		                  autocorrect="off"
-		                  spellcheck="false"
-		                  on:input={(event) => updateCodeFont(event.currentTarget.value)}
-		                />
-		                <input
-		                  id="code-font-size-input"
-		                  data-testid="code-font-size-input"
-		                  aria-label="Font Size"
-		                  type="number"
-		                  min="1"
-		                  max="32"
-		                  inputmode="numeric"
-		                  value={codeFontSize}
-		                  on:input={(event) => updateCodeFontSize(Number(event.currentTarget.value))}
-		                />
-		              </div>
-		              <div class="zoom-preference-row">
-		                <label class="field-label" for="zoom-percentage">Zoom</label>
-		                <select
-		                  id="zoom-percentage"
-		                  data-testid="zoom-percentage-select"
-		                  aria-label="App zoom"
-		                  value={appZoomPercentage}
-		                  on:change={(event) => setZoomPercentage(Number(event.currentTarget.value))}
-		                >
-		                  {#each zoomPercentages as percentage (percentage)}
-		                    <option value={percentage}>{percentage}%</option>
-		                  {/each}
-		                </select>
-		                <button
-		                  data-testid="zoom-reset-btn"
-		                  on:click={resetZoomPercentage}
-		                  disabled={appZoomPercentage === zoomDefaultPercentage}
-		                >
-		                  Reset
-		                </button>
-		              </div>
-		            </section>
+          {#await import('./lib/views/preferences/DisplaySection.svelte') then DisplaySection}
+            <svelte:component this={DisplaySection.default}
+              {appZoomPercentage}
+              {zoomPercentages}
+              {zoomDefaultPercentage}
+              {codeFont}
+              {codeFontSize}
+              {resetZoomPercentage}
+              {setZoomPercentage}
+              {updateCodeFont}
+              {updateCodeFontSize}
+            />
+          {/await}
 
 		            <section>
 		              <div class="settings-section-header">
@@ -11598,19 +11558,12 @@
 		              </div>
 		            </section>
 	
-		            <section>
-		              <div class="settings-section-header">
-		                <h3>OAuth2</h3>
-		              </div>
-		              <label class="inline-toggle oauth2-browser-toggle">
-		                <input
-		                  type="checkbox"
-		                  checked={state.preferences.oauth2UseSystemBrowser ?? false}
-		                  on:change={(e) => updateAppearancePreferences({ oauth2UseSystemBrowser: e.currentTarget.checked } as Partial<main.Preferences>)}
-		                />
-		                Use system browser for OAuth
-		              </label>
-		            </section>
+          {#await import('./lib/views/preferences/OAuth2Section.svelte') then OAuth2Section}
+            <svelte:component this={OAuth2Section.default}
+              {state}
+              {updateAppearancePreferences}
+            />
+          {/await}
 	
 	            <section class="keybindings-preference-section">
 	              <details class="keybindings-disclosure">
@@ -11692,87 +11645,28 @@
 	              </div>
 	            </section>
 
-	            <section>
-	              <div class="settings-section-header">
-	                <h3>Proxy Settings</h3>
-	              </div>
-	              <div class="field-grid">
-	                <span class="field-label">Mode</span>
-	                <select aria-label="App proxy mode" value={preferencesProxyMode(state.preferences)} on:change={(e) => updatePreferencesProxyMode(e.currentTarget.value)}>
-	                  <option value="off">Off</option>
-	                  <option value="manual">On</option>
-	                  <option value="inherit">System Proxy</option>
-	                  <option value="pac">PAC</option>
-	                </select>
-	              </div>
+          {#await import('./lib/views/preferences/ProxySection.svelte') then ProxySection}
+            <svelte:component this={ProxySection.default}
+              {state}
+              {preferencesProxyMode}
+              {updatePreferencesProxy}
+              {updatePreferencesProxyAuth}
+              {updatePreferencesProxyConfig}
+              {updatePreferencesProxyMode}
+            />
+          {/await}
 
-	              {#if preferencesProxyMode(state.preferences) === 'manual'}
-	                <div class="field-grid">
-	                  <span class="field-label">Protocol</span>
-	                  <select aria-label="App proxy protocol" value={state.preferences.proxy?.config?.protocol || 'http'} on:change={(e) => updatePreferencesProxyConfig({ protocol: e.currentTarget.value })}>
-	                    <option value="http">HTTP</option>
-	                    <option value="https">HTTPS</option>
-	                    <option value="socks5">SOCKS5</option>
-	                  </select>
-	                  <span class="field-label">Host</span>
-	                  <input aria-label="App proxy host" value={state.preferences.proxy?.config?.hostname ?? ''} on:input={(e) => updatePreferencesProxyConfig({ hostname: e.currentTarget.value })} />
-	                  <span class="field-label">Port</span>
-	                  <input aria-label="App proxy port" value={state.preferences.proxy?.config?.port ?? ''} on:input={(e) => updatePreferencesProxyConfig({ port: e.currentTarget.value })} />
-	                  <span class="field-label">Bypass</span>
-	                  <input aria-label="App proxy bypass" value={state.preferences.proxy?.config?.bypassProxy ?? ''} on:input={(e) => updatePreferencesProxyConfig({ bypassProxy: e.currentTarget.value })} />
-	                  <span class="field-label">Auth enabled</span>
-	                  <input aria-label="App proxy auth enabled" type="checkbox" checked={!(state.preferences.proxy?.config?.auth?.disabled ?? false)} on:change={(e) => updatePreferencesProxyAuth({ disabled: !e.currentTarget.checked })} />
-	                  <span class="field-label">Username</span>
-	                  <input aria-label="App proxy username" value={state.preferences.proxy?.config?.auth?.username ?? ''} on:input={(e) => updatePreferencesProxyAuth({ username: e.currentTarget.value })} />
-	                  <span class="field-label">Password</span>
-	                  <input aria-label="App proxy password" type="password" value={state.preferences.proxy?.config?.auth?.password ?? ''} on:input={(e) => updatePreferencesProxyAuth({ password: e.currentTarget.value })} />
-	                </div>
-	              {:else if preferencesProxyMode(state.preferences) === 'pac'}
-	                <div class="field-grid">
-	                  <span class="field-label">PAC Source</span>
-	                  <input aria-label="PAC source" placeholder="https://example.com/proxy.pac or file:///path/proxy.pac" value={state.preferences.proxy?.pac?.source ?? ''} on:change={(e) => updatePreferencesProxy({ pac: { source: e.currentTarget.value } as main.ProxyPACConfig })} />
-	                </div>
-	              {/if}
-	            </section>
-
-	            <section>
-	              <div class="settings-section-header">
-	                <h3>Cache</h3>
-	              </div>
-	              <div class="cache-preference-card">
-	                <div>
-	                  <strong>File cache <span class="beta-badge">Beta</span></strong>
-	                  <p>Loads your workspace faster by caching opened collections. Clearing it won't affect your original files.</p>
-	                  <p class="cache-size">Cache size <strong>{fileCacheSize === undefined ? '-' : formatRuntimeBytes(fileCacheSize)}</strong></p>
-	                </div>
-	                <label class="inline-toggle">
-	                  <input
-	                    data-testid="cache.file.enabled"
-	                    type="checkbox"
-	                    checked={state.preferences.cache?.file?.enabled ?? false}
-	                    on:change={(event) => updateFileCache(event.currentTarget.checked)}
-	                  />
-	                  Enabled
-	                </label>
-	                <button type="button" data-testid="file-cache-clear-btn" disabled={!fileCacheSize} on:click={clearFileCache}>Clear cache</button>
-	              </div>
-	              <div class="cache-preference-card">
-	                <div>
-	                  <strong>SSL session cache</strong>
-	                  <p>Reuses TLS sessions and connections across requests for faster handshakes.</p>
-	                </div>
-	                <label class="inline-toggle">
-	                  <input
-	                    data-testid="sslSession.enabled"
-	                    type="checkbox"
-	                    checked={state.preferences.cache?.sslSession?.enabled ?? false}
-	                    on:change={(event) => updateSSLSessionCache(event.currentTarget.checked)}
-	                  />
-	                  Enabled
-	                </label>
-	                <button type="button" data-testid="ssl-session-clear-btn" on:click={clearSSLSessionCache}>Clear cache</button>
-	              </div>
-	            </section>
+          {#await import('./lib/views/preferences/CacheSection.svelte') then CacheSection}
+            <svelte:component this={CacheSection.default}
+              {state}
+              {fileCacheSize}
+              {formatRuntimeBytes}
+              {updateFileCache}
+              {updateSSLSessionCache}
+              {clearFileCache}
+              {clearSSLSessionCache}
+            />
+          {/await}
 
 	          </div>
 	        </section>

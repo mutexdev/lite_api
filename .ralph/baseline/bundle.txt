@@ -524,3 +524,25 @@ frontend/dist/assets/index-*.css        113609
 # smaller unit. The same is likely true of Import and of the devToolsPanel
 # snippet: look for internal <section>/<details> boundaries before concluding a
 # panel has to move as one piece.
+
+# Preferences sections 2-5 — Display, OAuth2, Proxy, Cache:
+#   initial chunk 492,519 -> 487,172  (-5,347). Margin 12,828 bytes.
+#   Five of the seven preference sections are now out; General Settings
+#   (7,912 B) and Keybindings remain.
+#
+# Nine type corrections across the four, all from a generator that emitted
+# `any` and had to be replaced by hand:
+#   * preferencesProxyMode is a FUNCTION taking Preferences and returning the
+#     union 'pac'|'inherit'|'off'|'manual' — not a string. Third time this
+#     session a name that reads like a value turned out to be a function.
+#   * updateFileCache / updateSSLSessionCache take a BOOLEAN, not a patch
+#     object; I assumed the update*(patch) shape from their siblings.
+#   * fileCacheSize is number | undefined.
+#   * zoomPercentages, zoomDefaultPercentage and formatRuntimeBytes are used
+#     inside the sections but appear on no attribute line — the same blind spot
+#     as the {#if}-condition props earlier.
+#
+# The `any` shortcut is worth calling out once more: eslint rejected all 18 of
+# them, which forced the nine real corrections above into the open. Had the rule
+# been off, four components would have shipped with wrong prop contracts that
+# typechecked.
