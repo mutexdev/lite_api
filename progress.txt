@@ -4188,3 +4188,31 @@ US-026 - Store layer. DONE. Both named collapses complete.
   green check that verifies less than it claims.
 
   0%-covered functions: 30 -> 25. Coverage 78.6%. 18 packages green.
+
+--- JSON Schema type matching — 0% covered, and "integer" is the subtle one ---
+
+  jsonSchemaTypeMatches backs pm.response.to.have.jsonSchema and the ajv-style
+  validation the script API exposes. Getting it wrong makes a schema assertion
+  report the OPPOSITE of the truth — the same family as the assertion operators,
+  where endsWith could behave as startsWith and nothing noticed.
+
+  20 cases added. The one worth spelling out is "integer": JSON has a single
+  numeric type, so a decoded document hands every number over as float64 and
+  integer-ness is a property of the VALUE, not the Go type. A matcher answering
+  on type alone would call 1.5 an integer. The code gets this right
+  (math.Trunc(n) == n); nothing was checking that it did.
+
+  Also pinned: an UNKNOWN schema type must not match. Defaulting to true would
+  make a typo like "strng" validate everything it was written to constrain.
+
+  Controls: integer accepting fractions -> 2 findings, object matching arrays
+  -> 3, an unknown type passing -> 3.
+
+  THREE OF MY FIRST CONTROLS WERE REFUSED BY THE RUNNER and that was correct:
+  one did not compile (removing math.Trunc left the math import unused), two
+  did not land (multi-line patterns need perl -0). Without the landing and
+  compile checks all three would have reported "0 failing" and I would have
+  read a working matcher as untested. That guard has now paid for itself
+  repeatedly.
+
+  0%-covered functions: 30 -> 24. Coverage 78.7%.
