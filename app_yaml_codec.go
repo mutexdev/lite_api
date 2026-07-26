@@ -973,15 +973,6 @@ func yamlAuth(auth AuthConfig) interface{} {
 	}
 }
 
-func firstYAMLString(raw map[string]interface{}, keys ...string) string {
-	for _, key := range keys {
-		if value := strings.TrimSpace(yamlScalarString(raw[key])); value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
 func parseYAMLKeyValues(raw interface{}, queryOnly bool) []KeyValue {
 	return bru.ParseYAMLKeyValues(raw, queryOnly)
 }

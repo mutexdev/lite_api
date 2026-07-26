@@ -119,3 +119,11 @@ func firstNonEmpty(values ...string) string {
 func newID(prefix string) string {
 	return scalar.NewID(prefix)
 }
+
+// firstYAMLString had a second, byte-identical implementation in
+// app_yaml_codec.go until a differential test confirmed the two agreed on every
+// shape a YAML map takes. Delegating keeps the 36 call sites unchanged while
+// leaving one implementation.
+func firstYAMLString(raw map[string]interface{}, keys ...string) string {
+	return scalar.FirstYAMLString(raw, keys...)
+}

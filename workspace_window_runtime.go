@@ -247,10 +247,13 @@ func (a *App) loadWorkspaceWindow(intent workspacestate.WindowLaunchIntent) erro
 	return nil
 }
 
+// sameCanonicalWorkspacePath delegates rather than reimplementing. There were
+// two copies of this — one here, one in internal/workspacestate — proven
+// identical by a differential test before they were collapsed. Two copies of
+// "are these the same workspace" is one copy too many: the day they diverge, a
+// second window opens a workspace one of them thinks is already open.
 func sameCanonicalWorkspacePath(a, b string) bool {
-	ca, ea := workspacestate.CanonicalWorkspaceIdentity(a)
-	cb, eb := workspacestate.CanonicalWorkspaceIdentity(b)
-	return ea == nil && eb == nil && ca == cb
+	return workspacestate.SameCanonicalWorkspacePath(a, b)
 }
 func sanitizeSessionTabsForScopedWorkspace(session workspacestate.WindowSession, scoped workspacestate.WorkspaceScopedState) ([]OpenTab, []OpenTab, string) {
 	allowed := map[string]bool{}

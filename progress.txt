@@ -6361,3 +6361,38 @@ US-026 - Store layer. DONE. Both named collapses complete.
   compare equal to anything — including another invalid one. Returning true
   there would make every malformed path look like the same workspace. Control
   confirms.
+
+=== DUPLICATE SWEEP — hunting the keyBindingSignature pattern deliberately ===
+
+  Finding keyBindingSignature implemented twice, with the copies DIVERGED, was
+  luck: I happened to read the target module before extracting into it. So this
+  pass looked for the same shape on purpose.
+
+  FRONTEND: compared 646 function names defined in App.svelte against 100
+  exported by src/lib. One hit — requestIsTransient — and that is the wrapper I
+  added deliberately and documented. Clean.
+
+  GO: compared 707 unexported functions in package main against 727 exported
+  from internal/. 34 name matches, of which 32 are the intentional one-line
+  delegations in app_shims.go. TWO WERE REAL SECOND IMPLEMENTATIONS:
+
+    sameCanonicalWorkspacePath   workspace_window_runtime.go  (5 call sites)
+      vs workspacestate.SameCanonicalWorkspacePath (1 call site)
+    firstYAMLString              app_yaml_codec.go            (36 call sites)
+      vs scalar.FirstYAMLString
+
+  Neither had diverged. That is not reassurance — it is exactly what I would
+  have said about keyBindingSignature the day before finding it had.
+
+  PROVED EQUIVALENCE BEFORE COLLAPSING, rather than assuming it. A throwaway
+  differential test ran both pairs over 100 path combinations and 54 map/keyset
+  combinations, including the cases that would expose a difference: empty,
+  whitespace-only, traversal, a NUL byte, a trailing slash, differing case,
+  absent keys, non-string values, nested containers. Both pairs agreed
+  everywhere. Then the main copies became delegations, so there is one
+  implementation each.
+
+  Worth doing this way round: had they differed, the differential test would
+  have said WHICH inputs, instead of me discovering it from a bug report.
+
+  Re-scanned afterwards: no non-shim duplicates remain outside app_shims.go.
