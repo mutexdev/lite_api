@@ -4125,3 +4125,38 @@ US-026 - Store layer. DONE. Both named collapses complete.
   both silent, both in the path that decides where a user's traffic goes. The
   coverage number itself was never the point — it just pointed at the ten
   functions nobody had ever asserted anything about.
+
+--- Credential preservation across an OpenAPI re-sync — was 0% covered ---
+
+  mergeOAuth1Preserving, mergeOAuth2Preserving and mergeAWSV4Preserving each had
+  zero tests. Their whole job is to keep what the USER typed when a spec is
+  re-imported over their request.
+
+  The failure mode is the worst kind of silent: the re-sync appears to succeed,
+  the request still says oauth2, and the client secret is simply gone. Nothing
+  errors. The user finds out when the next send returns 401.
+
+  The sibling merges (headers, params, JSON bodies) were already covered — an
+  earlier control confirmed discarding user values there fails a test. These
+  three were the gap.
+
+  Six tests added. Controls: taking the OAuth2 secret from the spec fails 1,
+  the AWS secret key fails 1, the OAuth1 token secret fails 1.
+
+  !!! AND A CONTROL CAUGHT MY OWN TEST BEING TOO WEAK !!!
+
+  Reversing the precedence — FirstNonEmpty(spec, existing) instead of
+  (existing, spec) — failed NOTHING at first. Because I set each credential on
+  ONE side only, the tests could not tell "existing wins" from "either wins".
+
+  That is exactly the endsWith/startsWith flaw from the assertion operators,
+  in a different place: an assertion that does not DISTINGUISH the behaviour
+  from its plausible alternative measures nothing, even though it passes and
+  looks specific.
+
+  Fixed by setting both sides and asserting the user's value survives. Now
+  reversing precedence on ClientID fails 1 and on the AWS region fails 1 — and
+  the case is the realistic one, because a spec re-import really does carry a
+  client id that must not overwrite the user's.
+
+  0%-covered functions across internal/: 30 -> 27. Coverage 78.5%.
