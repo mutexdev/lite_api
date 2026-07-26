@@ -18,6 +18,11 @@
   import { filterCommands } from './lib/commandPalette'
   import { memoized, KeyedMemo, type Memo } from './lib/memo'
   import { computeWindow, sidebarGroupWindow } from './lib/virtualList'
+  import {
+    networkSortAriaValue as devToolsNetworkSortAriaValue,
+    networkSortLabel as devToolsNetworkSortLabel,
+    nextNetworkSort
+  } from './lib/networkSort'
   import { workspaceStore } from './lib/stores/workspaceStore.svelte'
   import { variableTooltips } from './lib/stores/variableTooltipStore.svelte'
   import {
@@ -6874,33 +6879,11 @@
   }
 
   function cycleDevToolsNetworkSort(key: DevToolsNetworkSortKey) {
-    let nextKey: DevToolsNetworkSortKey | '' = key
-    let nextDirection: DevToolsNetworkSortDirection = 'asc'
-    if (devToolsNetworkSortKey !== key) {
-      nextKey = key
-      nextDirection = 'asc'
-    } else if (devToolsNetworkSortDirection === 'asc') {
-      nextKey = key
-      nextDirection = 'desc'
-    } else if (devToolsNetworkSortDirection === 'desc') {
-      nextKey = ''
-      nextDirection = ''
-    } else {
-      nextKey = key
-      nextDirection = 'asc'
-    }
-    void updateDevToolsNetworkPreferences({ sortKey: nextKey, sortDirection: nextDirection })
+    const next = nextNetworkSort(devToolsNetworkSortKey, devToolsNetworkSortDirection, key)
+    void updateDevToolsNetworkPreferences({ sortKey: next.key, sortDirection: next.direction })
   }
 
-  function devToolsNetworkSortLabel(key: DevToolsNetworkSortKey, activeKey: DevToolsNetworkSortKey | '', direction: DevToolsNetworkSortDirection) {
-    if (activeKey !== key || !direction) return ''
-    return direction === 'asc' ? 'ascending' : 'descending'
-  }
 
-  function devToolsNetworkSortAriaValue(key: DevToolsNetworkSortKey, activeKey: DevToolsNetworkSortKey | '', direction: DevToolsNetworkSortDirection): 'ascending' | 'descending' | 'none' {
-    if (activeKey !== key || !direction) return 'none'
-    return direction === 'asc' ? 'ascending' : 'descending'
-  }
 
   function setDevToolsNetworkFilter(method: string, enabled: boolean) {
     devToolsNetworkFilters = { ...devToolsNetworkFilters, [method]: enabled }

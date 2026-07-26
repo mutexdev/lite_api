@@ -6667,3 +6667,37 @@ US-026 - Store layer. DONE. Both named collapses complete.
   duplicate that had DIVERGED and needed collapsing; this one is a variant that
   SHOULD differ and needed documenting. Reading the neighbour found both; only
   reading the comment told them apart.
+
+=== PHASE 6 — the network table's tri-state sort ===
+
+  src/lib/networkSort.ts — 6 tests. App.svelte 11,520 -> 11,503.
+  Frontend suite 412 -> 418.
+
+  THE THIRD STATE IS THE POINT. A column header cycles ascending -> descending
+  -> OFF, and the off state is the only route back to the log's natural
+  chronological order, which is what makes a request sequence readable. A cycle
+  that wrapped straight back to ascending would strand the user in a sorted view
+  with no way out. Control confirms.
+
+  Clicking a DIFFERENT column always starts ascending rather than inheriting the
+  previous column's direction: the direction was a statement about the old
+  column, and carrying it over lands the first click on a new column in a state
+  nobody chose.
+
+  TWO NEAR-IDENTICAL FUNCTIONS THAT MUST NOT BE MERGED, now documented.
+  networkSortLabel and networkSortAriaValue differ in exactly one place: the
+  unsorted case returns "" for the visible label and the string "none" for
+  aria-sort. That is not redundancy — aria-sort has a fixed vocabulary in which
+  "none" is the value, so returning "" would be an invalid attribute, while
+  returning "none" to the template would print the word beside the heading.
+
+  Rather than assert that in prose only, a test walks all 7 columns x 8 active
+  states x 3 directions and asserts they agree on WHICH column is sorted and
+  disagree only on how they spell "not this one". That is the property that
+  makes both worth keeping.
+
+  Third time this phase that two similar functions needed a decision:
+    keyBindingSignature   duplicated and DIVERGED  -> collapsed into one
+    sidebarGroupWindow    variant that SHOULD differ -> documented
+    networkSortLabel/Aria near-identical, both right -> tested against each other
+  Same shape, three different right answers. Reading the code decided each one.
