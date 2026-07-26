@@ -5535,3 +5535,20 @@ US-026 - Store layer. DONE. Both named collapses complete.
   `go clean -cache && go build ./...` — exit 0. Checked rather than dismissed,
   because copy-without-delete is precisely the failure the C2 control exists for
   and it would present exactly this way.
+
+=== RESTRUCTURE PHASE 2 — wave 4 ===
+
+  app_collection_io.go     70 decls, 1,845 lines  (fingerprinted read/write pair)
+  app_prefs_normalize.go   25 decls,   444 lines  (~25 normalize* free functions)
+  app_shims.go             36 decls,   121 lines  (one-line delegations to internal/)
+
+  app.go: 10,641 -> 8,274 lines. Down 52% from 17,314 at the start of the
+  restructure, and down 81% from the ~44,000 it was before the package
+  extraction began.
+
+  app_shims.go is 36 declarations in 121 lines — nearly all one-liners of the
+  shape `func newID(p string) string { return scalar.NewID(p) }`. Collecting
+  them in one file makes the remaining delegation surface countable, which is
+  what makes it possible to retire them deliberately rather than discovering
+  them one at a time. These are the LIVE ones; the 21 dead ones were deleted in
+  Phase 0b.
