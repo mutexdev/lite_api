@@ -501,3 +501,26 @@ frontend/dist/assets/index-*.css        113609
 # not cover all 29 — the remainder need triggers that are harder to drive from
 # script — but it does establish that the dynamic-import pattern itself works
 # in the packaged runtime, which was the real risk.
+
+# Preferences panel, SECTION-BY-SECTION — the decomposition that unblocks it.
+#
+#   Appearance section extracted: 3,577 B of source, 7 props.
+#   initial chunk 494,441 -> 492,519  (-1,922). Margin 7,481 bytes.
+#
+# THE POINT: preferences as a WHOLE is ~24 KB with ~60 props, which is where the
+# extraction workflow that carried all 29 dialogs breaks down — Import failed
+# exactly that way at 39 svelte-check errors. But the panel divides into seven
+# <section> blocks with h3 headings, and each is independently extractable:
+#
+#   Appearance        11397-11466   DONE (7 props)
+#   Display           ~11468-11521
+#   General Settings  ~11522-11658  (the largest)
+#   OAuth2            ~11659-11672  (tiny)
+#   Keybindings       ~11673-11752
+#   Proxy Settings    ~11753-11795
+#   Cache             ~11796-11837
+#
+# So the answer to "this panel is too big" was not a bigger effort, it was a
+# smaller unit. The same is likely true of Import and of the devToolsPanel
+# snippet: look for internal <section>/<details> boundaries before concluding a
+# panel has to move as one piece.

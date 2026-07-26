@@ -11394,76 +11394,18 @@
 	            </div>
 	          </header>
 	          <div class="settings-stack">
-	            <section>
-	              <div class="settings-section-header">
-	                <h3>Appearance</h3>
-	              </div>
-	              <div class="theme-mode-selector" aria-label="Theme mode">
-	                {#each themeModes as mode (mode.id)}
-	                  <button
-	                    class:selected={selectedThemeMode === mode.id}
-	                    aria-pressed={selectedThemeMode === mode.id}
-	                    on:click={() => updateThemeMode(mode.id)}
-	                  >
-	                    {mode.label}
-	                  </button>
-	                {/each}
-	              </div>
-
-	              {#if selectedThemeMode === 'light' || selectedThemeMode === 'system'}
-	                <div class="theme-variant-section">
-	                  <span class="field-label">Light Theme</span>
-	                  <div class="theme-variants">
-	                    {#each lightThemeVariants as variant (variant.id)}
-	                      <button
-	                        class="theme-variant-card"
-	                        class:selected={(state.preferences.themeVariantLight || 'light') === variant.id}
-	                        aria-label={`Light theme ${variant.name}`}
-	                        aria-pressed={(state.preferences.themeVariantLight || 'light') === variant.id}
-	                        on:click={() => updateThemeVariant('light', variant.id)}
-	                      >
-	                        <span class="theme-preview" style={`--preview-bg: ${variant.preview.background}; --preview-sidebar: ${variant.preview.sidebar}; --preview-accent: ${variant.preview.accent};`}>
-	                          <span class="theme-preview-sidebar"></span>
-	                          <span class="theme-preview-main">
-	                            <span></span>
-	                            <span></span>
-	                            <span></span>
-	                          </span>
-	                        </span>
-	                        <span>{variant.name}</span>
-	                      </button>
-	                    {/each}
-	                  </div>
-	                </div>
-	              {/if}
-
-	              {#if selectedThemeMode === 'dark' || selectedThemeMode === 'system'}
-	                <div class="theme-variant-section">
-	                  <span class="field-label">Dark Theme</span>
-	                  <div class="theme-variants">
-	                    {#each darkThemeVariants as variant (variant.id)}
-	                      <button
-	                        class="theme-variant-card"
-	                        class:selected={(state.preferences.themeVariantDark || 'dark') === variant.id}
-	                        aria-label={`Dark theme ${variant.name}`}
-	                        aria-pressed={(state.preferences.themeVariantDark || 'dark') === variant.id}
-	                        on:click={() => updateThemeVariant('dark', variant.id)}
-	                      >
-	                        <span class="theme-preview" style={`--preview-bg: ${variant.preview.background}; --preview-sidebar: ${variant.preview.sidebar}; --preview-accent: ${variant.preview.accent};`}>
-	                          <span class="theme-preview-sidebar"></span>
-	                          <span class="theme-preview-main">
-	                            <span></span>
-	                            <span></span>
-	                            <span></span>
-	                          </span>
-	                        </span>
-	                        <span>{variant.name}</span>
-	                      </button>
-	                    {/each}
-	                  </div>
-	                </div>
-	              {/if}
-		            </section>
+          {#await import('./lib/views/preferences/AppearanceSection.svelte') then AppearanceSection}
+            <svelte:component
+              this={AppearanceSection.default}
+              {state}
+              {selectedThemeMode}
+              {themeModes}
+              {lightThemeVariants}
+              {darkThemeVariants}
+              {updateThemeMode}
+              {updateThemeVariant}
+            />
+          {/await}
 
 		            <section>
 		              <div class="settings-section-header">
