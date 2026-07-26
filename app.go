@@ -6327,7 +6327,7 @@ func (a *App) SendRequestWithPromptValues(collectionID, itemID, environmentID st
 }
 
 func (a *App) sendRequestWithControls(collectionID, itemID, environmentID string, promptValues map[string]string) (AppState, scriptControls, error) {
-	state, controls, _, err := a.sendRequestWithControlsContext(context.Background(), collectionID, itemID, environmentID, promptValues, nil, nil)
+	state, controls, _, err := a.sendRequestWithControlsContext(context.Background(), collectionID, itemID, environmentID, promptValues, nil, runnerIteration{})
 	return state, controls, err
 }
 
@@ -6340,7 +6340,7 @@ func (a *App) sendRequestWithControls(collectionID, itemID, environmentID string
 // The fourth return value is the *Response this call stored on the item. The
 // collection runner used to re-find the item in the returned state purely to
 // read it back, which was another linear scan per request.
-func (a *App) sendRequestWithControlsContext(parent context.Context, collectionID, itemID, environmentID string, promptValues map[string]string, index *runnerLookupIndex, iterationData map[string]string) (AppState, scriptControls, *Response, error) {
+func (a *App) sendRequestWithControlsContext(parent context.Context, collectionID, itemID, environmentID string, promptValues map[string]string, index *runnerLookupIndex, iteration runnerIteration) (AppState, scriptControls, *Response, error) {
 	controls := scriptControls{}
 	a.mu.Lock()
 	if err := a.ensureReadyLocked(); err != nil {
@@ -6363,7 +6363,7 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 	// US-046. Applied after construction and before Combined is read, so the
 	// row participates in the precedence chain rather than being pasted over
 	// the result of it.
-	applyIterationDataToContext(scriptVariables, iterationData)
+	applyIterationDataToContext(scriptVariables, iteration.Data)
 	vars := scriptVariables.Combined
 	scriptLogs := []ScriptLog{}
 	scriptTimeline := []TimelineItem{}
@@ -6378,6 +6378,8 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 		Variables:                 scriptVariables,
 		OAuth2CredentialVariables: a.oauth2CredentialVariablesSnapshot,
 		ResetOAuth2Credential:     a.resetOAuth2Credential,
+		IterationIndex:            iteration.Index,
+		IterationCount:            iteration.Count,
 	}
 	scriptMeta.RecordTimeline = func(entry TimelineItem) {
 		scriptTimeline = append(scriptTimeline, entry)
@@ -7100,6 +7102,23 @@ func (a *App) RunCollection(collectionID, environmentID string) (AppState, error
 // that matters under thousands of identical placeholders; the snapshot's
 // Iterations vs CompletedIterations pair is what reports the iterations that
 // never started.
+// firstFailedTestResult names the first failed assertion, or "" if none did.
+//
+// The first rather than a count: a run result has one error line, and the name
+// of the assertion that broke is what someone acts on. The full list is still
+// on the response.
+func firstFailedTestResult(results []TestResult) string {
+	for _, result := range results {
+		if !result.Passed {
+			if strings.TrimSpace(result.Message) == "" {
+				return fmt.Sprintf("assertion failed: %s", result.Name)
+			}
+			return fmt.Sprintf("assertion failed: %s: %s", result.Name, result.Message)
+		}
+	}
+	return ""
+}
+
 func appendUnrunRunResults(results []RunResult, items []RequestItem, from, iteration, totalIterations int) []RunResult {
 	now := time.Now()
 	for i := from; i < len(items); i++ {
@@ -7184,7 +7203,11 @@ iterations:
 				currentRequestIndex++
 				continue
 			}
-			state, controls, res, err := a.sendRequestWithControlsContext(runContext, collectionID, item.ID, environmentID, nil, lookupIndex, iterationRow)
+			state, controls, res, err := a.sendRequestWithControlsContext(runContext, collectionID, item.ID, environmentID, nil, lookupIndex, runnerIteration{
+				Index: iteration,
+				Count: totalIterations,
+				Data:  iterationRow,
+			})
 			if err != nil {
 				if requestContextCancelled(runContext) {
 					results = append(results, stampIteration(cancelledRunResult(item), iteration, totalIterations))
@@ -7217,6 +7240,17 @@ iterations:
 					status = "cancelled"
 				} else if res.Error != "" || res.Status >= 400 {
 					status = "failed"
+				}
+			}
+			// US-047. A failed assertion is a failed request. Without this the
+			// runner only ever failed on a transport error or a >=400 status,
+			// so a collection whose tests all failed against a 200 response
+			// reported a fully green run — and BailOnFailure, whose criterion
+			// names "a failed assertion", could never trigger on one.
+			if status == "passed" && res != nil {
+				if failure := firstFailedTestResult(res.TestResults); failure != "" {
+					status = "failed"
+					errText = failure
 				}
 			}
 			if requestContextCancelled(runContext) {
@@ -17894,6 +17928,11 @@ type scriptRuntimeMeta struct {
 	RunRequest                func(string) (Response, *TimelineItem, error)
 	RecordTimeline            func(TimelineItem)
 	TimelinePhase             string
+	// US-039. Iteration position for pm.info. IterationCount is 0 outside a
+	// collection run; IterationIndex is 1-based here and converted to
+	// Postman's 0-based pm.info.iteration at the boundary.
+	IterationIndex int
+	IterationCount int
 }
 
 var scriptRuntimeEventLoops sync.Map
@@ -18825,7 +18864,52 @@ func newScriptRuntimeWithMeta(item RequestItem, response Response, vars map[stri
 		}
 		return goja.Undefined()
 	})
+	installPostmanScriptAPI(runtime, item, meta)
 	return runtime, reqObject, reqState, resObject
+}
+
+// installPostmanScriptAPI puts a live `pm` object beside `bru` (US-039).
+//
+// pm.test and pm.expect are BOUND TO the existing globals rather than
+// reimplemented. That is the whole point: two independent test registries would
+// drift, and a `pm.test` whose failures did not reach the same TestResults
+// slice would report a green run while its assertions failed. Binding also
+// means every later fix to `test` or `expect` applies to both surfaces for
+// free.
+//
+// This is the core only. pm.environment / pm.collectionVariables / pm.globals
+// (US-040), pm.request / pm.response (US-041), pm.sendRequest / pm.cookies
+// (US-042) and pm.iterationData / pm.vault (US-043) land separately.
+func installPostmanScriptAPI(runtime *goja.Runtime, item RequestItem, meta scriptRuntimeMeta) {
+	pm := runtime.NewObject()
+	_ = pm.Set("test", runtime.Get("test"))
+	_ = pm.Set("expect", runtime.Get("expect"))
+
+	info := runtime.NewObject()
+	_ = info.Set("requestName", item.Name)
+	_ = info.Set("requestId", item.ID)
+	_ = info.Set("eventName", postmanEventName(meta.TimelinePhase))
+	// Postman's pm.info.iteration is 0-BASED while everything user-facing here
+	// counts from 1. Converting at this single boundary is what keeps a script
+	// copied out of Postman working; leaking the 1-based value would make every
+	// `if (pm.info.iteration === 0)` guard silently never fire.
+	_ = info.Set("iteration", max(meta.IterationIndex-1, 0))
+	// Outside a collection run Postman reports a single iteration, not zero.
+	_ = info.Set("iterationCount", max(meta.IterationCount, 1))
+	_ = pm.Set("info", info)
+
+	_ = runtime.Set("pm", pm)
+}
+
+// postmanEventName maps this codebase's timeline phases onto the two event
+// names Postman scripts test against. Both post-response phases are "test":
+// Postman has no separate post-response event, and reporting one would break
+// the `pm.info.eventName === "test"` guard that scripts actually write.
+func postmanEventName(timelinePhase string) string {
+	if timelinePhase == "pre-request" {
+		return "prerequest"
+	}
+	return "test"
 }
 
 func scriptMinifyJSON(runtime *goja.Runtime, value goja.Value) goja.Value {

@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -185,5 +186,81 @@ func TestRunnerBailDistinguishesUnrunFromSkipped(t *testing.T) {
 	}
 	if byName["bail websocket"].Status == byName["bail third"].Status {
 		t.Error("skipped and unrun collapsed into one status — the distinction the story requires is gone")
+	}
+}
+
+// TestFailedAssertionsFailTheRunResult closes a gap US-047 shipped with.
+//
+// Its criterion names "a failed assertion or transport error", but the runner
+// only ever derived status from the transport and the HTTP code. A collection
+// whose every assertion failed against 200 responses reported a fully green
+// run — and BailOnFailure could never trigger on an assertion, which is the
+// case the story leads with.
+func TestFailedAssertionsFailTheRunResult(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"ok":true}`)
+	}))
+	defer server.Close()
+
+	app, collectionID, ids := iterationFixture(t, server.URL, 3)
+
+	// The middle request asserts something false against a 200 response.
+	failing := `test("deliberately false", function () { expect(1).to.equal(2) })`
+	if _, err := app.UpdateRequest(collectionID, ids[1], RequestPatch{Tests: &failing}); err != nil {
+		t.Fatalf("UpdateRequest: %v", err)
+	}
+
+	state, err := app.RunCollectionWithOptions(collectionID, "", RunnerOptions{SelectedItemIDs: ids})
+	if err != nil {
+		t.Fatalf("RunCollectionWithOptions: %v", err)
+	}
+	byName := resultsByName(state)
+	middle := byName["iteration probe 1"]
+	if middle.Status != "failed" {
+		t.Errorf("a request whose assertion failed reported %q, want failed", middle.Status)
+	}
+	if middle.Code != 200 {
+		t.Errorf("code = %d, want 200 — the response itself was fine", middle.Code)
+	}
+	if !strings.Contains(middle.Error, "deliberately false") {
+		t.Errorf("error %q does not name the failing assertion", middle.Error)
+	}
+	if state.Runner.Failed != 1 || state.Runner.Passed != 2 {
+		t.Errorf("tally was passed=%d failed=%d, want 2/1", state.Runner.Passed, state.Runner.Failed)
+	}
+
+	// And now the case US-047's criterion actually leads with: bail on a
+	// failed assertion.
+	state, err = app.RunCollectionWithOptions(collectionID, "", RunnerOptions{
+		SelectedItemIDs: ids,
+		BailOnFailure:   true,
+	})
+	if err != nil {
+		t.Fatalf("RunCollectionWithOptions: %v", err)
+	}
+	if got := resultsByName(state)["iteration probe 2"].Status; got != "unrun" {
+		t.Errorf("the request after a failed assertion reported %q, want unrun — bail did not trigger on an assertion", got)
+	}
+}
+
+func TestFirstFailedTestResult(t *testing.T) {
+	if got := firstFailedTestResult(nil); got != "" {
+		t.Errorf("no results = %q, want empty", got)
+	}
+	if got := firstFailedTestResult([]TestResult{{Name: "a", Passed: true}}); got != "" {
+		t.Errorf("all passing = %q, want empty", got)
+	}
+	// The FIRST failure, not the last: a run result has one error line, and the
+	// assertion that broke first is what someone acts on.
+	got := firstFailedTestResult([]TestResult{
+		{Name: "ok", Passed: true},
+		{Name: "first bad", Passed: false, Message: "boom"},
+		{Name: "second bad", Passed: false, Message: "later"},
+	})
+	if !strings.Contains(got, "first bad") || strings.Contains(got, "second bad") {
+		t.Errorf("got %q, want the first failure only", got)
+	}
+	if !strings.Contains(got, "boom") {
+		t.Errorf("got %q, want the message included", got)
 	}
 }

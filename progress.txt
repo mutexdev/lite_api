@@ -1083,3 +1083,62 @@ US-046 - Runner data files. DONE.
 
   Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 36.6s 0,
   -race clean, svelte-check 198/0/0, eslint 0, npm test 105/105.
+
+US-039 - `pm` core. DONE.
+  installPostmanScriptAPI puts a live `pm` beside `bru`: pm.test, pm.expect,
+  pm.info (requestName, requestId, eventName, iteration, iterationCount).
+
+  pm.test and pm.expect are BOUND TO the existing globals, not reimplemented.
+  Two independent test registries would drift, and a pm.test whose failures did
+  not reach the same TestResults slice would report a GREEN run while its
+  assertions failed. Binding also means every later fix to test/expect applies
+  to both surfaces for free. The tests are written against that failure mode
+  rather than "does pm.test work".
+
+  Two conversions at the boundary, both silent if wrong:
+    pm.info.iteration is 0-BASED (Postman) while everything user-facing here
+    counts from 1. A script copied out of Postman guards on
+    `pm.info.iteration === 0` for first-iteration setup; leaking the 1-based
+    value makes that guard never fire, with no error anywhere.
+    eventName: both post-response phases report "test". Postman has no separate
+    post-response event, and inventing one breaks the
+    `pm.info.eventName === "test"` guard scripts actually write.
+
+  Outside a collection run: iteration 0, iterationCount 1 - Postman reports a
+  single iteration, not zero. runnerIteration{} zero value gives exactly that.
+
+  The import-time postmanTranslateScript (US-044's subject) rewrites pm.* to
+  bru.* and is called ONLY from the Postman importer, so the live pm object is
+  genuinely exercised at run time. Verified before writing the tests.
+
+  MY OWN TEST WAS WRONG AND I CAUGHT IT VIA THE NEGATIVE CONTROL. The first
+  version asserted state.Runner.Passed == 3 to prove pm.info was right. NC2
+  (leak the 1-based iteration) produced NO failure. The cause: a failed
+  assertion did not mark a RunResult failed, so the tally could not see a
+  broken pm.info at all - the check never ran, the same class of mistake as the
+  "Send" button check earlier in this session. Rewritten to read the response's
+  TestResults directly, after which NC2 fails with
+  "expected 3 to equal 2".
+
+  BUG FOUND AND FIXED, a real gap in US-047 as shipped: its criterion names
+  "a failed assertion or transport error", but the runner derived status only
+  from the transport and the HTTP code. A collection whose every assertion
+  failed against 200 responses reported a fully green run, and BailOnFailure
+  could never trigger on an assertion - the case the story leads with.
+  firstFailedTestResult now promotes the first failed assertion to a failed
+  RunResult with the assertion's name in the error.
+
+  One existing test changed as a consequence:
+  TestCancelCollectionRunDuringDelaySkipsNextTransport expected passed=1
+  failed=0. Its fixture asserts status 200 against a 204 response, so that
+  request was always genuinely failing and was being counted as passed. The
+  test is about the CANCELLED count; expectation updated with a note.
+
+  Negative controls, all run and all caught:
+    pm.test with its own registry     0 test results instead of 2
+    1-based pm.info.iteration         expected 3 to equal 2 (after the fix)
+    eventName always "test"           pre-request phase mapping lost
+    assertion failures ignored        passed=3 failed=0, want 2/1
+
+  Gates: build 0, vet 0, gofmt clean, golangci-lint 0 issues, go test 36.7s 0,
+  -race clean, svelte-check 198/0/0, eslint 0, npm test 105/105.

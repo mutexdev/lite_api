@@ -215,3 +215,13 @@ func runnerDataRowFor(rows []map[string]string, iteration int) map[string]string
 	}
 	return rows[iteration-1]
 }
+
+// runnerIteration is where a request sits in a collection run.
+//
+// Index is 1-based and Count is 0 for a one-off send outside the runner, which
+// is what lets pm.info distinguish "not in a run" from "iteration 1 of 1".
+type runnerIteration struct {
+	Index int
+	Count int
+	Data  map[string]string
+}

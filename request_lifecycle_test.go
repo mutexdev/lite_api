@@ -311,7 +311,12 @@ func TestCancelCollectionRunDuringDelaySkipsNextTransport(t *testing.T) {
 		if result.err != nil {
 			t.Fatalf("RunCollectionWithOptions returned an error: %v", result.err)
 		}
-		if result.state.Runner.Passed != 1 || result.state.Runner.Cancelled != 1 || result.state.Runner.Failed != 0 {
+		// The first request's own tests assert a 200 against this fixture's 204,
+		// so it is legitimately a failure. It was counted as passed until
+		// US-047 made a failed assertion fail the run result; this test is
+		// about the CANCELLED count, and the change of the first request's
+		// tally does not touch what it is measuring.
+		if result.state.Runner.Cancelled != 1 || result.state.Runner.Failed != 1 || result.state.Runner.Passed != 0 {
 			t.Fatalf("runner delay cancellation counts were wrong: %#v", result.state.Runner)
 		}
 		if len(result.state.Runner.Results) != 2 || result.state.Runner.Results[0].ItemID != first.ID || result.state.Runner.Results[1].ItemID != second.ID || result.state.Runner.Results[1].Status != "cancelled" {
