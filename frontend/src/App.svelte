@@ -11977,34 +11977,15 @@
 {/if}
 
 {#if creationOpen}
-  <Modal labelledBy="new-request-title" onClose={() => void closeCreationFlow()} dialogClass="prompt-dialog compact-create-dialog">
-    <form on:submit|preventDefault={submitCreationFlow}>
-      <header>
-        <div>
-          <h2 id="new-request-title">New request</h2>
-          <p>Create a local scratch request in {activeCollection?.name ?? 'the active collection'}.</p>
-        </div>
-        <button type="button" class="icon-button" aria-label="Close new request" title="Close" on:click={() => void closeCreationFlow()}>×</button>
-      </header>
-      <label>
-        <span>Name</span>
-        <input data-new-request-name aria-label="New request name" bind:value={requestName} placeholder="Untitled request" />
-      </label>
-      <label>
-        <span>Protocol</span>
-        <select aria-label="New request protocol" bind:value={requestType}>
-          <option value="http">HTTP</option>
-          <option value="graphql">GraphQL</option>
-          <option value="websocket">WebSocket</option>
-          <option value="grpc">gRPC</option>
-        </select>
-      </label>
-      <footer class="button-row">
-        <button type="button" on:click={() => void closeCreationFlow()}>Cancel</button>
-        <button class="primary" type="submit" disabled={!activeCollection}>Create request</button>
-      </footer>
-    </form>
-    </Modal>
+  {#await import('./lib/modals/confirm/NewRequestModal.svelte') then NewRequestModal}
+    <svelte:component this={NewRequestModal.default}
+      bind:requestName
+      bind:requestType
+      {activeCollection}
+      {submitCreationFlow}
+      {closeCreationFlow}
+    />
+  {/await}
 {/if}
 
 {#if commandPaletteOpen}
@@ -12371,55 +12352,16 @@
 	{/if}
 
 	{#if tabLifecycleDialog}
-	  <Modal
-	    labelledBy="unsaved-tabs-title"
-	    describedBy="unsaved-tabs-description"
-	    busy={tabLifecycleDecisionBusy}
-	    onClose={dismissTabLifecycleDialog}
-	    dialogClass="prompt-dialog unsaved-tabs-dialog"
-	    closeOnBackdrop={false}
-	  >
-	      <header>
-	        <h2 id="unsaved-tabs-title">Unsaved changes</h2>
-	      </header>
-	      <p id="unsaved-tabs-description">
-	        {#if tabLifecycleDialog.action === 'quit'}
-	          Save or discard these drafts before quitting LiteAPI.
-	        {:else if tabLifecycleDialog.action === 'close-all'}
-	          Save or discard these drafts before closing all tabs.
-	        {:else}
-	          Save or discard this draft before closing the tab.
-	        {/if}
-	      </p>
-	      <ul class="unsaved-tabs-list" aria-label="Affected unsaved requests">
-	        {#each tabLifecycleDialog.affected as request (request.collectionId + request.requestId)}
-	          <li>
-	            <strong>{request.requestName}</strong>
-	            <span>{request.transient ? 'Scratch draft' : 'Unsaved changes'}</span>
-	          </li>
-	        {/each}
-	      </ul>
-	      <div class="button-row modal-footer">
-	        <button
-	          type="button"
-	          class="danger-button"
-	          on:click={discardAndCompleteTabLifecycle}
-	          disabled={tabLifecycleDecisionBusy}
-	        >Discard &amp; Close</button>
-	        <button
-	          type="button"
-	          bind:this={tabLifecycleCancelButton}
-	          on:click={dismissTabLifecycleDialog}
-	          disabled={tabLifecycleDecisionBusy}
-	        >Cancel</button>
-	        <button
-	          type="button"
-	          class="primary"
-	          on:click={saveAndCompleteTabLifecycle}
-	          disabled={tabLifecycleDecisionBusy}
-	        >Save &amp; Close</button>
-	      </div>
-	  </Modal>
+  {#await import('./lib/modals/confirm/UnsavedTabsModal.svelte') then UnsavedTabsModal}
+    <svelte:component this={UnsavedTabsModal.default}
+      bind:tabLifecycleCancelButton
+      {tabLifecycleDialog}
+      {tabLifecycleDecisionBusy}
+      {discardAndCompleteTabLifecycle}
+      {saveAndCompleteTabLifecycle}
+      {dismissTabLifecycleDialog}
+    />
+  {/await}
 	{/if}
 
 	{#if promptDialog}
