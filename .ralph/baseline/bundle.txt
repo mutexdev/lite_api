@@ -196,3 +196,16 @@ frontend/dist/assets/index-*.css        113609
 # the identifiers from it; do not reconstruct them.
 #
 # Running total: 1,159,933 -> 520,971 (55.1% smaller). 20,971 above target.
+
+# Hand extraction #7 — clone-collection (3,281 B of source):
+#   initial chunk 520,971 -> 519,273  (-1,698)
+#
+# Method note that saves time on the rest: grepping the body for lines
+# containing {identifier}, on:, bind:, disabled= or value= gives the real prop
+# list in one pass. Collecting "every identifier the body shares with
+# App.svelte's declarations" does NOT — for this dialog it returned 21
+# candidates including collection, folder, id, input, label, location, name,
+# row and value, all of which are HTML attribute names or locally scoped and
+# merely collide with an App.svelte local.
+#
+# Running total: 1,159,933 -> 519,273 (55.2% smaller). 19,273 above target.
