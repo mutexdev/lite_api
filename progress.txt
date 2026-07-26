@@ -6430,3 +6430,34 @@ US-026 - Store layer. DONE. Both named collapses complete.
   FileBodyEntriesOf SYNTHESISES an entry from exactly those two fields for the
   legacy single-file shape, so the loop below already covers them. Redundant
   lines, not a test gap.
+
+=== PHASE 6 — first COMPONENT extraction, and why it is safer here than expected ===
+
+  src/lib/SidebarSearch.svelte — 36 lines. App.svelte 11,592 -> 11,582.
+
+  Held this back for several turns wanting direction, then proceeded the same
+  way as the Windows decision: flagged repeatedly, no answer, and the safest
+  available approach is knowable.
+
+  THE RISK I EXPECTED DOES NOT EXIST IN THIS CODEBASE. Moving markup into a
+  child normally risks losing its styling, because Svelte scopes a component's
+  <style> block to that component — the markup moves, the CSS does not, and the
+  result renders unstyled with svelte-check, the build and every test still
+  green.
+
+  Checked instead of assumed: App.svelte has NO <style> block at all. Every
+  class it uses comes from src/style.css, imported globally in main.ts. Only 11
+  of 66 .svelte files scope styles, so global CSS is the convention here rather
+  than the exception. Svelte components also add no wrapper element, so the DOM
+  is byte-identical after the move, and there are no child combinators
+  (`.workspace-rail > .search-section`) that a structural change could break.
+
+  That makes component extraction in this repo materially lower risk than the
+  general case — worth knowing before the next one, and worth having verified
+  rather than discovered.
+
+  Both props are $bindable, following KeyValueTable's precedent and for the same
+  reason it documents: the parent reads `value` to filter the tree AND writes it
+  from the command palette and the ⌘F handler, so a non-bindable prop would let
+  typing update a local copy while the tree kept the old filter. `input` is
+  bindable because a keyboard shortcut outside this component focuses it.

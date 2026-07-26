@@ -36,6 +36,7 @@
   // here is what pulled all of CodeMirror into the initial chunk.
   import CodeEditor from './lib/workbench/LazyCodeEditor.svelte'
   import Modal from './lib/modals/Modal.svelte'
+  import SidebarSearch from './lib/SidebarSearch.svelte'
   import RequestSettingsPanel from './lib/workbench/RequestSettingsPanel.svelte'
   import ProtocolRequestLine from './lib/workbench/ProtocolRequestLine.svelte'
   import WorkspaceCommandBar from './lib/workbench/WorkspaceCommandBar.svelte'
@@ -7966,18 +7967,7 @@
         <small>Create a scratch request in the active collection.</small>
       </section>
 
-      <section class="rail-section search-section">
-        <span class="field-label">Search</span>
-        <div class="search-box">
-          <input aria-label="Search requests" placeholder="Find requests" bind:this={requestSearchInput} bind:value={requestSearch} />
-          {#if requestSearch}
-            <button class="icon-button ghost" title="Clear search" onclick={() => (requestSearch = '')}>x</button>
-          {/if}
-        </div>
-        {#if requestSearch.trim()}
-          <small>{sidebarSearchCount} matching requests</small>
-        {/if}
-      </section>
+      <SidebarSearch bind:value={requestSearch} bind:input={requestSearchInput} matchCount={sidebarSearchCount} />
 
       <section class="collections" use:measureSidebarViewport>
         {#if visibleSidebarCollections.length === 0}
