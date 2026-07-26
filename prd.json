@@ -1619,6 +1619,33 @@
       ],
       "passes": false,
       "notes": "Found during US-024 review, pre-existing and NOT introduced by it. sendRequestWithControlsContext captures ws (a pointer into a.state.Workspaces) before releasing a.mu, then uses it after re-acquiring, at applyScriptVariableContextToState. Any append that grows Workspaces past capacity reallocates the backing array, so the captured pointer then writes into memory nothing reads. Silent corruption, not a crash. US-024 deliberately preserved the existing behaviour rather than fixing it inside a performance story."
+    },
+    {
+      "id": "US-077",
+      "title": "Restructure the repository onto a maintainable Go layout",
+      "description": "As a maintainer, I want the Go source organised into an internal/ package tree with a declared dependency direction, so that the project is navigable and reviewable instead of 85,000 lines flat in package main at the repository root.",
+      "acceptanceCriteria": [
+        "internal/ exists and is the home for extracted packages; the dependency direction is documented (leaf packages must not import the Wails facade)",
+        "At least one real package is extracted end-to-end to prove the layout works, rather than creating empty directories",
+        "main.go stays at the repository root: wails.json exposes projectdir but no field naming an alternative main package, so Wails builds the root package and a cmd/ layout would fight the tool",
+        "No pkg/ directory: nothing outside this repository imports LiteAPI, and the article's own rationale for pkg/ is signalling public consumption",
+        "No configs/ or deployments/ directories: this is a local-first desktop app with no config files or deployment artifacts",
+        "qa/ fixture binaries and docs/ are placed deliberately (kept, or moved to test/), with the choice recorded",
+        "A LAYOUT.md or README section states what belongs where and why the skipped directories were skipped",
+        "wails build succeeds and the packaged app launches",
+        "Regenerated frontend/wailsjs bindings show no unintended diff",
+        "All existing Go tests pass unchanged; test count does not drop",
+        "go build, go vet, go test, go test -race, golangci-lint all stay green",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "lane": "backend",
+      "reviewers": [
+        "R1",
+        "R5"
+      ],
+      "passes": false,
+      "notes": "Requested by the maintainer, informed by https://medium.com/@sherniiazov.da/best-practices-for-a-go-project-layout-90ff0bcc1088 (cmd/, internal/, pkg/, configs/, scripts/, deployments/, docs/, test/). The article's advice is written for servers and libraries and must NOT be applied wholesale to a Wails desktop app - verified against wails v2.12.0: project.go exposes projectdir, build:dir, build:tags and outputfilename but nothing to name a main package other than the root, so cmd/ is blocked by the build tool. pkg/ is inappropriate because nothing external imports this module. configs/ and deployments/ have no content in a desktop app. What genuinely applies is internal/. CURRENT STATE (measured): 60 .go files, 85,004 lines, ALL in package main at the repo root; app.go alone is 43,109 lines. Existing dirs: build/ frontend/ docs/ qa/. SEQUENCING: this story must land BEFORE Phase 4 (US-060..US-071), which extracts types, grpcexec, wsexec, auth, auth/oauth, auth/awsv4, store/bru, store/yaml and importers. If US-077 lands first those extractions target internal/<pkg> directly; if it lands after, every one of them has to be moved a second time. Do the skeleton plus one proof-of-concept extraction here, and let Phase 4 fill it in. RISK: this is a pure-refactor story whose acceptance is that nothing changes behaviourally - a moved file that silently changes an init order or a build tag (devtools_cpu_unix.go, native_app_menu_darwin.go, native_app_menu_other.go are build-tagged) would be a regression the tests may not catch."
     }
   ]
 }
