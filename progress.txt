@@ -4239,3 +4239,29 @@ US-026 - Store layer. DONE. Both named collapses complete.
   DROPPED — otherwise a re-sync could never remove anything.
 
   openapisync 0%-covered functions: 6 -> 1. Overall 30 -> 23. Coverage 78.9%.
+
+--- OAuth2 additional-parameter loading — 0% covered ---
+
+  parseYAMLOAuth2AdditionalGroup and its inner parser load the extra headers,
+  query parameters and body fields a user attached to an OAuth2 flow — the ones
+  a provider demands and a spec cannot know: audience, resource, tenant, prompt.
+
+  The failure is silent the way file loading always is. A parameter that loads
+  with the WRONG PLACEMENT gets sent in the wrong part of the token request, and
+  the provider answers with a generic invalid_request that names no field. One
+  that loads disabled is simply never sent, and the flow fails for a reason the
+  UI does not show.
+
+  Six tests. The grouped form is the one that matters: three named buckets
+  (headers / queryparams / body) each implying its own placement, so a bucket
+  read with the wrong fallback sends a header as a query parameter.
+
+  Controls: forcing every bucket to body fails 1, ignoring an explicit sendIn
+  fails 1, dropping the secret flag fails 1, dropping the enabled flag fails 1.
+
+  Also pinned: a row with NO enabled key defaults to enabled. Defaulting the
+  other way would silently stop sending every parameter written before that flag
+  existed — the kind of change that looks harmless in a diff and disables a
+  user's auth on upgrade.
+
+  0%-covered: 30 -> 21. Coverage 79.0%.
