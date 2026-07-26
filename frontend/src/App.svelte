@@ -8651,85 +8651,19 @@
                     </table>
                   </div>
                   {#if selectedDevToolsNetworkRow}
-                    <section class="network-details-panel" aria-label="Request Details">
-                      <button
-                        type="button"
-                        class="details-panel-resizer"
-                        aria-label="Resize request details"
-                        on:mousedown={startDevToolsDetailsPanelResize}
-                      ></button>
-                    <header>
-                      <h3>Request Details</h3>
-                      <div class="subtabs">
-                        {#each devToolsNetworkDetailTabs as detailTab (detailTab.id)}
-                          <button type="button" class:active={devToolsNetworkDetailTab === detailTab.id} on:click={() => (devToolsNetworkDetailTab = detailTab.id)}>{detailTab.label}</button>
-                        {/each}
-                      </div>
-                    </header>
-                    {#if devToolsNetworkDetailTab === 'request'}
-                      <div class="network-detail-content">
-                        <h4>General</h4>
-                        <dl class="detail-list">
-                          <div><dt>Request URL:</dt><dd>{selectedDevToolsNetworkRow.url}</dd></div>
-                          <div><dt>Request Method:</dt><dd>{normalizedNetworkMethod(selectedDevToolsNetworkRow)}</dd></div>
-                        </dl>
-                        <h4>Request Headers</h4>
-                        {#if networkHeaderRows(selectedDevToolsNetworkRow.requestHeaders).length === 0}
-                          <div class="empty-state compact">No headers</div>
-                        {:else}
-                          <table class="details-table">
-                            <thead><tr><th>Name</th><th>Value</th></tr></thead>
-                            <tbody>
-                              {#each networkHeaderRows(selectedDevToolsNetworkRow.requestHeaders) as [name, value] (name)}
-                                <tr><td>{name}</td><td><code>{value}</code></td></tr>
-                              {/each}
-                            </tbody>
-                          </table>
-                        {/if}
-                        <h4>Request Body</h4>
-                        {#if networkLogBody(selectedDevToolsNetworkRow.requestBody)}
-                          <pre class="network-body">{networkLogBody(selectedDevToolsNetworkRow.requestBody)}</pre>
-                        {:else}
-                          <div class="empty-state compact">No body</div>
-                        {/if}
-                      </div>
-                    {:else if devToolsNetworkDetailTab === 'response'}
-                      <div class="network-detail-content">
-                        <h4>Response Headers</h4>
-                        {#if networkHeaderRows(selectedDevToolsNetworkRow.responseHeaders).length === 0}
-                          <div class="empty-state compact">No headers</div>
-                        {:else}
-                          <table class="details-table">
-                            <thead><tr><th>Name</th><th>Value</th></tr></thead>
-                            <tbody>
-                              {#each networkHeaderRows(selectedDevToolsNetworkRow.responseHeaders) as [name, value] (name)}
-                                <tr><td>{name}</td><td><code>{value}</code></td></tr>
-                              {/each}
-                            </tbody>
-                          </table>
-                        {/if}
-                        <h4>Response Body</h4>
-                        {#if networkLogBody(selectedDevToolsNetworkRow.responseBody)}
-                          <pre class="network-body">{networkLogBody(selectedDevToolsNetworkRow.responseBody)}</pre>
-                        {:else}
-                          <div class="empty-state compact">No response data</div>
-                        {/if}
-                      </div>
-                    {:else}
-                      <div class="network-detail-content">
-                        <h4>Network Logs</h4>
-                        {#if networkLogLines(selectedDevToolsNetworkRow).length === 0}
-                          <div class="empty-state compact">No network logs available</div>
-                        {:else}
-                          <div class="progress-log">
-                            {#each networkLogLines(selectedDevToolsNetworkRow) as line, index (index)}
-                              <div class="progress-row"><span>net</span><code>{line}</code></div>
-                            {/each}
-                          </div>
-                        {/if}
-                      </div>
-                    {/if}
-                    </section>
+              {#await import('./lib/views/devtools/RequestDetailsPanel.svelte') then RequestDetailsPanel}
+                <svelte:component
+                  this={RequestDetailsPanel.default}
+                  {selectedDevToolsNetworkRow}
+                  {devToolsNetworkDetailTab}
+                  {devToolsNetworkDetailTabs}
+                  {networkHeaderRows}
+                  {networkLogBody}
+                  {networkLogLines}
+                  {normalizedNetworkMethod}
+                  {startDevToolsDetailsPanelResize}
+                />
+              {/await}
                   {/if}
                 </div>
               {/if}

@@ -658,3 +658,21 @@ frontend/dist/assets/index-*.css        113609
 # The remaining US-036 work is therefore:
 #   DevTools Network  — bound the details panel with combined html+block depth
 #   Import            — one deliberate ~39-prop pass, does not decompose
+
+# DevTools Network request-details panel — extracted on the second attempt.
+#   4,563 B of source, 8 props.
+#   initial chunk 476,497 -> 473,597  (-2,900). Margin 26,403 bytes.
+#
+# THE PREVIOUS COMMIT'S DIAGNOSIS WAS WRONG. It blamed a Svelte block spanning
+# the section boundary and prescribed "track both html element nesting and
+# Svelte block depth". Re-measuring showed both were already balanced across the
+# range: <section> 1/1, <div> 13/13, blocks 0.
+#
+# The actual fault was an off-by-one. The bounding code printed `end+1` for
+# display and I copied the DISPLAYED number into the slice, so the extraction
+# swallowed the {/if} on the following line. Nothing to do with nesting at all.
+#
+# Recording this because the wrong diagnosis was more expensive than the bug: it
+# invented a rule ("combined depth") that was never needed, and would have sent
+# the next attempt looking in the wrong place. When a boundary is off by exactly
+# one line, suspect index arithmetic before structure.
