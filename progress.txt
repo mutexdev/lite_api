@@ -8560,3 +8560,32 @@ US-026 - Store layer. DONE. Both named collapses complete.
   the swagger2 path-item keys, and now these four. The shape is always the same
   — a loop or a table over every instance is what catches it, and a single
   representative case never does.
+
+=== THE PATTERN, HUNTED DIRECTLY: N SIBLING LINES, ONE TESTED ===
+
+  Having hit this shape three times by accident, I scanned for it: runs of three
+  or more consecutive lines calling the same Clone/normalize/sanitize function
+  on different fields. Five runs, and the two biggest were the worst.
+
+  CloneRequestItemForFolderClone has ELEVEN clone lines. The existing test
+  mutated TWO of them. THE OTHER NINE REPORTED 100% STATEMENT COVERAGE — because
+  executing a line is not verifying it. Deleting any of the nine failed nothing.
+
+  CloneResponseExample has six, with the same exposure.
+
+  Both are now table-driven over every field: clone, mutate that field on the
+  copy, require the original untouched. SEVENTEEN CONTROLS, ONE PER LINE,
+  SEVENTEEN FAILURES. Plus one for the deliberate Response/Timeline drop.
+
+  WHY IT MATTERS HERE. Folder cloning duplicates every request in the folder, so
+  a shared slice means editing one copy silently rewrites the request it was
+  copied from. And auth config is inherited down the folder chain, so the reach
+  is wider than the folder.
+
+  THIS IS THE CLEAREST DEMONSTRATION IN THE PROJECT THAT COVERAGE IS NOT
+  VERIFICATION. Every one of those nine lines was green. The number said the
+  code was exercised, and it was — by a test that never looked at what it did.
+
+  The scan is the reusable part: three or more sibling lines with one shared
+  verb is a shape worth grepping for, and a table over every instance is the
+  only test that catches it.

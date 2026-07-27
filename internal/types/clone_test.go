@@ -238,3 +238,115 @@ func TestSliceClonesPreserveEveryElement(t *testing.T) {
 		}
 	}
 }
+
+// CloneRequestItemForFolderClone has ELEVEN clone lines. The test above mutates
+// two of them — Headers and Tags — and every other line still reported 100%
+// statement coverage, because executing a line is not the same as verifying it.
+// Deleting any of the other nine failed nothing.
+//
+// This walks every slice-bearing field: clone the item, mutate that field on
+// the copy, and require the original to be untouched. Folder cloning is where
+// this matters — cloning a folder duplicates every request in it, and a shared
+// slice means editing one copy silently rewrites the request it came from.
+func TestCloneRequestItemForFolderCloneCopiesEveryField(t *testing.T) {
+	build := func() RequestItem {
+		return RequestItem{
+			Name:         "thing",
+			Params:       []KeyValue{{Name: "p", Value: "original"}},
+			PathParams:   []KeyValue{{Name: "pp", Value: "original"}},
+			Headers:      []KeyValue{{Name: "h", Value: "original"}},
+			Body:         RequestBody{Mode: "form-urlencoded", FormURLEncoded: []KeyValue{{Name: "f", Value: "original"}}},
+			GrpcMessages: []GrpcMessage{{Name: "g", Content: "original"}},
+			WSMessages:   []WSMessage{{Type: "text", Content: "original"}},
+			Auth:         AuthConfig{OAuth2: OAuth2Auth{AdditionalParams: []KeyValue{{Name: "a", Value: "original"}}}},
+			Vars:         RequestVars{Req: []Variable{{Name: "v", Value: "original"}}},
+			Assertions:   []Assertion{{Expression: "e", Value: "original"}},
+			Tags:         []string{"original"},
+			Examples:     []ResponseExample{{Name: "ex", Request: ResponseExampleRequest{Headers: []KeyValue{{Name: "eh", Value: "original"}}}}},
+		}
+	}
+
+	for _, tc := range []struct {
+		field  string
+		mutate func(*RequestItem)
+		read   func(RequestItem) string
+	}{
+		{"Params", func(i *RequestItem) { i.Params[0].Value = "MUTATED" }, func(i RequestItem) string { return i.Params[0].Value }},
+		{"PathParams", func(i *RequestItem) { i.PathParams[0].Value = "MUTATED" }, func(i RequestItem) string { return i.PathParams[0].Value }},
+		{"Headers", func(i *RequestItem) { i.Headers[0].Value = "MUTATED" }, func(i RequestItem) string { return i.Headers[0].Value }},
+		{"Body.FormURLEncoded", func(i *RequestItem) { i.Body.FormURLEncoded[0].Value = "MUTATED" }, func(i RequestItem) string { return i.Body.FormURLEncoded[0].Value }},
+		{"GrpcMessages", func(i *RequestItem) { i.GrpcMessages[0].Content = "MUTATED" }, func(i RequestItem) string { return i.GrpcMessages[0].Content }},
+		{"WSMessages", func(i *RequestItem) { i.WSMessages[0].Content = "MUTATED" }, func(i RequestItem) string { return i.WSMessages[0].Content }},
+		{"Auth", func(i *RequestItem) { i.Auth.OAuth2.AdditionalParams[0].Value = "MUTATED" }, func(i RequestItem) string { return i.Auth.OAuth2.AdditionalParams[0].Value }},
+		{"Vars.Req", func(i *RequestItem) { i.Vars.Req[0].Value = "MUTATED" }, func(i RequestItem) string { v, _ := i.Vars.Req[0].Value.(string); return v }},
+		{"Assertions", func(i *RequestItem) { i.Assertions[0].Value = "MUTATED" }, func(i RequestItem) string { return i.Assertions[0].Value }},
+		{"Tags", func(i *RequestItem) { i.Tags[0] = "MUTATED" }, func(i RequestItem) string { return i.Tags[0] }},
+		{"Examples", func(i *RequestItem) { i.Examples[0].Request.Headers[0].Value = "MUTATED" }, func(i RequestItem) string { return i.Examples[0].Request.Headers[0].Value }},
+	} {
+		original := build()
+		cloned := CloneRequestItemForFolderClone(original)
+		tc.mutate(&cloned)
+		if got := tc.read(original); got != "original" {
+			t.Errorf("%s is shared with the original (became %q)", tc.field, got)
+		}
+	}
+}
+
+// The response and timeline are deliberately DROPPED rather than copied. A
+// folder clone produces requests that have never been sent, and carrying the
+// source request's response over would show a result for a request the copy
+// never made.
+func TestCloneRequestItemForFolderCloneDropsTheResponse(t *testing.T) {
+	original := RequestItem{
+		Name:     "thing",
+		Response: &Response{Status: 200},
+		Timeline: []TimelineItem{{Kind: "request"}},
+	}
+	cloned := CloneRequestItemForFolderClone(original)
+	if cloned.Response != nil {
+		t.Error("the clone carried the source request's response")
+	}
+	if cloned.Timeline != nil {
+		t.Error("the clone carried the source request's timeline")
+	}
+	if original.Response == nil {
+		t.Error("cloning cleared the ORIGINAL's response")
+	}
+}
+
+// CloneResponseExample has six clone lines and the same exposure.
+func TestCloneResponseExampleCopiesEveryField(t *testing.T) {
+	build := func() ResponseExample {
+		return ResponseExample{
+			Name: "ex",
+			Request: ResponseExampleRequest{
+				Headers:        []KeyValue{{Name: "h", Value: "original"}},
+				Params:         []KeyValue{{Name: "p", Value: "original"}},
+				FormURLEncoded: []KeyValue{{Name: "f", Value: "original"}},
+				MultipartForm:  []FormPart{{Name: "m", Value: "original"}},
+				File:           []FileBodyEntry{{FilePath: "original"}},
+			},
+			Response: ResponseExamplePayload{Headers: []KeyValue{{Name: "rh", Value: "original"}}},
+		}
+	}
+
+	for _, tc := range []struct {
+		field  string
+		mutate func(*ResponseExample)
+		read   func(ResponseExample) string
+	}{
+		{"Request.Headers", func(e *ResponseExample) { e.Request.Headers[0].Value = "MUTATED" }, func(e ResponseExample) string { return e.Request.Headers[0].Value }},
+		{"Request.Params", func(e *ResponseExample) { e.Request.Params[0].Value = "MUTATED" }, func(e ResponseExample) string { return e.Request.Params[0].Value }},
+		{"Request.FormURLEncoded", func(e *ResponseExample) { e.Request.FormURLEncoded[0].Value = "MUTATED" }, func(e ResponseExample) string { return e.Request.FormURLEncoded[0].Value }},
+		{"Request.MultipartForm", func(e *ResponseExample) { e.Request.MultipartForm[0].Value = "MUTATED" }, func(e ResponseExample) string { return e.Request.MultipartForm[0].Value }},
+		{"Request.File", func(e *ResponseExample) { e.Request.File[0].FilePath = "MUTATED" }, func(e ResponseExample) string { return e.Request.File[0].FilePath }},
+		{"Response.Headers", func(e *ResponseExample) { e.Response.Headers[0].Value = "MUTATED" }, func(e ResponseExample) string { return e.Response.Headers[0].Value }},
+	} {
+		original := build()
+		cloned := CloneResponseExample(original)
+		tc.mutate(&cloned)
+		if got := tc.read(original); got != "original" {
+			t.Errorf("%s is shared with the original (became %q)", tc.field, got)
+		}
+	}
+}
