@@ -2693,6 +2693,20 @@ func sortSequencedSiblingsLikeBruno(siblings []collectionSibling) []collectionSi
 	return ordered
 }
 
+// updateCollectionFolderRenameState rewrites a collection's folders and items
+// after a folder has been renamed on disk.
+//
+// The four paths are normalised up front, and only ONE of the four is
+// observable: newPath is compared with `==` against a normalised folder path
+// further down, and a bare comparison does not normalise anything. The other
+// three reach only replaceFolderPathPrefix and pathBaseSlash, both of which
+// normalise their own arguments — so deleting those three changes no behaviour,
+// and a control confirms it.
+//
+// They stay anyway. The contract of this function is "give me a path in any
+// form", stated once at the top; normalising one of four inputs and trusting
+// callees for the rest would be harder to reason about than either extreme, and
+// three string cleanups per rename cost nothing.
 func updateCollectionFolderRenameState(collection *Collection, oldPath, newPath, oldDisplayPath, newDisplayPath, oldDir, newDir string) {
 	oldPath = normalizeFolderPathKey(oldPath)
 	newPath = normalizeFolderPathKey(newPath)

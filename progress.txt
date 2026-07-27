@@ -8589,3 +8589,44 @@ US-026 - Store layer. DONE. Both named collapses complete.
   The scan is the reusable part: three or more sibling lines with one shared
   verb is a shape worth grepping for, and a table over every instance is the
   only test that catches it.
+
+--- the other two runs the scan found, and a NEGATIVE result ---
+
+  The sibling-line scan flagged five runs. Three were the clone.go ones, fixed
+  above. The other two are normalizeFolderPathKey x4 and x3 in app.go, and they
+  turned out to be a DIFFERENT SHAPE with a different answer.
+
+  updateCollectionFolderRenameState normalises four path arguments. I controlled
+  each. ONLY ONE OF THE FOUR IS OBSERVABLE:
+
+    newPath          load-bearing — compared with a bare `==` against a
+                     normalised folder path, and `==` normalises nothing.
+                     Control fails 1.
+    oldPath          redundant — reaches only replaceFolderPathPrefix
+    oldDisplayPath   redundant — same
+    newDisplayPath   redundant — reaches replaceFolderPathPrefix and
+                     pathBaseSlash, and BOTH normalise their own arguments
+
+  Every consumer normalises internally except the bare comparison. That is the
+  whole explanation, and it took controlling all four to find rather than
+  reading, because the four lines look identical.
+
+  KEPT, ALL FOUR, and the reason is now in a comment on the function: the
+  contract is "give me a path in any form", stated once at the top. Normalising
+  one of four inputs and trusting callees for the other three is harder to
+  reason about than either extreme, and three string cleanups per rename cost
+  nothing. This is the NINTH disposition — redundant, retained for the
+  legibility of a stated contract rather than for cost.
+
+  A new test pins the function's own contract against unnormalised input:
+  trailing slashes, leading slashes, surrounding whitespace, redundant "./"
+  segments. Nested folders move with the parent, unrelated folders and items are
+  untouched.
+
+  AND MY FIRST VERSION OF THAT TEST FAILED CORRECTLY. I included a
+  backslash-separator case, expecting `api\v1` to normalise to `api/v1`.
+  filepath.ToSlash is the IDENTITY on Unix, where a backslash is a legal
+  filename character — so `api\v1` genuinely IS a different folder there, and I
+  was asserting Windows semantics on a Linux CI run. Second time this session
+  I have written a platform assumption into a test; the first was ToSlash in the
+  timeline label. Case removed, and the reason recorded beside it.
