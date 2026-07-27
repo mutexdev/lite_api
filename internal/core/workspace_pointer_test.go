@@ -26,11 +26,14 @@ import (
 	"testing"
 )
 
-// readAppSourceForTest reads app.go so a test can assert on a property of the
-// code itself. Used sparingly and only where a behavioural test cannot pin the
-// property on its own.
-// readAppSourceForTest returns every non-test source file in package main,
-// concatenated.
+// readAppSourceForTest returns every non-test source file in this package,
+// concatenated, so a test can assert on a property of the code itself. Used
+// sparingly and only where a behavioural test cannot pin the property on its
+// own.
+//
+// It reads the working directory rather than a named path, which is why moving
+// the whole package out of the repository root and into internal/core did not
+// disturb it — the same reason the file-motion guard below exists.
 //
 // It used to read app.go alone. That made it fail the moment
 // sendRequestWithControlsContext moved to app_send.go during the file split —

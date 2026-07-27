@@ -3,7 +3,7 @@
 // US-060. Extracted from app.go, where 81 type declarations sat interleaved
 // with the 266 methods that operate on them.
 //
-// NOTE for whoever continues this: a Go type alias left behind in package main
+// NOTE for whoever continues this: a Go type alias left behind in internal/core
 // does NOT hide the move from Wails. The generator follows the alias to its
 // defining package and emits a `types` namespace, so every frontend reference
 // to `main.X` for a moved type becomes `types.X`. This was measured, not

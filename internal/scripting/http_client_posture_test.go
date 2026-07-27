@@ -2,12 +2,13 @@
 //
 // This exists because I read the seam wrong and want the next reader not to.
 //
-// internal/scripting exposes SetHTTPClient, and package main's init() wires
+// internal/scripting exposes SetHTTPClient, and internal/core's init() wires
 // awsv4.SetHTTPClient and transport.SetPACHTTPClient but NOT this one. That
 // looks like an oversight — a seam production forgot to connect — and it is
 // not.
 //
-// US-017 (http_transport_cache.go:614) consolidated six one-off clients and
+// US-017 (internal/core/http_transport_cache.go, the "one-off clients" note)
+// consolidated six one-off clients and
 // says so explicitly: five exchange credentials "and the sixth is the script
 // runtime's sendRequest", consolidated "WITHOUT adopting the user's proxy or
 // TLS settings, and that is deliberate". Letting a collection's "disable SSL

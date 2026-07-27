@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Guards the Wails binding surface — the contract between package main and the
+# Guards the Wails binding surface — the contract between internal/core and the
 # frontend.
 #
 # THREE CHECKS, because each catches something the others cannot:

@@ -838,7 +838,7 @@ func HasProxyConfig(proxy types.ProxyConfig) bool {
 
 // pacHTTPClient fetches PAC files. Posture: verified TLS and NO proxy -- a PAC
 // fetch must not be routed through the proxy it is being consulted to discover.
-// Settable for the same reason as the interpolator: package main owns the
+// Settable for the same reason as the interpolator: internal/core owns the
 // shared transport cache.
 var pacHTTPClient = func() *http.Client { return &http.Client{Timeout: 30 * time.Second} }
 

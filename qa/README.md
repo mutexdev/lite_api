@@ -32,8 +32,8 @@ already happened here.
 
 ## Why each exists
 
-**`bindings.sh`** — the 188 bound methods are the contract between `package
-main` and the frontend, and the generated bindings are committed. A rename in
+**`bindings.sh`** — the 188 bound methods are the contract between
+`internal/core` and the frontend, and the generated bindings are committed. A rename in
 Go that is not followed by `wails generate module` leaves the frontend calling a
 method that no longer exists, and **nothing in either build says so**, because
 the `.d.ts` still type-checks against itself. Checking the count alone is not
@@ -120,10 +120,31 @@ must name something, it has to be in the catalogue so `NOT FOUND` is loud.
 **`grep -q` is the wrong shape for "this value is correct everywhere."** It
 answers *does any occurrence match*, so a stale copy passes by hiding behind a
 correct one. `layout.sh` checks that `docs/architecture.md` still quotes the
-real bound-method count; the first version used `grep -q`, and the doc has three
-occurrences, so mutating one of them sailed through. It now extracts every
-occurrence and compares each. The selftest mutates all three separately, because
-a control that only breaks the first would not have caught this either.
+real bound-method count; the first version used `grep -q`, and the doc quoted it
+in several places, so mutating one of them sailed through. It now extracts every
+occurrence and compares each, and the selftest mutates each separately — a
+control that only broke the first would not have caught this either.
+
+**Comments drift on code motion, silently, and at scale.** Moving the App out of
+package main left 71 comments across 42 files under `internal/` still calling it
+"package main" — including one directly above `package core` explaining that the
+type aliases
+exist "so package main compiles unchanged". Every gate was green throughout;
+nothing a compiler does looks at prose. These comments are the only record of
+why most of this code is shaped as it is, so a wrong one is worse than none: it
+sends the next reader to a 24-line `main.go` looking for something that was
+never there. `layout.sh` now refuses new ones against an explicit three-file
+allowlist, so a legitimate reference has to be justified rather than matched by
+a pattern.
+
+Two of them turned out to be more than wording. One instructed the reader to
+move a pair of YAML helpers "when the YAML reader moves to internal/store/yaml"
+— a move that had already happened, leaving an apparently unfinished
+instruction; the comment now records why the pair did not follow. Another
+justified duplicating a helper on the grounds that sharing it would mean
+*package main* exporting something too generic, which stopped being the choice
+once `internal/scalar` existed. **A stale comment can encode a decision whose
+premise is gone.** Re-read the reasoning, not just the nouns.
 
 **A figure in a document is unchecked code.** `docs/architecture.md` claimed 41
 packages when there were 37, having drifted within one working session. Numbers

@@ -813,14 +813,14 @@ func (a *App) ImportCollection(workspaceID string, payload ImportPayload) (AppSt
 // gRPC method resolution, messages, metadata and grpcurl moved to internal/grpcexec.
 
 // randomHex, wssePasswordDigest and quoteDigestValue moved to
-// internal/auth/wsse with the header they build. Wrapped because package main
+// internal/auth/wsse with the header they build. Wrapped because internal/core
 // still uses them for HTTP digest auth.
 
 // WebSocket message preparation moved to internal/wsexec.
 //
 // normalizeWSMessageType is wrapped rather than renamed at seven call sites.
 
-// Dialling stays in package main:
+// Dialling stays in internal/core:
 // it reads the app's TLS settings, http client and per-collection certificates.
 
 // OAuth 1.0a request signing moved to internal/auth/oauth1.

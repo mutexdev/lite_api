@@ -1,6 +1,6 @@
 // WS-Security UsernameToken.
 //
-// WHY THESE EXIST: the one test in package main built its expected digest by
+// WHY THESE EXIST: the one test in internal/core built its expected digest by
 // calling PasswordDigest, the function under test. Making PasswordDigest return
 // the password unchanged failed nothing -- the fourth signer in this repo with
 // that shape, after SigV4, OAuth 1.0a and Digest.

@@ -2,15 +2,15 @@ package core
 
 import "github.com/mutexdev/lite_api/internal/types"
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type TerminalSession = types.TerminalSession
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type AppState = types.AppState
 
 type Workspace = types.Workspace
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type Collection = types.Collection
 
 type CollectionWatchRefreshResult = types.CollectionWatchRefreshResult
@@ -18,7 +18,7 @@ type CollectionWatchRefreshResult = types.CollectionWatchRefreshResult
 type FolderConfig = types.FolderConfig
 
 // Moved to internal/types. These stay as aliases rather than being deleted:
-// package main still names them in 200+ places, and an alias keeps that code
+// internal/core still names them in 200+ places, and an alias keeps that code
 // compiling while the extraction proceeds cluster by cluster.
 type ProxyConfig = types.ProxyConfig
 
@@ -30,7 +30,7 @@ type ProxyPreferences = types.ProxyPreferences
 
 type ClientCertificateConfig = types.ClientCertificateConfig
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type CollectionPresets = types.CollectionPresets
 
 type CollectionProtobufConfig = types.CollectionProtobufConfig
@@ -43,15 +43,15 @@ type CollectionProtoImportPath = types.CollectionProtoImportPath
 
 type OpenAPISyncConfig = types.OpenAPISyncConfig
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type RequestItem = types.RequestItem
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type GrpcMessage = types.GrpcMessage
 
 type WSMessage = types.WSMessage
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type GRPCMethodInfo = types.GRPCMethodInfo
 
 type RequestBody = types.RequestBody
@@ -60,7 +60,7 @@ type FileBodyEntry = types.FileBodyEntry
 
 type FormPart = types.FormPart
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type KeyValue = types.KeyValue
 
 type Variable = types.Variable
@@ -77,12 +77,12 @@ type OAuth2AdditionalParam = types.OAuth2AdditionalParam
 
 type AWSV4Auth = types.AWSV4Auth
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type Assertion = types.Assertion
 
 type RequestSettings = types.RequestSettings
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type Response = types.Response
 
 type ResponseExample = types.ResponseExample
@@ -97,26 +97,26 @@ type ScriptLog = types.ScriptLog
 
 type TimelineItem = types.TimelineItem
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type Environment = types.Environment
 
 type DotEnvFile = types.DotEnvFile
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type GlobalEnvironmentExportResult = types.GlobalEnvironmentExportResult
 
 type GlobalEnvironmentExportFile = types.GlobalEnvironmentExportFile
 
 type GlobalEnvironmentSaveResult = types.GlobalEnvironmentSaveResult
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type CollectionExportOptions = types.CollectionExportOptions
 
 type CollectionExportResult = types.CollectionExportResult
 
 type CollectionSaveResult = types.CollectionSaveResult
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type OpenAPISyncOptions = types.OpenAPISyncOptions
 
 type OpenAPISyncEndpointChange = types.OpenAPISyncEndpointChange
@@ -135,17 +135,17 @@ type OpenAPILocalDriftOptions = types.OpenAPILocalDriftOptions
 
 type OpenAPILocalDriftResult = types.OpenAPILocalDriftResult
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type OpenTab = types.OpenTab
 
 type Feature = types.Feature
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type DevToolsSnapshot = types.DevToolsSnapshot
 
 type DevToolsProcessMetric = types.DevToolsProcessMetric
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type Preferences = types.Preferences
 
 type LayoutPreferences = types.LayoutPreferences
@@ -176,17 +176,17 @@ type DevToolsNetworkPreferences = types.DevToolsNetworkPreferences
 
 type KeyBinding = types.KeyBinding
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type Notification = types.Notification
 
 type NetworkLog = types.NetworkLog
 
 type CookieEntry = types.CookieEntry
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type CookieInput = types.CookieInput
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type RunnerSnapshot = types.RunnerSnapshot
 
 type RunnerOptions = types.RunnerOptions
@@ -201,7 +201,7 @@ type RequestPatch = types.RequestPatch
 
 type ImportPayload = types.ImportPayload
 
-// Moved to internal/types. Aliased so package main compiles unchanged.
+// Moved to internal/types. Aliased so internal/core compiles unchanged.
 type GitCollectionCandidate = types.GitCollectionCandidate
 
 type GitCloneResult = types.GitCloneResult

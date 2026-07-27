@@ -970,6 +970,19 @@ func ParseCollectionMetadata(collection *types.Collection, content string) error
 
 // AssignYAMLBodyData and ParseYAMLKeyValues live here rather than in
 // internal/types because they read YAML-shaped documents, and types is the leaf
-// package everything else depends on. They are shared with the YAML request
-// reader still in package main -- when that moves to internal/store/yaml, this
-// is the pair to move with it.
+// package everything else depends on.
+//
+// UPDATE, because this comment used to say "when the YAML reader moves to
+// internal/store/yaml, this is the pair to move with it" and that move has
+// since happened. The reader is internal/store/yamlstore, and the pair did NOT
+// move with it. The reason is worth recording rather than leaving as an
+// apparently unfinished instruction:
+//
+// yamlstore reaches into bru for six symbols. Four are YAML helpers
+// (ParseYAMLKeyValues, YAMLVariables, YAMLEnabled, AssignYAMLBodyData) and two
+// are not (WsMessagesForStorage, ParseImportedGlobalEnvironmentsJSON). Moving
+// the YAML four would therefore SHRINK the yamlstore -> bru edge without
+// deleting it, while adding a package — and bru itself calls
+// AssignYAMLBodyData, so a move to yamlstore would reverse the edge rather than
+// remove it. See internal/store/bru/yaml.go, which is where the YAML helpers in
+// this package now sit together.

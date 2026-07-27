@@ -1,4 +1,4 @@
-// This one stayed in package main when the rest of the interpolation tests moved
+// This one stayed with the App when the rest of the interpolation tests moved
 // to internal/interp: it asserts the contract BETWEEN scripting.BuildVariableMap and the
 // interpolator, and scripting.BuildVariableMap needs collections, environments and the
 // workspace. A test that spans two packages belongs with the one that owns the

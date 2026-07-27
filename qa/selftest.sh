@@ -149,6 +149,14 @@ expect_failure "layout.sh: a stray .go file in the repository root" ./qa/layout.
 rm -f selftest_stray.go
 restore; RESTORE=(); STASH=$(mktemp -d)
 
+# The same gate refuses a comment under internal/ that still calls the App's
+# package "package main". 71 of them drifted that way during the restructure —
+# one of them directly above `package core` — because nothing checked.
+stash internal/types/terminal.go
+sed -i '' 's|stays in internal/core\.|stays in package main.|' internal/types/terminal.go
+expect_failure "layout.sh: a comment under internal/ reintroducing \"package main\"" ./qa/layout.sh
+restore; RESTORE=(); STASH=$(mktemp -d)
+
 # The same gate checks that the figures docs/architecture.md quotes are still
 # true. It said 41 packages when there were 37, having drifted inside a single
 # afternoon, because nothing measured it.
@@ -159,9 +167,10 @@ restore; RESTORE=(); STASH=$(mktemp -d)
 
 # EVERY occurrence must be checked, not just one. The first version of this
 # check used `grep -q`, which passes when ANY occurrence matches — so a stale
-# copy sailed through by hiding behind a correct one. The count appears three
-# times; each is mutated separately here, because a control that only ever
-# breaks the first one would not have caught that.
+# copy sailed through by hiding behind a correct one. The occurrence count is
+# read from the document rather than written here, and each is mutated
+# separately, because a control that only ever breaks the first one would not
+# have caught that either.
 occurrences=$(grep -c '188 bound methods' docs/architecture.md)
 for i in $(seq 1 "$occurrences"); do
   stash docs/architecture.md

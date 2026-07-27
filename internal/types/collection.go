@@ -1,7 +1,7 @@
 // Collections, their watch results and folder config.
 //
 // US-060. Moved verbatim from app.go; see internal/types/proxy.go for why the
-// aliases left behind in package main are a Go shim and not a Wails one.
+// aliases left behind in internal/core are a Go shim and not a Wails one.
 package types
 
 import "time"

@@ -1,6 +1,6 @@
 // An independent check of the Digest response hash.
 //
-// WHY: the existing tests in package main build their expected value by calling
+// WHY: the existing tests in internal/core build their expected value by calling
 // MD5Hex -- the function under test. Proof that measured nothing: making MD5Hex
 // return its input unchanged failed no test at all, so the response hash, the
 // thing the whole scheme rests on, was unverified.

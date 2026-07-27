@@ -21,7 +21,7 @@ import (
 // NetworkLogBodyLimit caps what a mock server reads from an inbound request
 // before recording it. The body is headed for the in-memory network log and
 // then a webview, so an unbounded read turns one large upload into a memory
-// problem. Mirrors the limit package main applies to real responses.
+// problem. Mirrors the limit internal/core applies to real responses.
 const NetworkLogBodyLimit = 64 * 1024
 
 // MockSelectionHeader lets a caller ask for a specific example by name.

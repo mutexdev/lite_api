@@ -2344,7 +2344,7 @@ func FolderChain(collection types.Collection, item types.RequestItem) []types.Fo
 }
 
 // httpClient is used by the script sandbox's own fetch/sendRequest paths. It is
-// a variable for the same reason awsv4's and transport's are: package main owns
+// a variable for the same reason awsv4's and transport's are: internal/core owns
 // the shared transport cache, and this package must not depend on it to build.
 var httpClient = func() *http.Client { return &http.Client{Timeout: 30 * time.Second} }
 

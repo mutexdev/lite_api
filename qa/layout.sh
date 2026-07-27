@@ -75,7 +75,31 @@ if [ -n "$dupes" ]; then
   status=1
 fi
 
-# --- 5. the figures docs/architecture.md quotes are still true -------------
+# --- 5. nothing under internal/ still calls the App's package "package main" -
+# The App left package main during the restructure and 71 comments across 42
+# files did not follow it, including one directly above `package core` telling the
+# reader the aliases exist "so package main compiles unchanged". Comments are
+# the only record of WHY most of this code is shaped as it is, and a wrong one
+# is worse than none — it sends the next reader to a 24-line main.go looking for
+# something that is not there.
+#
+# Three references are legitimate and listed explicitly rather than pattern-
+# matched, so a NEW one has to be justified here to pass.
+allowed_main_refs="internal/core/run.go
+internal/auth/awsv4/awsv4.go
+internal/codegen/generators.go"
+stale_main=$(grep -rln 'package main' --include='*.go' internal/ 2>/dev/null \
+  | grep -vxF "$allowed_main_refs" || true)
+if [ -n "$stale_main" ]; then
+  echo "these files under internal/ still refer to \"package main\":" >&2
+  echo "$stale_main" | sed 's/^/  /' >&2
+  echo >&2
+  echo "The App lives in internal/core. If a reference is genuinely about the" >&2
+  echo "real main package, add it to allowed_main_refs in this script." >&2
+  status=1
+fi
+
+# --- 6. the figures docs/architecture.md quotes are still true -------------
 # The document names a package count and a bound-method count. Both went stale
 # inside a single afternoon — it said 41 packages when there were 37 — because
 # nothing measured them. A number nobody checks is the same failure mode as a

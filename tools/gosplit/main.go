@@ -37,7 +37,7 @@ type decl struct {
 
 // declarations returns every top-level declaration with the byte range that
 // holds it, doc comment and all.
-func declarations(fset *token.FileSet, file *ast.File, src []byte) []decl {
+func declarations(fset *token.FileSet, file *ast.File) []decl {
 	var out []decl
 	add := func(name string, node ast.Node, doc *ast.CommentGroup) {
 		start := fset.Position(node.Pos()).Offset
@@ -113,7 +113,7 @@ func main() {
 	}
 
 	fset, file, source := load(*src)
-	decls := declarations(fset, file, source)
+	decls := declarations(fset, file)
 
 	if *list {
 		for _, d := range decls {

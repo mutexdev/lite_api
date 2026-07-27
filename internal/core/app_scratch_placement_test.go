@@ -7,7 +7,7 @@ import (
 // The Scratch collection's position in the sidebar is decided by three small
 // helpers. Two of them, countRegularCollections and firstScratchCollectionIndex,
 // report 100% line coverage — and yet making countRegularCollections count
-// scratch collections as regular left the ENTIRE package main suite green.
+// scratch collections as regular left the ENTIRE internal/core suite green.
 //
 // Every line ran; nothing checked what any of them meant. That is the whole
 // argument for controlling a mutation rather than reading a coverage figure,

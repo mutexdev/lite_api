@@ -493,9 +493,16 @@ func sha256Hex(value string) string {
 
 // firstNonEmpty returns the first value that is not blank.
 //
-// A copy rather than an import: it is seven dependency-free lines, and having
-// package main export a helper this generic just to share it would be a worse
-// coupling than the duplication.
+// A copy rather than an import.
+//
+// The original reason — that sharing it would mean package main exporting a
+// helper this generic — no longer holds: internal/scalar is a stdlib-only leaf
+// and scalar.FirstNonEmpty is exactly this function. The reason the copy stays
+// is now the weaker one, stated plainly so nobody re-derives the old one: seven
+// dependency-free lines against a new package edge from a signing
+// implementation that currently imports nothing of ours. Deleting it in favour
+// of the import would also be defensible; what would not be is leaving a
+// justification here that stopped being true.
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -506,7 +513,7 @@ func firstNonEmpty(values ...string) string {
 }
 
 // httpClient is the client used for credential-resolution calls: STS, SSO and
-// OIDC. It is a variable rather than a hard-wired client because package main
+// OIDC. It is a variable rather than a hard-wired client because internal/core
 // routes these through its shared transport cache (verified TLS, inherited
 // proxy), and this package must not depend on that machinery to be usable or
 // testable on its own. Package main overrides it during startup.

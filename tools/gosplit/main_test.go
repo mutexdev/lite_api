@@ -57,7 +57,7 @@ func parseFixture(t *testing.T, src string) []decl {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	return declarations(fset, file, []byte(src))
+	return declarations(fset, file)
 }
 
 // THE PROPERTY THE TOOL RESTS ON. Reassembly must be byte-identical, or a move

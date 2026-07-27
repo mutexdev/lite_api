@@ -1,6 +1,6 @@
 // The Wails-bound side of code generation.
 //
-// These stayed in package main when internal/codegen was extracted: they are
+// These stayed with the App when internal/codegen was extracted: they are
 // methods on *App, which is what Wails binds, and a method cannot move to
 // another package without its receiver.
 package core

@@ -1,6 +1,6 @@
 // An independent check of the OAuth 1.0a signature.
 //
-// WHY: the existing test in package main builds its expected signature by
+// WHY: the existing test in internal/core builds its expected signature by
 // calling Signature, ParameterString, BaseURL and Encode -- the functions under
 // test. That detects signing and verifying disagreeing, but not both being
 // wrong together, which is the failure that matters. It is the same shape as

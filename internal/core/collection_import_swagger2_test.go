@@ -81,7 +81,7 @@ func TestSwagger2ManualOverrideImports(t *testing.T) {
 	}
 }
 
-// Fixture helpers local to package main. The importers package has its own
+// Fixture helpers local to internal/core. The importers package has its own
 // copies with ../../ paths; these read from the repo root, which is this
 // package's working directory during tests.
 func swagger2Fixture(t *testing.T) string {

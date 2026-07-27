@@ -1,4 +1,4 @@
-// Moved from package main with the code they cover. The one test that stayed
+// Moved from the App package with the code they cover. The one test that stayed
 // behind drives *App and lives in code_generation_test.go.
 package codegen
 
@@ -12,7 +12,7 @@ import (
 
 // hostileBody contains, deliberately: a double quote, a single quote, a
 // backslash, a newline, a PHP variable sigil, a Ruby interpolation opener, a
-// backtick and a non-ASCII rune. Duplicated in package main's
+// backtick and a non-ASCII rune. Duplicated in internal/core's
 // code_generation_test.go, which drives the same generators through *App.
 const hostileBody = `{"quote":"she said \"hi\"","apostrophe":"it's","path":"C:\\Users\\ada","dollar":"$total","ruby":"#{evil}","tick":"` + "`whoami`" + `","unicode":"héllo 世界"}`
 

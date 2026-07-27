@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # Reports Go statement coverage reproducibly.
 #
-# Two figures, because they measure different things and the repo has quoted
-# them interchangeably before:
-#
-#   internal   the internal/ packages only — the extracted, unit-tested code
-#   all        internal/ plus the root package main, which is bound to Wails
-#              and exercised mostly through integration-shaped tests
+# ONE figure, over ./internal/... — see the note beside `measure` below. It
+# used to report two, because internal/ alone and internal/ plus the root
+# package measured genuinely different things while the App lived in package
+# main at the repository root. Now that the root holds only main.go, the two
+# differ by rounding.
 #
 # Both go through tools/coverage/mergeprofile.go. Without it the number is
 # meaningless: with -coverpkg every test binary writes a full profile, so one

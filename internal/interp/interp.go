@@ -1,7 +1,7 @@
 // Package interp expands {{variable}} templates.
 //
 // US-069. It is the leaf that internal/transport and internal/grpcexec were
-// both reaching back into package main for -- each carried a settable
+// both reaching back into the App package for -- each carried a settable
 // interpolator variable purely because this code had not moved yet. With it
 // here they import it directly and those seams are gone.
 package interp

@@ -9,12 +9,12 @@ import (
 
 // The network log body cap is declared twice — networkLogBodyLimit in app.go
 // and localserver.NetworkLogBodyLimit — and the second says it "mirrors the
-// limit package main applies". Entries from both land in the SAME in-memory
+// limit internal/core applies". Entries from both land in the SAME in-memory
 // network log and the same webview, which is the whole reason one cap should
 // govern both. Nothing enforced that.
 func TestNetworkLogBodyLimitsAgreeAcrossPackages(t *testing.T) {
 	if networkLogBodyLimit != localserver.NetworkLogBodyLimit {
-		t.Errorf("package main caps network log bodies at %d but localserver caps at %d; "+
+		t.Errorf("internal/core caps network log bodies at %d but localserver caps at %d; "+
 			"entries from the mock server and from real requests share one log",
 			networkLogBodyLimit, localserver.NetworkLogBodyLimit)
 	}
@@ -60,7 +60,7 @@ func TestTruncateNetworkLogBodyCutsOnAByteBoundary(t *testing.T) {
 	}
 }
 
-// KNOWN DIVERGENCE, recorded rather than silently changed. package main cuts
+// KNOWN DIVERGENCE, recorded rather than silently changed. internal/core cuts
 // the body and appends a marker; localserver caps at READ time with an
 // io.LimitReader, which cannot append one — by the time the cap is hit the
 // reader has no way to know whether more was coming without reading further.
@@ -72,10 +72,10 @@ func TestTruncateNetworkLogBodyCutsOnAByteBoundary(t *testing.T) {
 func TestTheTwoCapsGovernTheSameBoundary(t *testing.T) {
 	atCap := strings.Repeat("x", localserver.NetworkLogBodyLimit)
 	if got := truncateNetworkLogBody(atCap); got != atCap {
-		t.Error("a body exactly at the localserver cap was truncated by package main, so the two boundaries differ by one")
+		t.Error("a body exactly at the localserver cap was truncated by internal/core, so the two boundaries differ by one")
 	}
 	overCap := strings.Repeat("x", localserver.NetworkLogBodyLimit+1)
 	if got := truncateNetworkLogBody(overCap); got == overCap {
-		t.Error("a body one byte over the localserver cap was not truncated by package main")
+		t.Error("a body one byte over the localserver cap was not truncated by internal/core")
 	}
 }

@@ -10,7 +10,7 @@ import (
 //
 // restoreCollectionRemovalLocked carries the clamp-and-shift that decides this,
 // and it was covered only incidentally: replacing the whole computation with
-// `index := len(ws.Collections)` — always append — left the ENTIRE package main
+// `index := len(ws.Collections)` — always append — left the ENTIRE internal/core
 // suite green. So did removing the negative-index clamp. The sidebar order is
 // the user's own arrangement, and an undo that quietly reorders it looks like
 // they misremembered rather than like a bug.
