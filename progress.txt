@@ -8701,3 +8701,42 @@ US-026 - Store layer. DONE. Both named collapses complete.
   had not been touched. I only caught it by printing the function afterwards.
   The ctl helper I use elsewhere refuses a pattern that is not unique; this
   one-off did not. Re-run anchored on the enclosing function: fails 1.
+
+--- the rest of the near-name scan: two negatives and one real gap ---
+
+  findItemIndex (app.go) vs findItemIndexed (runner_lookup_index.go), 0.93
+  similar. A NEGATIVE RESULT: already covered by ten tests, three of which are
+  explicit agreement checks (ErrorsMatchScan, DuplicateIDsMatchScan,
+  NameIndexMatchesScan). Someone did this work already. Recorded so nobody
+  repeats it.
+
+  ParseImportedGlobalEnvironments (yamlstore) vs
+  ParseImportedGlobalEnvironmentsJSON (bru), 0.94 similar. ALSO NOT RIVALS —
+  the yamlstore one is a format DISPATCHER that delegates to bru for JSON. But
+  it was at 50%, and it is the entry point for "import an environment file":
+  choosing the wrong format does not fail loudly, it produces an environment
+  with the wrong variables or none.
+
+  8 tests, 93.8% now. Pinned:
+    - TRAILING CONTENT AFTER VALID JSON IS REJECTED. Without the second Decode a
+      file holding two concatenated objects imports the first and SILENTLY DROPS
+      the rest — an environment appears and nothing suggests half the file was
+      ignored. Control fails 2.
+    - content that LOOKS like JSON but does not parse reports a JSON error
+      rather than falling through to the YAML reader, whose complaint would name
+      a line and column in a document the user did not write. Control fails 1.
+    - the YAML fallback exists and is taken. Control fails 1.
+    - empty content is an ERROR, not an empty import. Control fails 1.
+
+  A CONTROL THAT FAILED 0 FOR WANT OF A NUMBER IN THE FIXTURE. Removing
+  decoder.UseNumber() broke nothing, because not one of my fixtures had a
+  numeric variable. Without UseNumber every JSON number decodes as float64, the
+  json.Number branch downstream never runs, and an integer imports as a float —
+  the exact property I had tested one layer down in
+  importedEnvironmentVariableValue. Fixture added; control fails 1.
+
+  AND MY FIRST VERSION OF THAT FIXTURE WAS WRONG IN A USEFUL WAY. I wrote
+  "type":"number"; the reader keys off "dataType". The value correctly imported
+  as a string and the test failed — the code was right and the fixture was not.
+  Third time this session a failing test has been my mistake rather than the
+  code's, and each time the cheap move would have been to "fix" the code.
