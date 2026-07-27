@@ -8859,3 +8859,40 @@ US-026 - Store layer. DONE. Both named collapses complete.
   command, and died with "open /tmp/wails.json: no such file". The app was not
   broken; my invocation was. I nearly read the 000 response as a regression from
   the package moves.
+
+=== AUDITING THE LINT EXCLUSIONS, AND A SCRIPT THAT LIED TO ME FIRST ===
+
+  The plan set a standing rule for .golangci.yml: re-anchor an exclusion to the
+  exact new filename after a move, and never widen it. I have moved code into
+  two new packages since, so I audited all four exclusions.
+
+  ALL FOUR ARE LIVE: removing them surfaces 17, 2, 1 and 3 findings — 23
+  suppressed in total, none dead. A clean negative result, now MEASURED rather
+  than assumed.
+
+  Made repeatable as qa/lint-exclusions.sh and wired into CI, because the
+  failure it guards is silent: an exclusion anchored to a path the code has left
+  does not error, it just stops applying, and the findings it hid start
+  appearing where nobody is looking. This repo reached 45 live issues that way
+  once, with five exclusions still pointing at app.go.
+
+  !!! AND MY FIRST VERSION OF THE SCRIPT PASSED ITS OWN CONTROL !!!
+
+  I misanchored one exclusion on purpose and expected a DEAD report. The script
+  said all four were live, exit 0.
+
+  THE REASON is the shape of the measurement. It removes one block and counts
+  the findings that appear — a DELTA. Misanchoring made the baseline dirty by 2,
+  so every other count rose by exactly 2 (grpcexec 17 -> 19, app_test 1 -> 3,
+  scripting 3 -> 5) and the broken anchor itself still "found" its 2, because
+  those findings were appearing anyway. A delta measured against an unchecked
+  baseline reports confidently and means nothing.
+
+  Fixed by asserting the baseline is ZERO before measuring anything, and
+  refusing to report numbers when it is not. Both controls now fail correctly —
+  a misanchored exclusion and one pointed at unrelated code each exit 1.
+
+  Same doctrine as the coverage instrument earlier in this session, and as "a
+  blank grep count is not a zero": A MEASUREMENT HAS TO VERIFY ITS OWN PREMISE
+  before its number means anything. That is now the third instrument this
+  project has caught being wrong rather than the code.

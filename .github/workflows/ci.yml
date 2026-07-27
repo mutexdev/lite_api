@@ -71,6 +71,13 @@ jobs:
       - name: Check the Wails binding surface
         run: ./qa/bindings.sh
 
+      # An exclusion is anchored to an exact file path, so a code move silently
+      # stops it applying — which is how this repo once reached 45 live issues
+      # with five exclusions still pointing at app.go. This fails if any
+      # exclusion has stopped suppressing anything.
+      - name: Check the lint exclusions still apply
+        run: ./qa/lint-exclusions.sh
+
       - name: Test
         run: go test -tags webkit2_41 ./...
 
