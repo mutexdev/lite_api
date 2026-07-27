@@ -8781,3 +8781,47 @@ US-026 - Store layer. DONE. Both named collapses complete.
   appears TWICE in requestScanning.ts, so a whole-file replace refused with
   AMBIGUOUS(2) — correctly. Anchoring on scanBodyPrompts made it unique. That
   guard has now caught the same class of mistake twice today.
+
+--- the near-name scan on the frontend: one cross-file pair, and it is subtle ---
+
+  Ran shape 2 over src/lib. Nearly every hit was a SAME-FILE deliberate sibling
+  — canStage/canUnstage, read/write layout, format/formatToken — several of
+  which are already tested against each other. Exactly ONE cross-file pair:
+
+      preferenceProxyModeValue    authDefaults.ts
+      preferencesProxyMode        workbench/commandState.ts
+
+  Two letters apart, both answer "which proxy mode is this", and THEIR DEFAULT
+  ARMS RETURN DIFFERENT STRINGS: "system" and "inherit".
+
+  NOT A BUG. They sit on opposite sides of a boundary:
+    preferencesProxyMode      -> the <select>'s value; its options are
+                                 off / manual / inherit / pac
+    preferenceProxyModeValue  -> the PERSISTED legacy preferences.proxyMode
+                                 field, whose vocabulary is
+                                 off / manual / pac / system
+
+  The two stay consistent only because "system" round-trips through the legacy
+  reader's default back to "inherit". NOTHING CHECKED THAT — and unifying the
+  two defaults is the obvious tidy-up when the names look this alike. Doing it
+  leaves the select holding a value none of its options match, which renders
+  BLANK and then sends whatever the user's next click lands on.
+
+  4 tests. Suite 793 -> 797:
+    - every UI mode survives a save and reload, walking both functions and the
+      legacy field between them
+    - a mode survives when only the LEGACY FIELD remains — the migration path
+      that field exists for
+    - THE SELECT'S OPTIONS ARE READ OUT OF THE .svelte FILE and compared with
+      the vocabulary the reader can produce, both directions
+    - the two defaults are asserted to DIFFER, so unifying them is a decision
+
+  Five controls, five failures. Unifying on "system" fails 4 — the widest,
+  because it breaks the round trip, the migration and the select at once.
+
+  All three shapes are now scanned on both sides. What the scans bought, in
+  order: three real gaps in clone.go, two in importPlanning.ts, one dead-guard
+  cluster, two unverified Go-mirror comments, and this. What they also bought,
+  and worth as much: four NEGATIVE results — findItemIndexed already covered,
+  the two import parsers not being rivals, the frontend near-names being
+  deliberate siblings, and no further decorative guards anywhere.
