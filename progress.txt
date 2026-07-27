@@ -7936,3 +7936,52 @@ US-026 - Store layer. DONE. Both named collapses complete.
     "Redundant" was not one answer three times. It was three.
 
   Frontend totals: 99.87% lines, 97.29% branch, 98.39% functions, 766 tests.
+
+--- branch coverage: urlSegments and the tooltip readOnly/editable pair ---
+
+  Suite 766 -> 774. variableResolution 92.42% -> 94.37% branch.
+
+  On urlSegments:
+    - an EMPTY token "{{}}" stays literal text; the pattern needs a character
+      between the braces, and rendering it as a variable would put a tooltip on
+      something with no name to resolve. Control fails 1.
+    - PATH TOKENS ARE ENABLED BY THE PRESENCE of the pathParams argument, not
+      its length. An empty array means "this field can hold path parameters,
+      there just are none yet", and a :name typed into an empty table must still
+      render so the tooltip can offer to create it. Control fails 3.
+    - THE OVERLAY AND THE PROMPT SCANNER AGREE ON WHITESPACE. "{{? name }}" is
+      not a prompt to either. If the overlay rendered it as one while
+      requestScanning did not collect it, the user would see a prompt token in
+      the URL bar and NEVER BE ASKED for its value — the request goes out with
+      the literal text in it. Cross-module test; controls fail 2 and 1.
+
+  !!! I ASSERTED AN INVARIANT THAT WAS NOT ONE, AND THE TEST CAUGHT ME !!!
+
+  I wrote a test asserting readOnly and editable are ALWAYS opposite across all
+  six tooltip producers, having read `{#if info.readOnly}` and
+  `{:else if info.editable}` as a complementary pair. IT FAILED — and the
+  failure was right. The markup is:
+
+      {#if editing}       a textarea
+      {:else if editable} an edit button
+      {:else}             the value, shown plainly      <- a real third arm
+      {/if}
+      {#if readOnly}      a "read-only" note            <- a SEPARATE if
+
+  I had read two `{#if}` lines out of context and missed the `{:else}` between
+  them. `readOnly: false, editable: false` is a LEGITIMATE THIRD STATE — shown
+  plainly, not labelled — and pathParamTooltipInfo produces exactly that for a
+  :name the params table has no row for yet. That is correct: the parameter is
+  not read-only in principle, there is just nothing there to edit.
+
+  The invariant that IS real is one-directional: never BOTH. readOnly and
+  editable together renders an edit button beside a note saying the value cannot
+  be edited, and clicking it opens an editor whose save has nowhere to go.
+  Rewritten that way, plus tests for the third state and for the invalid-name
+  case. Four controls, four failures (3, 2, 2, 2).
+
+  Second time this session a test failure was RIGHT and my premise was wrong;
+  the first was reading an empty scan result as a bug when I had called the
+  wrong function. Both times the cheap move would have been to "fix" the code.
+
+  Frontend totals: 99.88% lines, 97.41% branch, 98.40% functions, 774 tests.

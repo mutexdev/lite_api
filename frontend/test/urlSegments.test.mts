@@ -7,6 +7,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { urlVariableSegments, fallbackVariableTooltipInfo } from '../src/lib/urlSegments.ts'
+import { collectPromptNames } from '../src/lib/requestScanning.ts'
+import type { types } from '../wailsjs/go/models'
 
 const info = (name: string) => fallbackVariableTooltipInfo(name)
 const texts = (segments: ReturnType<typeof urlVariableSegments>) => segments.map((s) => s.text)
@@ -130,4 +132,66 @@ test('a mixed URL splits every token kind', () => {
   assert.equal(segments.filter((s) => s.variable && !s.path).length, 1)
   assert.equal(segments.filter((s) => s.variable && s.path).length, 1)
   assert.equal(segments.filter((s) => s.prompt).length, 1)
+})
+
+// An empty token is not a variable — the pattern needs at least one character
+// between the braces — so it stays literal text. Rendering it as a variable
+// would put a tooltip on something with no name to resolve.
+test('an empty token stays literal text', () => {
+  const segments = urlVariableSegments('a{{}}b', [])
+  assert.equal(segments.length, 1)
+  assert.equal(segments[0].variable, false)
+  assert.equal(segments[0].text, 'a{{}}b')
+})
+
+// Path tokens are enabled by the PRESENCE of the pathParams argument, not by
+// its contents. An empty array is the URL bar saying "this field can hold path
+// parameters, there just are none yet" — and a :name typed into an empty table
+// must still render as a token so the tooltip can offer to create it.
+test('an empty path param list still enables path tokens', () => {
+  const withEmpty = urlVariableSegments('/x/:id', [], [])
+  assert.ok(withEmpty.some((segment) => segment.variable === true && 'path' in segment))
+
+  const without = urlVariableSegments('/x/:id', [])
+  assert.equal(without.every((segment) => segment.variable === false), true)
+})
+
+// "{{?}}" has nothing after the marker, so it is not a prompt. It falls through
+// to the variable branch, which is the honest reading: the user typed something
+// that is not a valid prompt, and showing it as an unresolved variable says so.
+test('a prompt marker with no name is not a prompt', () => {
+  const [segment] = urlVariableSegments('{{?}}', [])
+  assert.equal(segment.prompt, false)
+  assert.equal(segment.variable, true)
+})
+
+// THE PROMPT PATTERN REJECTS SURROUNDING WHITESPACE, and it must, because the
+// scanner in requestScanning.ts uses the same rule to decide what to ask for.
+// If the overlay rendered "{{? name }}" as a prompt while the scanner did not
+// collect it, the user would see a prompt token in the URL bar and never be
+// asked for its value — the request would go out with the literal text in it.
+test('the overlay and the prompt scanner agree on surrounding whitespace', () => {
+  for (const token of ['{{? name}}', '{{?name }}', '{{? name }}']) {
+    const [segment] = urlVariableSegments(token, [])
+    const collected = collectPromptNames(
+      { id: 'c', items: [], folders: [] } as unknown as types.Collection,
+      { url: token } as types.RequestItem,
+      '',
+      undefined
+    )
+    assert.equal(segment.prompt, false, `${token} rendered as a prompt`)
+    assert.deepEqual(collected, [], `${token} was collected as a prompt`)
+  }
+
+  const [good] = urlVariableSegments('{{?token}}', [])
+  assert.equal(good.prompt, true)
+  assert.deepEqual(
+    collectPromptNames(
+      { id: 'c', items: [], folders: [] } as unknown as types.Collection,
+      { url: '{{?token}}' } as types.RequestItem,
+      '',
+      undefined
+    ),
+    ['token']
+  )
 })

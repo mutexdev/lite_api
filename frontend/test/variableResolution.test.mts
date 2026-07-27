@@ -15,6 +15,7 @@ import {
   pathParamTooltipInfo,
   displayTooltipValue
 } from '../src/lib/variableResolution.ts'
+import { fallbackVariableTooltipInfo } from '../src/lib/urlSegments.ts'
 
 type Any = Record<string, unknown>
 
@@ -319,4 +320,86 @@ test('resolveTooltipValue reports secrets it passed through', () => {
   )
   assert.equal(out.value, 'x=shh')
   assert.equal(out.containsSecret, true)
+})
+
+// The one-directional invariant the overlay depends on.
+//
+// I first wrote this as "readOnly and editable are always opposite", having
+// read `{#if info.readOnly}` and `{:else if info.editable}` as a complementary
+// pair. THEY ARE NOT. The markup is:
+//
+//     {#if editing}       a textarea
+//     {:else if editable} an edit button
+//     {:else}             the value, displayed plainly     <- a real third arm
+//     {/if}
+//     {#if readOnly}      a "read-only" note               <- a SEPARATE if
+//
+// so `readOnly: false, editable: false` is a legitimate third state — shown
+// plainly, not labelled read-only — and pathParamTooltipInfo produces exactly
+// that for a :name the params table has no row for yet. Nothing is wrong with
+// it: the parameter is not read-only in principle, there is simply nothing
+// there to edit.
+//
+// What must never happen is the other direction. readOnly AND editable together
+// renders an edit button beside a note saying the value cannot be edited, and
+// clicking it opens an editor whose save has nowhere to go.
+test('no producer marks a tooltip both editable and read-only', () => {
+  const workspace = { id: 'w', collections: [] } as unknown as types.Workspace
+  const collection = { id: 'c', items: [], folders: [], variables: [] } as unknown as types.Collection
+  const request = { id: 'r', name: 'req' } as types.RequestItem
+
+  const infos = [
+    resolveVariableTooltip('has space', workspace, collection, request, '', {}),
+    resolveVariableTooltip('process.env.HOME', workspace, collection, request, '', { HOME: '/root' }),
+    resolveVariableTooltip('undefinedName', workspace, collection, request, '', {}),
+    fallbackVariableTooltipInfo('valid'),
+    fallbackVariableTooltipInfo('not valid'),
+    pathParamTooltipInfo('id', [{ name: 'id', value: '1', enabled: true } as types.KeyValue]),
+    pathParamTooltipInfo('missing', [])
+  ]
+
+  for (const info of infos) {
+    assert.equal(
+      info.readOnly && info.editable,
+      false,
+      `${info.source}/${info.name}: an edit button beside a read-only note`
+    )
+  }
+})
+
+// A path parameter with no row yet is the third state, and it is deliberate.
+test('a path parameter with no row is shown plainly, not labelled read-only', () => {
+  const info = pathParamTooltipInfo('missing', [])
+  assert.equal(info.validName, true)
+  assert.equal(info.editable, false, 'there is no row to edit')
+  assert.equal(info.readOnly, false, 'but it is not read-only in principle either')
+  assert.equal(info.found, false)
+})
+
+// An invalid path parameter name IS read-only, because no row could ever
+// resolve it.
+test('an invalid path parameter name is read-only', () => {
+  const info = pathParamTooltipInfo('not valid', [])
+  assert.equal(info.readOnly, true)
+  assert.equal(info.editable, false)
+  assert.equal(info.source, 'invalid')
+})
+
+// A resolved variable is editable, and the pair still holds for it. Kept
+// separate because it needs a collection that actually defines something.
+test('a resolved variable keeps the pair opposite too', () => {
+  const collection = {
+    id: 'c', items: [], folders: [],
+    variables: [{ name: 'token', value: 'abc', enabled: true }]
+  } as unknown as types.Collection
+  const info = resolveVariableTooltip(
+    'token',
+    { id: 'w', collections: [collection] } as unknown as types.Workspace,
+    collection,
+    { id: 'r', name: 'req' } as types.RequestItem,
+    '',
+    {}
+  )
+  assert.equal(info.found, true)
+  assert.equal(info.readOnly, !info.editable)
 })
