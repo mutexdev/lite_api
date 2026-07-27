@@ -103,6 +103,27 @@ expect_failure "verify-inputs: src/lib emptied of modules" \
   bash -c 'cd frontend && node scripts/verify-inputs.mjs'
 restore; RESTORE=(); STASH=$(mktemp -d)
 
+# --- qa/skip-audit.sh -----------------------------------------------------
+# A test that newly SKIPS reports success while checking nothing, and the
+# suite still prints "ok". The control makes one skip and requires the gate to
+# notice.
+stash app_scratch_placement_test.go
+python3 - <<'PY'
+p = 'app_scratch_placement_test.go'
+s = open(p).read()
+old = 'func TestScratchCollectionInsertIndex(t *testing.T) {'
+new = 'func TestScratchCollectionInsertIndex(t *testing.T) {\n\tt.Skip("qa/selftest control")'
+assert s.count(old) == 1
+open(p, 'w').write(s.replace(old, new))
+PY
+expect_failure "skip-audit.sh: a test that newly skips" ./qa/skip-audit.sh
+restore; RESTORE=(); STASH=$(mktemp -d)
+
+stash qa/baseline/skipped-tests.txt
+echo "TestThatDoesNotActuallySkip" >> qa/baseline/skipped-tests.txt
+expect_failure "skip-audit.sh: a baseline entry that no longer skips" ./qa/skip-audit.sh
+restore; RESTORE=(); STASH=$(mktemp -d)
+
 echo ""
 if [ "$failed" -ne 0 ]; then
   echo "$failed gate(s) did not fail when they should have. A gate that cannot" >&2

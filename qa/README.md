@@ -14,8 +14,9 @@ Every one of these was written after finding the gap it now guards.
 | `bindings.sh` | the bound-method surface changed, or Go/`App.d.ts`/`App.js` disagree | <1s | yes |
 | `test-presence.sh` | a package lost its tests, or gained them without leaving the exemption list | ~45s | yes |
 | `lint-exclusions.sh` | a `.golangci.yml` exclusion has stopped suppressing anything | ~5s | yes |
+| `skip-audit.sh` | a test skips that did not before, or a baseline entry no longer skips | ~50s | yes |
 | `coverage.sh` | nothing — it reports two figures | ~90s | no |
-| `selftest.sh` | one of the gates above can no longer fail | ~50s | no |
+| `selftest.sh` | one of the gates above can no longer fail | ~60s | no |
 
 `frontend/scripts/verify-inputs.mjs` is the frontend counterpart, wired to
 `pretest`, `precheck` and `prelint` so it runs automatically.
@@ -47,6 +48,19 @@ exclusions still pointing at `app.go` after the code had moved to `internal/`.
 **`coverage.sh`** — reports, it does not gate. Two scopes, because they measure
 different things and were once quoted interchangeably: `internal/` alone, and
 `internal/` plus root `package main`.
+
+**`skip-audit.sh`** — a skipped test reports success while checking nothing,
+and `go test` prints `ok` either way. Written after a test here skipped on every
+run: it asserted a sidebar placement that only holds in a workspace containing
+nothing but the Scratch collection, took the DEFAULT workspace, which ships with
+a sample collection, and skipped silently. It was green and it verified nothing.
+
+Platform guards are the other reason. Several tests skip when
+`http.DefaultTransport` is not an `*http.Transport`, or when the system
+certificate pool is unavailable — false here today, but a toolchain or CI image
+change could make one true, and the affected test would stop checking anything
+without saying so. `baseline/skipped-tests.txt` lists the one legitimate skip
+with its reason, and the comparison runs both ways.
 
 **`selftest.sh`** — breaks each gate's premise on purpose and requires the gate
 to notice. A gate that has lost its ability to fail is a green tick that means
@@ -90,6 +104,20 @@ exits 0; `svelte-check` with `src/` gone still finds 103 files in `node_modules`
 and reports success; `golangci-lint` missing from `PATH` made every exclusion
 look dead. The frontend floors are floors, not targets: they catch a collapse,
 not growth.
+
+**100% line coverage is not evidence of a tested behaviour.**
+`countRegularCollections` and `firstScratchCollectionIndex` both reported 100%.
+Changing `countRegularCollections` to count scratch collections as regular —
+inverting the one thing it exists to decide — left the entire `package main`
+suite green. Every line ran on the way to somewhere else and nothing asserted
+what any of it meant.
+
+The same held one level up: `restoreCollectionRemovalLocked` was 60% covered,
+and replacing its whole insertion index with "always append" was invisible to
+the suite, so undoing a collection delete could silently reorder the user's
+sidebar. Both were found by mutating the code and watching the tests not care,
+which is the only measurement that answers the question directly. Prefer it to
+reading `coverage.sh`, and treat a covered-but-unverified function as untested.
 
 **`selftest.sh` cannot verify itself.** Breaking its `expect_failure` helper
 makes it pass a blind gate. Something must be trusted at the bottom; the
