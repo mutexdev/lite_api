@@ -8050,3 +8050,38 @@ US-026 - Store layer. DONE. Both named collapses complete.
   Four controls, four failures.
 
   Frontend totals: 99.88% lines, 97.58% branch, 98.41% functions, 778 tests.
+
+--- gitWorkbench 91.18% -> 94.29% branch: the guards on destructive git actions ---
+
+  Suite 778 -> 786. Ten controls, ten failures — the highest density this
+  session, because every branch here gates an action that loses work.
+
+  Pinned:
+    - BRANCH SWITCHING IS REFUSED UNTIL A SNAPSHOT EXISTS. Before the first
+      status arrives there is nothing to judge, and defaulting to "can switch"
+      would offer a checkout against a working tree nobody has looked at yet —
+      the one moment uncommitted work is most likely to be lost. Fails 1.
+    - both halves of that guard are load-bearing ALONE: a dirty tree loses edits
+      on checkout, conflicts mean a merge is half-finished. All four
+      combinations tested; each single-half control fails 2.
+    - A BRANCH WITH NO UPSTREAM CANNOT BE PUSHED without opting in to setting
+      one. Treating "no upstream" as a match pushes to whatever the remote's
+      default happened to be. Control fails 1.
+    - THE UPSTREAM MUST MATCH THE REMOTE AND THE BRANCH. Matching on either
+      alone lets a push to origin/main go out while origin/release is selected.
+      Control fails 2.
+    - a CONFLICTED row reports as staged in porcelain, so it is NOT unstageable
+      (that would undo a resolution part-way through being recorded) but IS
+      stageable (that is how git records the resolution). Both directions
+      control at 1 each — the two functions disagree about the same row on
+      purpose.
+    - neither button is enabled with an EMPTY selection, rather than acting on
+      everything, which is what a bare files.some without the membership test
+      would do. Control fails 1.
+    - a DUPLICATED path collapses to one entry, so the same file is not staged
+      twice. Control fails 2.
+    - the remote branch follows an ABSENT head to empty rather than keeping a
+      name that no longer refers to anything — a detached or unborn HEAD.
+      Control fails 1.
+
+  Frontend totals: 99.88% lines, 97.62% branch, 98.42% functions, 786 tests.
