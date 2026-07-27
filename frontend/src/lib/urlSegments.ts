@@ -93,12 +93,20 @@ export function urlVariableSegments(value: string, infos: VariableTooltipInfo[],
         prompt: false,
         path: true,
         name,
+        // `?? []` is for the COMPILER, not for runtime. Reaching here means the
+        // pattern had a group 2, which only exists when pathParams was
+        // supplied — but that correlation is beyond the type system, so the
+        // narrowing has to be written out. It is a branch no test can cover.
         info: pathParamTooltipInfo(name, pathParams ?? [])
       })
       cursor = match.index + match[0].length
       continue
     }
-    const rawName = match[1] ?? ''
+    // Group 1 is guaranteed here: group 2 is handled above and `continue`s, and
+    // the pattern has no third alternative. It carried a `?? ''` that read as
+    // protection against an undefined group — misleading, since what actually
+    // guarantees it is the control flow, not a fallback.
+    const rawName = match[1]
     const name = rawName.trim()
     if (promptVariableTextPattern.test(rawName)) {
       segments.push({

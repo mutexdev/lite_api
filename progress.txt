@@ -7985,3 +7985,40 @@ US-026 - Store layer. DONE. Both named collapses complete.
   wrong function. Both times the cheap move would have been to "fix" the code.
 
   Frontend totals: 99.88% lines, 97.41% branch, 98.40% functions, 774 tests.
+
+--- urlSegments 88.89% -> 94.12% branch: two guards, two opposite answers ---
+
+  Lines were already 100%, so the remaining branches were conditions no input
+  can take both ways. Two nullish guards, and the controls disagreed about them:
+
+    pathParams ?? []   DID NOT COMPILE without it. Reaching that line means the
+                       regex matched group 2, which only exists when pathParams
+                       was supplied — but that correlation is beyond the type
+                       system, so the narrowing must be written out. KEPT, and
+                       now commented as being FOR THE COMPILER: it is a branch
+                       no test can ever cover, and that is not a gap.
+
+    match[1] ?? ''     compiles without it and fails NOTHING. Group 1 is
+                       guaranteed at that point because group 2 is handled above
+                       and `continue`s. DELETED — it read as protection against
+                       an undefined group when what actually guarantees it is
+                       the control flow three lines up. Replaced with a comment
+                       saying so.
+
+  FIVE REDUNDANT-LOOKING GUARDS THIS SESSION, FIVE DIFFERENT DISPOSITIONS:
+
+    filter(Boolean) on example names   deleted — no cost, no effect
+    Array.isArray in the scanner       kept — redundant for correctness, but
+                                       avoids materialising a values array for
+                                       a large JSON body
+    previous ?? [] in bulkEdit         deleted — shadowed by the parameter's own
+                                       default three lines above
+    match[1] ?? '' here                deleted — guaranteed by control flow, and
+                                       misleading about what guarantees it
+    pathParams ?? [] here              KEPT — unreachable at runtime but
+                                       REQUIRED BY THE COMPILER
+
+  "It fails no test" was never once the whole answer. The question each time was
+  what the code would cost if removed, and to whom.
+
+  Frontend totals: 99.88% lines, 97.44% branch, 98.40% functions, 774 tests.
