@@ -489,8 +489,6 @@ func (a *App) executeWebSocket(collectionID string, item RequestItem, vars map[s
 	return result
 }
 
-func normalizeWSMessageType(value string) string { return wsexec.NormalizeMessageType(value) }
-
 func (a *App) websocketDialer(collectionID string, item RequestItem, targetURL string, vars map[string]string, timeout time.Duration) (websocket.Dialer, error) {
 	baseTransport := http.RoundTripper(http.DefaultTransport)
 	if a.httpClient != nil && a.httpClient.Transport != nil {

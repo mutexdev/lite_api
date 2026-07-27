@@ -1,10 +1,10 @@
-package core
+package yamlstore
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/mutexdev/lite_api/internal/store/yamlstore"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 // yamlMultipart and yamlPostResponseActions write parts of the on-disk .yml
@@ -17,27 +17,27 @@ import (
 // Asserting the intermediate map would pass just as happily if the reader and
 // the writer disagreed about a key.
 
-func yamlRoundTrip(t *testing.T, item RequestItem) RequestItem {
+func yamlRoundTrip(t *testing.T, item types.RequestItem) types.RequestItem {
 	t.Helper()
-	content, err := stringifyYAMLRequest(item)
+	content, err := StringifyRequest(item)
 	if err != nil {
 		t.Fatalf("stringify: %v", err)
 	}
-	parsed, err := yamlstore.ParseRequest(content)
+	parsed, err := ParseRequest(content)
 	if err != nil {
 		t.Fatalf("parse: %v\n---\n%s", err, content)
 	}
 	return parsed
 }
 
-func multipartRequest(parts ...FormPart) RequestItem {
-	return RequestItem{
+func multipartRequest(parts ...types.FormPart) types.RequestItem {
+	return types.RequestItem{
 		Name: "Upload",
 		Type: "http",
 		// "multipartForm" is the in-memory mode; "multipart-form" is only its
 		// on-disk spelling, and yamlBody switches on the former. Using the
 		// on-disk name here silently produced a body with no parts at all.
-		Body: RequestBody{Mode: "multipartForm", Multipart: parts},
+		Body: types.RequestBody{Mode: "multipartForm", Multipart: parts},
 	}
 }
 
@@ -46,8 +46,8 @@ func multipartRequest(parts ...FormPart) RequestItem {
 // load, and the request would silently send the wrong thing.
 func TestMultipartTextAndFilePartsSurviveTheRoundTrip(t *testing.T) {
 	item := multipartRequest(
-		FormPart{Name: "caption", Value: "a photo", Enabled: true},
-		FormPart{Name: "photo", FilePath: "/tmp/photo.png", Enabled: true},
+		types.FormPart{Name: "caption", Value: "a photo", Enabled: true},
+		types.FormPart{Name: "photo", FilePath: "/tmp/photo.png", Enabled: true},
 	)
 	parts := yamlRoundTrip(t, item).Body.Multipart
 	if len(parts) != 2 {
@@ -76,8 +76,8 @@ func TestMultipartTextAndFilePartsSurviveTheRoundTrip(t *testing.T) {
 // work rather than merely their setting.
 func TestMultipartDisabledPartsSurviveTheRoundTrip(t *testing.T) {
 	item := multipartRequest(
-		FormPart{Name: "on", Value: "1", Enabled: true},
-		FormPart{Name: "off", Value: "2", Enabled: false},
+		types.FormPart{Name: "on", Value: "1", Enabled: true},
+		types.FormPart{Name: "off", Value: "2", Enabled: false},
 	)
 	parts := yamlRoundTrip(t, item).Body.Multipart
 	if len(parts) != 2 {
@@ -99,8 +99,8 @@ func TestMultipartDisabledPartsSurviveTheRoundTrip(t *testing.T) {
 // what the server receives.
 func TestMultipartContentTypeSurvivesWhenSet(t *testing.T) {
 	item := multipartRequest(
-		FormPart{Name: "doc", FilePath: "/tmp/a.bin", ContentType: "application/pdf", Enabled: true},
-		FormPart{Name: "plain", Value: "x", Enabled: true},
+		types.FormPart{Name: "doc", FilePath: "/tmp/a.bin", ContentType: "application/pdf", Enabled: true},
+		types.FormPart{Name: "plain", Value: "x", Enabled: true},
 	)
 	parts := yamlRoundTrip(t, item).Body.Multipart
 	if len(parts) != 2 {
@@ -118,9 +118,9 @@ func TestMultipartContentTypeSurvivesWhenSet(t *testing.T) {
 // and a multipart body is not a set.
 func TestMultipartKeepsItsOrder(t *testing.T) {
 	item := multipartRequest(
-		FormPart{Name: "first", Value: "1", Enabled: true},
-		FormPart{Name: "second", Value: "2", Enabled: true},
-		FormPart{Name: "third", Value: "3", Enabled: true},
+		types.FormPart{Name: "first", Value: "1", Enabled: true},
+		types.FormPart{Name: "second", Value: "2", Enabled: true},
+		types.FormPart{Name: "third", Value: "3", Enabled: true},
 	)
 	parts := yamlRoundTrip(t, item).Body.Multipart
 	if len(parts) != 3 {
@@ -134,11 +134,11 @@ func TestMultipartKeepsItsOrder(t *testing.T) {
 	}
 }
 
-func resVarRequest(vars ...Variable) RequestItem {
-	return RequestItem{
+func resVarRequest(vars ...types.Variable) types.RequestItem {
+	return types.RequestItem{
 		Name: "Extract",
 		Type: "http",
-		Vars: RequestVars{Res: vars},
+		Vars: types.RequestVars{Res: vars},
 	}
 }
 
@@ -148,8 +148,8 @@ func resVarRequest(vars ...Variable) RequestItem {
 // it is hardest to trace back.
 func TestPostResponseVariablesSurviveTheRoundTrip(t *testing.T) {
 	item := resVarRequest(
-		Variable{Name: "token", Value: "res.body.access_token", Enabled: true},
-		Variable{Name: "userId", Value: "res.body.id", Enabled: false},
+		types.Variable{Name: "token", Value: "res.body.access_token", Enabled: true},
+		types.Variable{Name: "userId", Value: "res.body.id", Enabled: false},
 	)
 	vars := yamlRoundTrip(t, item).Vars.Res
 	if len(vars) != 2 {
@@ -174,8 +174,8 @@ func TestPostResponseVariablesSurviveTheRoundTrip(t *testing.T) {
 // sensitive, and nothing in the app would flag the change.
 func TestPostResponseVariableSecrecySurvivesTheRoundTrip(t *testing.T) {
 	item := resVarRequest(
-		Variable{Name: "token", Value: "res.body.token", Enabled: true, Secret: true},
-		Variable{Name: "plain", Value: "res.body.id", Enabled: true},
+		types.Variable{Name: "token", Value: "res.body.token", Enabled: true, Secret: true},
+		types.Variable{Name: "plain", Value: "res.body.id", Enabled: true},
 	)
 	vars := yamlRoundTrip(t, item).Vars.Res
 	if len(vars) != 2 {
@@ -196,8 +196,8 @@ func TestPostResponseVariableSecrecySurvivesTheRoundTrip(t *testing.T) {
 // struct definition.
 func TestPostResponseVariableValuesComeBackAsExpressionText(t *testing.T) {
 	item := resVarRequest(
-		Variable{Name: "count", Value: 42, Enabled: true},
-		Variable{Name: "flag", Value: true, Enabled: true},
+		types.Variable{Name: "count", Value: 42, Enabled: true},
+		types.Variable{Name: "flag", Value: true, Enabled: true},
 	)
 	vars := yamlRoundTrip(t, item).Vars.Res
 	if len(vars) != 2 {
@@ -213,9 +213,9 @@ func TestPostResponseVariableValuesComeBackAsExpressionText(t *testing.T) {
 
 func TestPostResponseVariablesKeepTheirOrder(t *testing.T) {
 	item := resVarRequest(
-		Variable{Name: "a", Value: "res.body.a", Enabled: true},
-		Variable{Name: "b", Value: "res.body.b", Enabled: true},
-		Variable{Name: "c", Value: "res.body.c", Enabled: true},
+		types.Variable{Name: "a", Value: "res.body.a", Enabled: true},
+		types.Variable{Name: "b", Value: "res.body.b", Enabled: true},
+		types.Variable{Name: "c", Value: "res.body.c", Enabled: true},
 	)
 	vars := yamlRoundTrip(t, item).Vars.Res
 	if len(vars) != 3 {
@@ -234,7 +234,7 @@ func TestPostResponseVariablesKeepTheirOrder(t *testing.T) {
 // differently, and the writers build empty slices rather than nil for exactly
 // that reason.
 func TestEmptyMultipartAndVariablesDoNotEmitNull(t *testing.T) {
-	content, err := stringifyYAMLRequest(multipartRequest())
+	content, err := StringifyRequest(multipartRequest())
 	if err != nil {
 		t.Fatal(err)
 	}

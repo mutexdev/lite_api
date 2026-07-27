@@ -74,10 +74,6 @@ func cloneResponseExample(example ResponseExample) ResponseExample {
 
 func getKeyValue(values []KeyValue, name string) string { return types.GetKeyValue(values, name) }
 
-func boolValueOK(raw interface{}) (bool, bool) { return scalar.BoolValueOK(raw) }
-
-func boolValue(raw interface{}, fallback bool) bool { return scalar.BoolValue(raw, fallback) }
-
 func listValue(raw interface{}) ([]interface{}, bool) { return scalar.ListValue(raw) }
 
 func selectedFileBodyEntry(body RequestBody) (FileBodyEntry, bool) {
@@ -124,6 +120,3 @@ func newID(prefix string) string {
 // app_yaml_codec.go until a differential test confirmed the two agreed on every
 // shape a YAML map takes. Delegating keeps the 36 call sites unchanged while
 // leaving one implementation.
-func firstYAMLString(raw map[string]interface{}, keys ...string) string {
-	return scalar.FirstYAMLString(raw, keys...)
-}

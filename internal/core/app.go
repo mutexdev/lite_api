@@ -1774,7 +1774,7 @@ func (a *App) UpdateCollectionPresets(collectionID string, presets CollectionPre
 	if err != nil {
 		return AppState{}, err
 	}
-	collection.Presets = normalizeCollectionPresets(presets)
+	collection.Presets = types.NormalizeCollectionPresets(presets)
 	collection.UpdatedAt = time.Now()
 	return a.state, a.markDirty(persistScopeState)
 }
@@ -1786,7 +1786,7 @@ func (a *App) UpdateCollectionProtobuf(collectionID string, protobuf CollectionP
 	if err != nil {
 		return AppState{}, err
 	}
-	collection.Protobuf = normalizeCollectionProtobuf(collection.Path, protobuf)
+	collection.Protobuf = types.NormalizeCollectionProtobuf(collection.Path, protobuf)
 	collection.UpdatedAt = time.Now()
 	return a.state, a.markDirty(persistScopeState)
 }
@@ -1926,89 +1926,6 @@ func (a *App) ImportCollection(workspaceID string, payload ImportPayload) (AppSt
 
 // TLS client certificates and proxy resolution moved to internal/transport.
 
-func normalizeCollectionPresets(presets CollectionPresets) CollectionPresets {
-	presets.RequestType = normalizePresetRequestType(presets.RequestType)
-	presets.RequestURL = strings.TrimSpace(presets.RequestURL)
-	return presets
-}
-
-func normalizePresetRequestType(requestType string) string {
-	switch strings.ToLower(strings.TrimSpace(requestType)) {
-	case "http", "http-request":
-		return "http"
-	case "graphql", "graphql-request":
-		return "graphql"
-	case "grpc", "grpc-request":
-		return "grpc"
-	case "ws", "websocket", "ws-request", "websocket-request":
-		return "websocket"
-	default:
-		return ""
-	}
-}
-
-func brunoPresetRequestType(requestType string) string {
-	switch normalizePresetRequestType(requestType) {
-	case "websocket":
-		return "ws"
-	case "graphql":
-		return "graphql"
-	case "grpc":
-		return "grpc"
-	default:
-		return "http"
-	}
-}
-
-func hasCollectionPresets(presets CollectionPresets) bool {
-	presets = normalizeCollectionPresets(presets)
-	return presets.RequestURL != "" || (presets.RequestType != "" && presets.RequestType != "http")
-}
-
-func normalizeCollectionProtobuf(collectionPath string, protobuf CollectionProtobufConfig) CollectionProtobufConfig {
-	result := CollectionProtobufConfig{
-		ProtoFiles:  make([]CollectionProtoFile, 0, len(protobuf.ProtoFiles)),
-		ImportPaths: make([]CollectionProtoImportPath, 0, len(protobuf.ImportPaths)),
-	}
-	seenFiles := map[string]bool{}
-	for _, protoFile := range protobuf.ProtoFiles {
-		protoFile.Path = strings.TrimSpace(protoFile.Path)
-		protoFile.Type = strings.ToLower(strings.TrimSpace(protoFile.Type))
-		if protoFile.Type == "" {
-			protoFile.Type = "file"
-		}
-		if protoFile.Path == "" {
-			continue
-		}
-		key := protoFile.Type + "\x00" + protoFile.Path
-		if seenFiles[key] {
-			continue
-		}
-		seenFiles[key] = true
-		protoFile.Exists = collectionProtobufPathExists(collectionPath, protoFile.Path, false)
-		result.ProtoFiles = append(result.ProtoFiles, protoFile)
-	}
-	seenImportPaths := map[string]bool{}
-	for _, importPath := range protobuf.ImportPaths {
-		importPath.Path = strings.TrimSpace(importPath.Path)
-		if importPath.Path == "" {
-			continue
-		}
-		if seenImportPaths[importPath.Path] {
-			continue
-		}
-		seenImportPaths[importPath.Path] = true
-		importPath.Exists = collectionProtobufPathExists(collectionPath, importPath.Path, true)
-		result.ImportPaths = append(result.ImportPaths, importPath)
-	}
-	return result
-}
-
-func hasCollectionProtobuf(protobuf CollectionProtobufConfig) bool {
-	protobuf = normalizeCollectionProtobuf("", protobuf)
-	return len(protobuf.ProtoFiles) > 0 || len(protobuf.ImportPaths) > 0
-}
-
 func normalizeCollectionSecurityConfig(config CollectionSecurityConfig) CollectionSecurityConfig {
 	config.JSSandboxMode = normalizeJSSandboxMode(config.JSSandboxMode)
 	return config
@@ -2016,25 +1933,6 @@ func normalizeCollectionSecurityConfig(config CollectionSecurityConfig) Collecti
 
 func collectionJSSandboxMode(collection Collection) string {
 	return normalizeJSSandboxMode(collection.SecurityConfig.JSSandboxMode)
-}
-
-func collectionProtobufPathExists(collectionPath, rawPath string, wantDir bool) bool {
-	path := strings.TrimSpace(rawPath)
-	if path == "" {
-		return false
-	}
-	resolved := path
-	if !filepath.IsAbs(resolved) && strings.TrimSpace(collectionPath) != "" {
-		resolved = filepath.Join(collectionPath, resolved)
-	}
-	info, err := os.Stat(resolved)
-	if err != nil {
-		return false
-	}
-	if wantDir {
-		return info.IsDir()
-	}
-	return !info.IsDir()
 }
 
 func (t cookieCapturingTransport) RoundTrip(req *http.Request) (*http.Response, error) {

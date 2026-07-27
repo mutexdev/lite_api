@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/mutexdev/lite_api/internal/store/yamlstore"
+	"github.com/mutexdev/lite_api/internal/types"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -77,7 +79,7 @@ func buildCollectionZipExportFiles(collection Collection) ([]collectionExportFil
 		format = "yml"
 	}
 	if format == "yml" || format == "yaml" {
-		root, err := yamlMapFromString(stringifyYAMLCollection(collection))
+		root, err := yamlMapFromString(yamlstore.StringifyCollection(collection))
 		if err != nil {
 			return nil, 0, 0, err
 		}
@@ -101,12 +103,12 @@ func buildCollectionZipExportFiles(collection Collection) ([]collectionExportFil
 		addCollectionExportFile(&files, used, "opencollection.yml", data)
 		for _, folder := range collection.Folders {
 			if folderPath := exportFolderPath(folder); folderPath != "" {
-				addCollectionExportFile(&files, used, filepath.ToSlash(filepath.Join(filepath.FromSlash(folderPath), "folder.yml")), []byte(stringifyYAMLFolder(folder)))
+				addCollectionExportFile(&files, used, filepath.ToSlash(filepath.Join(filepath.FromSlash(folderPath), "folder.yml")), []byte(yamlstore.StringifyFolder(folder)))
 			}
 		}
 		ensureRequestFilePaths(&collection, ".yml")
 		for _, item := range collection.Items {
-			content, err := stringifyYAMLRequest(item)
+			content, err := yamlstore.StringifyRequest(item)
 			if err != nil {
 				return nil, 0, 0, err
 			}
@@ -126,19 +128,19 @@ func buildCollectionZipExportFiles(collection Collection) ([]collectionExportFil
 		"ignore":  []string{"node_modules", ".git"},
 	}
 	if transport.HasProxyConfig(collection.Proxy) {
-		config["proxy"] = jsonProxyConfig(collection.Proxy)
+		config["proxy"] = yamlstore.JSONProxyConfig(collection.Proxy)
 	}
 	if transport.HasClientCertificates(collection.ClientCertificates) {
-		config["clientCertificates"] = jsonClientCertificates(collection.ClientCertificates)
+		config["clientCertificates"] = yamlstore.JSONClientCertificates(collection.ClientCertificates)
 	}
-	if hasCollectionPresets(collection.Presets) {
-		config["presets"] = jsonCollectionPresets(collection.Presets)
+	if types.HasCollectionPresets(collection.Presets) {
+		config["presets"] = yamlstore.JSONCollectionPresets(collection.Presets)
 	}
-	if hasCollectionProtobuf(collection.Protobuf) {
-		config["protobuf"] = jsonCollectionProtobuf(collection.Protobuf)
+	if types.HasCollectionProtobuf(collection.Protobuf) {
+		config["protobuf"] = yamlstore.JSONCollectionProtobuf(collection.Protobuf)
 	}
 	if len(collection.OpenAPI) > 0 {
-		config["openapi"] = jsonOpenAPISyncConfigs(collection.OpenAPI)
+		config["openapi"] = yamlstore.JSONOpenAPISyncConfigs(collection.OpenAPI)
 	}
 	configData, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {

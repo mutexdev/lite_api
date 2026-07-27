@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/mutexdev/lite_api/internal/store/yamlstore"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -371,7 +372,7 @@ func (a *App) writeScratchCollectionMetadataLocked(collection *Collection) error
 	if err := os.MkdirAll(collection.Path, 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(collection.Path, "opencollection.yml"), []byte(stringifyYAMLCollection(*collection)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(collection.Path, "opencollection.yml"), []byte(yamlstore.StringifyCollection(*collection)), 0o600); err != nil {
 		return err
 	}
 	metadata := map[string]string{

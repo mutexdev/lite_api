@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/mutexdev/lite_api/internal/store/yamlstore"
 	"html"
 	"path/filepath"
 	"sort"
@@ -14,7 +15,7 @@ import (
 )
 
 func buildCollectionDocsYAML(collection Collection, selectedEnvironmentIDs []string, generatedAt time.Time) (string, int, int, error) {
-	root, err := yamlMapFromString(stringifyYAMLCollection(collection))
+	root, err := yamlMapFromString(yamlstore.StringifyCollection(collection))
 	if err != nil {
 		return "", 0, 0, err
 	}
@@ -113,7 +114,7 @@ func collectionDocsItems(collection Collection, parentPath string) ([]map[string
 	folderCount := 0
 	requestCount := 0
 	for _, folder := range folders {
-		node, err := yamlMapFromString(stringifyYAMLFolder(folder))
+		node, err := yamlMapFromString(yamlstore.StringifyFolder(folder))
 		if err != nil {
 			return nil, 0, 0, err
 		}
@@ -129,7 +130,7 @@ func collectionDocsItems(collection Collection, parentPath string) ([]map[string
 		requestCount += childRequests
 	}
 	for _, request := range requests {
-		content, err := stringifyYAMLRequest(request)
+		content, err := yamlstore.StringifyRequest(request)
 		if err != nil {
 			return nil, 0, 0, err
 		}

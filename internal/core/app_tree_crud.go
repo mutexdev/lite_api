@@ -22,8 +22,8 @@ func (a *App) CreateRequest(collectionID, requestType, name string) (AppState, e
 	if err != nil {
 		return AppState{}, err
 	}
-	presets := normalizeCollectionPresets(collection.Presets)
-	requestType = normalizePresetRequestType(requestType)
+	presets := types.NormalizeCollectionPresets(collection.Presets)
+	requestType = types.NormalizePresetRequestType(requestType)
 	if requestType == "" {
 		requestType = presets.RequestType
 	}

@@ -1,4 +1,4 @@
-package core
+package yamlstore
 
 import (
 	"fmt"
@@ -8,11 +8,15 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/mutexdev/lite_api/internal/openapisync"
+	"github.com/mutexdev/lite_api/internal/scalar"
 	"github.com/mutexdev/lite_api/internal/store/bru"
 	"github.com/mutexdev/lite_api/internal/transport"
+	"github.com/mutexdev/lite_api/internal/types"
+	"github.com/mutexdev/lite_api/internal/wsmessage"
 )
 
-func stringifyYAMLCollection(collection Collection) string {
+func StringifyCollection(collection types.Collection) string {
 	brunoExtensions := map[string]interface{}{
 		"ignore": []string{"node_modules", ".git"},
 	}
@@ -23,7 +27,7 @@ func stringifyYAMLCollection(collection Collection) string {
 		"opencollection": "1.0.0",
 		"info": map[string]interface{}{
 			"name":    collection.Name,
-			"version": firstNonEmpty(collection.Version, "1"),
+			"version": scalar.FirstNonEmpty(collection.Version, "1"),
 		},
 		"extensions": map[string]interface{}{
 			"bruno": brunoExtensions,
@@ -34,7 +38,7 @@ func stringifyYAMLCollection(collection Collection) string {
 		request["headers"] = yamlKeyValues(collection.Headers)
 	}
 	if len(collection.Variables) > 0 {
-		request["variables"] = yamlVariables(collection.Variables)
+		request["variables"] = bru.YAMLVariables(collection.Variables)
 	}
 	if len(collection.ResVariables) > 0 {
 		request["actions"] = yamlPostResponseActions(collection.ResVariables)
@@ -68,7 +72,7 @@ func stringifyYAMLCollection(collection Collection) string {
 			envs = append(envs, map[string]interface{}{
 				"name":      env.Name,
 				"color":     env.Color,
-				"variables": yamlVariables(env.Variables),
+				"variables": bru.YAMLVariables(env.Variables),
 			})
 		}
 		config["environments"] = envs
@@ -79,10 +83,10 @@ func stringifyYAMLCollection(collection Collection) string {
 	if transport.HasClientCertificates(collection.ClientCertificates) {
 		config["clientCertificates"] = yamlClientCertificates(collection.ClientCertificates)
 	}
-	if hasCollectionPresets(collection.Presets) {
+	if types.HasCollectionPresets(collection.Presets) {
 		config["presets"] = yamlCollectionPresets(collection.Presets)
 	}
-	if hasCollectionProtobuf(collection.Protobuf) {
+	if types.HasCollectionProtobuf(collection.Protobuf) {
 		config["protobuf"] = yamlCollectionProtobuf(collection.Protobuf)
 	}
 	if len(config) > 0 {
@@ -92,9 +96,9 @@ func stringifyYAMLCollection(collection Collection) string {
 	return string(data)
 }
 
-func stringifyYAMLFolder(folder FolderConfig) string {
+func StringifyFolder(folder types.FolderConfig) string {
 	info := map[string]interface{}{
-		"name": firstNonEmpty(folder.Name, filepath.Base(filepath.FromSlash(folder.Path))),
+		"name": scalar.FirstNonEmpty(folder.Name, filepath.Base(filepath.FromSlash(folder.Path))),
 		"type": "folder",
 	}
 	if folder.Seq > 0 {
@@ -106,7 +110,7 @@ func stringifyYAMLFolder(folder FolderConfig) string {
 		request["headers"] = yamlKeyValues(folder.Headers)
 	}
 	if len(folder.Variables) > 0 {
-		request["variables"] = yamlVariables(folder.Variables)
+		request["variables"] = bru.YAMLVariables(folder.Variables)
 	}
 	if len(folder.ResVariables) > 0 {
 		request["actions"] = yamlPostResponseActions(folder.ResVariables)
@@ -137,7 +141,7 @@ func stringifyYAMLFolder(folder FolderConfig) string {
 	return string(data)
 }
 
-func stringifyYAMLRequest(item RequestItem) (string, error) {
+func StringifyRequest(item types.RequestItem) (string, error) {
 	requestType := item.Type
 	if requestType == "" {
 		requestType = "http"
@@ -205,7 +209,7 @@ func stringifyYAMLRequest(item RequestItem) (string, error) {
 	if len(item.Vars.Req) > 0 || len(item.Vars.Res) > 0 || item.PreScript != "" || item.PostScript != "" || item.Tests != "" {
 		runtime := map[string]interface{}{}
 		if len(item.Vars.Req) > 0 {
-			runtime["variables"] = yamlVariables(item.Vars.Req)
+			runtime["variables"] = bru.YAMLVariables(item.Vars.Req)
 		}
 		if len(item.Vars.Res) > 0 {
 			runtime["actions"] = yamlPostResponseActions(item.Vars.Res)
@@ -244,7 +248,7 @@ func stringifyYAMLRequest(item RequestItem) (string, error) {
 	return string(data), nil
 }
 
-func addCommonYAMLRequestFields(section map[string]interface{}, item RequestItem) {
+func addCommonYAMLRequestFields(section map[string]interface{}, item types.RequestItem) {
 	if len(item.Headers) > 0 {
 		section["headers"] = yamlKeyValues(item.Headers)
 	}
@@ -256,7 +260,7 @@ func addCommonYAMLRequestFields(section map[string]interface{}, item RequestItem
 	}
 }
 
-func yamlBody(body RequestBody) map[string]interface{} {
+func yamlBody(body types.RequestBody) map[string]interface{} {
 	mode := yamlBodyType(body.Mode)
 	if mode == "" || mode == "none" {
 		return nil
@@ -275,8 +279,8 @@ func yamlBody(body RequestBody) map[string]interface{} {
 	return result
 }
 
-func yamlFileBody(body RequestBody) []map[string]interface{} {
-	entries := fileBodyEntries(body)
+func yamlFileBody(body types.RequestBody) []map[string]interface{} {
+	entries := types.FileBodyEntriesOf(body)
 	if len(entries) == 0 {
 		return nil
 	}
@@ -297,7 +301,7 @@ func yamlFileBody(body RequestBody) []map[string]interface{} {
 	return result
 }
 
-func yamlBodyText(body RequestBody) string {
+func yamlBodyText(body types.RequestBody) string {
 	switch body.Mode {
 	case "json":
 		return body.JSON
@@ -321,7 +325,7 @@ func yamlBodyType(mode string) string {
 	}
 }
 
-func yamlWSMessage(item RequestItem) interface{} {
+func yamlWSMessage(item types.RequestItem) interface{} {
 	messages := bru.WsMessagesForStorage(item)
 	if len(messages) == 0 {
 		return nil
@@ -330,7 +334,7 @@ func yamlWSMessage(item RequestItem) interface{} {
 		message := messages[0]
 		if strings.TrimSpace(message.Name) == "" && !message.Selected {
 			return map[string]interface{}{
-				"type": normalizeWSMessageType(message.Type),
+				"type": wsmessage.NormalizeMessageType(message.Type),
 				"data": message.Content,
 			}
 		}
@@ -338,7 +342,7 @@ func yamlWSMessage(item RequestItem) interface{} {
 	return yamlWSMessages(messages)
 }
 
-func yamlWSMessages(messages []WSMessage) []map[string]interface{} {
+func yamlWSMessages(messages []types.WSMessage) []map[string]interface{} {
 	result := make([]map[string]interface{}, 0, len(messages))
 	for index, message := range messages {
 		if strings.TrimSpace(message.Name) == "" && strings.TrimSpace(message.Content) == "" {
@@ -352,7 +356,7 @@ func yamlWSMessages(messages []WSMessage) []map[string]interface{} {
 			"title":    title,
 			"selected": message.Selected,
 			"message": map[string]interface{}{
-				"type": normalizeWSMessageType(message.Type),
+				"type": wsmessage.NormalizeMessageType(message.Type),
 				"data": message.Content,
 			},
 		})
@@ -360,7 +364,7 @@ func yamlWSMessages(messages []WSMessage) []map[string]interface{} {
 	return result
 }
 
-func yamlKeyValues(values []KeyValue) []map[string]interface{} {
+func yamlKeyValues(values []types.KeyValue) []map[string]interface{} {
 	result := make([]map[string]interface{}, 0, len(values))
 	for _, value := range values {
 		entry := map[string]interface{}{
@@ -379,7 +383,7 @@ func yamlKeyValues(values []KeyValue) []map[string]interface{} {
 	return result
 }
 
-func yamlGrpcMetadata(values []KeyValue) []map[string]interface{} {
+func yamlGrpcMetadata(values []types.KeyValue) []map[string]interface{} {
 	result := make([]map[string]interface{}, 0, len(values))
 	for _, value := range values {
 		entry := map[string]interface{}{
@@ -397,7 +401,7 @@ func yamlGrpcMetadata(values []KeyValue) []map[string]interface{} {
 	return result
 }
 
-func yamlGrpcMessages(messages []GrpcMessage) []map[string]interface{} {
+func yamlGrpcMessages(messages []types.GrpcMessage) []map[string]interface{} {
 	result := make([]map[string]interface{}, 0, len(messages))
 	for index, message := range messages {
 		if strings.TrimSpace(message.Name) == "" && strings.TrimSpace(message.Content) == "" {
@@ -415,7 +419,7 @@ func yamlGrpcMessages(messages []GrpcMessage) []map[string]interface{} {
 	return result
 }
 
-func yamlOAuth2AdditionalParameters(auth OAuth2Auth) map[string]interface{} {
+func yamlOAuth2AdditionalParameters(auth types.OAuth2Auth) map[string]interface{} {
 	result := map[string]interface{}{}
 	if rows := yamlOAuth2AdditionalParams(auth.AuthorizationAdditionalParams); len(rows) > 0 {
 		result["authorization"] = rows
@@ -432,7 +436,7 @@ func yamlOAuth2AdditionalParameters(auth OAuth2Auth) map[string]interface{} {
 	return result
 }
 
-func yamlOAuth2AdditionalParams(params []OAuth2AdditionalParam) []map[string]interface{} {
+func yamlOAuth2AdditionalParams(params []types.OAuth2AdditionalParam) []map[string]interface{} {
 	result := []map[string]interface{}{}
 	for _, param := range params {
 		if strings.TrimSpace(param.Name) == "" {
@@ -441,7 +445,7 @@ func yamlOAuth2AdditionalParams(params []OAuth2AdditionalParam) []map[string]int
 		entry := map[string]interface{}{
 			"name":    param.Name,
 			"value":   param.Value,
-			"sendIn":  normalizeOAuth2AdditionalPlacement(param.SendIn),
+			"sendIn":  types.NormalizeOAuth2AdditionalPlacement(param.SendIn),
 			"enabled": param.Enabled,
 		}
 		if param.Secret {
@@ -455,51 +459,51 @@ func yamlOAuth2AdditionalParams(params []OAuth2AdditionalParam) []map[string]int
 	return result
 }
 
-func parseYAMLProxyConfig(raw interface{}) (ProxyConfig, bool) {
-	valueMap, ok := mapValue(raw)
+func ParseProxyConfig(raw interface{}) (types.ProxyConfig, bool) {
+	valueMap, ok := scalar.Map(raw)
 	if !ok {
-		return ProxyConfig{}, false
+		return types.ProxyConfig{}, false
 	}
-	proxy := ProxyConfig{
-		Inherit:  boolValue(valueMap["inherit"], false),
-		Disabled: boolValue(valueMap["disabled"], false),
+	proxy := types.ProxyConfig{
+		Inherit:  scalar.BoolValue(valueMap["inherit"], false),
+		Disabled: scalar.BoolValue(valueMap["disabled"], false),
 	}
-	configMap, _ := mapValue(valueMap["config"])
+	configMap, _ := scalar.Map(valueMap["config"])
 	if configMap == nil {
 		configMap = valueMap
 	}
-	proxy.Protocol = firstNonEmpty(firstYAMLString(configMap, "protocol"), "http")
-	proxy.Hostname = firstYAMLString(configMap, "hostname", "host")
-	proxy.Port = strings.TrimSpace(yamlScalarString(configMap["port"]))
-	proxy.BypassProxy = firstYAMLString(configMap, "bypassProxy", "bypass_proxy", "noProxy", "no_proxy")
-	if authMap, ok := mapValue(configMap["auth"]); ok {
-		proxy.Auth.Username = firstYAMLString(authMap, "username", "user")
-		proxy.Auth.Password = firstYAMLString(authMap, "password", "pass")
-		proxy.Auth.Disabled = boolValue(authMap["disabled"], false)
-		if enabled, ok := boolValueOK(authMap["enabled"]); ok {
+	proxy.Protocol = scalar.FirstNonEmpty(scalar.FirstYAMLString(configMap, "protocol"), "http")
+	proxy.Hostname = scalar.FirstYAMLString(configMap, "hostname", "host")
+	proxy.Port = strings.TrimSpace(scalar.YAMLString(configMap["port"]))
+	proxy.BypassProxy = scalar.FirstYAMLString(configMap, "bypassProxy", "bypass_proxy", "noProxy", "no_proxy")
+	if authMap, ok := scalar.Map(configMap["auth"]); ok {
+		proxy.Auth.Username = scalar.FirstYAMLString(authMap, "username", "user")
+		proxy.Auth.Password = scalar.FirstYAMLString(authMap, "password", "pass")
+		proxy.Auth.Disabled = scalar.BoolValue(authMap["disabled"], false)
+		if enabled, ok := scalar.BoolValueOK(authMap["enabled"]); ok {
 			proxy.Auth.Disabled = !enabled
 		}
 	}
 	return transport.NormalizeProxyConfig(proxy), true
 }
 
-func parseJSONProxyConfig(raw interface{}) (ProxyConfig, bool) {
-	valueMap, ok := mapValue(raw)
+func ParseJSONProxyConfig(raw interface{}) (types.ProxyConfig, bool) {
+	valueMap, ok := scalar.Map(raw)
 	if !ok {
-		return ProxyConfig{}, false
+		return types.ProxyConfig{}, false
 	}
 	if _, hasNewConfig := valueMap["config"]; hasNewConfig {
-		return parseYAMLProxyConfig(valueMap)
+		return ParseProxyConfig(valueMap)
 	}
-	proxy := ProxyConfig{
+	proxy := types.ProxyConfig{
 		Inherit:     false,
-		Disabled:    !boolValue(valueMap["enabled"], false),
-		Protocol:    firstNonEmpty(firstYAMLString(valueMap, "protocol"), "http"),
-		Hostname:    firstYAMLString(valueMap, "hostname", "host"),
-		Port:        strings.TrimSpace(yamlScalarString(valueMap["port"])),
-		BypassProxy: firstYAMLString(valueMap, "bypassProxy", "bypass_proxy", "noProxy", "no_proxy"),
+		Disabled:    !scalar.BoolValue(valueMap["enabled"], false),
+		Protocol:    scalar.FirstNonEmpty(scalar.FirstYAMLString(valueMap, "protocol"), "http"),
+		Hostname:    scalar.FirstYAMLString(valueMap, "hostname", "host"),
+		Port:        strings.TrimSpace(scalar.YAMLString(valueMap["port"])),
+		BypassProxy: scalar.FirstYAMLString(valueMap, "bypassProxy", "bypass_proxy", "noProxy", "no_proxy"),
 	}
-	if mode := strings.ToLower(firstYAMLString(valueMap, "mode", "source")); mode != "" {
+	if mode := strings.ToLower(scalar.FirstYAMLString(valueMap, "mode", "source")); mode != "" {
 		switch mode {
 		case "off", "disabled":
 			proxy.Disabled = true
@@ -511,21 +515,21 @@ func parseJSONProxyConfig(raw interface{}) (ProxyConfig, bool) {
 			proxy.Disabled = false
 		}
 	}
-	if authMap, ok := mapValue(valueMap["auth"]); ok {
-		proxy.Auth.Username = firstYAMLString(authMap, "username", "user")
-		proxy.Auth.Password = firstYAMLString(authMap, "password", "pass")
-		proxy.Auth.Disabled = !boolValue(authMap["enabled"], true)
-		if disabled, ok := boolValueOK(authMap["disabled"]); ok {
+	if authMap, ok := scalar.Map(valueMap["auth"]); ok {
+		proxy.Auth.Username = scalar.FirstYAMLString(authMap, "username", "user")
+		proxy.Auth.Password = scalar.FirstYAMLString(authMap, "password", "pass")
+		proxy.Auth.Disabled = !scalar.BoolValue(authMap["enabled"], true)
+		if disabled, ok := scalar.BoolValueOK(authMap["disabled"]); ok {
 			proxy.Auth.Disabled = disabled
 		}
 	}
 	return transport.NormalizeProxyConfig(proxy), true
 }
 
-func yamlProxyConfig(proxy ProxyConfig) map[string]interface{} {
+func yamlProxyConfig(proxy types.ProxyConfig) map[string]interface{} {
 	proxy = transport.NormalizeProxyConfig(proxy)
 	config := map[string]interface{}{
-		"protocol":    firstNonEmpty(proxy.Protocol, "http"),
+		"protocol":    scalar.FirstNonEmpty(proxy.Protocol, "http"),
 		"hostname":    proxy.Hostname,
 		"port":        proxyPortValue(proxy.Port),
 		"auth":        map[string]interface{}{"username": proxy.Auth.Username, "password": proxy.Auth.Password},
@@ -541,76 +545,76 @@ func yamlProxyConfig(proxy ProxyConfig) map[string]interface{} {
 	return result
 }
 
-func jsonProxyConfig(proxy ProxyConfig) map[string]interface{} {
+func JSONProxyConfig(proxy types.ProxyConfig) map[string]interface{} {
 	return yamlProxyConfig(proxy)
 }
 
-func parseYAMLClientCertificates(raw interface{}) ([]ClientCertificateConfig, bool) {
-	values, ok := listValue(raw)
+func ParseClientCertificates(raw interface{}) ([]types.ClientCertificateConfig, bool) {
+	values, ok := scalar.ListValue(raw)
 	if !ok {
 		return nil, false
 	}
-	certs := make([]ClientCertificateConfig, 0, len(values))
+	certs := make([]types.ClientCertificateConfig, 0, len(values))
 	for _, value := range values {
-		valueMap, ok := mapValue(value)
+		valueMap, ok := scalar.Map(value)
 		if !ok {
 			continue
 		}
-		cert := ClientCertificateConfig{
-			Domain:     firstYAMLString(valueMap, "domain"),
-			Type:       firstYAMLString(valueMap, "type"),
-			Passphrase: firstYAMLString(valueMap, "passphrase"),
+		cert := types.ClientCertificateConfig{
+			Domain:     scalar.FirstYAMLString(valueMap, "domain"),
+			Type:       scalar.FirstYAMLString(valueMap, "type"),
+			Passphrase: scalar.FirstYAMLString(valueMap, "passphrase"),
 		}
 		switch strings.ToLower(strings.TrimSpace(cert.Type)) {
 		case "pem", "cert", "":
 			cert.Type = "cert"
-			cert.CertFilePath = firstYAMLString(valueMap, "certificateFilePath", "certFilePath", "cert")
-			cert.KeyFilePath = firstYAMLString(valueMap, "privateKeyFilePath", "keyFilePath", "key")
+			cert.CertFilePath = scalar.FirstYAMLString(valueMap, "certificateFilePath", "certFilePath", "cert")
+			cert.KeyFilePath = scalar.FirstYAMLString(valueMap, "privateKeyFilePath", "keyFilePath", "key")
 		case "pkcs12", "pfx":
 			cert.Type = "pfx"
-			cert.PFXFilePath = firstYAMLString(valueMap, "pkcs12FilePath", "pfxFilePath", "pfx")
+			cert.PFXFilePath = scalar.FirstYAMLString(valueMap, "pkcs12FilePath", "pfxFilePath", "pfx")
 		default:
-			cert.CertFilePath = firstYAMLString(valueMap, "certificateFilePath", "certFilePath", "cert")
-			cert.KeyFilePath = firstYAMLString(valueMap, "privateKeyFilePath", "keyFilePath", "key")
-			cert.PFXFilePath = firstYAMLString(valueMap, "pkcs12FilePath", "pfxFilePath", "pfx")
+			cert.CertFilePath = scalar.FirstYAMLString(valueMap, "certificateFilePath", "certFilePath", "cert")
+			cert.KeyFilePath = scalar.FirstYAMLString(valueMap, "privateKeyFilePath", "keyFilePath", "key")
+			cert.PFXFilePath = scalar.FirstYAMLString(valueMap, "pkcs12FilePath", "pfxFilePath", "pfx")
 		}
 		certs = append(certs, cert)
 	}
 	return transport.NormalizeClientCertificates(certs), true
 }
 
-func parseJSONClientCertificates(raw interface{}) ([]ClientCertificateConfig, bool) {
-	valueMap, ok := mapValue(raw)
+func ParseJSONClientCertificates(raw interface{}) ([]types.ClientCertificateConfig, bool) {
+	valueMap, ok := scalar.Map(raw)
 	if ok {
 		return parseYAMLBrunoClientCertificateList(valueMap["certs"])
 	}
 	return parseYAMLBrunoClientCertificateList(raw)
 }
 
-func parseYAMLBrunoClientCertificateList(raw interface{}) ([]ClientCertificateConfig, bool) {
-	values, ok := listValue(raw)
+func parseYAMLBrunoClientCertificateList(raw interface{}) ([]types.ClientCertificateConfig, bool) {
+	values, ok := scalar.ListValue(raw)
 	if !ok {
 		return nil, false
 	}
-	certs := make([]ClientCertificateConfig, 0, len(values))
+	certs := make([]types.ClientCertificateConfig, 0, len(values))
 	for _, value := range values {
-		valueMap, ok := mapValue(value)
+		valueMap, ok := scalar.Map(value)
 		if !ok {
 			continue
 		}
-		certs = append(certs, ClientCertificateConfig{
-			Domain:       firstYAMLString(valueMap, "domain"),
-			Type:         firstNonEmpty(firstYAMLString(valueMap, "type"), "cert"),
-			CertFilePath: firstYAMLString(valueMap, "certFilePath", "certificateFilePath", "cert"),
-			KeyFilePath:  firstYAMLString(valueMap, "keyFilePath", "privateKeyFilePath", "key"),
-			PFXFilePath:  firstYAMLString(valueMap, "pfxFilePath", "pkcs12FilePath", "pfx"),
-			Passphrase:   firstYAMLString(valueMap, "passphrase"),
+		certs = append(certs, types.ClientCertificateConfig{
+			Domain:       scalar.FirstYAMLString(valueMap, "domain"),
+			Type:         scalar.FirstNonEmpty(scalar.FirstYAMLString(valueMap, "type"), "cert"),
+			CertFilePath: scalar.FirstYAMLString(valueMap, "certFilePath", "certificateFilePath", "cert"),
+			KeyFilePath:  scalar.FirstYAMLString(valueMap, "keyFilePath", "privateKeyFilePath", "key"),
+			PFXFilePath:  scalar.FirstYAMLString(valueMap, "pfxFilePath", "pkcs12FilePath", "pfx"),
+			Passphrase:   scalar.FirstYAMLString(valueMap, "passphrase"),
 		})
 	}
 	return transport.NormalizeClientCertificates(certs), true
 }
 
-func yamlClientCertificates(certs []ClientCertificateConfig) []map[string]interface{} {
+func yamlClientCertificates(certs []types.ClientCertificateConfig) []map[string]interface{} {
 	normalized := transport.NormalizeClientCertificates(certs)
 	result := make([]map[string]interface{}, 0, len(normalized))
 	for _, cert := range normalized {
@@ -633,13 +637,13 @@ func yamlClientCertificates(certs []ClientCertificateConfig) []map[string]interf
 	return result
 }
 
-func jsonClientCertificates(certs []ClientCertificateConfig) map[string]interface{} {
+func JSONClientCertificates(certs []types.ClientCertificateConfig) map[string]interface{} {
 	normalized := transport.NormalizeClientCertificates(certs)
 	entries := make([]map[string]interface{}, 0, len(normalized))
 	for _, cert := range normalized {
 		entry := map[string]interface{}{
 			"domain": cert.Domain,
-			"type":   firstNonEmpty(cert.Type, "cert"),
+			"type":   scalar.FirstNonEmpty(cert.Type, "cert"),
 		}
 		if cert.Type == "pfx" {
 			entry["pfxFilePath"] = cert.PFXFilePath
@@ -655,94 +659,94 @@ func jsonClientCertificates(certs []ClientCertificateConfig) map[string]interfac
 	return map[string]interface{}{"enabled": true, "certs": entries}
 }
 
-func parseCollectionPresets(raw interface{}) (CollectionPresets, bool) {
-	valueMap, ok := mapValue(raw)
+func ParseCollectionPresets(raw interface{}) (types.CollectionPresets, bool) {
+	valueMap, ok := scalar.Map(raw)
 	if !ok {
-		return CollectionPresets{}, false
+		return types.CollectionPresets{}, false
 	}
-	presets := CollectionPresets{
-		RequestType: firstYAMLString(valueMap, "requestType", "request_type", "type"),
-		RequestURL:  firstYAMLString(valueMap, "requestUrl", "requestURL", "request_url", "url"),
+	presets := types.CollectionPresets{
+		RequestType: scalar.FirstYAMLString(valueMap, "requestType", "request_type", "type"),
+		RequestURL:  scalar.FirstYAMLString(valueMap, "requestUrl", "requestURL", "request_url", "url"),
 	}
-	return normalizeCollectionPresets(presets), true
+	return types.NormalizeCollectionPresets(presets), true
 }
 
-func yamlCollectionPresets(presets CollectionPresets) map[string]interface{} {
-	return jsonCollectionPresets(presets)
+func yamlCollectionPresets(presets types.CollectionPresets) map[string]interface{} {
+	return JSONCollectionPresets(presets)
 }
 
-func jsonCollectionPresets(presets CollectionPresets) map[string]interface{} {
-	normalized := normalizeCollectionPresets(presets)
+func JSONCollectionPresets(presets types.CollectionPresets) map[string]interface{} {
+	normalized := types.NormalizeCollectionPresets(presets)
 	return map[string]interface{}{
-		"requestType": brunoPresetRequestType(normalized.RequestType),
+		"requestType": types.BrunoPresetRequestType(normalized.RequestType),
 		"requestUrl":  normalized.RequestURL,
 	}
 }
 
-func parseCollectionProtobuf(raw interface{}) (CollectionProtobufConfig, bool) {
-	valueMap, ok := mapValue(raw)
+func ParseCollectionProtobuf(raw interface{}) (types.CollectionProtobufConfig, bool) {
+	valueMap, ok := scalar.Map(raw)
 	if !ok {
-		return CollectionProtobufConfig{}, false
+		return types.CollectionProtobufConfig{}, false
 	}
-	result := CollectionProtobufConfig{}
-	if values, ok := listValue(valueMap["protoFiles"]); ok {
-		result.ProtoFiles = make([]CollectionProtoFile, 0, len(values))
+	result := types.CollectionProtobufConfig{}
+	if values, ok := scalar.ListValue(valueMap["protoFiles"]); ok {
+		result.ProtoFiles = make([]types.CollectionProtoFile, 0, len(values))
 		for _, value := range values {
-			if valueMap, ok := mapValue(value); ok {
-				path := firstYAMLString(valueMap, "path", "filePath", "protoFilePath", "proto_file_path")
+			if valueMap, ok := scalar.Map(value); ok {
+				path := scalar.FirstYAMLString(valueMap, "path", "filePath", "protoFilePath", "proto_file_path")
 				if path == "" {
 					continue
 				}
-				result.ProtoFiles = append(result.ProtoFiles, CollectionProtoFile{
+				result.ProtoFiles = append(result.ProtoFiles, types.CollectionProtoFile{
 					Path:   path,
-					Type:   firstNonEmpty(firstYAMLString(valueMap, "type"), "file"),
-					Exists: boolValue(valueMap["exists"], false),
+					Type:   scalar.FirstNonEmpty(scalar.FirstYAMLString(valueMap, "type"), "file"),
+					Exists: scalar.BoolValue(valueMap["exists"], false),
 				})
 				continue
 			}
-			if path := strings.TrimSpace(yamlScalarString(value)); path != "" {
-				result.ProtoFiles = append(result.ProtoFiles, CollectionProtoFile{Path: path, Type: "file"})
+			if path := strings.TrimSpace(scalar.YAMLString(value)); path != "" {
+				result.ProtoFiles = append(result.ProtoFiles, types.CollectionProtoFile{Path: path, Type: "file"})
 			}
 		}
 	}
-	if values, ok := listValue(valueMap["importPaths"]); ok {
-		result.ImportPaths = make([]CollectionProtoImportPath, 0, len(values))
+	if values, ok := scalar.ListValue(valueMap["importPaths"]); ok {
+		result.ImportPaths = make([]types.CollectionProtoImportPath, 0, len(values))
 		for _, value := range values {
-			if valueMap, ok := mapValue(value); ok {
-				path := firstYAMLString(valueMap, "path", "directoryPath", "directory", "dir")
+			if valueMap, ok := scalar.Map(value); ok {
+				path := scalar.FirstYAMLString(valueMap, "path", "directoryPath", "directory", "dir")
 				if path == "" {
 					continue
 				}
 				enabled := true
-				if parsed, ok := boolValueOK(valueMap["enabled"]); ok {
+				if parsed, ok := scalar.BoolValueOK(valueMap["enabled"]); ok {
 					enabled = parsed
-				} else if disabled, ok := boolValueOK(valueMap["disabled"]); ok {
+				} else if disabled, ok := scalar.BoolValueOK(valueMap["disabled"]); ok {
 					enabled = !disabled
 				}
-				result.ImportPaths = append(result.ImportPaths, CollectionProtoImportPath{
+				result.ImportPaths = append(result.ImportPaths, types.CollectionProtoImportPath{
 					Path:    path,
 					Enabled: enabled,
-					Exists:  boolValue(valueMap["exists"], false),
+					Exists:  scalar.BoolValue(valueMap["exists"], false),
 				})
 				continue
 			}
-			if path := strings.TrimSpace(yamlScalarString(value)); path != "" {
-				result.ImportPaths = append(result.ImportPaths, CollectionProtoImportPath{Path: path, Enabled: true})
+			if path := strings.TrimSpace(scalar.YAMLString(value)); path != "" {
+				result.ImportPaths = append(result.ImportPaths, types.CollectionProtoImportPath{Path: path, Enabled: true})
 			}
 		}
 	}
 	return result, true
 }
 
-func yamlCollectionProtobuf(protobuf CollectionProtobufConfig) map[string]interface{} {
-	normalized := normalizeCollectionProtobuf("", protobuf)
+func yamlCollectionProtobuf(protobuf types.CollectionProtobufConfig) map[string]interface{} {
+	normalized := types.NormalizeCollectionProtobuf("", protobuf)
 	result := map[string]interface{}{}
 	if len(normalized.ProtoFiles) > 0 {
 		protoFiles := make([]map[string]interface{}, 0, len(normalized.ProtoFiles))
 		for _, protoFile := range normalized.ProtoFiles {
 			entry := map[string]interface{}{
 				"path": protoFile.Path,
-				"type": firstNonEmpty(protoFile.Type, "file"),
+				"type": scalar.FirstNonEmpty(protoFile.Type, "file"),
 			}
 			protoFiles = append(protoFiles, entry)
 		}
@@ -761,14 +765,14 @@ func yamlCollectionProtobuf(protobuf CollectionProtobufConfig) map[string]interf
 	return result
 }
 
-func jsonCollectionProtobuf(protobuf CollectionProtobufConfig) map[string]interface{} {
+func JSONCollectionProtobuf(protobuf types.CollectionProtobufConfig) map[string]interface{} {
 	return yamlCollectionProtobuf(protobuf)
 }
 
-func parseOpenAPISyncConfigs(raw interface{}) []OpenAPISyncConfig {
-	values, ok := listValue(raw)
+func ParseOpenAPISyncConfigs(raw interface{}) []types.OpenAPISyncConfig {
+	values, ok := scalar.ListValue(raw)
 	if !ok {
-		if valueMap, mapOK := mapValue(raw); mapOK {
+		if valueMap, mapOK := scalar.Map(raw); mapOK {
 			values = []interface{}{valueMap}
 			ok = true
 		}
@@ -776,21 +780,21 @@ func parseOpenAPISyncConfigs(raw interface{}) []OpenAPISyncConfig {
 	if !ok {
 		return nil
 	}
-	configs := make([]OpenAPISyncConfig, 0, len(values))
+	configs := make([]types.OpenAPISyncConfig, 0, len(values))
 	for _, value := range values {
-		valueMap, ok := mapValue(value)
+		valueMap, ok := scalar.Map(value)
 		if !ok {
 			continue
 		}
-		config := OpenAPISyncConfig{
-			SourceURL:         firstYAMLString(valueMap, "sourceUrl", "sourceURL", "source_url", "url"),
-			GroupBy:           firstYAMLString(valueMap, "groupBy", "group_by"),
-			LastSyncDate:      firstYAMLString(valueMap, "lastSyncDate", "last_sync_date"),
-			SpecHash:          firstYAMLString(valueMap, "specHash", "spec_hash"),
-			AutoCheck:         boolValue(valueMap["autoCheck"], true),
-			AutoCheckInterval: intValue(valueMap["autoCheckInterval"], 5),
+		config := types.OpenAPISyncConfig{
+			SourceURL:         scalar.FirstYAMLString(valueMap, "sourceUrl", "sourceURL", "source_url", "url"),
+			GroupBy:           scalar.FirstYAMLString(valueMap, "groupBy", "group_by"),
+			LastSyncDate:      scalar.FirstYAMLString(valueMap, "lastSyncDate", "last_sync_date"),
+			SpecHash:          scalar.FirstYAMLString(valueMap, "specHash", "spec_hash"),
+			AutoCheck:         scalar.BoolValue(valueMap["autoCheck"], true),
+			AutoCheckInterval: scalar.IntValue(valueMap["autoCheckInterval"], 5),
 		}
-		config = normalizeOpenAPISyncConfig(config)
+		config = openapisync.NormalizeConfig(config)
 		if strings.TrimSpace(config.SourceURL) == "" && strings.TrimSpace(config.SpecHash) == "" {
 			continue
 		}
@@ -799,10 +803,10 @@ func parseOpenAPISyncConfigs(raw interface{}) []OpenAPISyncConfig {
 	return configs
 }
 
-func yamlOpenAPISyncConfigs(configs []OpenAPISyncConfig) []map[string]interface{} {
+func yamlOpenAPISyncConfigs(configs []types.OpenAPISyncConfig) []map[string]interface{} {
 	result := make([]map[string]interface{}, 0, len(configs))
 	for _, config := range configs {
-		normalized := normalizeOpenAPISyncConfig(config)
+		normalized := openapisync.NormalizeConfig(config)
 		entry := map[string]interface{}{
 			"sourceUrl":         normalized.SourceURL,
 			"groupBy":           normalized.GroupBy,
@@ -820,7 +824,7 @@ func yamlOpenAPISyncConfigs(configs []OpenAPISyncConfig) []map[string]interface{
 	return result
 }
 
-func jsonOpenAPISyncConfigs(configs []OpenAPISyncConfig) []map[string]interface{} {
+func JSONOpenAPISyncConfigs(configs []types.OpenAPISyncConfig) []map[string]interface{} {
 	return yamlOpenAPISyncConfigs(configs)
 }
 
@@ -835,13 +839,13 @@ func proxyPortValue(port string) interface{} {
 	return port
 }
 
-func yamlParams(queryParams, pathParams []KeyValue) []map[string]interface{} {
+func yamlParams(queryParams, pathParams []types.KeyValue) []map[string]interface{} {
 	result := yamlParamsOfType(queryParams, "query")
 	result = append(result, yamlParamsOfType(pathParams, "path")...)
 	return result
 }
 
-func yamlParamsOfType(values []KeyValue, paramType string) []map[string]interface{} {
+func yamlParamsOfType(values []types.KeyValue, paramType string) []map[string]interface{} {
 	result := yamlKeyValues(values)
 	for _, value := range result {
 		value["type"] = paramType
@@ -849,7 +853,7 @@ func yamlParamsOfType(values []KeyValue, paramType string) []map[string]interfac
 	return result
 }
 
-func yamlMultipart(values []FormPart) []map[string]interface{} {
+func yamlMultipart(values []types.FormPart) []map[string]interface{} {
 	result := make([]map[string]interface{}, 0, len(values))
 	for _, part := range values {
 		entry := map[string]interface{}{
@@ -871,7 +875,7 @@ func yamlMultipart(values []FormPart) []map[string]interface{} {
 	return result
 }
 
-func yamlPostResponseActions(values []Variable) []map[string]interface{} {
+func yamlPostResponseActions(values []types.Variable) []map[string]interface{} {
 	result := make([]map[string]interface{}, 0, len(values))
 	for _, value := range values {
 		action := map[string]interface{}{
@@ -897,7 +901,7 @@ func yamlPostResponseActions(values []Variable) []map[string]interface{} {
 	return result
 }
 
-func yamlAuth(auth AuthConfig) interface{} {
+func yamlAuth(auth types.AuthConfig) interface{} {
 	switch auth.Mode {
 	case "inherit", "none":
 		return auth.Mode
@@ -942,8 +946,8 @@ func yamlAuth(auth AuthConfig) interface{} {
 	case "awsv4":
 		return map[string]interface{}{
 			"mode":            "awsv4",
-			"accessKeyId":     firstNonEmpty(auth.AWSV4.AccessKeyID, auth.AWSV4.AccessKey),
-			"secretAccessKey": firstNonEmpty(auth.AWSV4.SecretAccessKey, auth.AWSV4.SecretKey),
+			"accessKeyId":     scalar.FirstNonEmpty(auth.AWSV4.AccessKeyID, auth.AWSV4.AccessKey),
+			"secretAccessKey": scalar.FirstNonEmpty(auth.AWSV4.SecretAccessKey, auth.AWSV4.SecretKey),
 			"sessionToken":    auth.AWSV4.SessionToken,
 			"service":         auth.AWSV4.Service,
 			"region":          auth.AWSV4.Region,
@@ -973,6 +977,6 @@ func yamlAuth(auth AuthConfig) interface{} {
 	}
 }
 
-func parseYAMLKeyValues(raw interface{}, queryOnly bool) []KeyValue {
+func ParseKeyValues(raw interface{}, queryOnly bool) []types.KeyValue {
 	return bru.ParseYAMLKeyValues(raw, queryOnly)
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/mutexdev/lite_api/internal/types"
 	"io"
 	"net/http"
 	"net/url"
@@ -95,11 +96,11 @@ func (a *App) writeCollectionFilesLocked(collection *Collection) error {
 		return err
 	}
 	if collection.Format == "yml" {
-		if err := a.writeCollectionFileLocked(filepath.Join(collection.Path, "opencollection.yml"), []byte(stringifyYAMLCollection(*collection))); err != nil {
+		if err := a.writeCollectionFileLocked(filepath.Join(collection.Path, "opencollection.yml"), []byte(yamlstore.StringifyCollection(*collection))); err != nil {
 			return err
 		}
 		for _, item := range collection.Items {
-			content, err := stringifyYAMLRequest(item)
+			content, err := yamlstore.StringifyRequest(item)
 			if err != nil {
 				return err
 			}
@@ -121,19 +122,19 @@ func (a *App) writeCollectionFilesLocked(collection *Collection) error {
 	}
 	config["version"] = firstNonEmpty(collection.Version, "1")
 	if transport.HasProxyConfig(collection.Proxy) {
-		config["proxy"] = jsonProxyConfig(collection.Proxy)
+		config["proxy"] = yamlstore.JSONProxyConfig(collection.Proxy)
 	}
 	if transport.HasClientCertificates(collection.ClientCertificates) {
-		config["clientCertificates"] = jsonClientCertificates(collection.ClientCertificates)
+		config["clientCertificates"] = yamlstore.JSONClientCertificates(collection.ClientCertificates)
 	}
-	if hasCollectionPresets(collection.Presets) {
-		config["presets"] = jsonCollectionPresets(collection.Presets)
+	if types.HasCollectionPresets(collection.Presets) {
+		config["presets"] = yamlstore.JSONCollectionPresets(collection.Presets)
 	}
-	if hasCollectionProtobuf(collection.Protobuf) {
-		config["protobuf"] = jsonCollectionProtobuf(collection.Protobuf)
+	if types.HasCollectionProtobuf(collection.Protobuf) {
+		config["protobuf"] = yamlstore.JSONCollectionProtobuf(collection.Protobuf)
 	}
 	if len(collection.OpenAPI) > 0 {
-		config["openapi"] = jsonOpenAPISyncConfigs(collection.OpenAPI)
+		config["openapi"] = yamlstore.JSONOpenAPISyncConfigs(collection.OpenAPI)
 	}
 	configData, _ := json.MarshalIndent(config, "", "  ")
 	if err := a.writeCollectionFileLocked(filepath.Join(collection.Path, "bruno.json"), configData); err != nil {
@@ -195,12 +196,12 @@ func writeYAMLCollectionNameMetadata(collection *Collection) error {
 	data, err := os.ReadFile(target)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return os.WriteFile(target, []byte(stringifyYAMLCollection(*collection)), 0o600)
+			return os.WriteFile(target, []byte(yamlstore.StringifyCollection(*collection)), 0o600)
 		}
 		return err
 	}
 	if strings.TrimSpace(string(data)) == "" {
-		return os.WriteFile(target, []byte(stringifyYAMLCollection(*collection)), 0o600)
+		return os.WriteFile(target, []byte(yamlstore.StringifyCollection(*collection)), 0o600)
 	}
 	var root map[string]interface{}
 	if err := yaml.Unmarshal(data, &root); err != nil {
@@ -273,7 +274,7 @@ func writeClonedYAMLCollectionRootMetadata(source, cloned *Collection) error {
 	data, err := os.ReadFile(sourceConfigPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return os.WriteFile(targetConfigPath, []byte(stringifyYAMLCollection(*cloned)), 0o600)
+			return os.WriteFile(targetConfigPath, []byte(yamlstore.StringifyCollection(*cloned)), 0o600)
 		}
 		return err
 	}
@@ -422,7 +423,7 @@ func (a *App) writeFolderConfigLocked(collection *Collection, folder FolderConfi
 	target := folderMetadataWritePath(*collection, targetDir)
 	var content string
 	if collection.Format == "yml" {
-		content = stringifyYAMLFolder(folder)
+		content = yamlstore.StringifyFolder(folder)
 	} else {
 		content = bru.StringifyBruFolder(folder)
 	}
@@ -1407,19 +1408,19 @@ func readCollectionFromDisk(collectionPath string) (Collection, error) {
 	if configData, err := os.ReadFile(configName); err == nil {
 		var config map[string]interface{}
 		if err := json.Unmarshal(configData, &config); err == nil {
-			if proxy, ok := parseJSONProxyConfig(config["proxy"]); ok {
+			if proxy, ok := yamlstore.ParseJSONProxyConfig(config["proxy"]); ok {
 				collection.Proxy = transport.NormalizeProxyConfig(proxy)
 			}
-			if certs, ok := parseJSONClientCertificates(config["clientCertificates"]); ok {
+			if certs, ok := yamlstore.ParseJSONClientCertificates(config["clientCertificates"]); ok {
 				collection.ClientCertificates = transport.NormalizeClientCertificates(certs)
 			}
-			if presets, ok := parseCollectionPresets(config["presets"]); ok {
-				collection.Presets = normalizeCollectionPresets(presets)
+			if presets, ok := yamlstore.ParseCollectionPresets(config["presets"]); ok {
+				collection.Presets = types.NormalizeCollectionPresets(presets)
 			}
-			if protobuf, ok := parseCollectionProtobuf(config["protobuf"]); ok {
-				collection.Protobuf = normalizeCollectionProtobuf(collection.Path, protobuf)
+			if protobuf, ok := yamlstore.ParseCollectionProtobuf(config["protobuf"]); ok {
+				collection.Protobuf = types.NormalizeCollectionProtobuf(collection.Path, protobuf)
 			}
-			if openAPI := parseOpenAPISyncConfigs(config["openapi"]); len(openAPI) > 0 {
+			if openAPI := yamlstore.ParseOpenAPISyncConfigs(config["openapi"]); len(openAPI) > 0 {
 				collection.OpenAPI = openAPI
 			}
 		}
@@ -1607,7 +1608,7 @@ func readFolderConfig(folderPath string) FolderConfig {
 func applyYAMLFolderDefaults(config *FolderConfig, root map[string]interface{}) {
 	request, _ := mapValue(root["request"])
 	if headers, ok := request["headers"]; ok {
-		config.Headers = parseYAMLKeyValues(headers, false)
+		config.Headers = yamlstore.ParseKeyValues(headers, false)
 	}
 	if variables, ok := request["variables"]; ok {
 		config.Variables = yamlstore.ParseVariables(variables)
@@ -1666,7 +1667,7 @@ func hydrateYAMLCollectionMetadata(collection *Collection, path string) error {
 		collection.Version = version
 	}
 	if headers, ok := request["headers"]; ok {
-		collection.Headers = parseYAMLKeyValues(headers, false)
+		collection.Headers = yamlstore.ParseKeyValues(headers, false)
 	}
 	if variables, ok := request["variables"]; ok {
 		collection.Variables = yamlstore.ParseVariables(variables)
@@ -1701,21 +1702,21 @@ func hydrateYAMLCollectionMetadata(collection *Collection, path string) error {
 	if environments, ok := config["environments"]; ok {
 		collection.Environments = yamlstore.ParseEnvironments(environments)
 	}
-	if proxy, ok := parseYAMLProxyConfig(config["proxy"]); ok {
+	if proxy, ok := yamlstore.ParseProxyConfig(config["proxy"]); ok {
 		collection.Proxy = transport.NormalizeProxyConfig(proxy)
 	}
-	if certs, ok := parseYAMLClientCertificates(config["clientCertificates"]); ok {
+	if certs, ok := yamlstore.ParseClientCertificates(config["clientCertificates"]); ok {
 		collection.ClientCertificates = transport.NormalizeClientCertificates(certs)
 	}
-	if presets, ok := parseCollectionPresets(config["presets"]); ok {
-		collection.Presets = normalizeCollectionPresets(presets)
+	if presets, ok := yamlstore.ParseCollectionPresets(config["presets"]); ok {
+		collection.Presets = types.NormalizeCollectionPresets(presets)
 	}
-	if protobuf, ok := parseCollectionProtobuf(config["protobuf"]); ok {
-		collection.Protobuf = normalizeCollectionProtobuf(collection.Path, protobuf)
+	if protobuf, ok := yamlstore.ParseCollectionProtobuf(config["protobuf"]); ok {
+		collection.Protobuf = types.NormalizeCollectionProtobuf(collection.Path, protobuf)
 	}
 	if extensions, ok := mapValue(root["extensions"]); ok {
 		if bruno, ok := mapValue(extensions["bruno"]); ok {
-			if openAPI := parseOpenAPISyncConfigs(bruno["openapi"]); len(openAPI) > 0 {
+			if openAPI := yamlstore.ParseOpenAPISyncConfigs(bruno["openapi"]); len(openAPI) > 0 {
 				collection.OpenAPI = openAPI
 			}
 		}

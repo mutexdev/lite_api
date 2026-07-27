@@ -3018,7 +3018,7 @@ func TestRequestSettingsEncodeURLRoundTrip(t *testing.T) {
 		t.Fatalf("bru settings did not round-trip: %#v", parsedBru.Settings)
 	}
 
-	yamlContent, err := stringifyYAMLRequest(item)
+	yamlContent, err := yamlstore.StringifyRequest(item)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -13530,7 +13530,7 @@ func TestYAMLFileBodyRoundTrip(t *testing.T) {
 		},
 		Settings: RequestSettings{TimeoutMs: 30000, FollowRedirects: true, MaxRedirects: 5, EncodeURL: true, StoreCookies: true, VerifyTLS: true},
 	}
-	content, err := stringifyYAMLRequest(item)
+	content, err := yamlstore.StringifyRequest(item)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -13839,7 +13839,7 @@ func TestGrpcYAMLRoundTrip(t *testing.T) {
 	}
 	item.GrpcMessages = []GrpcMessage{{Name: "hello", Content: `{"name":"Ada"}`}}
 
-	content, err := stringifyYAMLRequest(item)
+	content, err := yamlstore.StringifyRequest(item)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -15846,7 +15846,7 @@ func TestWebSocketMessagesBruAndYAMLRoundTrip(t *testing.T) {
 		t.Fatalf("websocket .bru did not round-trip: %#v", parsed)
 	}
 
-	yamlContent, err := stringifyYAMLRequest(item)
+	yamlContent, err := yamlstore.StringifyRequest(item)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21320,7 +21320,7 @@ func TestOAuth2BrowserGrantFieldsRoundTrip(t *testing.T) {
 	}
 	assertOAuth2BrowserGrantFields(t, parsed.Auth.OAuth2)
 
-	yamlContent, err := stringifyYAMLRequest(item)
+	yamlContent, err := yamlstore.StringifyRequest(item)
 	if err != nil {
 		t.Fatal(err)
 	}
