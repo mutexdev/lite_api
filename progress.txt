@@ -8181,3 +8181,54 @@ US-026 - Store layer. DONE. Both named collapses complete.
     qa/coverage.sh            a coverage number that is reproducible
     tools/coverage/mergeprofile.go   and the reason it has to be
     qa/baseline/bindings.txt  the signature list the gate diffs against
+
+=== THE GO SIDE: atomicfile.Write had NO TESTS OF ITS OWN ===
+
+  The frontend got a full coverage sweep this session; the Go side had not. The
+  lowest package by a wide margin was internal/atomicfile at 69.9% — and the
+  reason turned out to be that one of its two functions had NEVER BEEN TESTED
+  DIRECTLY. atomicfile_test.go covers WritePrivate thoroughly and does not
+  mention Write once.
+
+  atomicfile.Write is called from FIVE places: app_persist.go (state.json — the
+  entire application state), app_env_secrets.go (the encrypted environment
+  secrets), response_store.go, internal/history, and a test. Every one of them
+  is a file whose truncation loses user data. It was covered only incidentally,
+  through callers, and its comment records a past bug.
+
+  9 tests. Six controls, four failures, one rejected for not compiling, and one
+  that could not be made to fail at all — see below.
+
+  THE TWO PROPERTIES THAT ARE THE REASON BOTH FUNCTIONS EXIST:
+    - Write takes the mode as a PARAMETER; WritePrivate fixes it at 0600.
+    - WRITE LEAVES THE PARENT DIRECTORY ALONE. WritePrivate creates it and
+      re-chmods it to 0700; Write does neither, because it is used on
+      directories whose mode is already meaningful. COLLAPSING THE TWO — which
+      is exactly what someone deduplicating them would do — would silently
+      tighten the permissions of a directory the caller deliberately left open,
+      and silently conjure a tree that a missing-directory error should have
+      surfaced as a bug. Three controls, one per property, each fail 1.
+
+  A BRANCH THAT CANNOT BE TESTED, AND IS NOW RECORDED AS SUCH.
+
+  Write checks f.Close()'s error rather than deferring and ignoring it, because
+  US-003 found a truncated copy REPORTED AS SUCCESS when that error was dropped.
+  Removing the check fails nothing, and no test can make it fail: Close on a
+  synced regular file returns nil on every filesystem a test can create, and the
+  only way to make it error — closing twice — is not reachable through this
+  function's API. I verified that rather than assuming it.
+
+  The branch is still reachable IN PRODUCTION. Close is where a filesystem
+  reports a DEFERRED WRITE ERROR: a full disk, a quota, an NFS server that
+  accepted the bytes and then refused them — exactly the conditions under which
+  a truncated state.json gets reported as saved.
+
+  The alternative is an injectable seam for the file handle. Deliberately not
+  done: the plan rejected settable function vars as "exactly the shape of a seam
+  production forgets to wire", and a seam guarding a guard is worse value than a
+  comment saying why the guard is there. Recorded in the test file so it does
+  not read as an oversight, and so nobody deletes it for failing no test.
+
+  That is a SIXTH disposition for code a test cannot reach — distinct from the
+  five guards, because this one protects a real production failure mode rather
+  than an impossible one.
