@@ -17,7 +17,11 @@
   import { applyRequestMutation, applyTabsMutation, type MergeOutcome } from './lib/narrowMutations'
   import { filterCommands } from './lib/commandPalette'
   import { memoized, KeyedMemo, type Memo } from './lib/memo'
-  import { computeWindow, sidebarGroupWindow } from './lib/virtualList'
+  import {
+    computeWindow,
+    sidebarGroupOffset as sidebarGroupOffsetOf,
+    sidebarGroupWindow
+  } from './lib/virtualList'
   import {
     networkSortAriaValue as devToolsNetworkSortAriaValue,
     networkSortLabel as devToolsNetworkSortLabel,
@@ -6830,27 +6834,28 @@
   }
 
   /**
-   * sidebarGroupOffset is the flat row index of a group's FIRST request.
+   * The flat row index of a group's first request.
    *
-   * It walks the same order the markup renders in, so the two cannot disagree:
-   * one row per collection header, one per folder header, one per request.
+   * The walk lives in lib/virtualList beside the window arithmetic it feeds,
+   * where it is tested — including the rule that a collection whose directory
+   * is missing contributes only its header.
    */
   function sidebarGroupOffset(targetCollectionId: string, targetFolder: string): number {
-    let offset = 0
-    for (const collection of visibleSidebarCollections) {
-      offset += 1 // the collection's own header row
-      const collapsed = !searchQuery && Boolean(collapsedSidebarCollections[collection.id])
-      if (collapsed || collection.notFoundLocally) continue
-      for (const group of groupedItems(collection, searchQuery)) {
-        if (group.folder) offset += 1 // the folder header row
-        const folderCollapsed =
-          Boolean(group.folder) && !searchQuery &&
-          Boolean(collapsedSidebarFolders[sidebarFolderKey(collection.id, group.folder)])
-        if (collection.id === targetCollectionId && group.folder === targetFolder) return offset
-        if (!folderCollapsed) offset += group.items.length
-      }
-    }
-    return offset
+    return sidebarGroupOffsetOf(
+      {
+        collections: visibleSidebarCollections,
+        groupsFor: (id) => {
+          const collection = visibleSidebarCollections.find((candidate) => candidate.id === id)
+          return collection ? groupedItems(collection, searchQuery) : []
+        },
+        collapsedCollections: collapsedSidebarCollections,
+        collapsedFolders: collapsedSidebarFolders,
+        searchQuery,
+        folderKey: sidebarFolderKey
+      },
+      targetCollectionId,
+      targetFolder
+    )
   }
 
   /** Which of a group's items fall inside the viewport, plus the padding. */

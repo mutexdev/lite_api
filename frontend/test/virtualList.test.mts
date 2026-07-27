@@ -8,7 +8,14 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { computeWindow, sidebarGroupWindow, keepIndexVisible } from '../src/lib/virtualList.ts'
+import {
+  computeWindow,
+  sidebarGroupWindow,
+  keepIndexVisible,
+  sidebarGroupOffset,
+  type SidebarOffsetInput,
+  type OffsetGroup
+} from '../src/lib/virtualList.ts'
 
 const ROW = 24
 const VIEWPORT = 480
@@ -231,4 +238,92 @@ test('a scroll position left over from a longer list stays coherent', () => {
     assert.ok(w.padTop >= 0 && w.padBottom >= 0, `offset=${offset}: negative padding`)
     assert.equal(w.padTop + (w.end - w.start) * 20 + w.padBottom, 60, `offset=${offset}: height changed`)
   }
+})
+
+
+// sidebarGroupOffset is what sidebarGroupWindow slices the viewport out of, and
+// it had no test at all while it lived inline in App.svelte. Its comment there
+// claimed it "walks the same order the markup renders in, so the two cannot
+// disagree" -- an assertion nothing checked.
+//
+// Miscount by one and every request below draws at the wrong scroll position:
+// the list looks right until it is scrolled, and then a click lands on a
+// different request than the one under the pointer.
+
+const offsetKey = (collectionId: string, folder: string) => collectionId + '/' + folder
+
+function offsetInput(over: Partial<SidebarOffsetInput> = {}): SidebarOffsetInput {
+  const groups: Record<string, OffsetGroup[]> = {
+    a: [
+      { folder: '', items: [{}, {}] },
+      { folder: 'auth', items: [{}, {}, {}] }
+    ],
+    b: [{ folder: '', items: [{}] }]
+  }
+  return {
+    collections: [{ id: 'a' }, { id: 'b' }],
+    groupsFor: (id: string) => groups[id] ?? [],
+    collapsedCollections: {},
+    collapsedFolders: {},
+    searchQuery: '',
+    folderKey: offsetKey,
+    ...over
+  }
+}
+
+test('the offset counts headers and requests in render order', () => {
+  const input = offsetInput()
+  assert.equal(sidebarGroupOffset(input, 'a', ''), 1)
+  assert.equal(sidebarGroupOffset(input, 'a', 'auth'), 4)
+  assert.equal(sidebarGroupOffset(input, 'b', ''), 8)
+})
+
+// A collapsed collection contributes its header and nothing else. Counting its
+// contents would push every later row down by the number of requests hidden.
+test('a collapsed collection contributes only its header', () => {
+  assert.equal(sidebarGroupOffset(offsetInput({ collapsedCollections: { a: true } }), 'b', ''), 2)
+})
+
+// THE RULE THE OLD HELPER LACKS. A collection whose directory is missing draws
+// its header and nothing under it, so its groups must not be counted.
+test('a collection with a missing directory contributes only its header', () => {
+  const input = offsetInput({ collections: [{ id: 'a', notFoundLocally: true }, { id: 'b' }] })
+  assert.equal(sidebarGroupOffset(input, 'b', ''), 2)
+})
+
+// A collapsed FOLDER still draws its own header -- unlike a collapsed
+// collection, the folder row is inside the list -- but not its requests.
+test('a collapsed folder keeps its header and drops its requests', () => {
+  const input = offsetInput({ collapsedFolders: { [offsetKey('a', 'auth')]: true } })
+  assert.equal(sidebarGroupOffset(input, 'a', 'auth'), 4, 'the folder header is still drawn')
+  assert.equal(sidebarGroupOffset(input, 'b', ''), 5, 'but its three requests are not counted')
+})
+
+// A search overrides every collapse, because a result inside a collapsed folder
+// has to be reachable. If the offset kept honouring collapse while the markup
+// expanded, every row below would be misplaced.
+test('a search overrides both kinds of collapse', () => {
+  const input = offsetInput({
+    searchQuery: 'token',
+    collapsedCollections: { a: true },
+    collapsedFolders: { [offsetKey('a', 'auth')]: true }
+  })
+  assert.equal(sidebarGroupOffset(input, 'a', 'auth'), 4)
+  assert.equal(sidebarGroupOffset(input, 'b', ''), 8)
+})
+
+// An unknown target returns the total row count rather than -1 or a throw: the
+// caller feeds it straight to the window arithmetic, where a negative offset
+// would produce a negative slice.
+test('an unknown target yields the total row count', () => {
+  assert.equal(sidebarGroupOffset(offsetInput(), 'missing', ''), 9)
+})
+
+// The offset feeds sidebarGroupWindow directly, so the two must agree about
+// what a row index means.
+test('the offset lines up with the window it feeds', () => {
+  const input = offsetInput()
+  const offset = sidebarGroupOffset(input, 'a', 'auth')
+  const window = sidebarGroupWindow(3, offset, ROW, ROW * 4, offset * ROW)
+  assert.equal(window.start, 0, 'scrolled exactly to the group, its first item is the first visible')
 })

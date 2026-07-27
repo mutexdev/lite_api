@@ -164,3 +164,73 @@ export function sidebarGroupWindow(
     padBottom: (count - end) * rowHeight
   }
 }
+
+export type OffsetCollection = {
+  id: string
+  /** A collection whose directory is missing renders its header and nothing else. */
+  notFoundLocally?: boolean
+}
+
+export type OffsetGroup = {
+  folder: string
+  items: unknown[]
+}
+
+export type SidebarOffsetInput = {
+  collections: readonly OffsetCollection[]
+  groupsFor: (collectionId: string) => readonly OffsetGroup[]
+  collapsedCollections: Readonly<Record<string, boolean>>
+  collapsedFolders: Readonly<Record<string, boolean>>
+  /** Any non-empty query overrides every collapse. */
+  searchQuery: string
+  folderKey: (collectionId: string, folder: string) => string
+}
+
+/**
+ * The flat row index of a group's FIRST request.
+ *
+ * This is the number `sidebarGroupWindow` slices the viewport out of, so it has
+ * to count exactly what the markup renders: one row per collection header, one
+ * per folder header, one per request. Count one row too few and every request
+ * below it draws at the wrong scroll position — the list looks correct until it
+ * is scrolled, and then a click lands on a different request than the one under
+ * the pointer.
+ *
+ * Three rules, each of which the markup also obeys:
+ *
+ *   - a COLLAPSED collection contributes its header and nothing more
+ *   - a collection whose directory is MISSING does the same, because there is
+ *     nothing under it to draw
+ *   - a SEARCH overrides every collapse, since a result inside a collapsed
+ *     folder has to be reachable
+ *
+ * The `notFoundLocally` rule is the one an older flattening helper in this
+ * repo (lib/sidebarTree.ts, now unused) does not have at all — its collection
+ * type has no such field. Wiring that helper in would count rows for
+ * collections the markup does not draw.
+ */
+export function sidebarGroupOffset(
+  input: SidebarOffsetInput,
+  targetCollectionId: string,
+  targetFolder: string
+): number {
+  const { collections, groupsFor, collapsedCollections, collapsedFolders, searchQuery, folderKey } = input
+  const searching = Boolean(searchQuery)
+  let offset = 0
+
+  for (const collection of collections) {
+    offset += 1 // the collection's own header row
+    const collapsed = !searching && Boolean(collapsedCollections[collection.id])
+    if (collapsed || collection.notFoundLocally) continue
+
+    for (const group of groupsFor(collection.id)) {
+      if (group.folder) offset += 1 // the folder header row
+      const folderCollapsed =
+        Boolean(group.folder) && !searching &&
+        Boolean(collapsedFolders[folderKey(collection.id, group.folder)])
+      if (collection.id === targetCollectionId && group.folder === targetFolder) return offset
+      if (!folderCollapsed) offset += group.items.length
+    }
+  }
+  return offset
+}

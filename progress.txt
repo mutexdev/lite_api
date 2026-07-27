@@ -9358,3 +9358,46 @@ US-026 - Store layer. DONE. Both named collapses complete.
   while their absence raises the function figure. A percentage that moves when
   code is DELETED is not a regression, and saying so beats quietly restating the
   new number as if it were the old one.
+
+=== THE DEAD MODULE WAS THE LESS INTERESTING HALF OF THAT FINDING ===
+
+  I had recorded sidebarTree.ts as unused and left the deletion as someone
+  else's call. Testing that hesitation turned up something better.
+
+  App.svelte does NOT lack a flattening implementation — it has its own, inline,
+  in sidebarGroupOffset. So the situation was never "a dead module". IT WAS TWO
+  IMPLEMENTATIONS OF SIDEBAR FLATTENING: ONE TESTED AND UNUSED, ONE LIVE AND
+  UNTESTED.
+
+  And they DIVERGE. The live one skips a collection whose directory is missing:
+
+      if (collapsed || collection.notFoundLocally) continue
+
+  sidebarTree.ts has no such rule — its SidebarCollection type does not even
+  have the field. App.svelte references notFoundLocally 35 times; sidebarTree.ts
+  zero. So wiring the tested helper in would have counted rows for collections
+  the markup does not draw. That settles its fate on evidence rather than on a
+  guess about the roadmap: it is superseded AND wrong for this app.
+
+  THE REAL GAP WAS THE LIVE ONE. sidebarGroupOffset feeds sidebarGroupWindow —
+  it is the number the viewport is sliced out of — and it had NO TEST, while its
+  comment asserted "it walks the same order the markup renders in, so the two
+  cannot disagree". Nothing checked that. Miscount by one and every request
+  below draws at the wrong scroll position: the list looks correct until it is
+  scrolled, and then A CLICK LANDS ON A DIFFERENT REQUEST than the one under the
+  pointer.
+
+  Extracted into lib/virtualList beside the window it feeds, and tested. 7 tests,
+  suite 789 -> 796; virtualList.ts now 100/100/100.
+
+  Six controls, six failures — and the two biggest are the header rows:
+      the collection header not counted   6 failing
+      the folder header not counted       4 failing
+      missing-directory rule dropped      1
+      collapsed-collection rule dropped   1
+      search no longer overrides collapse 1
+      collapsed folders counted anyway    1
+
+  The last test asserts the offset and the window AGREE about what a row index
+  means: scrolled exactly to a group, its first item is the first visible one.
+  Two functions that must share a coordinate system, now pinned to each other.
