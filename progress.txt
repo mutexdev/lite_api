@@ -7865,3 +7865,34 @@ US-026 - Store layer. DONE. Both named collapses complete.
   Seven controls, seven failures.
 
   Frontend totals: 99.87% lines, 96.94% branch, 98.38% functions, 755 tests.
+
+--- branch coverage: responseExampleEdits, 85.45% -> 94.74% ---
+
+  Suite 755 -> 761. The existing 33 tests were thorough on the main paths, so
+  every remaining branch was an edge — and two of them are behaviours nobody had
+  written down.
+
+  THE ORDER YOU TYPE THE TWO CELLS IN DECIDES WHETHER THE BODY TYPE FOLLOWS.
+  Editing the VALUE of a row already named content-type re-derives the body
+  type. NAMING a row content-type does not, because the guard requires a
+  content-type header to have existed BEFORE the edit. The doc says only a value
+  change is a statement about the body, so this is deliberate — but it means
+  typing name-then-value gives one result and value-then-name gives another.
+  PINNED AS IT BEHAVES; changing it is a decision, not a test. Control fails 2.
+
+  THE FIRST FILE ROW AUTO-SELECTS AND LATER ONES DO NOT. A list with attachments
+  and no selection sends nothing, so the first must be selected; but a second
+  attachment must not silently steal the selection from the file the user
+  already chose. Both directions control: always-select fails 1, never-select
+  fails 2.
+
+  Also pinned: a header row with no name at all does not throw on the lowercase
+  lookup (fails 1); an out-of-range removal changes nothing rather than splicing
+  from the end (fails 1); an absent file list normalises to [] so the caller can
+  render a table without a null check.
+
+  Six controls, five failures and one rejected for not compiling — the absent-
+  request mutation could not be expressed without a type error, which is the
+  compiler already enforcing what the test would have.
+
+  Frontend totals: 99.87% lines, 97.12% branch, 98.39% functions, 761 tests.

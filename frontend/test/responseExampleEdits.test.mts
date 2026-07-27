@@ -239,3 +239,67 @@ test('blank and absent names pass through without affecting the suggestion', () 
   assert.equal(suggestedResponseExampleName(['', undefined, 'example']), 'example (1)')
   assert.equal(suggestedResponseExampleName(['', undefined]), 'example')
 })
+
+// Naming a row TO content-type does not re-derive the body type, while editing
+// the value of an already-named one does. That asymmetry is deliberate — the
+// doc says only a VALUE change is a statement about the body — but it means the
+// order the user types the two cells in decides whether the body type follows.
+// Pinned as it behaves, because changing it is a decision and not a test.
+test('naming a header content-type does not re-derive, but editing its value does', () => {
+  const named = applyResponseExampleHeader(
+    [{ name: 'other', value: 'application/json' } as types.KeyValue],
+    'text', 0, 'name', 'content-type'
+  )
+  assert.equal(named.bodyType, undefined, 'renaming into content-type derived a body type')
+
+  const valued = applyResponseExampleHeader(
+    [{ name: 'content-type', value: '' } as types.KeyValue],
+    'text', 0, 'value', 'application/json'
+  )
+  assert.equal(valued.bodyType, 'json')
+})
+
+// The header lookup lowercases the name, so a row that has no name at all must
+// not throw on the way past.
+test('a header row with no name is handled rather than throwing', () => {
+  const result = applyResponseExampleHeader([{ value: 'x' } as types.KeyValue], 'text', 0, 'value', 'y')
+  assert.equal(result.headers[0].value, 'y')
+  assert.equal(result.bodyType, undefined)
+})
+
+// The FIRST file row is auto-selected, because a list with attachments and no
+// selection sends nothing. A LATER one is not — adding a second attachment must
+// not silently steal the selection from the file the user already chose.
+test('the first file row is selected on creation and later ones are not', () => {
+  const first = applyResponseExampleFileRow(undefined, 0, 'filePath', '/a.json')
+  assert.equal(first.file?.[0].selected, true)
+
+  const second = applyResponseExampleFileRow(
+    { file: [{ filePath: 'a', contentType: '', selected: true }] } as types.ResponseExampleRequest,
+    1, 'filePath', '/b.json'
+  )
+  assert.equal(second.file?.[0].selected, true, 'the existing selection was stolen')
+  assert.equal(second.file?.[1].selected, false)
+})
+
+// Removing an index that is not there must leave the list and its selection
+// exactly as they were, rather than splicing from the end.
+test('removing an out-of-range index changes nothing', () => {
+  const rows = { file: [{ filePath: 'a', contentType: '', selected: true }] } as types.ResponseExampleRequest
+  const result = removeResponseExampleFileRow(rows, 9)
+  assert.equal(result.file?.length, 1)
+  assert.equal(result.file?.[0].selected, true)
+})
+
+// An absent file list normalises to an empty array rather than staying
+// undefined, so the caller can render a table without a null check.
+test('removing from an absent list yields an empty array', () => {
+  assert.deepEqual(removeResponseExampleFileRow(undefined, 0).file, [])
+})
+
+// An absent request or response is treated as empty rather than throwing — a
+// newly created example has neither until the first edit lands.
+test('the first edit on an example with no request or response works', () => {
+  assert.equal(applyResponseExampleRequestField(undefined, 'method', 'get').method, 'GET')
+  assert.equal(applyResponseExampleResponseField(undefined, 'status', '204').status, 204)
+})
