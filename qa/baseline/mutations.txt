@@ -184,3 +184,40 @@ scope: ./internal/transport/
 	return &http.Transport{}
 --- new
 	return &http.Transport{}
+===
+desc: yaml save: a multipart file part is written as literal text
+file: app_yaml_codec.go
+scope: -run Multipart .
+--- old
+		if part.FilePath != "" {
+			entry["type"] = "file"
+			entry["value"] = part.FilePath
+		} else {
+--- new
+		if false {
+			entry["type"] = "file"
+			entry["value"] = part.FilePath
+		} else {
+===
+desc: yaml save: a post-response variable loses its secret flag
+file: app_yaml_codec.go
+scope: -run PostResponseVariable .
+--- old
+		if value.Secret {
+			action["variable"].(map[string]interface{})["secret"] = true
+		}
+--- new
+		_ = value.Secret
+===
+desc: yaml save: a disabled multipart part comes back enabled
+file: app_yaml_codec.go
+scope: -run Multipart .
+--- old
+		entry := map[string]interface{}{
+			"name":    part.Name,
+			"enabled": part.Enabled,
+		}
+--- new
+		entry := map[string]interface{}{
+			"name": part.Name,
+		}
