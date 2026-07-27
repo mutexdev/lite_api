@@ -2,6 +2,8 @@ package core
 
 import (
 	"testing"
+
+	"github.com/mutexdev/lite_api/internal/recovery"
 )
 
 // Undoing a collection delete must put the collection back WHERE IT WAS.
@@ -193,12 +195,12 @@ func TestRestoringToleratesAnOutOfRangeIndexInTheSnapshot(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		snapshot, err := readRecoverySnapshot(dir, removed.Entry.WorkspaceID, removed.Entry.ID)
+		snapshot, err := recovery.ReadSnapshot(dir, removed.Entry.WorkspaceID, removed.Entry.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
 		snapshot.CollectionIndex = corruptIndex
-		if err := writeRecoverySnapshot(dir, snapshot); err != nil {
+		if err := recovery.WriteSnapshot(dir, snapshot); err != nil {
 			t.Fatal(err)
 		}
 

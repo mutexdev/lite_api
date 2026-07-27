@@ -1,6 +1,6 @@
 //go:build windows
 
-package core
+package recovery
 
 import (
 	"errors"
@@ -149,7 +149,7 @@ func writeWorkspaceFileAtomicAt(dir *os.Root, name string, content []byte, rejec
 	if err := file.Close(); err != nil {
 		return err
 	}
-	managedGitIgnoreBeforeCommit()
+	ManagedGitIgnoreBeforeCommit()
 	return dir.Rename(tmp, name)
 }
 

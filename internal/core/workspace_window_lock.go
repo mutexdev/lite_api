@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mutexdev/lite_api/internal/atomicfile"
+	"github.com/mutexdev/lite_api/internal/filelock"
 	"github.com/mutexdev/lite_api/internal/workspacestate"
 )
 
@@ -154,7 +155,7 @@ func (s WorkspaceWindowLockStore) withGuard(workspace string, fn func() (Workspa
 		return WorkspaceWindowOwner{}, err
 	}
 	defer func() { _ = file.Close() }()
-	unlockFile, err := lockFileExclusive(file)
+	unlockFile, err := filelock.Exclusive(file)
 	if err != nil {
 		return WorkspaceWindowOwner{}, err
 	}

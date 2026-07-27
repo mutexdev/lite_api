@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/recovery"
 )
 
 func TestDeleteRequestRecoverableRestoresBytesTabsExamplesAndRestart(t *testing.T) {
@@ -43,19 +45,19 @@ func TestDeleteRequestRecoverableRestoresBytesTabsExamplesAndRestart(t *testing.
 			t.Fatalf("recoverable delete left dependent tab open: %#v", tab)
 		}
 	}
-	entryDir, err := recoveryEntryDir(dataDir, deleted.Entry.WorkspaceID, deleted.Entry.ID)
+	entryDir, err := recovery.EntryDir(dataDir, deleted.Entry.WorkspaceID, deleted.Entry.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshotPath, err := recoverySnapshotPath(dataDir, deleted.Entry.WorkspaceID, deleted.Entry.ID)
+	snapshotPath, err := recovery.SnapshotPath(dataDir, deleted.Entry.WorkspaceID, deleted.Entry.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifestPath, err := recoveryManifestPath(dataDir, deleted.Entry.WorkspaceID)
+	manifestPath, err := recovery.ManifestPath(dataDir, deleted.Entry.WorkspaceID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertMode(t, recoveryRoot(dataDir), 0o700)
+	assertMode(t, recovery.Root(dataDir), 0o700)
 	assertMode(t, entryDir, 0o700)
 	assertMode(t, snapshotPath, 0o600)
 	assertMode(t, manifestPath, 0o600)
@@ -181,7 +183,7 @@ func TestRecoveryRestoreRefusesNewerDraftStateAndRetainsEntry(t *testing.T) {
 	if _, err := app.RestoreRecoveryEntry(deleted.Entry.ID); err == nil {
 		t.Fatal("expected newer collection state to block restore")
 	} else {
-		var conflict *RestoreConflictError
+		var conflict *recovery.RestoreConflictError
 		if !errors.As(err, &conflict) {
 			t.Fatalf("expected typed conflict, got %T: %v", err, err)
 		}
@@ -264,7 +266,7 @@ func TestRecoveryRestoreRefusesCollisionAndDiscardExpires(t *testing.T) {
 	if _, err := app.RestoreRecoveryEntry(deleted.Entry.ID); err == nil {
 		t.Fatal("expected restore conflict")
 	} else {
-		var conflict *RestoreConflictError
+		var conflict *recovery.RestoreConflictError
 		if !errors.As(err, &conflict) {
 			t.Fatalf("expected typed conflict, got %T: %v", err, err)
 		}
@@ -280,9 +282,9 @@ func TestRecoveryRestoreRefusesCollisionAndDiscardExpires(t *testing.T) {
 		t.Fatal("discarded entry should not restore")
 	}
 
-	entry := newRecoveryEntry(recoveryKindRequest, "expired", "workspace", "collection")
+	entry := recovery.NewEntry(recovery.KindRequest, "expired", "workspace", "collection")
 	entry.ExpiresAt = time.Now().UTC().Add(-time.Second)
-	if err := stageRecoverySnapshot(t.TempDir(), recoverySnapshot{Entry: entry}, "", false); err != nil {
+	if err := recovery.StageSnapshot(t.TempDir(), recovery.Snapshot{Entry: entry}, "", false); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -342,8 +344,8 @@ func TestRecoveryStagingFailureDoesNotMutateCollection(t *testing.T) {
 	if err := os.WriteFile(badDataDir, []byte("file"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	entry := newRecoveryEntry(recoveryKindRequest, "request", "workspace", "collection")
-	if err := stageRecoverySnapshot(badDataDir, recoverySnapshot{Entry: entry}, source, true); err == nil {
+	entry := recovery.NewEntry(recovery.KindRequest, "request", "workspace", "collection")
+	if err := recovery.StageSnapshot(badDataDir, recovery.Snapshot{Entry: entry}, source, true); err == nil {
 		t.Fatal("expected staging failure")
 	}
 	after, err := os.ReadFile(path)
@@ -418,12 +420,12 @@ func TestCollectionRecoveryIgnoresPersistedGitIgnorePathAuthority(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := readRecoverySnapshot(dataDir, removed.Entry.WorkspaceID, removed.Entry.ID)
+	snapshot, err := recovery.ReadSnapshot(dataDir, removed.Entry.WorkspaceID, removed.Entry.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	snapshot.GitIgnorePath = outside
-	if err := writeRecoverySnapshot(dataDir, snapshot); err != nil {
+	if err := recovery.WriteSnapshot(dataDir, snapshot); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := app.RestoreRecoveryEntry(removed.Entry.ID); err != nil {
@@ -469,10 +471,10 @@ func TestRecoveryGitIgnoreSymlinkNeverModifiesTarget(t *testing.T) {
 	if err := os.Symlink(target, gitIgnore); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := recoveryGitIgnoreSnapshot(workspace); err == nil {
+	if _, _, _, err := recovery.GitIgnoreSnapshot(workspace); err == nil {
 		t.Fatal("snapshot followed a .gitignore symlink")
 	}
-	if err := restoreGitIgnore(workspace, true, []byte("attacker-controlled")); err == nil {
+	if err := recovery.RestoreGitIgnore(workspace, true, []byte("attacker-controlled")); err == nil {
 		t.Fatal("restore wrote through a .gitignore symlink")
 	}
 	gotTarget, err := os.ReadFile(target)
@@ -481,7 +483,7 @@ func TestRecoveryGitIgnoreSymlinkNeverModifiesTarget(t *testing.T) {
 	}
 	// The rollback/remove case may unlink the direct child, but must not follow
 	// it to the target.
-	if err := restoreGitIgnore(workspace, false, nil); err != nil {
+	if err := recovery.RestoreGitIgnore(workspace, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(gitIgnore); !errors.Is(err, os.ErrNotExist) {
@@ -514,10 +516,10 @@ func TestRemoveCollectionRecoverablePostStageGitIgnoreSwapCannotEscapeWorkspace(
 	if err := os.WriteFile(target, wantTarget, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	oldHook := managedGitIgnoreBeforeCommit
+	oldHook := recovery.ManagedGitIgnoreBeforeCommit
 	var hookErr error
 	var once sync.Once
-	managedGitIgnoreBeforeCommit = func() {
+	recovery.ManagedGitIgnoreBeforeCommit = func() {
 		once.Do(func() {
 			if err := os.Remove(gitIgnore); err != nil {
 				hookErr = err
@@ -527,7 +529,7 @@ func TestRemoveCollectionRecoverablePostStageGitIgnoreSwapCannotEscapeWorkspace(
 		})
 	}
 	removed, err := app.RemoveCollectionRecoverable(collection.ID)
-	managedGitIgnoreBeforeCommit = oldHook
+	recovery.ManagedGitIgnoreBeforeCommit = oldHook
 	if hookErr != nil {
 		t.Fatal(hookErr)
 	}
@@ -563,35 +565,6 @@ func TestManagedGitIgnoreRejectsUserSymlinkWorkspaceComponent(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(realWorkspace, ".gitignore")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("symlink target workspace was modified: %v", err)
-	}
-}
-
-func TestManagedGitIgnoreCanonicalizesTrustedLeadingPlatformAlias(t *testing.T) {
-	workspacePath := t.TempDir()
-	collectionPath := filepath.Join(workspacePath, "Git Collection")
-	if err := os.MkdirAll(collectionPath, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	workspaceCanonical, err := canonicalizeTrustedLeadingPath(workspacePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	collectionCanonical, err := canonicalizeTrustedLeadingPath(collectionPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !pathInside(workspaceCanonical, collectionCanonical) {
-		t.Fatalf("canonical trusted-alias paths lost containment: workspace=%q collection=%q", workspaceCanonical, collectionCanonical)
-	}
-	if err := updateManagedGitIgnore(workspacePath, collectionPath, true); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(filepath.Join(workspacePath, ".gitignore"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(data), "/Git Collection") {
-		t.Fatalf("managed ignore missing canonical collection entry: %q", data)
 	}
 }
 
@@ -644,16 +617,16 @@ func assertMode(t *testing.T, path string, want os.FileMode) {
 
 func TestRecoveryManifestExpiredEntryIsPruned(t *testing.T) {
 	dataDir := t.TempDir()
-	entry := newRecoveryEntry(recoveryKindRequest, "expired", "workspace", "collection")
+	entry := recovery.NewEntry(recovery.KindRequest, "expired", "workspace", "collection")
 	entry.ExpiresAt = time.Now().UTC().Add(-time.Second)
-	if err := stageRecoverySnapshot(dataDir, recoverySnapshot{Entry: entry}, "", false); err != nil {
+	if err := recovery.StageSnapshot(dataDir, recovery.Snapshot{Entry: entry}, "", false); err != nil {
 		t.Fatal(err)
 	}
-	entries, err := removeExpiredRecoveryEntries(dataDir, entry.WorkspaceID, time.Now().UTC())
+	entries, err := recovery.RemoveExpiredEntries(dataDir, entry.WorkspaceID, time.Now().UTC())
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("expired entry should be pruned: %#v err=%v", entries, err)
 	}
-	entryDir, err := recoveryEntryDir(dataDir, entry.WorkspaceID, entry.ID)
+	entryDir, err := recovery.EntryDir(dataDir, entry.WorkspaceID, entry.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -664,47 +637,47 @@ func TestRecoveryManifestExpiredEntryIsPruned(t *testing.T) {
 
 func TestStagedRecoveryEntryIsHiddenUntilCommitted(t *testing.T) {
 	dataDir := t.TempDir()
-	entry := newRecoveryEntry(recoveryKindRequest, "pending", "workspace", "collection")
+	entry := recovery.NewEntry(recovery.KindRequest, "pending", "workspace", "collection")
 	if entry.Restorable {
 		t.Fatal("new recovery entry should be staged, not restorable")
 	}
-	if err := stageRecoverySnapshot(dataDir, recoverySnapshot{Entry: entry}, "", false); err != nil {
+	if err := recovery.StageSnapshot(dataDir, recovery.Snapshot{Entry: entry}, "", false); err != nil {
 		t.Fatal(err)
 	}
-	entries, err := removeExpiredRecoveryEntries(dataDir, entry.WorkspaceID, time.Now().UTC())
+	entries, err := recovery.RemoveExpiredEntries(dataDir, entry.WorkspaceID, time.Now().UTC())
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("staged entry must not be exposed: %#v err=%v", entries, err)
 	}
-	if _, err := findRecoveryEntry(dataDir, entry.WorkspaceID, entry.ID); err != nil {
+	if _, err := recovery.FindEntry(dataDir, entry.WorkspaceID, entry.ID); err != nil {
 		t.Fatalf("staged payload should remain available for repair: %v", err)
 	}
 }
 
 func TestExpiredCleanupRetainsNonexpiredStagedEntry(t *testing.T) {
 	dataDir := t.TempDir()
-	staged := newRecoveryEntry(recoveryKindRequest, "pending", "workspace", "collection")
-	expired := newRecoveryEntry(recoveryKindRequest, "expired", "workspace", "collection")
+	staged := recovery.NewEntry(recovery.KindRequest, "pending", "workspace", "collection")
+	expired := recovery.NewEntry(recovery.KindRequest, "expired", "workspace", "collection")
 	expired.ExpiresAt = time.Now().UTC().Add(-time.Second)
-	if err := stageRecoverySnapshot(dataDir, recoverySnapshot{Entry: staged}, "", false); err != nil {
+	if err := recovery.StageSnapshot(dataDir, recovery.Snapshot{Entry: staged}, "", false); err != nil {
 		t.Fatal(err)
 	}
-	if err := stageRecoverySnapshot(dataDir, recoverySnapshot{Entry: expired}, "", false); err != nil {
+	if err := recovery.StageSnapshot(dataDir, recovery.Snapshot{Entry: expired}, "", false); err != nil {
 		t.Fatal(err)
 	}
-	entries, err := removeExpiredRecoveryEntries(dataDir, staged.WorkspaceID, time.Now().UTC())
+	entries, err := recovery.RemoveExpiredEntries(dataDir, staged.WorkspaceID, time.Now().UTC())
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("staged entry must stay hidden: %#v err=%v", entries, err)
 	}
-	if _, err := findRecoveryEntry(dataDir, staged.WorkspaceID, staged.ID); err != nil {
+	if _, err := recovery.FindEntry(dataDir, staged.WorkspaceID, staged.ID); err != nil {
 		t.Fatalf("expired cleanup removed nonexpired staged entry: %v", err)
 	}
-	if _, err := findRecoveryEntry(dataDir, expired.WorkspaceID, expired.ID); err == nil {
+	if _, err := recovery.FindEntry(dataDir, expired.WorkspaceID, expired.ID); err == nil {
 		t.Fatal("expired entry remained in manifest")
 	}
 }
 
 func TestRecoveryErrorTextIsReadable(t *testing.T) {
-	err := (&RestoreConflictError{EntryID: "abc", Reason: "collection files changed"}).Error()
+	err := (&recovery.RestoreConflictError{EntryID: "abc", Reason: "collection files changed"}).Error()
 	if !strings.Contains(err, "cannot be restored safely") || !strings.Contains(err, "collection files changed") {
 		t.Fatalf("unexpected conflict text: %q", err)
 	}

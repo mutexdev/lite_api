@@ -1,15 +1,25 @@
-package core
+package recovery
 
 import (
 	"fmt"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/types"
+)
+
+// The kinds an Entry can record. They describe what was deleted, so they belong
+// with the entry rather than with the caller that happens to stage one.
+const (
+	KindRequest    = "request"
+	KindFolder     = "folder"
+	KindCollection = "collection"
 )
 
 const recoveryEntryTTL = 7 * 24 * time.Hour
 
-// RecoveryEntry is deliberately metadata-only. The private payload and state
+// Entry is deliberately metadata-only. The private payload and state
 // snapshots live outside state.json under the application's recovery folder.
-type RecoveryEntry struct {
+type Entry struct {
 	ID           string    `json:"id"`
 	Kind         string    `json:"kind"`
 	DisplayName  string    `json:"displayName"`
@@ -23,8 +33,8 @@ type RecoveryEntry struct {
 // RecoverableDeleteResult gives callers the normal state update and a durable
 // recovery handle suitable for an explicit Restore action.
 type RecoverableDeleteResult struct {
-	State AppState      `json:"state"`
-	Entry RecoveryEntry `json:"entry"`
+	State types.AppState `json:"state"`
+	Entry Entry          `json:"entry"`
 }
 
 // RestoreConflictError means recovery data was retained, but applying it

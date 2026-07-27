@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mutexdev/lite_api/internal/filelock"
 	"github.com/mutexdev/lite_api/internal/workspacestate"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -938,7 +939,7 @@ func withSharedWorkspacePersistenceGuard(dataDir string, fn func() error) error 
 		return err
 	}
 	defer func() { _ = file.Close() }()
-	unlockFile, err := lockFileExclusive(file)
+	unlockFile, err := filelock.Exclusive(file)
 	if err != nil {
 		return err
 	}

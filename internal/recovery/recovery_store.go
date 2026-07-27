@@ -1,4 +1,4 @@
-package core
+package recovery
 
 import (
 	"crypto/aes"
@@ -21,6 +21,11 @@ import (
 	googleuuid "github.com/google/uuid"
 
 	"github.com/mutexdev/lite_api/internal/atomicfile"
+	"github.com/mutexdev/lite_api/internal/filelock"
+	"github.com/mutexdev/lite_api/internal/gitignore"
+	"github.com/mutexdev/lite_api/internal/scalar"
+	"github.com/mutexdev/lite_api/internal/secretkey"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 const (
@@ -31,40 +36,40 @@ const (
 // Test seam for migration failure injection. Production always uses the
 // package-private atomic writer shared by the workspace persistence stores.
 var (
-	recoveryWritePrivateAtomic   = writePrivateAtomic
+	recoveryWritePrivateAtomic   = atomicfile.WritePrivate
 	recoveryRemoveAll            = os.RemoveAll
-	managedGitIgnoreBeforeCommit = func() {}
+	ManagedGitIgnoreBeforeCommit = func() {}
 )
 
 type recoveryManifest struct {
-	Version int             `json:"version"`
-	Entries []RecoveryEntry `json:"entries"`
+	Version int     `json:"version"`
+	Entries []Entry `json:"entries"`
 }
 
-// recoverySnapshot is private recovery state. It is only ever serialized into
+// Snapshot is private recovery state. It is only ever serialized into
 // an authenticated recovery envelope; never write it directly as JSON.
-type recoverySnapshot struct {
-	Entry RecoveryEntry `json:"entry"`
+type Snapshot struct {
+	Entry Entry `json:"entry"`
 	// WorkspaceIndex is retained only to decode M3 snapshots. Recovery code
 	// must resolve the workspace by immutable ID, never by this old index.
-	WorkspaceIndex       int        `json:"workspaceIndex,omitempty"`
-	CollectionIndex      int        `json:"collectionIndex"`
-	Collection           Collection `json:"collection"`
-	WorkspaceUpdatedAt   time.Time  `json:"workspaceUpdatedAt"`
-	OpenTabs             []OpenTab  `json:"openTabs"`
-	ClosedTabs           []OpenTab  `json:"closedTabs"`
-	ActiveTabID          string     `json:"activeTabId"`
-	AffectedRequestIDs   []string   `json:"affectedRequestIds,omitempty"`
-	GitIgnorePath        string     `json:"gitIgnorePath,omitempty"`
-	GitIgnoreExists      bool       `json:"gitIgnoreExists,omitempty"`
-	GitIgnoreContent     []byte     `json:"gitIgnoreContent,omitempty"`
-	PostGitIgnoreExists  bool       `json:"postGitIgnoreExists,omitempty"`
-	PostGitIgnoreContent []byte     `json:"postGitIgnoreContent,omitempty"`
-	PostCollection       Collection `json:"postCollection"`
-	PostFingerprint      string     `json:"postFingerprint,omitempty"`
-	PostOpenTabs         []OpenTab  `json:"postOpenTabs,omitempty"`
-	PostClosedTabs       []OpenTab  `json:"postClosedTabs,omitempty"`
-	PostActiveTabID      string     `json:"postActiveTabId,omitempty"`
+	WorkspaceIndex       int              `json:"workspaceIndex,omitempty"`
+	CollectionIndex      int              `json:"collectionIndex"`
+	Collection           types.Collection `json:"collection"`
+	WorkspaceUpdatedAt   time.Time        `json:"workspaceUpdatedAt"`
+	OpenTabs             []types.OpenTab  `json:"openTabs"`
+	ClosedTabs           []types.OpenTab  `json:"closedTabs"`
+	ActiveTabID          string           `json:"activeTabId"`
+	AffectedRequestIDs   []string         `json:"affectedRequestIds,omitempty"`
+	GitIgnorePath        string           `json:"gitIgnorePath,omitempty"`
+	GitIgnoreExists      bool             `json:"gitIgnoreExists,omitempty"`
+	GitIgnoreContent     []byte           `json:"gitIgnoreContent,omitempty"`
+	PostGitIgnoreExists  bool             `json:"postGitIgnoreExists,omitempty"`
+	PostGitIgnoreContent []byte           `json:"postGitIgnoreContent,omitempty"`
+	PostCollection       types.Collection `json:"postCollection"`
+	PostFingerprint      string           `json:"postFingerprint,omitempty"`
+	PostOpenTabs         []types.OpenTab  `json:"postOpenTabs,omitempty"`
+	PostClosedTabs       []types.OpenTab  `json:"postClosedTabs,omitempty"`
+	PostActiveTabID      string           `json:"postActiveTabId,omitempty"`
 }
 
 type recoveryEnvelope struct {
@@ -84,7 +89,7 @@ type recoveryPayloadEntry struct {
 	Link string `json:"link,omitempty"`
 }
 
-func recoveryRoot(dataDir string) string       { return filepath.Join(dataDir, "recovery-v2") }
+func Root(dataDir string) string               { return filepath.Join(dataDir, "recovery-v2") }
 func legacyRecoveryRoot(dataDir string) string { return filepath.Join(dataDir, "recovery") }
 
 func recoveryWorkspaceRoot(dataDir, workspaceID string) (string, error) {
@@ -92,16 +97,16 @@ func recoveryWorkspaceRoot(dataDir, workspaceID string) (string, error) {
 		return "", err
 	}
 	digest := sha256.Sum256([]byte(workspaceID))
-	return filepath.Join(recoveryRoot(dataDir), hex.EncodeToString(digest[:])), nil
+	return filepath.Join(Root(dataDir), hex.EncodeToString(digest[:])), nil
 }
-func recoveryManifestPath(dataDir, workspaceID string) (string, error) {
+func ManifestPath(dataDir, workspaceID string) (string, error) {
 	root, err := recoveryWorkspaceRoot(dataDir, workspaceID)
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(root, "manifest.enc"), nil
 }
-func recoveryEntryDir(dataDir, workspaceID, entryID string) (string, error) {
+func EntryDir(dataDir, workspaceID, entryID string) (string, error) {
 	if err := validateRecoveryEntryID(entryID); err != nil {
 		return "", err
 	}
@@ -111,15 +116,15 @@ func recoveryEntryDir(dataDir, workspaceID, entryID string) (string, error) {
 	}
 	return filepath.Join(root, "entries", entryID), nil
 }
-func recoverySnapshotPath(dataDir, workspaceID, entryID string) (string, error) {
-	dir, err := recoveryEntryDir(dataDir, workspaceID, entryID)
+func SnapshotPath(dataDir, workspaceID, entryID string) (string, error) {
+	dir, err := EntryDir(dataDir, workspaceID, entryID)
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(dir, "snapshot.enc"), nil
 }
 func recoveryPayloadPath(dataDir, workspaceID, entryID string) (string, error) {
-	dir, err := recoveryEntryDir(dataDir, workspaceID, entryID)
+	dir, err := EntryDir(dataDir, workspaceID, entryID)
 	if err != nil {
 		return "", err
 	}
@@ -164,7 +169,7 @@ func withRecoveryWorkspaceLock(dataDir, workspaceID string, fn func() error) err
 		return err
 	}
 	defer func() { _ = f.Close() }()
-	unlockF, err := lockFileExclusive(f)
+	unlockF, err := filelock.Exclusive(f)
 	if err != nil {
 		return err
 	}
@@ -194,7 +199,7 @@ func migrateLegacyRecovery(dataDir, workspaceID string) error {
 	if err := lock.Chmod(0o600); err != nil {
 		return err
 	}
-	unlockLock, err := lockFileExclusive(lock)
+	unlockLock, err := filelock.Exclusive(lock)
 	if err != nil {
 		return err
 	}
@@ -207,7 +212,7 @@ func recoveryAAD(dataDir, workspaceID, artifact string) []byte {
 	return []byte("liteapi-recovery/v1\x00" + filepath.Clean(dataDir) + "\x00" + workspaceID + "\x00" + artifact)
 }
 func encryptRecovery(dataDir, workspaceID, artifact string, plain []byte) ([]byte, error) {
-	block, err := aes.NewCipher(environmentSecretAESKey(dataDir))
+	block, err := aes.NewCipher(secretkey.AESKey(dataDir))
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +243,7 @@ func decryptRecovery(dataDir, workspaceID, artifact string, raw []byte) ([]byte,
 	if err != nil {
 		return nil, errors.New("invalid recovery ciphertext")
 	}
-	block, err := aes.NewCipher(environmentSecretAESKey(dataDir))
+	block, err := aes.NewCipher(secretkey.AESKey(dataDir))
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +263,7 @@ func decryptRecovery(dataDir, workspaceID, artifact string, raw []byte) ([]byte,
 
 func readRecoveryManifestLocked(dataDir, workspaceID string) (recoveryManifest, error) {
 	manifest := recoveryManifest{Version: recoveryManifestVersion}
-	path, err := recoveryManifestPath(dataDir, workspaceID)
+	path, err := ManifestPath(dataDir, workspaceID)
 	if err != nil {
 		return manifest, err
 	}
@@ -299,7 +304,7 @@ func writeRecoveryManifestLocked(dataDir, workspaceID string, manifest recoveryM
 	if err != nil {
 		return err
 	}
-	path, err := recoveryManifestPath(dataDir, workspaceID)
+	path, err := ManifestPath(dataDir, workspaceID)
 	if err != nil {
 		return err
 	}
@@ -315,7 +320,7 @@ func readRecoveryManifest(dataDir, workspaceID string) (recoveryManifest, error)
 	return result, err
 }
 
-func writeRecoverySnapshotLocked(dataDir string, snapshot recoverySnapshot) error {
+func writeRecoverySnapshotLocked(dataDir string, snapshot Snapshot) error {
 	if err := validateRecoveryEntryID(snapshot.Entry.ID); err != nil {
 		return err
 	}
@@ -330,39 +335,39 @@ func writeRecoverySnapshotLocked(dataDir string, snapshot recoverySnapshot) erro
 	if err != nil {
 		return err
 	}
-	path, err := recoverySnapshotPath(dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
+	path, err := SnapshotPath(dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
 	if err != nil {
 		return err
 	}
 	return recoveryWritePrivateAtomic(path, raw)
 }
-func writeRecoverySnapshot(dataDir string, snapshot recoverySnapshot) error {
+func WriteSnapshot(dataDir string, snapshot Snapshot) error {
 	return withRecoveryWorkspaceLock(dataDir, snapshot.Entry.WorkspaceID, func() error { return writeRecoverySnapshotLocked(dataDir, snapshot) })
 }
-func readRecoverySnapshotLocked(dataDir, workspaceID, entryID string) (recoverySnapshot, error) {
-	path, err := recoverySnapshotPath(dataDir, workspaceID, entryID)
+func readRecoverySnapshotLocked(dataDir, workspaceID, entryID string) (Snapshot, error) {
+	path, err := SnapshotPath(dataDir, workspaceID, entryID)
 	if err != nil {
-		return recoverySnapshot{}, err
+		return Snapshot{}, err
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return recoverySnapshot{}, err
+		return Snapshot{}, err
 	}
 	plain, err := decryptRecovery(dataDir, workspaceID, "snapshot:"+entryID, raw)
 	if err != nil {
-		return recoverySnapshot{}, err
+		return Snapshot{}, err
 	}
-	var snapshot recoverySnapshot
+	var snapshot Snapshot
 	if err := json.Unmarshal(plain, &snapshot); err != nil {
-		return recoverySnapshot{}, fmt.Errorf("parse recovery snapshot: %w", err)
+		return Snapshot{}, fmt.Errorf("parse recovery snapshot: %w", err)
 	}
 	if snapshot.Entry.ID != entryID || snapshot.Entry.WorkspaceID != workspaceID {
-		return recoverySnapshot{}, errors.New("recovery snapshot identity is invalid")
+		return Snapshot{}, errors.New("recovery snapshot identity is invalid")
 	}
 	return snapshot, nil
 }
-func readRecoverySnapshot(dataDir, workspaceID, entryID string) (recoverySnapshot, error) {
-	var result recoverySnapshot
+func ReadSnapshot(dataDir, workspaceID, entryID string) (Snapshot, error) {
+	var result Snapshot
 	err := withRecoveryWorkspaceLock(dataDir, workspaceID, func() error {
 		var err error
 		result, err = readRecoverySnapshotLocked(dataDir, workspaceID, entryID)
@@ -371,7 +376,7 @@ func readRecoverySnapshot(dataDir, workspaceID, entryID string) (recoverySnapsho
 	return result, err
 }
 
-func stageRecoverySnapshot(dataDir string, snapshot recoverySnapshot, sourcePath string, includePayload bool) error {
+func StageSnapshot(dataDir string, snapshot Snapshot, sourcePath string, includePayload bool) error {
 	workspaceID := snapshot.Entry.WorkspaceID
 	return withRecoveryWorkspaceLock(dataDir, workspaceID, func() error {
 		if err := validateRecoveryEntryID(snapshot.Entry.ID); err != nil {
@@ -386,7 +391,7 @@ func stageRecoverySnapshot(dataDir string, snapshot recoverySnapshot, sourcePath
 				return errors.New("recovery entry already exists")
 			}
 		}
-		dir, err := recoveryEntryDir(dataDir, workspaceID, snapshot.Entry.ID)
+		dir, err := EntryDir(dataDir, workspaceID, snapshot.Entry.ID)
 		if err != nil {
 			return err
 		}
@@ -413,7 +418,7 @@ func stageRecoverySnapshot(dataDir string, snapshot recoverySnapshot, sourcePath
 	})
 }
 
-func removeRecoveryEntry(dataDir, workspaceID, entryID string) error {
+func RemoveEntry(dataDir, workspaceID, entryID string) error {
 	return withRecoveryWorkspaceLock(dataDir, workspaceID, func() error {
 		manifest, err := readRecoveryManifestLocked(dataDir, workspaceID)
 		if err != nil {
@@ -435,32 +440,32 @@ func removeRecoveryEntry(dataDir, workspaceID, entryID string) error {
 		if err := writeRecoveryManifestLocked(dataDir, workspaceID, manifest); err != nil {
 			return err
 		}
-		dir, err := recoveryEntryDir(dataDir, workspaceID, entryID)
+		dir, err := EntryDir(dataDir, workspaceID, entryID)
 		if err != nil {
 			return err
 		}
 		return os.RemoveAll(dir)
 	})
 }
-func findRecoveryEntry(dataDir, workspaceID, entryID string) (RecoveryEntry, error) {
+func FindEntry(dataDir, workspaceID, entryID string) (Entry, error) {
 	manifest, err := readRecoveryManifest(dataDir, workspaceID)
 	if err != nil {
-		return RecoveryEntry{}, err
+		return Entry{}, err
 	}
 	for _, entry := range manifest.Entries {
 		if entry.ID == entryID {
 			return entry, nil
 		}
 	}
-	return RecoveryEntry{}, fmt.Errorf("recovery entry %s not found", entryID)
+	return Entry{}, fmt.Errorf("recovery entry %s not found", entryID)
 }
 
-func newRecoveryEntry(kind, displayName, workspaceID, collectionID string) RecoveryEntry {
+func NewEntry(kind, displayName, workspaceID, collectionID string) Entry {
 	now := time.Now().UTC()
-	return RecoveryEntry{ID: googleuuid.NewString(), Kind: kind, DisplayName: displayName, WorkspaceID: workspaceID, CollectionID: collectionID, DeletedAt: now, ExpiresAt: now.Add(recoveryEntryTTL)}
+	return Entry{ID: googleuuid.NewString(), Kind: kind, DisplayName: displayName, WorkspaceID: workspaceID, CollectionID: collectionID, DeletedAt: now, ExpiresAt: now.Add(recoveryEntryTTL)}
 }
-func markRecoveryEntryRestorable(dataDir, workspaceID, entryID string) (RecoveryEntry, error) {
-	var result RecoveryEntry
+func MarkEntryRestorable(dataDir, workspaceID, entryID string) (Entry, error) {
+	var result Entry
 	err := withRecoveryWorkspaceLock(dataDir, workspaceID, func() error {
 		snapshot, err := readRecoverySnapshotLocked(dataDir, workspaceID, entryID)
 		if err != nil {
@@ -583,7 +588,7 @@ func readRecoveryPayloadLocked(dataDir, workspaceID, entryID string) (recoveryPa
 	}
 	return payload, nil
 }
-func restoreRecoveryPayload(dataDir, workspaceID, entryID, target string) error {
+func RestorePayload(dataDir, workspaceID, entryID, target string) error {
 	var payload recoveryPayload
 	if err := withRecoveryWorkspaceLock(dataDir, workspaceID, func() error {
 		var err error
@@ -604,7 +609,7 @@ func restoreRecoveryPayload(dataDir, workspaceID, entryID, target string) error 
 	}
 	for _, entry := range payload.Entries {
 		dest := filepath.Join(target, filepath.FromSlash(entry.Path))
-		if !pathInside(target, dest) {
+		if !scalar.PathInside(target, dest) {
 			return errors.New("recovery payload path escapes restore target")
 		}
 		switch entry.Type {
@@ -645,7 +650,7 @@ func copyPrivateBytes(data []byte, target string) error {
 // restoreRecoveryTree remains for restoring an encrypted payload. Source is a
 // recovery entry ID path only through recovery callers; generic tree copying is
 // intentionally not used for recovery storage anymore.
-func copyRecoveryTree(source, target string) error {
+func CopyTree(source, target string) error {
 	payload, err := captureRecoveryPayload(source)
 	if err != nil {
 		return err
@@ -675,8 +680,8 @@ func copyRecoveryTree(source, target string) error {
 	}
 	return nil
 }
-func restoreRecoveryTree(source, target string) error { return copyRecoveryTree(source, target) }
-func replaceRecoveryTree(source, target string) error {
+func restoreRecoveryTree(source, target string) error { return CopyTree(source, target) }
+func ReplaceTree(source, target string) error {
 	entries, err := os.ReadDir(target)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -691,7 +696,7 @@ func replaceRecoveryTree(source, target string) error {
 	return restoreRecoveryTree(source, target)
 }
 
-func collectionRecoveryFingerprint(root string) (string, error) {
+func CollectionFingerprint(root string) (string, error) {
 	hash := sha256.New()
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -739,17 +744,17 @@ func collectionRecoveryFingerprint(root string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-func removeExpiredRecoveryEntries(dataDir, workspaceID string, now time.Time) ([]RecoveryEntry, error) {
-	active := make([]RecoveryEntry, 0)
+func RemoveExpiredEntries(dataDir, workspaceID string, now time.Time) ([]Entry, error) {
+	active := make([]Entry, 0)
 	err := withRecoveryWorkspaceLock(dataDir, workspaceID, func() error {
 		manifest, err := readRecoveryManifestLocked(dataDir, workspaceID)
 		if err != nil {
 			return err
 		}
-		retained := make([]RecoveryEntry, 0, len(manifest.Entries))
+		retained := make([]Entry, 0, len(manifest.Entries))
 		for _, entry := range manifest.Entries {
 			if !entry.ExpiresAt.After(now) {
-				dir, err := recoveryEntryDir(dataDir, workspaceID, entry.ID)
+				dir, err := EntryDir(dataDir, workspaceID, entry.ID)
 				if err != nil {
 					return err
 				}
@@ -773,7 +778,7 @@ func removeExpiredRecoveryEntries(dataDir, workspaceID string, now time.Time) ([
 	return active, err
 }
 
-func recoveryGitIgnoreSnapshot(workspace Workspace) (string, bool, []byte, error) {
+func GitIgnoreSnapshot(workspace types.Workspace) (string, bool, []byte, error) {
 	dir, root, err := openWorkspaceDirectoryNoFollow(workspace.Path)
 	if err != nil {
 		return "", false, nil, err
@@ -783,7 +788,7 @@ func recoveryGitIgnoreSnapshot(workspace Workspace) (string, bool, []byte, error
 	return filepath.Join(root, ".gitignore"), exists, data, err
 }
 
-func restoreGitIgnore(workspace Workspace, exists bool, content []byte) error {
+func RestoreGitIgnore(workspace types.Workspace, exists bool, content []byte) error {
 	dir, _, err := openWorkspaceDirectoryNoFollow(workspace.Path)
 	if err != nil {
 		return err
@@ -795,10 +800,10 @@ func restoreGitIgnore(workspace Workspace, exists bool, content []byte) error {
 	return writeWorkspaceFileAtomicAt(dir, ".gitignore", content, true)
 }
 
-// updateManagedGitIgnoreSecure is the filesystem boundary used by the public
+// UpdateManagedGitIgnore is the filesystem boundary used by the public
 // collection APIs. Every workspace path component is opened relative to a
 // verified directory FD with O_NOFOLLOW; final file operations use *at calls.
-func updateManagedGitIgnoreSecure(workspacePath, collectionPath string, add bool) error {
+func UpdateManagedGitIgnore(workspacePath, collectionPath string, add bool) error {
 	dir, root, err := openWorkspaceDirectoryNoFollow(workspacePath)
 	if err != nil {
 		return err
@@ -818,13 +823,13 @@ func updateManagedGitIgnoreSecure(workspacePath, collectionPath string, add bool
 		return err
 	}
 	content := string(data)
-	entries := managedGitIgnoreEntries(content)
+	entries := gitignore.Entries(content)
 	if add {
 		entries[entry] = true
 	} else {
 		delete(entries, entry)
 	}
-	next := replaceManagedGitIgnoreBlock(content, entries)
+	next := gitignore.ReplaceBlock(content, entries)
 	if strings.TrimSpace(next) == "" {
 		return removeWorkspaceFileAt(dir, ".gitignore")
 	}
@@ -850,8 +855,8 @@ func migrateLegacyRecoveryLocked(dataDir, workspaceID string) error {
 	if legacy.Version != 1 {
 		return fmt.Errorf("unsupported legacy recovery manifest version %d", legacy.Version)
 	}
-	selected := make([]RecoveryEntry, 0)
-	retained := make([]RecoveryEntry, 0)
+	selected := make([]Entry, 0)
+	retained := make([]Entry, 0)
 	for _, entry := range legacy.Entries {
 		if entry.WorkspaceID == workspaceID {
 			selected = append(selected, entry)
@@ -883,7 +888,7 @@ func migrateLegacyRecoveryLocked(dataDir, workspaceID string) error {
 		if err != nil {
 			return err
 		}
-		var snapshot recoverySnapshot
+		var snapshot Snapshot
 		if err := json.Unmarshal(plain, &snapshot); err != nil {
 			return err
 		}
@@ -894,7 +899,7 @@ func migrateLegacyRecoveryLocked(dataDir, workspaceID string) error {
 		// authority, so conversion deliberately drops it. Restore derives the
 		// direct-child path from the current resolved workspace instead.
 		snapshot.GitIgnorePath = ""
-		dir, err := recoveryEntryDir(dataDir, workspaceID, entry.ID)
+		dir, err := EntryDir(dataDir, workspaceID, entry.ID)
 		if err != nil {
 			return err
 		}
@@ -972,12 +977,4 @@ func cleanupLegacyRecoveryOrphans(dataDir string, legacy recoveryManifest) error
 		return err
 	}
 	return os.Remove(root)
-}
-
-// writePrivateAtomic now lives in internal/atomicfile, which is where the five
-// other callers outside this file reach it. Kept as a one-line alias because
-// recovery_store.go names it in several places and the indirection costs
-// nothing.
-func writePrivateAtomic(path string, data []byte) error {
-	return atomicfile.WritePrivate(path, data)
 }

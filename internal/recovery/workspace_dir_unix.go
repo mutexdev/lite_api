@@ -1,6 +1,6 @@
 //go:build unix
 
-package core
+package recovery
 
 import (
 	"errors"
@@ -129,7 +129,7 @@ func writeWorkspaceFileAtomicAt(dir *os.File, name string, content []byte, rejec
 	if err := file.Close(); err != nil {
 		return err
 	}
-	managedGitIgnoreBeforeCommit()
+	ManagedGitIgnoreBeforeCommit()
 	if err := unix.Renameat(int(dir.Fd()), tmp, int(dir.Fd()), name); err != nil {
 		return err
 	}

@@ -44,9 +44,6 @@ import (
 	"google.golang.org/grpc"
 )
 
-var environmentSecretMachineIDOnce sync.Once
-var environmentSecretMachineIDValue string
-
 const networkLogBodyLimit = 64 * 1024
 const terminalOutputLimit = 256 * 1024
 const brunoOAuth2DefaultCallbackURL = "https://oauth.usebruno.com/callback"

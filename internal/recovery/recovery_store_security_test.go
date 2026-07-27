@@ -1,4 +1,4 @@
-package core
+package recovery
 
 import (
 	"bytes"
@@ -9,17 +9,19 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 const recoverySecretSentinel = "M5_RECOVERY_SECRET_SENTINEL"
 
-func recoverySecuritySnapshot(workspaceID string) recoverySnapshot {
-	entry := newRecoveryEntry(recoveryKindRequest, "private", workspaceID, "collection-"+workspaceID)
-	return recoverySnapshot{Entry: entry, Collection: Collection{
+func recoverySecuritySnapshot(workspaceID string) Snapshot {
+	entry := NewEntry(KindRequest, "private", workspaceID, "collection-"+workspaceID)
+	return Snapshot{Entry: entry, Collection: types.Collection{
 		ID:                 "collection-" + workspaceID,
-		Auth:               AuthConfig{Token: recoverySecretSentinel},
-		ClientCertificates: []ClientCertificateConfig{{Passphrase: recoverySecretSentinel}},
-		Items:              []RequestItem{{ID: "request", Headers: []KeyValue{{Name: "Authorization", Value: recoverySecretSentinel}}, Body: RequestBody{JSON: recoverySecretSentinel}, Auth: AuthConfig{Token: recoverySecretSentinel}}},
+		Auth:               types.AuthConfig{Token: recoverySecretSentinel},
+		ClientCertificates: []types.ClientCertificateConfig{{Passphrase: recoverySecretSentinel}},
+		Items:              []types.RequestItem{{ID: "request", Headers: []types.KeyValue{{Name: "Authorization", Value: recoverySecretSentinel}}, Body: types.RequestBody{JSON: recoverySecretSentinel}, Auth: types.AuthConfig{Token: recoverySecretSentinel}}},
 	}}
 }
 
@@ -33,7 +35,7 @@ func TestRecoveryEncryptedScopedArtifactsHideSecretsAndRestoreExactly(t *testing
 		t.Fatal(err)
 	}
 	snapshot := recoverySecuritySnapshot("workspace/a")
-	if err := stageRecoverySnapshot(dataDir, snapshot, source, true); err != nil {
+	if err := StageSnapshot(dataDir, snapshot, source, true); err != nil {
 		t.Fatal(err)
 	}
 	if err := scanRecoveryBytes(dataDir, []byte(recoverySecretSentinel)); err != nil {
@@ -43,9 +45,9 @@ func TestRecoveryEncryptedScopedArtifactsHideSecretsAndRestoreExactly(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertMode(t, recoveryRoot(dataDir), 0o700)
+	assertMode(t, Root(dataDir), 0o700)
 	assertMode(t, root, 0o700)
-	manifest, err := recoveryManifestPath(dataDir, snapshot.Entry.WorkspaceID)
+	manifest, err := ManifestPath(dataDir, snapshot.Entry.WorkspaceID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +58,7 @@ func TestRecoveryEncryptedScopedArtifactsHideSecretsAndRestoreExactly(t *testing
 	}
 	assertMode(t, payload, 0o600)
 	restored := filepath.Join(t.TempDir(), "restored")
-	if err := restoreRecoveryPayload(dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID, restored); err != nil {
+	if err := RestorePayload(dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID, restored); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(filepath.Join(restored, "request.bru"))
@@ -71,32 +73,32 @@ func TestRecoveryEncryptedScopedArtifactsHideSecretsAndRestoreExactly(t *testing
 func TestRecoveryWorkspaceIsolationTamperAndTraversal(t *testing.T) {
 	dataDir := t.TempDir()
 	a, b := recoverySecuritySnapshot("workspace-A"), recoverySecuritySnapshot("workspace-B")
-	if err := stageRecoverySnapshot(dataDir, a, "", false); err != nil {
+	if err := StageSnapshot(dataDir, a, "", false); err != nil {
 		t.Fatal(err)
 	}
-	if err := stageRecoverySnapshot(dataDir, b, "", false); err != nil {
+	if err := StageSnapshot(dataDir, b, "", false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := findRecoveryEntry(dataDir, b.Entry.WorkspaceID, a.Entry.ID); err == nil {
+	if _, err := FindEntry(dataDir, b.Entry.WorkspaceID, a.Entry.ID); err == nil {
 		t.Fatal("workspace B listed workspace A entry")
 	}
-	if err := removeRecoveryEntry(dataDir, b.Entry.WorkspaceID, a.Entry.ID); err == nil {
+	if err := RemoveEntry(dataDir, b.Entry.WorkspaceID, a.Entry.ID); err == nil {
 		t.Fatal("workspace B removed workspace A entry")
 	}
-	if _, err := findRecoveryEntry(dataDir, a.Entry.WorkspaceID, a.Entry.ID); err != nil {
+	if _, err := FindEntry(dataDir, a.Entry.WorkspaceID, a.Entry.ID); err != nil {
 		t.Fatalf("workspace A entry changed: %v", err)
 	}
-	path, err := recoverySnapshotPath(dataDir, a.Entry.WorkspaceID, a.Entry.ID)
+	path, err := SnapshotPath(dataDir, a.Entry.WorkspaceID, a.Entry.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte(`{"version":1}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readRecoverySnapshot(dataDir, a.Entry.WorkspaceID, a.Entry.ID); err == nil {
+	if _, err := ReadSnapshot(dataDir, a.Entry.WorkspaceID, a.Entry.ID); err == nil {
 		t.Fatal("tampered recovery snapshot was accepted")
 	}
-	if _, err := recoveryEntryDir(dataDir, a.Entry.WorkspaceID, "../escape"); err == nil {
+	if _, err := EntryDir(dataDir, a.Entry.WorkspaceID, "../escape"); err == nil {
 		t.Fatal("traversal entry id was accepted")
 	}
 }
@@ -104,7 +106,7 @@ func TestRecoveryWorkspaceIsolationTamperAndTraversal(t *testing.T) {
 func TestRecoveryRejectsArtifactsCopiedToDifferentDataDir(t *testing.T) {
 	sourceDataDir, targetDataDir := t.TempDir(), t.TempDir()
 	snapshot := recoverySecuritySnapshot("workspace-copy")
-	if err := stageRecoverySnapshot(sourceDataDir, snapshot, "", false); err != nil {
+	if err := StageSnapshot(sourceDataDir, snapshot, "", false); err != nil {
 		t.Fatal(err)
 	}
 	sourceRoot, err := recoveryWorkspaceRoot(sourceDataDir, snapshot.Entry.WorkspaceID)
@@ -132,7 +134,7 @@ func TestRecoveryConcurrentWorkspaceManifestUpdatesDoNotLoseEntries(t *testing.T
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs <- stageRecoverySnapshot(dataDir, recoverySecuritySnapshot(workspaceID), "", false)
+			errs <- StageSnapshot(dataDir, recoverySecuritySnapshot(workspaceID), "", false)
 		}()
 	}
 	wg.Wait()
@@ -156,13 +158,13 @@ func TestRecoveryConcurrentFreshWorkspacesShareStableLegacyLock(t *testing.T) {
 	const count = 64
 	var wg sync.WaitGroup
 	errCh := make(chan error, count)
-	snapshots := make([]recoverySnapshot, count)
+	snapshots := make([]Snapshot, count)
 	for i := range snapshots {
 		snapshots[i] = recoverySecuritySnapshot("fresh-workspace-" + fmt.Sprint(i))
 		wg.Add(1)
-		go func(snapshot recoverySnapshot) {
+		go func(snapshot Snapshot) {
 			defer wg.Done()
-			errCh <- stageRecoverySnapshot(dataDir, snapshot, "", false)
+			errCh <- StageSnapshot(dataDir, snapshot, "", false)
 		}(snapshots[i])
 	}
 	wg.Wait()
@@ -173,7 +175,7 @@ func TestRecoveryConcurrentFreshWorkspacesShareStableLegacyLock(t *testing.T) {
 		}
 	}
 	for _, snapshot := range snapshots {
-		entry, err := findRecoveryEntry(dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
+		entry, err := FindEntry(dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
 		if err != nil || entry.ID != snapshot.Entry.ID {
 			t.Fatalf("fresh workspace %s lost recovery entry: %#v err=%v", snapshot.Entry.WorkspaceID, entry, err)
 		}
@@ -202,7 +204,7 @@ func TestLegacyRecoveryMigrationIsEncryptedAndFailureKeepsPlaintextSource(t *tes
 	if err := os.WriteFile(filepath.Join(legacyDir, "collection", "private.bru"), []byte(recoverySecretSentinel), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	legacyManifest, err := json.Marshal(recoveryManifest{Version: 1, Entries: []RecoveryEntry{snapshot.Entry}})
+	legacyManifest, err := json.Marshal(recoveryManifest{Version: 1, Entries: []Entry{snapshot.Entry}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +231,7 @@ func TestLegacyRecoveryMigrationIsEncryptedAndFailureKeepsPlaintextSource(t *tes
 	if err := os.WriteFile(filepath.Join(failureLegacyDir, "snapshot.json"), failurePlain, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	failureManifest, _ := json.Marshal(recoveryManifest{Version: 1, Entries: []RecoveryEntry{failureSnapshot.Entry}})
+	failureManifest, _ := json.Marshal(recoveryManifest{Version: 1, Entries: []Entry{failureSnapshot.Entry}})
 	if err := os.WriteFile(filepath.Join(legacyRecoveryRoot(failureDir), "manifest.json"), failureManifest, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +250,7 @@ func TestLegacyRecoveryMigrationIsEncryptedAndFailureKeepsPlaintextSource(t *tes
 func TestLegacyRecoveryMigrationScrubsArbitraryGitIgnorePath(t *testing.T) {
 	dataDir := t.TempDir()
 	snapshot := recoverySecuritySnapshot("legacy-malicious-path")
-	snapshot.Entry.Kind = recoveryKindCollection
+	snapshot.Entry.Kind = KindCollection
 	snapshot.GitIgnorePath = filepath.Join(t.TempDir(), "outside-authority")
 	legacyDir := filepath.Join(legacyRecoveryRoot(dataDir), snapshot.Entry.ID)
 	if err := os.MkdirAll(legacyDir, 0o700); err != nil {
@@ -261,7 +263,7 @@ func TestLegacyRecoveryMigrationScrubsArbitraryGitIgnorePath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(legacyDir, "snapshot.json"), plain, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := json.Marshal(recoveryManifest{Version: 1, Entries: []RecoveryEntry{snapshot.Entry}})
+	manifest, err := json.Marshal(recoveryManifest{Version: 1, Entries: []Entry{snapshot.Entry}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +273,7 @@ func TestLegacyRecoveryMigrationScrubsArbitraryGitIgnorePath(t *testing.T) {
 	if _, err := readRecoveryManifest(dataDir, snapshot.Entry.WorkspaceID); err != nil {
 		t.Fatal(err)
 	}
-	migrated, err := readRecoverySnapshot(dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
+	migrated, err := ReadSnapshot(dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +285,7 @@ func TestLegacyRecoveryMigrationScrubsArbitraryGitIgnorePath(t *testing.T) {
 func TestLegacyRecoveryConcurrentWorkspaceMigrationKeepsBothEntries(t *testing.T) {
 	dataDir := t.TempDir()
 	a, b := recoverySecuritySnapshot("legacy-A"), recoverySecuritySnapshot("legacy-B")
-	for _, snapshot := range []recoverySnapshot{a, b} {
+	for _, snapshot := range []Snapshot{a, b} {
 		dir := filepath.Join(legacyRecoveryRoot(dataDir), snapshot.Entry.ID)
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)
@@ -296,7 +298,7 @@ func TestLegacyRecoveryConcurrentWorkspaceMigrationKeepsBothEntries(t *testing.T
 			t.Fatal(err)
 		}
 	}
-	manifest, err := json.Marshal(recoveryManifest{Version: 1, Entries: []RecoveryEntry{a.Entry, b.Entry}})
+	manifest, err := json.Marshal(recoveryManifest{Version: 1, Entries: []Entry{a.Entry, b.Entry}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,8 +318,8 @@ func TestLegacyRecoveryConcurrentWorkspaceMigrationKeepsBothEntries(t *testing.T
 			t.Fatal(err)
 		}
 	}
-	for _, snapshot := range []recoverySnapshot{a, b} {
-		if _, err := findRecoveryEntry(dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID); err != nil {
+	for _, snapshot := range []Snapshot{a, b} {
+		if _, err := FindEntry(dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID); err != nil {
 			t.Fatalf("migrated entry missing for %s: %v", snapshot.Entry.WorkspaceID, err)
 		}
 	}
@@ -340,7 +342,7 @@ func TestLegacyRecoveryCleanupFailureRetainsRetryableSource(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(legacyDir, "snapshot.json"), plain, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := json.Marshal(recoveryManifest{Version: 1, Entries: []RecoveryEntry{snapshot.Entry}})
+	manifest, err := json.Marshal(recoveryManifest{Version: 1, Entries: []Entry{snapshot.Entry}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +361,7 @@ func TestLegacyRecoveryCleanupFailureRetainsRetryableSource(t *testing.T) {
 	if err == nil {
 		t.Fatal("cleanup failure was accepted")
 	}
-	encryptedSnapshot, pathErr := recoverySnapshotPath(dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
+	encryptedSnapshot, pathErr := SnapshotPath(dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
 	if pathErr != nil {
 		t.Fatal(pathErr)
 	}
@@ -415,4 +417,18 @@ func copyRecoveryTestTree(source, target string) error {
 		}
 		return os.WriteFile(destination, data, 0o600)
 	})
+}
+
+// assertMode is duplicated from the core test package rather than shared. Test
+// helpers do not cross package boundaries without being exported into the
+// production API, and a nine-line permission check is not worth that.
+func assertMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Fatalf("%s permissions = %o, want %o", path, got, want)
+	}
 }

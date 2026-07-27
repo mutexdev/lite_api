@@ -1,6 +1,6 @@
 //go:build windows
 
-package core
+package filelock
 
 import (
 	"os"
@@ -8,7 +8,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// lockFileExclusive takes an exclusive lock on an open file and returns the
+// Exclusive takes an exclusive lock on an open file and returns the
 // release. See the unix build for what this is for.
 //
 // LockFileEx with LOCKFILE_EXCLUSIVE_LOCK and no LOCKFILE_FAIL_IMMEDIATELY
@@ -19,7 +19,7 @@ import (
 // Unlike flock this lock is MANDATORY rather than advisory, so a second window
 // is refused access rather than merely told to wait its turn. That is stricter
 // than the unix behaviour, and stricter in the direction that matters here.
-func lockFileExclusive(f *os.File) (func(), error) {
+func Exclusive(f *os.File) (func(), error) {
 	handle := windows.Handle(f.Fd())
 	overlapped := new(windows.Overlapped)
 	if err := windows.LockFileEx(

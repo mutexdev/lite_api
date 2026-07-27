@@ -4,6 +4,7 @@ import {types} from '../models';
 import {core} from '../models';
 import {gitworkbench} from '../models';
 import {codegen} from '../models';
+import {recovery} from '../models';
 import {localserver} from '../models';
 import {history} from '../models';
 
@@ -107,13 +108,13 @@ export function DeleteDotEnvFile(arg1:string,arg2:string,arg3:string,arg4:string
 
 export function DeleteFolder(arg1:string,arg2:string):Promise<types.AppState>;
 
-export function DeleteFolderRecoverable(arg1:string,arg2:string):Promise<core.RecoverableDeleteResult>;
+export function DeleteFolderRecoverable(arg1:string,arg2:string):Promise<recovery.RecoverableDeleteResult>;
 
 export function DeleteGlobalEnvironment(arg1:string,arg2:string):Promise<types.AppState>;
 
 export function DeleteRequest(arg1:string,arg2:string):Promise<types.AppState>;
 
-export function DeleteRequestRecoverable(arg1:string,arg2:string):Promise<core.RecoverableDeleteResult>;
+export function DeleteRequestRecoverable(arg1:string,arg2:string):Promise<recovery.RecoverableDeleteResult>;
 
 export function DeleteResponseExample(arg1:string,arg2:string,arg3:string):Promise<types.AppState>;
 
@@ -193,7 +194,7 @@ export function ListGRPCMethods(arg1:string,arg2:string,arg3:string):Promise<Arr
 
 export function ListHistory(arg1:history.HistoryQuery):Promise<Array<history.HistoryEntry>>;
 
-export function ListRecoveryEntries():Promise<Array<core.RecoveryEntry>>;
+export function ListRecoveryEntries():Promise<Array<recovery.Entry>>;
 
 export function ListTerminalSessions():Promise<Array<types.TerminalSession>>;
 
@@ -241,7 +242,7 @@ export function RefreshMockServer(arg1:string):Promise<localserver.MockServerSta
 
 export function RemoveCollection(arg1:string):Promise<types.AppState>;
 
-export function RemoveCollectionRecoverable(arg1:string):Promise<core.RecoverableDeleteResult>;
+export function RemoveCollectionRecoverable(arg1:string):Promise<recovery.RecoverableDeleteResult>;
 
 export function RenameCollection(arg1:string,arg2:string):Promise<types.AppState>;
 

@@ -352,7 +352,7 @@
     WriteTerminalSession,
     UpdateResponseExample
   } from '../wailsjs/go/core/App'
-  import type { gitworkbench, history, localserver, core, types } from '../wailsjs/go/models'
+  import type { core, gitworkbench, history, localserver, recovery, types } from '../wailsjs/go/models'
   import {
     displayTooltipValue,
     findTooltipVariable,
@@ -552,7 +552,7 @@
   let tabLifecycleDialog = $state<TabLifecycleDialog | null>(null)
   let tabLifecycleDecisionBusy = $state(false)
   let tabLifecycleCancelButton = $state<HTMLButtonElement | null>(null)
-  let recoveryEntries = $state<core.RecoveryEntry[]>([])
+  let recoveryEntries = $state<recovery.Entry[]>([])
   let recoveryBusyEntryID = $state('')
   let workspaceWindowTargets = $state<core.WorkspaceWindowTarget[]>([])
   let workspaceWindowPickerOpen = $state(false)
@@ -1923,12 +1923,12 @@
     recoveryEntries = (await ListRecoveryEntries()) ?? []
   }
 
-  function recoveryExpiryLabel(entry: core.RecoveryEntry) {
+  function recoveryExpiryLabel(entry: recovery.Entry) {
     const value = new Date(entry.expiresAt)
     return Number.isNaN(value.getTime()) ? 'expiry unavailable' : `expires ${value.toLocaleString()}`
   }
 
-  async function restoreRecoveryEntry(entry: core.RecoveryEntry) {
+  async function restoreRecoveryEntry(entry: recovery.Entry) {
     if (recoveryBusyEntryID) return
     recoveryBusyEntryID = entry.id
     let restored = false
@@ -1941,7 +1941,7 @@
     recoveryBusyEntryID = ''
   }
 
-  async function discardRecoveryEntry(entry: core.RecoveryEntry) {
+  async function discardRecoveryEntry(entry: recovery.Entry) {
     if (recoveryBusyEntryID) return
     recoveryBusyEntryID = entry.id
     await runAction('discard recovery entry', async () => {

@@ -11,16 +11,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
-	"regexp"
-	goruntime "runtime"
 	"strconv"
 	"strings"
 
 	"github.com/mutexdev/lite_api/internal/atomicfile"
 	"github.com/mutexdev/lite_api/internal/scripting"
+	"github.com/mutexdev/lite_api/internal/secretkey"
 	"github.com/mutexdev/lite_api/internal/store/bru"
 )
 
@@ -389,7 +387,7 @@ func parseEnvironmentSecretValue(value, dataType string) interface{} {
 }
 
 func encryptEnvironmentSecretString(dataDir, plain string) string {
-	block, err := aes.NewCipher(environmentSecretAESKey(dataDir))
+	block, err := aes.NewCipher(secretkey.AESKey(dataDir))
 	if err != nil {
 		return plain
 	}
@@ -422,11 +420,11 @@ func decryptEnvironmentSecretString(dataDir, encoded string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	plain, err := decryptEnvironmentSecretAES256(raw, environmentSecretAESKey(dataDir), make([]byte, aes.BlockSize))
+	plain, err := decryptEnvironmentSecretAES256(raw, secretkey.AESKey(dataDir), make([]byte, aes.BlockSize))
 	if err == nil {
 		return plain, nil
 	}
-	key, iv := environmentSecretLegacyAESKeyAndIV(environmentSecretRawKey(dataDir))
+	key, iv := environmentSecretLegacyAESKeyAndIV(secretkey.RawKey(dataDir))
 	return decryptEnvironmentSecretAES256(raw, key, iv)
 }
 
@@ -460,59 +458,6 @@ func environmentSecretLegacyAESKeyAndIV(password string) ([]byte, []byte) {
 		derived = append(derived, previous...)
 	}
 	return derived[:32], derived[32:48]
-}
-
-func environmentSecretAESKey(dataDir string) []byte {
-	sum := sha256.Sum256([]byte(environmentSecretRawKey(dataDir)))
-	return sum[:]
-}
-
-func environmentSecretRawKey(dataDir string) string {
-	if key := strings.TrimSpace(os.Getenv("LITEAPI_SECRET_KEY")); key != "" {
-		return key
-	}
-	if id := localMachineID(); id != "" {
-		return id
-	}
-	if strings.TrimSpace(dataDir) != "" {
-		return filepath.Clean(dataDir)
-	}
-	return "LiteAPI"
-}
-
-func localMachineID() string {
-	environmentSecretMachineIDOnce.Do(func() {
-		switch goruntime.GOOS {
-		case "darwin":
-			output, err := exec.Command("ioreg", "-rd1", "-c", "IOPlatformExpertDevice").Output()
-			if err == nil {
-				matches := regexp.MustCompile(`"IOPlatformUUID"\s*=\s*"([^"]+)"`).FindStringSubmatch(string(output))
-				if len(matches) == 2 {
-					environmentSecretMachineIDValue = strings.TrimSpace(matches[1])
-				}
-			}
-		case "linux":
-			for _, path := range []string{"/etc/machine-id", "/var/lib/dbus/machine-id"} {
-				data, err := os.ReadFile(path)
-				if err == nil && strings.TrimSpace(string(data)) != "" {
-					environmentSecretMachineIDValue = strings.TrimSpace(string(data))
-					break
-				}
-			}
-		case "windows":
-			output, err := exec.Command("wmic", "csproduct", "get", "uuid").Output()
-			if err == nil {
-				for _, line := range strings.Split(string(output), "\n") {
-					line = strings.TrimSpace(line)
-					if line != "" && !strings.EqualFold(line, "UUID") {
-						environmentSecretMachineIDValue = line
-						break
-					}
-				}
-			}
-		}
-	})
-	return environmentSecretMachineIDValue
 }
 
 func stateForStorage(state AppState, dataDir string) AppState {

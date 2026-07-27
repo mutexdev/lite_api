@@ -9,12 +9,15 @@
 // recovery root) rather than the mechanism (the validator, or the hashing).
 // A test of the validator would pass while someone removed the hashing; this
 // one fails if containment is ever lost, however it was being achieved.
-package core
+package recovery
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mutexdev/lite_api/internal/scalar"
 )
 
 var hostileIDs = []string{
@@ -31,7 +34,7 @@ var hostileIDs = []string{
 
 func TestRecoveryPathsStayInsideTheRecoveryRoot(t *testing.T) {
 	dataDir := t.TempDir()
-	root, err := filepath.Abs(recoveryRoot(dataDir))
+	root, err := filepath.Abs(Root(dataDir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +66,7 @@ func TestRecoveryEntryPathsStayInsideTheWorkspaceRoot(t *testing.T) {
 
 	for _, id := range hostileIDs {
 		for _, build := range []func(string, string, string) (string, error){
-			recoveryEntryDir, recoverySnapshotPath, recoveryPayloadPath,
+			EntryDir, SnapshotPath, recoveryPayloadPath,
 		} {
 			got, err := build(dataDir, workspace, id)
 			if err != nil {
@@ -118,5 +121,34 @@ func TestBlankAndNulWorkspaceIDsAreRejected(t *testing.T) {
 		if _, err := recoveryWorkspaceRoot(dataDir, id); err == nil {
 			t.Errorf("workspace id %q was accepted", id)
 		}
+	}
+}
+
+func TestManagedGitIgnoreCanonicalizesTrustedLeadingPlatformAlias(t *testing.T) {
+	workspacePath := t.TempDir()
+	collectionPath := filepath.Join(workspacePath, "Git Collection")
+	if err := os.MkdirAll(collectionPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	workspaceCanonical, err := canonicalizeTrustedLeadingPath(workspacePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collectionCanonical, err := canonicalizeTrustedLeadingPath(collectionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !scalar.PathInside(workspaceCanonical, collectionCanonical) {
+		t.Fatalf("canonical trusted-alias paths lost containment: workspace=%q collection=%q", workspaceCanonical, collectionCanonical)
+	}
+	if err := UpdateManagedGitIgnore(workspacePath, collectionPath, true); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(workspacePath, ".gitignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "/Git Collection") {
+		t.Fatalf("managed ignore missing canonical collection entry: %q", data)
 	}
 }

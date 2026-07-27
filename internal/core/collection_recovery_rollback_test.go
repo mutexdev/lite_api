@@ -3,6 +3,8 @@ package core
 import (
 	"testing"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/recovery"
 )
 
 // These two run when an undo FAILS PART-WAY: the app has already begun undoing
@@ -14,7 +16,7 @@ import (
 // hand. A rollback that restores a collection to the wrong position, or drops
 // it entirely, turns a recoverable failure into a permanent one.
 //
-// Snapshots here use recoveryKindCollection so the filesystem branch of
+// Snapshots here use recovery.KindCollection so the filesystem branch of
 // rollbackCollectionRecoveryLocked is skipped; what is under test is the
 // in-memory state restoration, which is the part that decides what the user
 // still has.
@@ -61,10 +63,10 @@ func assertNames(t *testing.T, got, want []string) {
 	}
 }
 
-func removalSnapshot(workspaceID, name string, index int) recoverySnapshot {
-	return recoverySnapshot{
-		Entry: RecoveryEntry{
-			Kind:         recoveryKindCollection,
+func removalSnapshot(workspaceID, name string, index int) recovery.Snapshot {
+	return recovery.Snapshot{
+		Entry: recovery.Entry{
+			Kind:         recovery.KindCollection,
 			WorkspaceID:  workspaceID,
 			CollectionID: "col-" + name,
 		},

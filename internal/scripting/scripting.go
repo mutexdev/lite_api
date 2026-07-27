@@ -14832,16 +14832,7 @@ func CompareAssertion(actual, operator, expected string) bool {
 	}
 }
 
-func PathInside(root, candidate string) bool {
-	if strings.TrimSpace(root) == "" || strings.TrimSpace(candidate) == "" {
-		return false
-	}
-	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(candidate))
-	if err != nil {
-		return false
-	}
-	return rel == "." || (!strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".." && !filepath.IsAbs(rel))
-}
+func PathInside(root, candidate string) bool { return scalar.PathInside(root, candidate) }
 
 const VisualizerTemplateLimit = 1 << 20 // 1 MiB
 const VisualizerDataLimit = 4 << 20     // 4 MiB

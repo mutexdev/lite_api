@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -200,4 +201,21 @@ func IntValueOK(raw interface{}) (int, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// PathInside reports whether candidate lies at or below root.
+//
+// Here rather than in internal/scripting, where it used to live, because the
+// recovery store needs the same containment check and cannot import a package
+// four layers above it. scripting keeps a one-line forwarder so its own callers
+// are undisturbed.
+func PathInside(root, candidate string) bool {
+	if strings.TrimSpace(root) == "" || strings.TrimSpace(candidate) == "" {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(candidate))
+	if err != nil {
+		return false
+	}
+	return rel == "." || (!strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".." && !filepath.IsAbs(rel))
 }

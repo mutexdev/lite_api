@@ -1,6 +1,6 @@
 //go:build unix
 
-package core
+package filelock
 
 import (
 	"os"
@@ -8,7 +8,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// lockFileExclusive takes an exclusive advisory lock on an open file and
+// Exclusive takes an exclusive advisory lock on an open file and
 // returns the release.
 //
 // Advisory, not mandatory: it coordinates LiteAPI windows with each other, not
@@ -18,7 +18,7 @@ import (
 // The returned release is safe to call even though closing the file already
 // drops the lock, because callers defer both and the order between them is not
 // worth reasoning about at every site.
-func lockFileExclusive(f *os.File) (func(), error) {
+func Exclusive(f *os.File) (func(), error) {
 	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX); err != nil {
 		return func() {}, err
 	}

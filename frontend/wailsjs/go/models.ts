@@ -359,85 +359,6 @@ export namespace core {
 	
 	
 	
-	export class RecoveryEntry {
-	    id: string;
-	    kind: string;
-	    displayName: string;
-	    workspaceId: string;
-	    collectionId: string;
-	    // Go type: time
-	    deletedAt: any;
-	    // Go type: time
-	    expiresAt: any;
-	    restorable: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new RecoveryEntry(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.kind = source["kind"];
-	        this.displayName = source["displayName"];
-	        this.workspaceId = source["workspaceId"];
-	        this.collectionId = source["collectionId"];
-	        this.deletedAt = this.convertValues(source["deletedAt"], null);
-	        this.expiresAt = this.convertValues(source["expiresAt"], null);
-	        this.restorable = source["restorable"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class RecoverableDeleteResult {
-	    state: types.AppState;
-	    entry: RecoveryEntry;
-	
-	    static createFrom(source: any = {}) {
-	        return new RecoverableDeleteResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.state = this.convertValues(source["state"], types.AppState);
-	        this.entry = this.convertValues(source["entry"], RecoveryEntry);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	
 	export class RequestMutation {
 	    revision: number;
 	    collectionId: string;
@@ -884,6 +805,89 @@ export namespace localserver {
 	        this.routes = source["routes"];
 	        this.error = source["error"];
 	    }
+	}
+
+}
+
+export namespace recovery {
+	
+	export class Entry {
+	    id: string;
+	    kind: string;
+	    displayName: string;
+	    workspaceId: string;
+	    collectionId: string;
+	    // Go type: time
+	    deletedAt: any;
+	    // Go type: time
+	    expiresAt: any;
+	    restorable: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Entry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.kind = source["kind"];
+	        this.displayName = source["displayName"];
+	        this.workspaceId = source["workspaceId"];
+	        this.collectionId = source["collectionId"];
+	        this.deletedAt = this.convertValues(source["deletedAt"], null);
+	        this.expiresAt = this.convertValues(source["expiresAt"], null);
+	        this.restorable = source["restorable"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RecoverableDeleteResult {
+	    state: types.AppState;
+	    entry: Entry;
+	
+	    static createFrom(source: any = {}) {
+	        return new RecoverableDeleteResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = this.convertValues(source["state"], types.AppState);
+	        this.entry = this.convertValues(source["entry"], Entry);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

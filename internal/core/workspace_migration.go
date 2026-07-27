@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mutexdev/lite_api/internal/atomicfile"
+	"github.com/mutexdev/lite_api/internal/filelock"
 	"github.com/mutexdev/lite_api/internal/workspacestate"
 )
 
@@ -169,7 +170,7 @@ func withWorkspaceMigrationGuard(dataDir string, fn func() error) error {
 		return err
 	}
 	defer func() { _ = file.Close() }()
-	unlock, err := lockFileExclusive(file)
+	unlock, err := filelock.Exclusive(file)
 	if err != nil {
 		return err
 	}

@@ -9,60 +9,56 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-)
 
-const (
-	recoveryKindRequest    = "request"
-	recoveryKindFolder     = "folder"
-	recoveryKindCollection = "collection"
+	"github.com/mutexdev/lite_api/internal/recovery"
 )
 
 // DeleteRequestRecoverable deletes a request only after a private, durable
 // collection snapshot has been staged. It intentionally removes all request
 // and response-example tabs for the request; RestoreRecoveryEntry puts them
 // back with their pane state.
-func (a *App) DeleteRequestRecoverable(collectionID, itemID string) (RecoverableDeleteResult, error) {
+func (a *App) DeleteRequestRecoverable(collectionID, itemID string) (recovery.RecoverableDeleteResult, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.ensureReadyLocked(); err != nil {
-		return RecoverableDeleteResult{}, err
+		return recovery.RecoverableDeleteResult{}, err
 	}
 	wi, ci, ws, collection, err := a.recoveryCollectionLocked(collectionID)
 	if err != nil {
-		return RecoverableDeleteResult{}, err
+		return recovery.RecoverableDeleteResult{}, err
 	}
 	if collection.NotFoundLocally {
-		return RecoverableDeleteResult{}, errors.New("collection is not cloned locally")
+		return recovery.RecoverableDeleteResult{}, errors.New("collection is not cloned locally")
 	}
 	if strings.TrimSpace(collection.Path) == "" {
-		return RecoverableDeleteResult{}, errors.New("collection path is empty")
+		return recovery.RecoverableDeleteResult{}, errors.New("collection path is empty")
 	}
 	index, err := findItemIndex(collection, itemID)
 	if err != nil {
-		return RecoverableDeleteResult{}, err
+		return recovery.RecoverableDeleteResult{}, err
 	}
 	item := collection.Items[index]
 	oldFile, err := collectionRequestFilesystemPath(collection, item)
 	if err != nil {
-		return RecoverableDeleteResult{}, err
+		return recovery.RecoverableDeleteResult{}, err
 	}
 	if info, statErr := os.Stat(oldFile); statErr != nil {
 		if errors.Is(statErr, os.ErrNotExist) {
-			return RecoverableDeleteResult{}, errors.New("the file does not exist")
+			return recovery.RecoverableDeleteResult{}, errors.New("the file does not exist")
 		}
-		return RecoverableDeleteResult{}, statErr
+		return recovery.RecoverableDeleteResult{}, statErr
 	} else if info.IsDir() {
-		return RecoverableDeleteResult{}, fmt.Errorf("%s is not a request file", oldFile)
+		return recovery.RecoverableDeleteResult{}, fmt.Errorf("%s is not a request file", oldFile)
 	}
 
-	snapshot, err := a.stageCollectionRecoveryLocked(recoveryKindRequest, wi, ci, ws, collection, item.Name, []string{item.ID})
+	snapshot, err := a.stageCollectionRecoveryLocked(recovery.KindRequest, wi, ci, ws, collection, item.Name, []string{item.ID})
 	if err != nil {
-		return RecoverableDeleteResult{}, err
+		return recovery.RecoverableDeleteResult{}, err
 	}
-	rollback := func(cause error) (RecoverableDeleteResult, error) {
+	rollback := func(cause error) (recovery.RecoverableDeleteResult, error) {
 		a.rollbackCollectionRecoveryLocked(snapshot)
-		_ = removeRecoveryEntry(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
-		return RecoverableDeleteResult{}, cause
+		_ = recovery.RemoveEntry(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
+		return recovery.RecoverableDeleteResult{}, cause
 	}
 	if err := os.Remove(oldFile); err != nil {
 		return rollback(err)
@@ -91,52 +87,52 @@ func (a *App) DeleteRequestRecoverable(collectionID, itemID string) (Recoverable
 	if err := a.commitCollectionRecoveryLocked(&snapshot); err != nil {
 		return rollback(err)
 	}
-	entry, err := markRecoveryEntryRestorable(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
+	entry, err := recovery.MarkEntryRestorable(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
 	if err != nil {
 		return rollback(err)
 	}
 	snapshot.Entry = entry
-	return RecoverableDeleteResult{State: a.state, Entry: snapshot.Entry}, nil
+	return recovery.RecoverableDeleteResult{State: a.state, Entry: snapshot.Entry}, nil
 }
 
 // DeleteFolderRecoverable is the recoverable equivalent of DeleteFolder.
-func (a *App) DeleteFolderRecoverable(collectionID, folderPath string) (RecoverableDeleteResult, error) {
+func (a *App) DeleteFolderRecoverable(collectionID, folderPath string) (recovery.RecoverableDeleteResult, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.ensureReadyLocked(); err != nil {
-		return RecoverableDeleteResult{}, err
+		return recovery.RecoverableDeleteResult{}, err
 	}
 	wi, ci, ws, collection, err := a.recoveryCollectionLocked(collectionID)
 	if err != nil {
-		return RecoverableDeleteResult{}, err
+		return recovery.RecoverableDeleteResult{}, err
 	}
 	if collection.NotFoundLocally {
-		return RecoverableDeleteResult{}, errors.New("collection is not cloned locally")
+		return recovery.RecoverableDeleteResult{}, errors.New("collection is not cloned locally")
 	}
 	folderIndex, err := findFolderConfigIndex(collection, folderPath)
 	if err != nil {
-		return RecoverableDeleteResult{}, err
+		return recovery.RecoverableDeleteResult{}, err
 	}
 	folder := collection.Folders[folderIndex]
 	oldPath := normalizeFolderPathKey(folder.Path)
 	oldDisplayPath := normalizeFolderPathKey(firstNonEmpty(folder.DisplayPath, folder.Name, folder.Path))
 	if oldPath == "" {
-		return RecoverableDeleteResult{}, errors.New("folder path is required")
+		return recovery.RecoverableDeleteResult{}, errors.New("folder path is required")
 	}
 	if err := a.ensureCollectionDirectoryForWriteLocked(collection); err != nil {
-		return RecoverableDeleteResult{}, err
+		return recovery.RecoverableDeleteResult{}, err
 	}
 	targetDir := filepath.Join(collection.Path, filepath.FromSlash(oldPath))
 	if !pathInside(collection.Path, targetDir) {
-		return RecoverableDeleteResult{}, fmt.Errorf("folder path %s escapes collection", folderPath)
+		return recovery.RecoverableDeleteResult{}, fmt.Errorf("folder path %s escapes collection", folderPath)
 	}
 	if info, statErr := os.Stat(targetDir); statErr != nil {
 		if errors.Is(statErr, os.ErrNotExist) {
-			return RecoverableDeleteResult{}, errors.New("the directory does not exist")
+			return recovery.RecoverableDeleteResult{}, errors.New("the directory does not exist")
 		}
-		return RecoverableDeleteResult{}, statErr
+		return recovery.RecoverableDeleteResult{}, statErr
 	} else if !info.IsDir() {
-		return RecoverableDeleteResult{}, fmt.Errorf("%s is not a directory", targetDir)
+		return recovery.RecoverableDeleteResult{}, fmt.Errorf("%s is not a directory", targetDir)
 	}
 
 	removedIDs := recoveryFolderRequestIDs(collection, oldPath, oldDisplayPath, targetDir)
@@ -144,14 +140,14 @@ func (a *App) DeleteFolderRecoverable(collectionID, folderPath string) (Recovera
 	for id := range removedIDs {
 		affected = append(affected, id)
 	}
-	snapshot, err := a.stageCollectionRecoveryLocked(recoveryKindFolder, wi, ci, ws, collection, firstNonEmpty(folder.Name, pathBaseSlash(oldDisplayPath), pathBaseSlash(oldPath)), affected)
+	snapshot, err := a.stageCollectionRecoveryLocked(recovery.KindFolder, wi, ci, ws, collection, firstNonEmpty(folder.Name, pathBaseSlash(oldDisplayPath), pathBaseSlash(oldPath)), affected)
 	if err != nil {
-		return RecoverableDeleteResult{}, err
+		return recovery.RecoverableDeleteResult{}, err
 	}
-	rollback := func(cause error) (RecoverableDeleteResult, error) {
+	rollback := func(cause error) (recovery.RecoverableDeleteResult, error) {
 		a.rollbackCollectionRecoveryLocked(snapshot)
-		_ = removeRecoveryEntry(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
-		return RecoverableDeleteResult{}, cause
+		_ = recovery.RemoveEntry(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
+		return recovery.RecoverableDeleteResult{}, cause
 	}
 
 	remainingItems := collection.Items[:0]
@@ -191,44 +187,44 @@ func (a *App) DeleteFolderRecoverable(collectionID, folderPath string) (Recovera
 	if err := a.commitCollectionRecoveryLocked(&snapshot); err != nil {
 		return rollback(err)
 	}
-	entry, err := markRecoveryEntryRestorable(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
+	entry, err := recovery.MarkEntryRestorable(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
 	if err != nil {
 		return rollback(err)
 	}
 	snapshot.Entry = entry
-	return RecoverableDeleteResult{State: a.state, Entry: snapshot.Entry}, nil
+	return recovery.RecoverableDeleteResult{State: a.state, Entry: snapshot.Entry}, nil
 }
 
 // RemoveCollectionRecoverable only removes the collection from LiteAPI state.
 // It never stages, removes, or rewrites any collection file.
-func (a *App) RemoveCollectionRecoverable(collectionID string) (RecoverableDeleteResult, error) {
+func (a *App) RemoveCollectionRecoverable(collectionID string) (recovery.RecoverableDeleteResult, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.ensureReadyLocked(); err != nil {
-		return RecoverableDeleteResult{}, err
+		return recovery.RecoverableDeleteResult{}, err
 	}
 	wi, ci, ws, collection, err := a.recoveryCollectionLocked(collectionID)
 	if err != nil {
-		return RecoverableDeleteResult{}, err
+		return recovery.RecoverableDeleteResult{}, err
 	}
 	if collection.Scratch {
-		return RecoverableDeleteResult{}, errors.New("scratch collection cannot be removed")
+		return recovery.RecoverableDeleteResult{}, errors.New("scratch collection cannot be removed")
 	}
 	snapshot, err := a.stageCollectionRecoveryMetadataLocked(wi, ci, ws, collection)
 	if err != nil {
-		return RecoverableDeleteResult{}, err
+		return recovery.RecoverableDeleteResult{}, err
 	}
-	rollback := func(cause error) (RecoverableDeleteResult, error) {
+	rollback := func(cause error) (recovery.RecoverableDeleteResult, error) {
 		a.rollbackCollectionRemovalLocked(snapshot)
-		_ = removeRecoveryEntry(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
-		return RecoverableDeleteResult{}, cause
+		_ = recovery.RemoveEntry(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
+		return recovery.RecoverableDeleteResult{}, cause
 	}
 	if strings.TrimSpace(collection.Remote) != "" && strings.TrimSpace(collection.Path) != "" {
 		if err := updateManagedGitIgnore(ws.Path, collection.Path, false); err != nil {
 			return rollback(err)
 		}
 	}
-	if _, exists, content, err := recoveryGitIgnoreSnapshot(*ws); err != nil {
+	if _, exists, content, err := recovery.GitIgnoreSnapshot(*ws); err != nil {
 		return rollback(err)
 	} else {
 		snapshot.PostGitIgnoreExists, snapshot.PostGitIgnoreContent = exists, content
@@ -237,7 +233,7 @@ func (a *App) RemoveCollectionRecoverable(collectionID string) (RecoverableDelet
 	ws.Collections = append(ws.Collections[:ci], ws.Collections[ci+1:]...)
 	ws.UpdatedAt = time.Now()
 	a.removeRecoveryTabsLocked(collection.ID, nil, true)
-	if err := writeRecoverySnapshot(a.dataDir, snapshot); err != nil {
+	if err := recovery.WriteSnapshot(a.dataDir, snapshot); err != nil {
 		return rollback(err)
 	}
 	if err := a.persistLocked(); err != nil {
@@ -246,24 +242,24 @@ func (a *App) RemoveCollectionRecoverable(collectionID string) (RecoverableDelet
 	snapshot.PostOpenTabs = append([]OpenTab(nil), a.state.OpenTabs...)
 	snapshot.PostClosedTabs = append([]OpenTab(nil), a.state.ClosedTabs...)
 	snapshot.PostActiveTabID = a.state.ActiveTabID
-	if err := writeRecoverySnapshot(a.dataDir, snapshot); err != nil {
+	if err := recovery.WriteSnapshot(a.dataDir, snapshot); err != nil {
 		return rollback(err)
 	}
-	entry, err := markRecoveryEntryRestorable(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
+	entry, err := recovery.MarkEntryRestorable(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
 	if err != nil {
 		return rollback(err)
 	}
 	snapshot.Entry = entry
-	return RecoverableDeleteResult{State: a.state, Entry: snapshot.Entry}, nil
+	return recovery.RecoverableDeleteResult{State: a.state, Entry: snapshot.Entry}, nil
 }
 
-func (a *App) ListRecoveryEntries() ([]RecoveryEntry, error) {
+func (a *App) ListRecoveryEntries() ([]recovery.Entry, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.ensureReadyLocked(); err != nil {
 		return nil, err
 	}
-	return removeExpiredRecoveryEntries(a.dataDir, a.state.ActiveWorkspaceID, time.Now().UTC())
+	return recovery.RemoveExpiredEntries(a.dataDir, a.state.ActiveWorkspaceID, time.Now().UTC())
 }
 
 func (a *App) DiscardRecoveryEntry(entryID string) (bool, error) {
@@ -272,10 +268,10 @@ func (a *App) DiscardRecoveryEntry(entryID string) (bool, error) {
 	if err := a.ensureReadyLocked(); err != nil {
 		return false, err
 	}
-	if _, err := findRecoveryEntry(a.dataDir, a.state.ActiveWorkspaceID, entryID); err != nil {
+	if _, err := recovery.FindEntry(a.dataDir, a.state.ActiveWorkspaceID, entryID); err != nil {
 		return false, err
 	}
-	if err := removeRecoveryEntry(a.dataDir, a.state.ActiveWorkspaceID, entryID); err != nil {
+	if err := recovery.RemoveEntry(a.dataDir, a.state.ActiveWorkspaceID, entryID); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -287,55 +283,55 @@ func (a *App) RestoreRecoveryEntry(entryID string) (AppState, error) {
 	if err := a.ensureReadyLocked(); err != nil {
 		return AppState{}, err
 	}
-	entry, err := findRecoveryEntry(a.dataDir, a.state.ActiveWorkspaceID, entryID)
+	entry, err := recovery.FindEntry(a.dataDir, a.state.ActiveWorkspaceID, entryID)
 	if err != nil {
 		return AppState{}, err
 	}
 	if !entry.ExpiresAt.After(time.Now().UTC()) {
-		_ = removeRecoveryEntry(a.dataDir, a.state.ActiveWorkspaceID, entryID)
+		_ = recovery.RemoveEntry(a.dataDir, a.state.ActiveWorkspaceID, entryID)
 		return AppState{}, fmt.Errorf("recovery entry %s has expired", entryID)
 	}
 	if !entry.Restorable {
 		return AppState{}, fmt.Errorf("recovery entry %s is still being committed", entryID)
 	}
-	snapshot, err := readRecoverySnapshot(a.dataDir, a.state.ActiveWorkspaceID, entryID)
+	snapshot, err := recovery.ReadSnapshot(a.dataDir, a.state.ActiveWorkspaceID, entryID)
 	if err != nil {
 		return AppState{}, err
 	}
 	if snapshot.Entry.ID != entry.ID {
 		return AppState{}, fmt.Errorf("recovery entry %s is invalid", entryID)
 	}
-	if entry.Kind == recoveryKindCollection {
+	if entry.Kind == recovery.KindCollection {
 		return a.restoreCollectionRemovalLocked(snapshot)
 	}
 	return a.restoreCollectionTreeLocked(snapshot)
 }
 
-func (a *App) restoreCollectionTreeLocked(snapshot recoverySnapshot) (AppState, error) {
+func (a *App) restoreCollectionTreeLocked(snapshot recovery.Snapshot) (AppState, error) {
 	ws, err := a.recoveryWorkspaceLocked(snapshot.Entry.WorkspaceID)
 	if err != nil {
-		return AppState{}, &RestoreConflictError{EntryID: snapshot.Entry.ID, Reason: "the workspace is no longer available"}
+		return AppState{}, &recovery.RestoreConflictError{EntryID: snapshot.Entry.ID, Reason: "the workspace is no longer available"}
 	}
 	ci := findRecoveryCollectionIndex(ws.Collections, snapshot.Entry.CollectionID)
 	if ci < 0 {
-		return AppState{}, &RestoreConflictError{EntryID: snapshot.Entry.ID, Reason: "the collection is no longer open"}
+		return AppState{}, &recovery.RestoreConflictError{EntryID: snapshot.Entry.ID, Reason: "the collection is no longer open"}
 	}
 	current := &ws.Collections[ci]
 	if current.ID != snapshot.PostCollection.ID || filepath.Clean(current.Path) != filepath.Clean(snapshot.PostCollection.Path) {
-		return AppState{}, &RestoreConflictError{EntryID: snapshot.Entry.ID, Reason: "the collection identity changed after deletion"}
+		return AppState{}, &recovery.RestoreConflictError{EntryID: snapshot.Entry.ID, Reason: "the collection identity changed after deletion"}
 	}
 	if !recoveryCollectionSemanticEqual(*current, snapshot.PostCollection) {
-		return AppState{}, &RestoreConflictError{EntryID: snapshot.Entry.ID, Reason: "collection state changed after deletion"}
+		return AppState{}, &recovery.RestoreConflictError{EntryID: snapshot.Entry.ID, Reason: "collection state changed after deletion"}
 	}
 	if !recoveryTabsEqual(a.state.OpenTabs, snapshot.PostOpenTabs) || !recoveryTabsEqual(a.state.ClosedTabs, snapshot.PostClosedTabs) || a.state.ActiveTabID != snapshot.PostActiveTabID {
-		return AppState{}, &RestoreConflictError{EntryID: snapshot.Entry.ID, Reason: "tab state changed after deletion"}
+		return AppState{}, &recovery.RestoreConflictError{EntryID: snapshot.Entry.ID, Reason: "tab state changed after deletion"}
 	}
-	fingerprint, err := collectionRecoveryFingerprint(current.Path)
+	fingerprint, err := recovery.CollectionFingerprint(current.Path)
 	if err != nil {
 		return AppState{}, err
 	}
 	if fingerprint != snapshot.PostFingerprint {
-		return AppState{}, &RestoreConflictError{EntryID: snapshot.Entry.ID, Reason: "collection files changed after deletion"}
+		return AppState{}, &recovery.RestoreConflictError{EntryID: snapshot.Entry.ID, Reason: "collection files changed after deletion"}
 	}
 	rollbackPath, err := os.MkdirTemp("", "liteapi-recovery-restore-")
 	if err != nil {
@@ -343,7 +339,7 @@ func (a *App) restoreCollectionTreeLocked(snapshot recoverySnapshot) (AppState, 
 	}
 	// Best-effort cleanup of a staging temp dir; nothing can act on a failure here.
 	defer func() { _ = os.RemoveAll(rollbackPath) }()
-	if err := copyRecoveryTree(current.Path, rollbackPath); err != nil {
+	if err := recovery.CopyTree(current.Path, rollbackPath); err != nil {
 		return AppState{}, fmt.Errorf("stage restore rollback: %w", err)
 	}
 	postCollection := cloneRecoveryCollection(*current)
@@ -357,10 +353,10 @@ func (a *App) restoreCollectionTreeLocked(snapshot recoverySnapshot) (AppState, 
 	}
 	// Best-effort cleanup of a staging temp dir; nothing can act on a failure here.
 	defer func() { _ = os.RemoveAll(restoreSource) }()
-	if err := restoreRecoveryPayload(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID, restoreSource); err != nil {
+	if err := recovery.RestorePayload(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID, restoreSource); err != nil {
 		return AppState{}, err
 	}
-	if err := replaceRecoveryTree(restoreSource, current.Path); err != nil {
+	if err := recovery.ReplaceTree(restoreSource, current.Path); err != nil {
 		return AppState{}, err
 	}
 	ws.Collections[ci] = cloneRecoveryCollection(snapshot.Collection)
@@ -370,7 +366,7 @@ func (a *App) restoreCollectionTreeLocked(snapshot recoverySnapshot) (AppState, 
 	a.state.ActiveTabID = snapshot.ActiveTabID
 	a.seedCollectionWatchFingerprintLocked(snapshot.Collection.Path)
 	if err := a.persistLocked(); err != nil {
-		_ = replaceRecoveryTree(rollbackPath, current.Path)
+		_ = recovery.ReplaceTree(rollbackPath, current.Path)
 		ws.Collections[ci] = postCollection
 		ws.UpdatedAt = postWorkspaceUpdatedAt
 		a.state.OpenTabs = postOpenTabs
@@ -384,26 +380,26 @@ func (a *App) restoreCollectionTreeLocked(snapshot recoverySnapshot) (AppState, 
 	// The state and files are already durable. Leaving a stale entry is safe:
 	// a second restore conflicts because the collection is present, so cleanup
 	// failure must not make this successful restore look like a failure.
-	_ = removeRecoveryEntry(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
+	_ = recovery.RemoveEntry(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
 	return a.state, nil
 }
 
-func (a *App) restoreCollectionRemovalLocked(snapshot recoverySnapshot) (AppState, error) {
+func (a *App) restoreCollectionRemovalLocked(snapshot recovery.Snapshot) (AppState, error) {
 	ws, err := a.recoveryWorkspaceLocked(snapshot.Entry.WorkspaceID)
 	if err != nil {
-		return AppState{}, &RestoreConflictError{EntryID: snapshot.Entry.ID, Reason: "the workspace is no longer available"}
+		return AppState{}, &recovery.RestoreConflictError{EntryID: snapshot.Entry.ID, Reason: "the workspace is no longer available"}
 	}
 	if _, _, err := a.findCollectionWithWorkspaceLocked(snapshot.Entry.CollectionID); err == nil {
-		return AppState{}, &RestoreConflictError{EntryID: snapshot.Entry.ID, Reason: "a collection with this identity is already open"}
+		return AppState{}, &recovery.RestoreConflictError{EntryID: snapshot.Entry.ID, Reason: "a collection with this identity is already open"}
 	}
-	_, exists, content, err := recoveryGitIgnoreSnapshot(*ws)
+	_, exists, content, err := recovery.GitIgnoreSnapshot(*ws)
 	if err != nil {
 		return AppState{}, err
 	}
 	if exists != snapshot.PostGitIgnoreExists || !bytes.Equal(content, snapshot.PostGitIgnoreContent) {
-		return AppState{}, &RestoreConflictError{EntryID: snapshot.Entry.ID, Reason: "the managed Git ignore file changed after removal"}
+		return AppState{}, &recovery.RestoreConflictError{EntryID: snapshot.Entry.ID, Reason: "the managed Git ignore file changed after removal"}
 	}
-	if err := restoreGitIgnore(*ws, snapshot.GitIgnoreExists, snapshot.GitIgnoreContent); err != nil {
+	if err := recovery.RestoreGitIgnore(*ws, snapshot.GitIgnoreExists, snapshot.GitIgnoreContent); err != nil {
 		return AppState{}, err
 	}
 	postCollections := append([]Collection(nil), ws.Collections...)
@@ -422,7 +418,7 @@ func (a *App) restoreCollectionRemovalLocked(snapshot recoverySnapshot) (AppStat
 	a.restoreRecoveryTabsLocked(snapshot)
 	a.seedCollectionWatchFingerprintLocked(snapshot.Collection.Path)
 	if err := a.persistLocked(); err != nil {
-		_ = restoreGitIgnore(*ws, snapshot.PostGitIgnoreExists, snapshot.PostGitIgnoreContent)
+		_ = recovery.RestoreGitIgnore(*ws, snapshot.PostGitIgnoreExists, snapshot.PostGitIgnoreContent)
 		ws.Collections = postCollections
 		ws.UpdatedAt = postWorkspaceUpdatedAt
 		a.state.OpenTabs = postOpenTabs
@@ -432,7 +428,7 @@ func (a *App) restoreCollectionRemovalLocked(snapshot recoverySnapshot) (AppStat
 		_ = a.persistLocked()
 		return AppState{}, err
 	}
-	_ = removeRecoveryEntry(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
+	_ = recovery.RemoveEntry(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID)
 	return a.state, nil
 }
 
@@ -459,9 +455,9 @@ func (a *App) recoveryWorkspaceLocked(workspaceID string) (*Workspace, error) {
 	return nil, fmt.Errorf("workspace %s not found", workspaceID)
 }
 
-func (a *App) stageCollectionRecoveryLocked(kind string, wi, ci int, ws *Workspace, collection *Collection, displayName string, affectedIDs []string) (recoverySnapshot, error) {
-	snapshot := recoverySnapshot{
-		Entry:              newRecoveryEntry(kind, displayName, ws.ID, collection.ID),
+func (a *App) stageCollectionRecoveryLocked(kind string, wi, ci int, ws *Workspace, collection *Collection, displayName string, affectedIDs []string) (recovery.Snapshot, error) {
+	snapshot := recovery.Snapshot{
+		Entry:              recovery.NewEntry(kind, displayName, ws.ID, collection.ID),
 		WorkspaceIndex:     wi,
 		CollectionIndex:    ci,
 		Collection:         cloneRecoveryCollection(*collection),
@@ -471,19 +467,19 @@ func (a *App) stageCollectionRecoveryLocked(kind string, wi, ci int, ws *Workspa
 		ActiveTabID:        a.state.ActiveTabID,
 		AffectedRequestIDs: append([]string(nil), affectedIDs...),
 	}
-	if err := stageRecoverySnapshot(a.dataDir, snapshot, collection.Path, true); err != nil {
-		return recoverySnapshot{}, err
+	if err := recovery.StageSnapshot(a.dataDir, snapshot, collection.Path, true); err != nil {
+		return recovery.Snapshot{}, err
 	}
 	return snapshot, nil
 }
 
-func (a *App) stageCollectionRecoveryMetadataLocked(wi, ci int, ws *Workspace, collection *Collection) (recoverySnapshot, error) {
-	_, exists, content, err := recoveryGitIgnoreSnapshot(*ws)
+func (a *App) stageCollectionRecoveryMetadataLocked(wi, ci int, ws *Workspace, collection *Collection) (recovery.Snapshot, error) {
+	_, exists, content, err := recovery.GitIgnoreSnapshot(*ws)
 	if err != nil {
-		return recoverySnapshot{}, err
+		return recovery.Snapshot{}, err
 	}
-	snapshot := recoverySnapshot{
-		Entry:              newRecoveryEntry(recoveryKindCollection, collection.Name, ws.ID, collection.ID),
+	snapshot := recovery.Snapshot{
+		Entry:              recovery.NewEntry(recovery.KindCollection, collection.Name, ws.ID, collection.ID),
 		WorkspaceIndex:     wi,
 		CollectionIndex:    ci,
 		Collection:         cloneRecoveryCollection(*collection),
@@ -494,18 +490,18 @@ func (a *App) stageCollectionRecoveryMetadataLocked(wi, ci int, ws *Workspace, c
 		GitIgnoreExists:    exists,
 		GitIgnoreContent:   append([]byte(nil), content...),
 	}
-	if err := stageRecoverySnapshot(a.dataDir, snapshot, "", false); err != nil {
-		return recoverySnapshot{}, err
+	if err := recovery.StageSnapshot(a.dataDir, snapshot, "", false); err != nil {
+		return recovery.Snapshot{}, err
 	}
 	return snapshot, nil
 }
 
-func (a *App) commitCollectionRecoveryLocked(snapshot *recoverySnapshot) error {
+func (a *App) commitCollectionRecoveryLocked(snapshot *recovery.Snapshot) error {
 	_, collection, err := a.findCollectionWithWorkspaceLocked(snapshot.Entry.CollectionID)
 	if err != nil {
 		return err
 	}
-	fingerprint, err := collectionRecoveryFingerprint(collection.Path)
+	fingerprint, err := recovery.CollectionFingerprint(collection.Path)
 	if err != nil {
 		return err
 	}
@@ -514,17 +510,17 @@ func (a *App) commitCollectionRecoveryLocked(snapshot *recoverySnapshot) error {
 	snapshot.PostOpenTabs = append([]OpenTab(nil), a.state.OpenTabs...)
 	snapshot.PostClosedTabs = append([]OpenTab(nil), a.state.ClosedTabs...)
 	snapshot.PostActiveTabID = a.state.ActiveTabID
-	return writeRecoverySnapshot(a.dataDir, *snapshot)
+	return recovery.WriteSnapshot(a.dataDir, *snapshot)
 }
 
-func (a *App) rollbackCollectionRecoveryLocked(snapshot recoverySnapshot) {
-	if snapshot.Entry.Kind != recoveryKindCollection {
+func (a *App) rollbackCollectionRecoveryLocked(snapshot recovery.Snapshot) {
+	if snapshot.Entry.Kind != recovery.KindCollection {
 		rollbackSource, err := os.MkdirTemp("", "liteapi-recovery-rollback-")
 		if err == nil {
 			defer func() { _ = os.RemoveAll(rollbackSource) }()
 		}
-		if err == nil && restoreRecoveryPayload(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID, rollbackSource) == nil {
-			_ = replaceRecoveryTree(rollbackSource, snapshot.Collection.Path)
+		if err == nil && recovery.RestorePayload(a.dataDir, snapshot.Entry.WorkspaceID, snapshot.Entry.ID, rollbackSource) == nil {
+			_ = recovery.ReplaceTree(rollbackSource, snapshot.Collection.Path)
 		}
 	}
 	if ws, err := a.recoveryWorkspaceLocked(snapshot.Entry.WorkspaceID); err == nil {
@@ -541,9 +537,9 @@ func (a *App) rollbackCollectionRecoveryLocked(snapshot recoverySnapshot) {
 	_ = a.persistLocked()
 }
 
-func (a *App) rollbackCollectionRemovalLocked(snapshot recoverySnapshot) {
+func (a *App) rollbackCollectionRemovalLocked(snapshot recovery.Snapshot) {
 	if ws, err := a.recoveryWorkspaceLocked(snapshot.Entry.WorkspaceID); err == nil {
-		_ = restoreGitIgnore(*ws, snapshot.GitIgnoreExists, snapshot.GitIgnoreContent)
+		_ = recovery.RestoreGitIgnore(*ws, snapshot.GitIgnoreExists, snapshot.GitIgnoreContent)
 		if findRecoveryCollectionIndex(ws.Collections, snapshot.Entry.CollectionID) < 0 {
 			index := snapshot.CollectionIndex
 			if index < 0 || index > len(ws.Collections) {
@@ -614,13 +610,13 @@ func (a *App) removeRecoveryTabsLocked(collectionID string, requestIDs map[strin
 	}
 }
 
-func (a *App) restoreRecoveryTabsLocked(snapshot recoverySnapshot) {
+func (a *App) restoreRecoveryTabsLocked(snapshot recovery.Snapshot) {
 	ids := map[string]bool{}
 	for _, id := range snapshot.AffectedRequestIDs {
 		ids[id] = true
 	}
 	affected := func(tab OpenTab) bool {
-		return tab.CollectionID == snapshot.Entry.CollectionID && (snapshot.Entry.Kind == recoveryKindCollection || ids[tab.ItemID])
+		return tab.CollectionID == snapshot.Entry.CollectionID && (snapshot.Entry.Kind == recovery.KindCollection || ids[tab.ItemID])
 	}
 	for _, tab := range snapshot.OpenTabs {
 		if affected(tab) && !openTabIDExists(a.state.OpenTabs, tab.ID) {
