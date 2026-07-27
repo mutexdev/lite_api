@@ -12,6 +12,7 @@ import (
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/mutexdev/lite_api/internal/atomicfile"
+	"github.com/mutexdev/lite_api/internal/envsecrets"
 	"github.com/mutexdev/lite_api/internal/responsestore"
 )
 
@@ -39,7 +40,7 @@ func (a *App) writeStateLocked() error {
 	// json.Marshal, not MarshalIndent: indentation runs a second formatting
 	// pass over the whole document and roughly doubles the bytes written, and
 	// nothing reads state.json by eye (improvement_v2.md §2.1.B).
-	data, err := json.Marshal(stateForStorage(a.state, a.dataDir))
+	data, err := json.Marshal(envsecrets.StateForStorage(a.state, a.dataDir))
 	if err != nil {
 		return err
 	}

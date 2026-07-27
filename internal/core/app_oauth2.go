@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/mutexdev/lite_api/internal/atomicfile"
+	"github.com/mutexdev/lite_api/internal/envsecrets"
 	"github.com/mutexdev/lite_api/internal/prefs"
 )
 
@@ -265,11 +266,11 @@ func encryptOAuth2TokenResponse(dataDir string, response oauth2TokenResponse) (s
 	if err != nil {
 		return "", fmt.Errorf("encode OAuth2 credentials: %w", err)
 	}
-	return encryptEnvironmentSecretString(dataDir, string(data)), nil
+	return envsecrets.EncryptString(dataDir, string(data)), nil
 }
 
 func decryptOAuth2TokenResponse(dataDir, encoded string) (oauth2TokenResponse, error) {
-	plain, err := decryptEnvironmentSecretString(dataDir, encoded)
+	plain, err := envsecrets.DecryptString(dataDir, encoded)
 	if err != nil {
 		return oauth2TokenResponse{}, err
 	}

@@ -247,31 +247,6 @@ type grpcStreamSessionEvent struct {
 	At        time.Time `json:"at"`
 }
 
-type environmentSecretsFile struct {
-	Collections []environmentSecretCollection `json:"collections"`
-	Workspaces  []environmentSecretWorkspace  `json:"workspaces,omitempty"`
-}
-
-type environmentSecretWorkspace struct {
-	Path         string                         `json:"path"`
-	Environments []environmentSecretEnvironment `json:"environments"`
-}
-
-type environmentSecretCollection struct {
-	Path         string                         `json:"path"`
-	Environments []environmentSecretEnvironment `json:"environments"`
-}
-
-type environmentSecretEnvironment struct {
-	Name    string                      `json:"name"`
-	Secrets []environmentSecretVariable `json:"secrets"`
-}
-
-type environmentSecretVariable struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-
 func NewApp() *App {
 	dir := defaultDataDir()
 	return NewAppWithDir(dir)

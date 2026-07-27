@@ -219,7 +219,7 @@ func TestRevisionIsNotPersisted(t *testing.T) {
 		t.Fatalf("parse state.json: %v", err)
 	}
 	if stored.Revision != 0 {
-		t.Errorf("state.json carries revision %d; it must be scrubbed by stateForStorage", stored.Revision)
+		t.Errorf("state.json carries revision %d; it must be scrubbed by envsecrets.StateForStorage", stored.Revision)
 	}
 }
 

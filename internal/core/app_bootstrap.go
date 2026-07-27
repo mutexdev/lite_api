@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/mutexdev/lite_api/internal/envsecrets"
 	"github.com/mutexdev/lite_api/internal/prefs"
 	"github.com/mutexdev/lite_api/internal/store/yamlstore"
 	"os"
@@ -138,7 +139,7 @@ func (a *App) load() error {
 	if len(state.FeatureLedger) == 0 {
 		state.FeatureLedger = bru.DefaultFeatures()
 	}
-	state.Cookies = decryptCookieValuesForRuntime(a.dataDir, state.Cookies)
+	state.Cookies = envsecrets.DecryptCookieValues(a.dataDir, state.Cookies)
 	a.state = state
 	// US-009 step 3. Backfill body handles for responses loaded from a
 	// state.json written before the store existed. Deliberately best-effort and

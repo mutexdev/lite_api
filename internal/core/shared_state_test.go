@@ -1,6 +1,7 @@
 package core
 
 import (
+	"github.com/mutexdev/lite_api/internal/envsecrets"
 	"os"
 	"strings"
 	"testing"
@@ -30,7 +31,7 @@ func TestSharedAppStateScrubsSecretsEncryptsCookiesAndReadsIndependently(t *test
 	if shared.GlobalEnvironments[0].Variables[0].Value != "" || shared.GlobalEnvironments[0].Variables[1].Value != "us-central" || shared.Cookies[0].Value == sharedStateCookieSentinel {
 		t.Fatalf("shared projection was not safely transformed: %+v", shared)
 	}
-	if decrypted, err := decryptEnvironmentSecretString(dir, shared.Cookies[0].Value); err != nil || decrypted != sharedStateCookieSentinel {
+	if decrypted, err := envsecrets.DecryptString(dir, shared.Cookies[0].Value); err != nil || decrypted != sharedStateCookieSentinel {
 		t.Fatalf("cookie was not encrypted with canonical data dir: decrypted=%q err=%v", decrypted, err)
 	}
 	if err := WriteSharedAppState(dir, shared); err != nil {

@@ -42,6 +42,7 @@ import (
 	"github.com/mutexdev/lite_api/internal/auth/oauth1"
 	"github.com/mutexdev/lite_api/internal/auth/wsse"
 	"github.com/mutexdev/lite_api/internal/codegen"
+	"github.com/mutexdev/lite_api/internal/envsecrets"
 	"github.com/mutexdev/lite_api/internal/grpcexec"
 	"github.com/mutexdev/lite_api/internal/importers"
 	"github.com/mutexdev/lite_api/internal/openapisync"
@@ -19270,13 +19271,13 @@ headers {
 	if strings.Contains(string(secretsFile), "super-secret-token") {
 		t.Fatalf("secrets.json stored plaintext secret:\n%s", secretsFile)
 	}
-	var store environmentSecretsFile
+	var store envsecrets.File
 	if err := json.Unmarshal(secretsFile, &store); err != nil {
 		t.Fatal(err)
 	}
 	storedValue := ""
 	for _, collection := range store.Collections {
-		if collection.Path != normalizedEnvironmentSecretPath(collectionPath) {
+		if collection.Path != envsecrets.NormalizedPath(collectionPath) {
 			continue
 		}
 		for _, storedEnv := range collection.Environments {
@@ -19334,14 +19335,14 @@ func TestCollectionEnvironmentSecretsHydrateBrunoEncryptedFallbacks(t *testing.T
 	if _, err := app.OpenCollection(state.Workspaces[0].ID, collectionPath); err != nil {
 		t.Fatal(err)
 	}
-	store := environmentSecretsFile{
-		Collections: []environmentSecretCollection{
+	store := envsecrets.File{
+		Collections: []envsecrets.CollectionEntry{
 			{
-				Path: normalizedEnvironmentSecretPath(collectionPath),
-				Environments: []environmentSecretEnvironment{
+				Path: envsecrets.NormalizedPath(collectionPath),
+				Environments: []envsecrets.EnvironmentEntry{
 					{
 						Name: "Local",
-						Secrets: []environmentSecretVariable{
+						Secrets: []envsecrets.VariableEntry{
 							{Name: "legacyToken", Value: "$01:69b2ce3315570265db41263bc2e6a640"},
 							{Name: "safeToken", Value: "$00:not-available-outside-electron"},
 						},

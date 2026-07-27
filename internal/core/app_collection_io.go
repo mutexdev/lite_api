@@ -1713,7 +1713,3 @@ func nestedString(raw map[string]interface{}, path ...string) (string, bool) {
 	value, ok := current.(string)
 	return value, ok && strings.TrimSpace(value) != ""
 }
-
-func scrubEnvironmentSecretValues(environments []Environment) []Environment {
-	return bru.ScrubEnvironmentSecretValues(environments)
-}

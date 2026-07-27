@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/mutexdev/lite_api/internal/envsecrets"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,7 +36,7 @@ func ProjectSharedAppState(state AppState, dataDir string) (SharedAppState, erro
 		Version:            sharedAppStateVersion,
 		Preferences:        encryptSharedPreferences(state.Preferences, dataDir),
 		FeatureLedger:      state.FeatureLedger,
-		GlobalEnvironments: scrubEnvironmentSecretValues(state.GlobalEnvironments),
+		GlobalEnvironments: envsecrets.ScrubValues(state.GlobalEnvironments),
 		Notifications:      state.Notifications,
 		// Cookie encryption must use the canonical application data directory;
 		// using a workspace directory would make existing cookie ciphertext
@@ -58,7 +59,7 @@ func WriteSharedAppState(dataDir string, shared SharedAppState) error {
 		return err
 	}
 	shared.Preferences = encryptSharedPreferences(shared.Preferences, dataDir)
-	shared.GlobalEnvironments = scrubEnvironmentSecretValues(shared.GlobalEnvironments)
+	shared.GlobalEnvironments = envsecrets.ScrubValues(shared.GlobalEnvironments)
 	shared.Cookies = encryptSharedCookieValues(dataDir, shared.Cookies)
 	data, err := json.MarshalIndent(shared, "", "  ")
 	if err != nil {
@@ -95,7 +96,7 @@ func ReadSharedAppState(dataDir string) (SharedAppState, error) {
 func encryptSharedPreferences(preferences Preferences, dataDir string) Preferences {
 	password := preferences.Proxy.Config.Auth.Password
 	if password != "" && !isStoredSharedSecret(dataDir, password) {
-		preferences.Proxy.Config.Auth.Password = encryptEnvironmentSecretString(dataDir, password)
+		preferences.Proxy.Config.Auth.Password = envsecrets.EncryptString(dataDir, password)
 	}
 	return preferences
 }
@@ -108,7 +109,7 @@ func decryptSharedPreferences(preferences Preferences, dataDir string) (Preferen
 	if !isStoredSharedSecret(dataDir, password) {
 		return Preferences{}, errors.New("shared proxy password ciphertext is invalid")
 	}
-	decrypted, err := decryptEnvironmentSecretString(dataDir, password)
+	decrypted, err := envsecrets.DecryptString(dataDir, password)
 	if err != nil {
 		return Preferences{}, fmt.Errorf("decrypt shared proxy password: %w", err)
 	}
@@ -124,7 +125,7 @@ func encryptSharedCookieValues(dataDir string, cookies []CookieEntry) []CookieEn
 	for i := range encrypted {
 		value := strings.TrimSpace(encrypted[i].Value)
 		if value != "" && !isStoredSharedSecret(dataDir, value) {
-			encrypted[i].Value = encryptEnvironmentSecretString(dataDir, encrypted[i].Value)
+			encrypted[i].Value = envsecrets.EncryptString(dataDir, encrypted[i].Value)
 		}
 	}
 	return encrypted
@@ -143,7 +144,7 @@ func decryptSharedCookieValues(dataDir string, cookies []CookieEntry) ([]CookieE
 		if !isStoredSharedSecret(dataDir, value) {
 			return nil, errors.New("shared cookie ciphertext is invalid")
 		}
-		plain, err := decryptEnvironmentSecretString(dataDir, value)
+		plain, err := envsecrets.DecryptString(dataDir, value)
 		if err != nil {
 			return nil, fmt.Errorf("decrypt shared cookie: %w", err)
 		}
@@ -165,7 +166,7 @@ func isStoredSharedSecret(dataDir, value string) bool {
 		if err != nil || len(decoded) == 0 || len(decoded)%16 != 0 {
 			return false
 		}
-		_, err = decryptEnvironmentSecretString(dataDir, value)
+		_, err = envsecrets.DecryptString(dataDir, value)
 		return err == nil
 	default:
 		return false

@@ -334,3 +334,27 @@ scope: ./internal/prefs/
 	if value == nil {
 		return false
 	}
+===
+desc: secrets: a stored secret is left in the clear
+file: internal/envsecrets/envsecrets.go
+scope: ./internal/envsecrets/
+--- old
+	padded := scripting.ScriptPKCS7Pad([]byte(plain), block.BlockSize())
+--- new
+	return plain
+	padded := scripting.ScriptPKCS7Pad([]byte(plain), block.BlockSize())
+===
+desc: secrets: the legacy plaintext path is dropped, so pre-encryption files fail to load
+file: internal/envsecrets/envsecrets.go
+scope: ./internal/envsecrets/
+--- old
+	if encoded == "" {
+		return "", nil
+	}
+	if !strings.HasPrefix(encoded, "$") {
+		return encoded, nil
+	}
+--- new
+	if encoded == "" {
+		return "", nil
+	}

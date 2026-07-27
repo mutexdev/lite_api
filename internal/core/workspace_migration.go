@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mutexdev/lite_api/internal/atomicfile"
+	"github.com/mutexdev/lite_api/internal/envsecrets"
 	"github.com/mutexdev/lite_api/internal/filelock"
 	"github.com/mutexdev/lite_api/internal/workspacestate"
 )
@@ -435,7 +436,7 @@ func workspaceIDForScopedStatePath(dataDir, fullPath string) (string, error) {
 }
 
 func workspaceMigrationLegacyChecksum(legacy AppState, dataDir string) (string, error) {
-	stored := stateForStorage(legacy, dataDir)
+	stored := envsecrets.StateForStorage(legacy, dataDir)
 	data, err := json.Marshal(stored)
 	if err != nil {
 		return "", err
