@@ -93,13 +93,6 @@ func newProductionAppForTest(t testing.TB, dataDir string, args []string) (*App,
 	return app, err
 }
 
-// newLargeWorkspaceAppForTest is the same wrapper for the benchmark fixture's
-// constructor, which lives in workspace_fixture.go — also outside _test.go.
-func newLargeWorkspaceAppForTest(t testing.TB, dir string, opts largeWorkspaceOptions) *App {
-	t.Helper()
-	return stopPersistWriterOnCleanup(t, newLargeWorkspaceApp(dir, opts))
-}
-
 // TestEveryTestAppGoesThroughAWriterStoppingConstructor keeps the sweep above
 // from rotting. An App built directly in a test runs a background writer that
 // outlives the test by up to a debounce interval, and writes state.json into a
@@ -111,7 +104,7 @@ func newLargeWorkspaceAppForTest(t testing.TB, dir string, opts largeWorkspaceOp
 // moment a raw constructor appears in a _test.go file. The wrappers above are
 // the only sanctioned way in, and each of them registers the stop.
 func TestEveryTestAppGoesThroughAWriterStoppingConstructor(t *testing.T) {
-	raw := regexp.MustCompile(`\b(NewAppWithDir|newProductionApp|newLargeWorkspaceApp)\(`)
+	raw := regexp.MustCompile(`\b(NewAppWithDir|newProductionApp)\(`)
 	sanctioned := regexp.MustCompile(`\b(newAppForTest|newAppInDirForTest|newProductionAppForTest|newLargeWorkspaceAppForTest|stopPersistWriterOnCleanup)\b`)
 
 	entries, err := os.ReadDir(".")

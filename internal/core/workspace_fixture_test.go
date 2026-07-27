@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+	"testing"
 	"time"
 )
 
@@ -229,10 +230,16 @@ func buildLargeWorkspaceState(opts largeWorkspaceOptions) AppState {
 	}
 }
 
-// newLargeWorkspaceApp returns an *App rooted at dir with the fixture installed.
-// dir should be a t.TempDir()/b.TempDir() so persistLocked writes to scratch.
-func newLargeWorkspaceApp(dir string, opts largeWorkspaceOptions) *App {
-	app := NewAppWithDir(dir)
+// newLargeWorkspaceAppForTest returns an *App rooted at dir with the fixture
+// installed. dir should be a t.TempDir()/b.TempDir() so persistLocked writes to
+// scratch.
+//
+// It registers the writer stop itself. While this file was production code it
+// could not take a testing.TB, so a wrapper in persist_async_test.go did that
+// for it; the file is a _test.go now and the indirection is gone.
+func newLargeWorkspaceAppForTest(t testing.TB, dir string, opts largeWorkspaceOptions) *App {
+	t.Helper()
+	app := stopPersistWriterOnCleanup(t, NewAppWithDir(dir))
 	state := buildLargeWorkspaceState(opts)
 	// Preserve whatever defaultState seeded for preferences and the Feature
 	// ledger (§2.2 requires the ledger be extended, never dropped); replace only
