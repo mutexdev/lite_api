@@ -8896,3 +8896,37 @@ US-026 - Store layer. DONE. Both named collapses complete.
   blank grep count is not a zero": A MEASUREMENT HAS TO VERIFY ITS OWN PREMISE
   before its number means anything. That is now the third instrument this
   project has caught being wrong rather than the code.
+
+--- and the CI step I had just added was in the WRONG JOB ---
+
+  Before trusting the three CI gates added this session, I checked they would
+  actually run: executable bits, tool availability, job placement.
+
+  qa/lint-exclusions.sh was in the `go` job. golangci-lint is installed ONLY in
+  the `go-lint` job, by an action. The step would have failed on the first push
+  with "golangci-lint: command not found".
+
+  WORSE THAN FAILING, IT WOULD HAVE LIED. `golangci-lint run | grep -c` returns
+  0 when the binary is absent — so the baseline check passes, every removal also
+  counts 0, and the script reports EVERY EXCLUSION AS DEAD. I ran it with the
+  binary off PATH to see:
+
+      DEAD    ^internal/grpcexec/grpcexec\.go$    suppresses nothing
+      DEAD    ^internal/transport/transport\.go$  suppresses nothing
+      DEAD    ^app_test\.go$                      suppresses nothing
+      DEAD    ^internal/scripting/scripting\.go$  suppresses nothing
+
+  Four confident, completely wrong verdicts — the kind that sends someone
+  deleting live suppressions and reintroducing 23 findings.
+
+  Fixed twice over: the step moved into go-lint AFTER the action that installs
+  the binary, and the script now refuses to run at all when golangci-lint is not
+  on PATH. Control: with PATH stripped it exits 1 with one clear line.
+
+  THAT IS THE SAME MISTAKE AS THE SCRIPT'S OWN BASELINE BUG, one layer out. Both
+  are a measurement producing a number from an instrument that was not there.
+  I fixed the first an hour ago and immediately shipped the second.
+
+  All three qa scripts are committed 100755, so CI will not hit a permission
+  error. Verified with `git ls-files -s`, not by looking at the working tree —
+  the working-tree bit and the recorded bit are different things.

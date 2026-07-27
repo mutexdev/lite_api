@@ -38,6 +38,17 @@ if [ -z "$paths" ]; then
   exit 1
 fi
 
+# A MISSING LINTER MUST NOT READ AS "NOTHING IS SUPPRESSED". Without this
+# check, `golangci-lint run | grep -c` returns 0 when the binary is absent, the
+# baseline passes, every removal also counts 0, and the script confidently
+# reports every exclusion DEAD. I put this step in the wrong CI job first —
+# one that never installs golangci-lint — and that is exactly what it would
+# have produced.
+if ! command -v golangci-lint >/dev/null 2>&1; then
+  echo "golangci-lint is not on PATH; this check cannot measure anything." >&2
+  exit 1
+fi
+
 # THE MEASUREMENT IS A DELTA, so the baseline has to be zero or every number
 # below is inflated by whatever is already failing — and a genuinely dead
 # exclusion then still reads as live, because the findings appearing are
