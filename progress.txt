@@ -7896,3 +7896,43 @@ US-026 - Store layer. DONE. Both named collapses complete.
   compiler already enforcing what the test would have.
 
   Frontend totals: 99.87% lines, 97.12% branch, 98.39% functions, 761 tests.
+
+--- branch coverage: bulkEdit, 86.54% -> 96.08% ---
+
+  Suite 761 -> 766. The 25 existing tests already covered the round-trip story
+  thoroughly, so the gaps were the defensive edges:
+
+    - A ROW WITH NO enabled FLAG IS ENABLED. The check is `=== false`, not
+      falsy, and that matters: rows built by an import, a paste or a generated
+      row omit the flag, and a falsy read would render every one of them with
+      the disabled marker and bring them back SWITCHED OFF. Control fails 1.
+    - a half-built row (no name, no value) still renders and parses back. The
+      bulk editor is reached from a table that can hold an empty row, and
+      throwing there makes the button unusable on an ordinary table. Fails 1.
+    - AN EQUALS SEPARATES A LINE WITH NO COLON AT ALL. The existing test covered
+      an equals BEFORE a colon; this is the case with no colon to compare
+      against — the ordinary shape of a query string or a .env line pasted
+      straight in. Control fails 3.
+    - the disabled marker is stripped BEFORE the separator is looked for, so a
+      disabled line splits at the right place instead of folding the marker into
+      the name. Control fails 5 — the widest blast radius in the module.
+
+  A THIRD DEAD GUARD, AND THE THIRD DIFFERENT DISPOSITION.
+
+    `previous ?? []` inside parseBulkText could be removed with nothing failing.
+    The parameter is already declared `previous: BulkRow[] = []`, so a DEFAULT
+    PARAMETER fires for an explicit undefined and the nullish guard never runs.
+    It would only catch an explicit null, which TypeScript forbids and no caller
+    passes. DELETED.
+
+    The three this session, and why they were treated differently:
+      filter(Boolean) on example names   deleted — no cost, no effect
+      Array.isArray in the scanner       KEPT and labelled — redundant for
+                                         correctness but avoids materialising a
+                                         values array for a large JSON body
+      previous ?? [] here                deleted — shadowed by a default
+                                         parameter three lines above it
+
+    "Redundant" was not one answer three times. It was three.
+
+  Frontend totals: 99.87% lines, 97.29% branch, 98.39% functions, 766 tests.

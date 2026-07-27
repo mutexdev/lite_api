@@ -217,3 +217,55 @@ test('values round-trip through render and parse unchanged', () => {
     assert.equal(parsed[0].value, value, `round trip changed ${JSON.stringify(value)}`)
   }
 })
+
+// A row whose enabled flag was never set is ENABLED. The check is `=== false`,
+// not falsy, and that matters: rows built by code paths that omit the flag —
+// an import, a paste, a generated row — would otherwise all render with the
+// disabled marker and come back switched off.
+test('a row with no enabled flag renders as enabled', () => {
+  assert.equal(rowsToBulkText([{ name: 'a', value: '1' } as BulkRow]), 'a: 1')
+  assert.equal(parseBulkText('a: 1')[0].enabled, true)
+})
+
+// A half-built row still renders and still parses back. The bulk editor is
+// reached from a table that can hold an empty row the user has not typed into,
+// and throwing there would make the button unusable on a normal table.
+test('a row with no name or value survives the round trip', () => {
+  const text = rowsToBulkText([{ enabled: true } as BulkRow])
+  assert.equal(text, ': ')
+  const [row] = parseBulkText(text)
+  assert.equal(row.name, '')
+  assert.equal(row.value, '')
+  assert.equal(row.enabled, true)
+})
+
+// An absent list is treated as empty everywhere rather than throwing. Each of
+// these is reachable before the first render of a table.
+test('an absent list is accepted by every entry point', () => {
+  assert.equal(rowsToBulkText(undefined as unknown as BulkRow[]), '')
+  assert.equal(bulkTextIsLossy(undefined as unknown as BulkRow[]), false)
+  // parseBulkText handles this through its DEFAULT PARAMETER, not a nullish
+  // guard in the body. It had both; the guard could be removed with no test
+  // failing, because `= []` already fires for an explicit undefined. Removed.
+  assert.equal(parseBulkText('a: 1', undefined as unknown as BulkRow[])[0].name, 'a')
+})
+
+// A line with an equals and no colon at all takes the equals as its separator.
+// The existing tests cover an equals BEFORE a colon; this is the case where
+// there is no colon to compare against, which is the ordinary shape of a query
+// string or a .env line pasted straight in.
+test('an equals separates a line that contains no colon', () => {
+  const [row] = parseBulkText('token=abc123')
+  assert.equal(row.name, 'token')
+  assert.equal(row.value, 'abc123')
+})
+
+// The disabled marker is stripped before the separator is looked for, so a
+// disabled line still splits at the right place rather than treating the marker
+// as part of the name.
+test('a disabled line still splits on its separator', () => {
+  const [row] = parseBulkText('// token=abc')
+  assert.equal(row.name, 'token')
+  assert.equal(row.value, 'abc')
+  assert.equal(row.enabled, false)
+})

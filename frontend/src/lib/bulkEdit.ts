@@ -85,7 +85,7 @@ export function parseBulkText(text: string, previous: BulkRow[] = []): BulkRow[]
   // of a duplicated name maps to the nth previous one. Matching by name alone
   // would give every duplicate the first row's metadata.
   const carried = new Map<string, BulkRow[]>()
-  for (const row of previous ?? []) {
+  for (const row of previous) {
     const key = (row.name ?? '').trim()
     const bucket = carried.get(key)
     if (bucket) bucket.push(row)
