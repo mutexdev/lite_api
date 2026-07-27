@@ -58,8 +58,11 @@ linters:
       # embedded conformance tests in app_test.go, e.g. `expect(...).to.throw(
       # "Cannot find module")`) match on that exact string, so lowercasing it to
       # satisfy Go's error-string convention would be a compatibility regression.
-      # Re-anchored from ^app\.go$ — moved to internal/scripting.
-      - path: ^internal/scripting/scripting\.go$
+      # Re-anchored twice: from ^app\.go$ when the code moved to
+      # internal/scripting, and again to modules.go when scripting.go was split
+      # by domain. Both times the exclusion silently stopped applying and
+      # qa/lint-exclusions.sh is what reported it.
+      - path: ^internal/scripting/modules\.go$
         linters: [staticcheck]
         text: 'error strings should not be capitalized'
         source: 'Cannot find module'

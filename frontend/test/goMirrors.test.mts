@@ -53,7 +53,7 @@ test('the runner iteration cap matches the Go limit', () => {
 // SAME SET OF BODY MODES. If Go scans a mode the frontend does not, the dialog
 // never asks and the token is sent literally.
 test('both prompt scanners dispatch over the same body modes', () => {
-  const go = goFunction(goSource('internal/scripting/scripting.go'), 'scanBodyPromptVariables')
+  const go = goFunction(goSource('internal/scripting/variables.go'), 'scanBodyPromptVariables')
   const goModes = new Set(
     [...go.matchAll(/case ((?:"[a-zA-Z]+"(?:,\s*)?)+):/g)]
       .flatMap((m) => [...m[1].matchAll(/"([a-zA-Z]+)"/g)].map((x) => x[1]))
@@ -92,7 +92,7 @@ test('both prompt scanners dispatch over the same body modes', () => {
 //
 // Flipping either guard reverses that, so the asymmetry is recorded here.
 test('the multipart enabled guards differ, and in the safe direction', () => {
-  const go = goFunction(goSource('internal/scripting/scripting.go'), 'scanBodyPromptVariables')
+  const go = goFunction(goSource('internal/scripting/variables.go'), 'scanBodyPromptVariables')
   assert.match(go, /if !part\.Enabled \{/, 'the Go guard changed shape')
 
   const ts = readFileSync(fileURLToPath(new URL('../src/lib/requestScanning.ts', import.meta.url)), 'utf8')
