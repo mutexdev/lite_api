@@ -133,3 +133,108 @@ func TestCloneDoesNotWriteIntoTheOriginalsSpareCapacity(t *testing.T) {
 		t.Errorf("the clone did not receive the appended value: %#v", cloned)
 	}
 }
+
+// CloneAuthConfig makes FOUR near-identical calls, one per parameter list, and
+// the existing test above covers only AdditionalParams. The other three were
+// exercised solely on their nil path — so deleting any one of those lines
+// failed nothing.
+//
+// The consequence is not abstract. Auth config is inherited down the folder
+// chain, so a shared slice means editing one request's OAuth2 refresh
+// parameters rewrites another request's. Nothing reports it; the second request
+// simply starts sending a value nobody set on it.
+func TestCloneAuthConfigCopiesEveryParameterList(t *testing.T) {
+	param := func(name string) []OAuth2AdditionalParam {
+		return []OAuth2AdditionalParam{{Name: name, Value: "original"}}
+	}
+
+	for _, tc := range []struct {
+		list string
+		get  func(*AuthConfig) []OAuth2AdditionalParam
+	}{
+		{"AuthorizationAdditionalParams", func(a *AuthConfig) []OAuth2AdditionalParam {
+			return a.OAuth2.AuthorizationAdditionalParams
+		}},
+		{"TokenAdditionalParams", func(a *AuthConfig) []OAuth2AdditionalParam {
+			return a.OAuth2.TokenAdditionalParams
+		}},
+		{"RefreshAdditionalParams", func(a *AuthConfig) []OAuth2AdditionalParam {
+			return a.OAuth2.RefreshAdditionalParams
+		}},
+	} {
+		original := AuthConfig{Mode: "oauth2", OAuth2: OAuth2Auth{
+			AuthorizationAdditionalParams: param("auth"),
+			TokenAdditionalParams:         param("token"),
+			RefreshAdditionalParams:       param("refresh"),
+		}}
+		cloned := CloneAuthConfig(original)
+
+		tc.get(&cloned)[0].Value = "MUTATED"
+		if got := tc.get(&original)[0].Value; got != "original" {
+			t.Errorf("%s is shared with the original (value became %q)", tc.list, got)
+		}
+	}
+}
+
+// The three remaining slice clones sat at 40% for the same reason: only their
+// empty-input path was reached. Each is a copy that a caller relies on to edit
+// without the original changing.
+func TestTheRemainingSliceClonesDoNotAlias(t *testing.T) {
+	assertions := []Assertion{{Expression: "res.status", Operator: "eq", Value: "200"}}
+	clonedAssertions := CloneAssertions(assertions)
+	clonedAssertions[0].Value = "MUTATED"
+	if assertions[0].Value != "200" {
+		t.Error("CloneAssertions shares its backing array")
+	}
+
+	grpc := []GrpcMessage{{Name: "req", Content: "{}"}}
+	clonedGrpc := CloneGrpcMessages(grpc)
+	clonedGrpc[0].Content = "MUTATED"
+	if grpc[0].Content != "{}" {
+		t.Error("CloneGrpcMessages shares its backing array")
+	}
+
+	ws := []WSMessage{{Type: "text", Content: "hi"}}
+	clonedWS := CloneWSMessages(ws)
+	clonedWS[0].Content = "MUTATED"
+	if ws[0].Content != "hi" {
+		t.Error("CloneWSMessages shares its backing array")
+	}
+}
+
+// Empty input returns nil rather than an empty non-nil slice, for every one of
+// them. An empty slice with spare capacity is the case the earlier correction
+// in this file is about: appending to it writes into an array the caller may
+// still hold.
+func TestEverySliceCloneReturnsNilForEmptyInput(t *testing.T) {
+	if got := CloneOAuth2AdditionalParams(nil); got != nil {
+		t.Errorf("CloneOAuth2AdditionalParams(nil) = %#v", got)
+	}
+	if got := CloneOAuth2AdditionalParams([]OAuth2AdditionalParam{}); got != nil {
+		t.Errorf("CloneOAuth2AdditionalParams(empty) = %#v", got)
+	}
+	if got := CloneAssertions([]Assertion{}); got != nil {
+		t.Errorf("CloneAssertions(empty) = %#v", got)
+	}
+	if got := CloneGrpcMessages([]GrpcMessage{}); got != nil {
+		t.Errorf("CloneGrpcMessages(empty) = %#v", got)
+	}
+	if got := CloneWSMessages([]WSMessage{}); got != nil {
+		t.Errorf("CloneWSMessages(empty) = %#v", got)
+	}
+}
+
+// And the length is preserved — a clone that drops elements is worse than one
+// that shares them, because the loss is silent and permanent.
+func TestSliceClonesPreserveEveryElement(t *testing.T) {
+	params := []OAuth2AdditionalParam{{Name: "a"}, {Name: "b"}, {Name: "c"}}
+	cloned := CloneOAuth2AdditionalParams(params)
+	if len(cloned) != len(params) {
+		t.Fatalf("got %d elements, want %d", len(cloned), len(params))
+	}
+	for i := range params {
+		if cloned[i].Name != params[i].Name {
+			t.Errorf("element %d: got %q, want %q", i, cloned[i].Name, params[i].Name)
+		}
+	}
+}

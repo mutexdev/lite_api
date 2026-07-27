@@ -8525,3 +8525,38 @@ US-026 - Store layer. DONE. Both named collapses complete.
       re-stringified into the text "true". Control fails 1.
 
   Eight controls, eight failures.
+
+--- clone.go: four near-identical lines, one of them tested ---
+
+  CloneAuthConfig makes FOUR calls, one per OAuth2 parameter list. The existing
+  test covered exactly ONE of them (AdditionalParams); the other three were
+  reached only on their nil path, which is why CloneOAuth2AdditionalParams sat
+  at 40% while CloneAuthConfig read 100%.
+
+  So deleting any of those three lines failed nothing. Every clone function in
+  the file is now at 100%. Internal total 84.0% -> 84.1%.
+
+  THE CONSEQUENCE IS NOT ABSTRACT. Auth config is inherited down the folder
+  chain, so a shared slice means editing one request's OAuth2 REFRESH parameters
+  rewrites another request's. Nothing reports it — the second request simply
+  starts sending a value nobody set on it. Four controls, one per line, each
+  fail 1.
+
+  Also pinned:
+    - the clone COPIES rather than returning the input. Control fails 1.
+    - empty input returns NIL, not an empty non-nil slice. That is the property
+      the earlier correction in this file is about: an empty slice with spare
+      capacity is one a later append writes into, reaching an array the caller
+      may still hold. Control fails 1.
+    - the LENGTH is preserved. A clone that drops an element is worse than one
+      that shares, because the loss is silent and permanent. Control fails 1.
+    - CloneAssertions, CloneGrpcMessages and CloneWSMessages were at 40% for the
+      same reason and are now covered; aliasing assertions fails 2.
+
+  Eight controls, eight failures.
+
+  This is the third time this session a test covering ONE OF N NEAR-IDENTICAL
+  LINES let the other N-1 regress silently: the frontend's three filter flags,
+  the swagger2 path-item keys, and now these four. The shape is always the same
+  — a loop or a table over every instance is what catches it, and a single
+  representative case never does.
