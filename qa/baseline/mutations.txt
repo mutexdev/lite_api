@@ -1,0 +1,186 @@
+# Deliberate breaks that the tests MUST catch. See qa/mutations.py.
+#
+# Entries are separated by a line of "===". Each names a file, a test scope,
+# and an exact old/new pair. The old text must occur EXACTLY ONCE in the file;
+# anything else is refused rather than reported, because a control that edits
+# the wrong copy of a repeated line reports a clean result about code it never
+# touched.
+#
+# Most of these correspond to a real defect or a real blind spot found in this
+# repo. They are here so the same gap cannot reopen quietly.
+
+desc: custom CA: the cached path falls back to system trust on an empty file
+file: internal/transport/cache.go
+scope: -run BothCustomRootCAPathsAgree .
+--- old
+	if tlsConfig == nil || filePath == "" {
+--- new
+	if tlsConfig == nil || len(certPEM) == 0 {
+===
+desc: custom CA: default CAs are kept whatever the setting says
+file: app_execute_http.go
+scope: -run CustomRootCA .
+--- old
+	if boolPtrValue(preferences.KeepDefaultCaCertificates.Enabled, true) {
+--- new
+	if true {
+===
+desc: custom CA: a file holding no certificates is accepted
+file: app_execute_http.go
+scope: -run CustomRootCA .
+--- old
+	if !roots.AppendCertsFromPEM(certPEM) {
+--- new
+	if !roots.AppendCertsFromPEM(certPEM) && false {
+===
+desc: git remote: the .git suffix is not stripped
+file: app_collection_io.go
+scope: -run DeriveGitRepoName .
+--- old
+		base := strings.TrimSuffix(pathBase(parsed.Path), ".git")
+--- new
+		base := pathBase(parsed.Path)
+===
+desc: git remote: an ssh-alias remote is treated as a URL
+file: app_collection_io.go
+scope: -run DeriveGitRepoName .
+--- old
+	if parsed, err := url.Parse(remote); err == nil && parsed.Scheme != "" && parsed.Opaque == "" {
+--- new
+	if parsed, err := url.Parse(remote); err == nil && parsed.Scheme != "" {
+===
+desc: undo a delete: the collection is appended instead of restored in place
+file: collection_recovery.go
+scope: -run Restoring .
+--- old
+	index := snapshot.CollectionIndex
+	if index < 0 || index > len(ws.Collections) {
+		index = len(ws.Collections)
+	}
+	ws.Collections = append(ws.Collections, Collection{})
+--- new
+	index := len(ws.Collections)
+	ws.Collections = append(ws.Collections, Collection{})
+===
+desc: undo a delete: a negative index is not clamped, so the undo panics
+file: collection_recovery.go
+scope: -run Restoring .
+--- old
+	if index < 0 || index > len(ws.Collections) {
+		index = len(ws.Collections)
+	}
+	ws.Collections = append(ws.Collections, Collection{})
+--- new
+	if index > len(ws.Collections) {
+		index = len(ws.Collections)
+	}
+	ws.Collections = append(ws.Collections, Collection{})
+===
+desc: rollback: a failed undo does not put the collection back in place
+file: collection_recovery.go
+scope: -run RollbackCollection .
+--- old
+			index := snapshot.CollectionIndex
+			if index < 0 || index > len(ws.Collections) {
+				index = len(ws.Collections)
+			}
+--- new
+			index := len(ws.Collections)
+===
+desc: sidebar: scratch collections are counted as regular ones
+file: app_bootstrap.go
+scope: -run "CountRegularCollections|TheFirstRealCollectionIsPlacedAboveScratch" .
+--- old
+		if !collection.Scratch {
+			count++
+		}
+--- new
+		count++
+		_ = collection
+===
+desc: gRPC: a reconnect's session is deleted by the old session's teardown
+file: app_grpc.go
+scope: -run GRPCStreamSession .
+--- old
+	if a.grpcStreamSessions[key] == session {
+		delete(a.grpcStreamSessions, key)
+	}
+--- new
+	delete(a.grpcStreamSessions, key)
+===
+desc: WebSocket: a reconnect's session is deleted by the old session's teardown
+file: app_websocket.go
+scope: -run WebSocketSession .
+--- old
+	if a.websocketSessions[key] == session {
+		delete(a.websocketSessions, key)
+	}
+--- new
+	delete(a.websocketSessions, key)
+===
+desc: WebSocket: closing leaves the done channel open, leaking the keep-alive
+file: app_websocket.go
+scope: -run WebSocketSession .
+--- old
+	if session.done != nil && !session.doneClosed {
+		close(session.done)
+		session.doneClosed = true
+	}
+--- new
+	_ = session.done
+===
+desc: environments: a blank name overwrites the one already stored
+file: app_environments.go
+scope: -run GlobalEnvironment .
+--- old
+		if strings.TrimSpace(name) != "" {
+			ws.GlobalEnvironments[index].Name = strings.TrimSpace(name)
+		}
+--- new
+		ws.GlobalEnvironments[index].Name = strings.TrimSpace(name)
+===
+desc: environments: deleting the active one leaves a dangling selection
+file: app_environments.go
+scope: -run GlobalEnvironment .
+--- old
+		if len(ws.GlobalEnvironments) > 0 {
+			ws.ActiveGlobalEnvironmentID = ws.GlobalEnvironments[0].ID
+		}
+--- new
+		_ = ws
+===
+desc: postman export: a file part keeps its stale text value beside src
+file: app_export_build.go
+scope: -run SharePostmanFormData .
+--- old
+			entry["src"] = value.FilePath
+			delete(entry, "value")
+--- new
+			entry["src"] = value.FilePath
+===
+desc: network log: the two body caps drift apart
+file: internal/localserver/mock.go
+scope: -run NetworkLogBodyLimits .
+--- old
+const NetworkLogBodyLimit = 64 * 1024
+--- new
+const NetworkLogBodyLimit = 32 * 1024
+===
+desc: types: the local deterministic id diverges from scalar's
+file: internal/types/request_item.go
+scope: ./internal/types/
+--- old
+	return prefix + "-" + hex.EncodeToString(sum[:8])
+--- new
+	return prefix + "-" + hex.EncodeToString(sum[:10])
+===
+desc: transport: the resolved source is allocated fresh, so every cache lookup misses
+file: internal/transport/cache.go
+scope: ./internal/transport/
+--- old
+	if fallback, ok := http.DefaultTransport.(*http.Transport); ok && fallback != nil {
+		return fallback
+	}
+	return &http.Transport{}
+--- new
+	return &http.Transport{}

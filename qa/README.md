@@ -15,6 +15,7 @@ Every one of these was written after finding the gap it now guards.
 | `test-presence.sh` | a package lost its tests, or gained them without leaving the exemption list | ~45s | yes |
 | `lint-exclusions.sh` | a `.golangci.yml` exclusion has stopped suppressing anything | ~5s | yes |
 | `skip-audit.sh` | a test skips that did not before, or a baseline entry no longer skips | ~50s | yes |
+| `mutation.sh` | a catalogued break stops failing the tests | ~170s | no |
 | `coverage.sh` | nothing — it reports two figures | ~90s | no |
 | `selftest.sh` | one of the gates above can no longer fail | ~60s | no |
 
@@ -61,6 +62,23 @@ certificate pool is unavailable — false here today, but a toolchain or CI imag
 change could make one true, and the affected test would stop checking anything
 without saying so. `baseline/skipped-tests.txt` lists the one legitimate skip
 with its reason, and the comparison runs both ways.
+
+**`mutation.sh`** — replays a catalogue of deliberate breaks and requires the
+tests to catch every one. Coverage says which lines RAN; this says which
+behaviours are actually CHECKED, and in this repo the two came apart badly (see
+the note below). Every entry in `baseline/mutations.txt` corresponds to a real
+defect or a real blind spot found here, so the same gap cannot reopen quietly.
+
+It distinguishes three ways a control lies, all seen for real, none counted as
+a pass: `NOT FOUND` when the pattern no longer matches, `AMBIGUOUS(n)` when it
+matches more than once — two controls here reported a clean result after
+editing a different function than the one intended — and `NO COMPILE`, where a
+build error otherwise reads exactly like a pass. `BLIND` means the break
+landed, compiled, and nothing failed.
+
+Run `qa/mutation.sh --list` to see the catalogue, `--only <text>` for one entry.
+Add an entry whenever a test is written for something that would be expensive
+to get wrong.
 
 **`selftest.sh`** — breaks each gate's premise on purpose and requires the gate
 to notice. A gate that has lost its ability to fail is a green tick that means
