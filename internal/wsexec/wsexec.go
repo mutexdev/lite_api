@@ -55,7 +55,7 @@ func OutboundMessages(item types.RequestItem, vars map[string]string) []Outbound
 		}
 		return result
 	}
-	if message := MessageBody(item.Body, vars); message != "" {
+	if message := wsmessage.MessageBody(item.Body, vars); message != "" {
 		return []OutboundMessage{{Name: "message 1", Type: "text", Content: message}}
 	}
 	return nil
@@ -80,7 +80,7 @@ func OutboundMessageAt(item types.RequestItem, vars map[string]string, index int
 	if index > 0 {
 		return OutboundMessage{}, fmt.Errorf("WebSocket message %d not found", index+1)
 	}
-	if message := MessageBody(item.Body, vars); message != "" {
+	if message := wsmessage.MessageBody(item.Body, vars); message != "" {
 		return OutboundMessage{Name: "message 1", Type: "text", Content: message}, nil
 	}
 	return OutboundMessage{}, errors.New("WebSocket message is empty")
@@ -161,14 +161,15 @@ func applyAuth(headers http.Header, auth types.AuthConfig, vars map[string]strin
 // The message vocabulary lives in internal/wsmessage so that the file-format
 // readers can use it without importing this package, which dials sockets.
 //
-// Wrappers rather than vars, for the same reason as in internal/codegen: a
+// A wrapper rather than a var, for the same reason as in internal/codegen: a
 // package-level var re-export is a mutable global and an extra init entry,
 // where a function is neither.
-
+//
+// MessageBody was re-exported here too. It looked dead — 0% coverage once the
+// var became a function — and a search for `wsexec.MessageBody` found nothing.
+// It was in fact called twice from THIS package, unqualified, which a qualified
+// search could never have matched. The re-export was still pointless: those two
+// call sites now use wsmessage.MessageBody directly and the wrapper is gone.
 func NormalizeMessageType(value string) string {
 	return wsmessage.NormalizeMessageType(value)
-}
-
-func MessageBody(body types.RequestBody, vars map[string]string) string {
-	return wsmessage.MessageBody(body, vars)
 }

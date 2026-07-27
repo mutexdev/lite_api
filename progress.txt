@@ -9208,3 +9208,38 @@ US-026 - Store layer. DONE. Both named collapses complete.
   Not a synthetic control — an actual edit, caught in the direction that stops
   the exemption list rotting into a blanket excuse. List updated; three packages
   remain knowingly without their own tests.
+
+--- three dead re-exports I created an hour ago, found by coverage ---
+
+  Converting the re-exports from `var X = otherpkg.X` to wrapper FUNCTIONS had a
+  side effect I did not anticipate: functions get coverage entries and vars do
+  not. Three of them immediately reported 0.0%:
+
+      codegen.ApplyEnabledPathParams
+      codegen.AppendEnabledQuery
+      wsexec.MessageBody
+
+  The first two were genuinely dead. The move left them re-exported for callers
+  that do not exist — and EXPORTED IDENTIFIERS ARE NOT REPORTED BY THE `unused`
+  LINTER, so nothing objected while they were vars and nothing would have
+  objected as functions either. Coverage found them because a wrapper that
+  forwards is still a statement, and an uncalled statement is 0%. Deleted.
+
+  THE THIRD WAS NOT DEAD AND MY SEARCH WAS WRONG. I grepped `wsexec.MessageBody`
+  and found nothing, concluded it had no callers, and deleted it — the build
+  immediately failed with two undefined references INSIDE wsexec itself, where
+  it is called UNQUALIFIED. A qualified search can never match an unqualified
+  call in the declaring package. The re-export was still pointless, so the two
+  call sites now use wsmessage.MessageBody directly and the wrapper is gone.
+
+  Then my replacement pattern was wrong as well — I matched `Content:
+  MessageBody(` when the call sites read `if message := MessageBody(`. The
+  assertion in the edit script counted 0 and refused, which is the only reason
+  it did not write a mangled file.
+
+  ZERO 0%-COVERED FUNCTIONS REMAIN IN internal/. Total holds at 84.2%.
+
+  Worth stating plainly: converting vars to functions was justified on
+  immutability and init order, and it turned out to buy something I had not
+  argued for — VISIBILITY TO COVERAGE. A var re-export is invisible to both the
+  unused linter and the coverage tool, which is a poor place to keep anything.

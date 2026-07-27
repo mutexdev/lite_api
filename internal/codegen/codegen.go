@@ -420,23 +420,18 @@ func ResponseBodyType(response types.Response) string {
 	}
 }
 
-// The URL builders live in internal/urlbuild. They are re-exported here so the
-// generators can keep calling them unqualified, and so no caller had to change
-// when they moved out of a code-generation package they never belonged in.
+// RequestURLWithParams lives in internal/urlbuild and is re-exported here so
+// the generators and app_execute_http.go can keep calling it unqualified.
 //
-// Wrappers rather than `var X = urlbuild.X`: a package-level var would be a
-// MUTABLE global that any package could reassign, and it would add three
-// entries to this package's initialisation. A function forwards identically,
-// costs nothing after inlining, and cannot be reassigned.
-
+// A wrapper rather than `var X = urlbuild.X`: a package-level var would be a
+// MUTABLE global that any package could reassign, and it would add an entry to
+// this package's initialisation. A function forwards identically, costs nothing
+// after inlining, and cannot be reassigned.
+//
+// Its two helpers, ApplyEnabledPathParams and AppendEnabledQuery, were
+// re-exported here too and had NO CALLERS — the move left them behind for
+// nobody. Exported identifiers are not reported by the `unused` linter, so
+// nothing objected. Deleted; call them on internal/urlbuild directly.
 func RequestURLWithParams(rawURL string, queryParams, pathParams []types.KeyValue, vars map[string]string) string {
 	return urlbuild.RequestURLWithParams(rawURL, queryParams, pathParams, vars)
-}
-
-func ApplyEnabledPathParams(rawURL string, pathParams []types.KeyValue, vars map[string]string) string {
-	return urlbuild.ApplyEnabledPathParams(rawURL, pathParams, vars)
-}
-
-func AppendEnabledQuery(rawURL string, params []types.KeyValue, vars map[string]string) string {
-	return urlbuild.AppendEnabledQuery(rawURL, params, vars)
 }
