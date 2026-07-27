@@ -9108,3 +9108,43 @@ US-026 - Store layer. DONE. Both named collapses complete.
   The lesson I actually take from this: I was wrong about the cause and the fix
   did not work, and the ONLY reason I noticed was that the output was
   self-contradictory. A quieter wrong diagnosis would have shipped.
+
+=== THE CONTROLS THEMSELVES ARE NOW IN THE REPO ===
+
+  Every gate written this session was verified once, by hand, by breaking
+  something and watching it complain — and that verification lived in a terminal
+  and is gone. A gate that has quietly lost its ability to FAIL is worse than no
+  gate: it is a green tick that means nothing, and this session found five of
+  those before any of these scripts existed.
+
+  qa/selftest.sh makes each control repeatable. It mutates the tree, runs the
+  gate, asserts a NON-ZERO exit, and restores through a trap so an interrupted
+  run leaves nothing broken. Five controls:
+
+      bindings.sh          a method missing from the baseline
+      test-presence.sh     a package losing its tests
+      lint-exclusions.sh   an exclusion anchored at the wrong file
+      verify-inputs        the test directory gone
+      verify-inputs        src/lib emptied of modules
+
+  Verified it leaves the tree CLEAN afterwards, with git status, not by
+  assumption.
+
+  AND THEN THE OBVIOUS QUESTION, ASKED OF THE SELF-TEST ITSELF.
+
+    Break a gate so it cannot fail  -> "BLIND", exit 1. It works.
+    Break expect_failure so it always reports success, AND break a gate
+                                    -> "all 5 gate controls still catch their
+                                       break", exit 0.
+
+  IT CANNOT VERIFY ITSELF. That is written into the script rather than left for
+  someone to discover, because the failure is silent and reassuring.
+
+  This is the regress every checker has: something has to be trusted at the
+  bottom. The only mitigation available is to make that thing small —
+  expect_failure is six lines with two visibly opposite branches, short enough
+  to read and be sure of. That is why it is allowed to be the part taken on
+  faith, and it is worth being explicit that it IS taken on faith.
+
+  Not wired into CI: it is slow and it mutates the working tree. Its value is
+  before a release, or after touching a gate.
