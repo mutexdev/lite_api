@@ -8388,3 +8388,30 @@ US-026 - Store layer. DONE. Both named collapses complete.
   That is a SEVENTH disposition for code a test cannot pin: not decorative, not
   compiler-required, not an untestable production path — but half of a pair
   where only the pair is observable.
+
+--- export filename collisions: uniqueExportFileBaseName 33.3% -> 100% ---
+
+  This is what stops two exported global environments landing on the SAME
+  FILENAME, where the second overwrites the first and the export reports success
+  having written one fewer file than it had environments.
+
+  THE COLLISION IS NOT HYPOTHETICAL. Environment names are free text and the
+  filename is SANITISED, so "My Env!", "My Env?" and "My Env#" all become the
+  same base name. That end-to-end case is now the headline test; bypassing the
+  uniquifier fails 2. Internal total 83.7% -> 83.8%.
+
+  Pinned:
+    - the suffix sequence is name, "name copy", "name copy 2", "name copy 3" —
+      "copy 1" is NEVER produced, which is what makes a directory listing read
+      as a series rather than as an off-by-one.
+    - THE used MAP IS AN OUTPUT AS WELL AS AN INPUT. Each returned name is
+      recorded, or the next call hands out the same one. Two controls, one for
+      the first-use path and one for the suffix path, fail 4 and 2 — the
+      first-use omission is the wider break because every export starts there.
+    - a suffix already taken by an earlier environment is SKIPPED rather than
+      reused. Control fails 3.
+    - an environment with no usable name still gets a file, not one called
+      ".json" that most tools will not show. Control fails 1.
+    - a nil used map is accepted rather than panicking. Control fails 1.
+
+  Six controls, six failures.
