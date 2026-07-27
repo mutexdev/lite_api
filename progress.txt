@@ -9464,3 +9464,28 @@ US-026 - Store layer. DONE. Both named collapses complete.
   Also: svelte-check caught the delegation immediately — appState is
   `AppState | null` and my parameter took `| undefined`. Widened, rather than
   casting at the call site for a case the function already handles.
+
+--- runtime verification of the sidebar change specifically ---
+
+  The last two commits altered the live virtualisation path — the offset walk
+  moved to lib, and the superseded module was deleted. A misplaced row does not
+  fail any test I have; it renders, and then a click lands on the wrong request.
+  So the app was run and the sidebar exercised against the two rules the
+  extracted function encodes.
+
+    COLLAPSED COLLECTION contributes only its header
+      before     Sample API, POST Echo JSON, GET R7 Persist
+      collapsed  Sample API                        (the two requests gone)
+      restored   IDENTICAL to before
+
+    SEARCH OVERRIDES COLLAPSE
+      collapsed, no query   0 sidebar requests
+      collapsed, "echo"     POST Echo JSON surfaced
+
+  Both are the rules unit-tested in virtualList.ts, now confirmed in the running
+  app. Zero console errors.
+
+  This is the third runtime verification this session, and each time it was
+  aimed at what had just changed rather than run as a ritual: the first covered
+  the whole extraction pass, the second the moved Go packages via a real request
+  URL, this one the sidebar arithmetic.
