@@ -12,7 +12,8 @@ import {
   isValidGlobalSearchQuery,
   globalSearchTermsMatch,
   globalSearchItemPath,
-  buildGlobalSearchResults
+  buildGlobalSearchResults,
+  sortGlobalSearchResults,
 } from '../src/lib/globalSearch.ts'
 
 const workspace = {
@@ -159,4 +160,93 @@ test('every result carries the ids the caller needs to open it', () => {
 test('result ids are unique', () => {
   const ids = search('').map((r) => r.id).concat(search('api').map((r) => r.id))
   assert.equal(new Set(ids).size, ids.length)
+})
+
+// Every result row renders a subtitle and a meta chip. Both have fallbacks, and
+// an unfilled one shows as a blank cell that reads like a rendering bug rather
+// than like missing data.
+test('a collection with no path is subtitled by its request count', () => {
+  const workspace = {
+    collections: [{ id: 'c1', name: 'Scratch', items: [{ id: 'i1', name: 'ping' }] }]
+  } as unknown as types.Workspace
+  const [result] = buildGlobalSearchResults(workspace, '')
+  assert.equal(result.subtitle, '1 requests')
+  assert.equal(result.meta, 'collection', 'a collection with no format still labels itself')
+})
+
+// The same two fallbacks are written twice — once for the empty-query listing
+// and once for a matched collection. They must agree, or the same collection
+// describes itself differently depending on whether the user has typed
+// anything.
+test('the empty-query and matched rows describe a collection identically', () => {
+  const workspace = {
+    collections: [{ id: 'c1', name: 'Scratch', items: [{ id: 'i1', name: 'ping' }] }]
+  } as unknown as types.Workspace
+  const [listed] = buildGlobalSearchResults(workspace, '')
+  const [matched] = buildGlobalSearchResults(workspace, 'scratch')
+  assert.equal(listed.subtitle, matched.subtitle)
+  assert.equal(listed.meta, matched.meta)
+  assert.notEqual(listed.rank, matched.rank, 'but a match still outranks a plain listing')
+})
+
+test('a collection with no items counts zero rather than showing nothing', () => {
+  const workspace = { collections: [{ id: 'c1', name: 'Empty' }] } as unknown as types.Workspace
+  assert.equal(buildGlobalSearchResults(workspace, '')[0].subtitle, '0 requests')
+})
+
+// The meta chip is what tells a GET row from a POST row at a glance. A request
+// saved before the method field existed falls back through its type to a
+// constant, rather than rendering an empty chip.
+test('a request with no method falls back through its type', () => {
+  const workspace = {
+    collections: [{ id: 'c1', name: 'C', items: [
+      { id: 'i1', name: 'typed', type: 'graphql' },
+      { id: 'i2', name: 'bare' }
+    ] }]
+  } as unknown as types.Workspace
+  const byName = Object.fromEntries(
+    buildGlobalSearchResults(workspace, 'i').concat(buildGlobalSearchResults(workspace, 'typed'), buildGlobalSearchResults(workspace, 'bare'))
+      .map((r) => [r.name, r.meta])
+  )
+  assert.equal(byName.typed, 'graphql')
+  assert.equal(byName.bare, 'request')
+})
+
+// A request inside a folder shows where it lives; one at the collection root
+// has no folder to name, and repeating the collection name twice would be
+// noise.
+test('a request subtitle names its folder only when it has one', () => {
+  const workspace = {
+    collections: [{ id: 'c1', name: 'C', items: [
+      { id: 'i1', name: 'nested', folderPath: 'auth' },
+      { id: 'i2', name: 'root' }
+    ] }]
+  } as unknown as types.Workspace
+  const nested = buildGlobalSearchResults(workspace, 'nested')[0]
+  const root = buildGlobalSearchResults(workspace, 'root')[0]
+  assert.equal(nested.subtitle, 'C / auth')
+  assert.equal(root.subtitle, 'C')
+})
+
+// A single character is a legitimate search — "a" narrows a long list usefully.
+// A single PUNCTUATION mark is not: it matches on substring, so "." would
+// return every request with a dot anywhere in a URL, which is all of them.
+test('a one-character query is valid only if it is alphanumeric', () => {
+  for (const query of ['a', 'Z', '1']) {
+    assert.equal(isValidGlobalSearchQuery(query), true, query)
+  }
+  for (const query of ['.', '*', '-', '/']) {
+    assert.equal(isValidGlobalSearchQuery(query), false, query)
+  }
+})
+
+// Rank first, then type, then name. Without the last tiebreak two results that
+// are equal on both earlier keys keep whatever order the collection happened to
+// be stored in, so the list reshuffles between renders.
+test('results equal on rank and type are ordered by name', () => {
+  const rows = [
+    { rank: 1, type: 'folder', name: 'beta' },
+    { rank: 1, type: 'folder', name: 'alpha' }
+  ] as unknown as Parameters<typeof sortGlobalSearchResults>[0][]
+  assert.deepEqual([...rows].sort(sortGlobalSearchResults).map((r) => r.name), ['alpha', 'beta'])
 })

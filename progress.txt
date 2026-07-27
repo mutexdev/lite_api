@@ -7834,3 +7834,34 @@ US-026 - Store layer. DONE. Both named collapses complete.
   guessed "https://api.test/(:id)" should yield ['id'] and treated the empty
   result as suspicious. It is correct — there is no function name, so it is not
   that form.
+
+--- branch coverage: globalSearch, the lowest module at 83.67% ---
+
+  Lines and functions were already near 100% everywhere, so the remaining gaps
+  are BRANCHES — which is where an untested fallback hides. globalSearch.ts was
+  the lowest: 83.67% -> 94.34% branch, 100% lines. Suite 748 -> 755.
+
+  Every uncovered branch was a FALLBACK THE USER SEES:
+    - a collection with no path is subtitled by its REQUEST COUNT, and one with
+      no format labels itself "collection". An unfilled fallback renders a blank
+      cell, which reads like a rendering bug rather than like missing data.
+    - THOSE TWO FALLBACKS ARE WRITTEN TWICE — once for the empty-query listing
+      and once for a matched collection — and must agree, or the same collection
+      describes itself differently depending on whether the user has typed
+      anything. Now tested against each other rather than separately.
+      Control fails 1.
+    - a request with no method falls back through its TYPE to a constant. The
+      meta chip is what tells a GET row from a POST row at a glance. Fails 1.
+    - a request subtitle names its folder only when it HAS one; repeating the
+      collection name twice would be noise. Fails 1.
+    - A ONE-CHARACTER QUERY IS VALID ONLY IF ALPHANUMERIC. "a" usefully narrows
+      a long list; "." matches on substring and would return every request with
+      a dot anywhere in a URL, which is all of them. BOTH DIRECTIONS control:
+      accepting punctuation fails 2, rejecting letters fails 2.
+    - the sort's NAME tiebreak. Without it two results equal on rank and type
+      keep whatever order the collection was stored in, so the list reshuffles
+      between renders. Fails 1.
+
+  Seven controls, seven failures.
+
+  Frontend totals: 99.87% lines, 96.94% branch, 98.38% functions, 755 tests.
