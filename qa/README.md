@@ -1,0 +1,96 @@
+# qa/
+
+Checks that the ordinary build does not make.
+
+`go build`, `go test`, `npm run check` and the rest cover whether the code
+works. These cover the things that stay green while quietly meaning nothing —
+a binding renamed on one side of the Wails bridge, a lint exclusion left
+pointing at a file the code has moved out of, a test suite that runs zero tests.
+
+Every one of these was written after finding the gap it now guards.
+
+| script | what it fails on | cost | in CI |
+|---|---|---|---|
+| `bindings.sh` | the bound-method surface changed, or Go/`App.d.ts`/`App.js` disagree | <1s | yes |
+| `test-presence.sh` | a package lost its tests, or gained them without leaving the exemption list | ~45s | yes |
+| `lint-exclusions.sh` | a `.golangci.yml` exclusion has stopped suppressing anything | ~5s | yes |
+| `coverage.sh` | nothing — it reports two figures | ~90s | no |
+| `selftest.sh` | one of the gates above can no longer fail | ~50s | no |
+
+`frontend/scripts/verify-inputs.mjs` is the frontend counterpart, wired to
+`pretest`, `precheck` and `prelint` so it runs automatically.
+
+## Why each exists
+
+**`bindings.sh`** — the 188 bound methods are the contract between `package
+main` and the frontend, and the generated bindings are committed. A rename in
+Go that is not followed by `wails generate module` leaves the frontend calling a
+method that no longer exists, and **nothing in either build says so**, because
+the `.d.ts` still type-checks against itself. Checking the count alone is not
+enough: a changed parameter type, or one method unexported while another is
+added, both keep it at 188. The gate diffs the full signature list.
+
+To change the surface deliberately: `wails generate module`, then
+`qa/bindings.sh --update`, and review that diff as part of the change.
+
+**`test-presence.sh`** — `go test ./...` prints `[no test files]` and **exits
+0**, so a package losing its tests leaves CI green. Four packages legitimately
+have none; they are listed in `baseline/untested-packages.txt` with a reason
+each. The comparison runs both ways, so the list cannot rot into a blanket
+exemption.
+
+**`lint-exclusions.sh`** — an exclusion is anchored to an exact path. When code
+moves the anchor stops matching, silently: nothing errors, the exclusion just
+stops applying. This repo reached 45 live issues that way once, with five
+exclusions still pointing at `app.go` after the code had moved to `internal/`.
+
+**`coverage.sh`** — reports, it does not gate. Two scopes, because they measure
+different things and were once quoted interchangeably: `internal/` alone, and
+`internal/` plus root `package main`.
+
+**`selftest.sh`** — breaks each gate's premise on purpose and requires the gate
+to notice. A gate that has lost its ability to fail is a green tick that means
+nothing.
+
+## Things learned the hard way, so they are not re-learned
+
+**Coverage needs `tools/coverage/mergeprofile.go`.** With `-coverpkg` over a
+multi-package build, every test binary writes a full profile and `go test
+-coverprofile` concatenates them, so one source block appears once per binary —
+here that turns roughly ten thousand blocks into nearly three hundred thousand
+lines. `go tool cover -func` counts each occurrence separately, so **the
+reported percentage falls as test binaries are added**, which is exactly
+backwards. `coverage.sh` merges first.
+
+To see the ratio for yourself:
+
+```
+go test -count=1 -coverpkg=./internal/... -coverprofile=raw.out ./...
+wc -l raw.out
+go run tools/coverage/mergeprofile.go raw.out | wc -l
+```
+
+`-count=1` matters for an unrelated reason: a cached package contributes no
+profile data at all, so a cached run silently under-reports.
+
+**`-cover` hides packages that have no tests.** With that flag a package without
+tests prints `coverage: 0.0% of statements` instead of `[no test files]`, so
+`grep -c "no test files"` returns zero. A claim that every package here had
+tests rested on exactly that measurement; four do not. `test-presence.sh` runs
+without `-cover` deliberately.
+
+**Count findings from JSON, not from prose.** Two of the mistakes above came
+from grepping a tool's human-readable output for a string. `lint-exclusions.sh`
+counts from `--output.json.path`; a machine format does not move under a flag,
+and one that does change is reported rather than silently counted as zero.
+
+**Every gate is asked what it does when its input is absent.** Not one of them
+answered "fail" before being asked — `node --test` over a glob matching nothing
+exits 0; `svelte-check` with `src/` gone still finds 103 files in `node_modules`
+and reports success; `golangci-lint` missing from `PATH` made every exclusion
+look dead. The frontend floors are floors, not targets: they catch a collapse,
+not growth.
+
+**`selftest.sh` cannot verify itself.** Breaking its `expect_failure` helper
+makes it pass a blind gate. Something must be trusted at the bottom; the
+mitigation is that the helper is six lines with two visibly opposite branches.

@@ -9148,3 +9148,33 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Not wired into CI: it is slow and it mutates the working tree. Its value is
   before a release, or after touching a gate.
+
+=== qa/README.md — a map for the five scripts ===
+
+  qa/ had grown to five scripts, two baselines and a frontend counterpart with
+  no explanation of what any of them is for. Written now, while the reasons are
+  still first-hand.
+
+  It carries the four corrections this session produced, because each was
+  learned expensively and would otherwise be learned that way again:
+    - coverage needs the merge tool, and WHY the raw number falls as tests are
+      added
+    - -cover HIDES packages that have no tests, which is how a false claim
+      about this repo survived several summaries
+    - count from JSON, not from a tool's prose
+    - every gate must be asked what it does when its input is absent, and not
+      one of them answered "fail" before being asked
+
+  MEASURED RATHER THAN ESTIMATED. The cost column is timed, not guessed:
+  bindings <1s, lint-exclusions ~5s, test-presence ~45s, selftest ~50s,
+  coverage ~90s. The "in CI" column was read out of ci.yml with a parser rather
+  than from memory.
+
+  AND ONE FIGURE HAD ALREADY DRIFTED. I cited "10,485 blocks became 283,457
+  lines across 28 binaries" from my own notes; re-measuring gave 10,490 /
+  283,592 / 31. Numbers that need maintaining rot, so the README now states the
+  SHAPE — roughly ten thousand blocks into nearly three hundred thousand lines —
+  and gives the three commands to re-measure. Verified those commands run.
+
+  Also verified `qa/bindings.sh --update` behaves as documented: it rewrites the
+  baseline and leaves no diff when the surface has not changed.
