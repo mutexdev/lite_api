@@ -8232,3 +8232,41 @@ US-026 - Store layer. DONE. Both named collapses complete.
   That is a SIXTH disposition for code a test cannot reach — distinct from the
   five guards, because this one protects a real production failure mode rather
   than an impossible one.
+
+--- yamlstore: the typed-value parser, 45.5% -> 100% ---
+
+  parseYAMLTypedValue decides whether a variable comes back as the NUMBER 42 or
+  the STRING "42". That is not cosmetic: the value is interpolated into request
+  bodies, so the wrong answer turns {"count":42} into {"count":"42"} — a payload
+  many servers reject and some silently accept as something else. It had no test
+  of its own, reached only incidentally through environment parsing.
+
+  13 tests. Nine controls, nine failures. yamlstore mean 80.9% -> 83.3%;
+  internal total 83.4% -> 83.5%.
+
+  Pinned:
+    - AN INTEGER STAYS AN INTEGER. Routing every number through ParseFloat makes
+      42 serialise as 42.0, and an id field rendered as 42.0 is not the same
+      request. Control fails 3 — the widest in the slice.
+    - a decimal or exponent must NOT go through Atoi, which rejects it and
+      leaves the value as text. Control fails 1.
+    - AN UNPARSEABLE VALUE KEEPS ITS DECLARED TYPE. A number that will not parse
+      stays typed "number" and returns the raw text. Falling back to "string"
+      silently reclassifies the variable, so the editor stops offering the
+      number controls for a value the user explicitly typed as one — and fixing
+      the typo would first require noticing the type had changed underneath.
+      Controls fail 1 each for number and boolean.
+    - AN UNKNOWN TYPE IS PASSED THROUGH, not collapsed. A collection written by
+      a newer build keeps its declared type, so opening it in an older build and
+      saving does not silently downgrade it. Control fails 1.
+    - an ABSENT type reads as string — a file written before the type field
+      existed has none, and any other default reinterprets every variable in it.
+    - an object is kept as TEXT rather than re-parsed, so keys are not reordered
+      and whitespace the user chose survives.
+    - A NULL READS AS EMPTY, not as the text "null" and not as a nil that would
+      be interpolated literally. Control fails 1.
+
+  Worth noting: the per-package number for yamlstore reads 27.3% under a plain
+  `go test -cover`, because most of its statements are exercised from package
+  main's suite rather than its own. The 83.3% above is from the merged
+  -coverpkg profile. Same trap as before, same instrument.
