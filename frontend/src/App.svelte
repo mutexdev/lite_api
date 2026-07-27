@@ -92,9 +92,12 @@
     filesystemNameIsValid,
     isReservedMetadataName,
     isReservedRootDirectory,
+    joinSlashPath,
     requestFilesystemBaseName as requestFilesystemBaseNameOf,
     sanitizeCollectionFolderName,
-    slashPathBase
+    slashPathBase,
+    slashPathHasPrefix,
+    slashPathParent
   } from './lib/filesystemNames'
   import {
     collectionProxyWithDefaults,
@@ -4175,22 +4178,6 @@
   function newFolderExpectedPath() {
     const directoryName = sanitizeCollectionFolderName(newFolderDirectoryDraft)
     return [newFolderParentPath, directoryName].filter(Boolean).join('/')
-  }
-
-  function slashPathParent(value: string | undefined) {
-    const parts = (value ?? '').split('/').filter(Boolean)
-    parts.pop()
-    return parts.join('/')
-  }
-
-  function joinSlashPath(parent: string, child: string) {
-    return [parent, child].filter(Boolean).join('/')
-  }
-
-  function slashPathHasPrefix(value: string | undefined, prefix: string | undefined) {
-    const normalizedValue = (value ?? '').split('/').filter(Boolean).join('/')
-    const normalizedPrefix = (prefix ?? '').split('/').filter(Boolean).join('/')
-    return normalizedValue !== '' && normalizedPrefix !== '' && (normalizedValue === normalizedPrefix || normalizedValue.startsWith(`${normalizedPrefix}/`))
   }
 
   function collectionRequestExtension(collection: types.Collection) {

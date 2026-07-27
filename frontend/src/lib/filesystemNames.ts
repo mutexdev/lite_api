@@ -116,6 +116,53 @@ export function slashPathBase(value: string | undefined): string {
 }
 
 /**
+ * The three below came out of App.svelte, where they sat 4,000 lines from
+ * `slashPathBase` and did the same algebra on the same paths.
+ *
+ * NOTE, and left deliberately unchanged: `slashPathBase` above accepts either
+ * separator, and these three accept only `/`. That asymmetry is not obvious
+ * until they are read side by side, which is most of the argument for moving
+ * them here. It is safe today because these operate on collection-tree paths,
+ * which are built by `joinSlashPath` and are therefore always `/`-joined — a
+ * Windows filesystem path would give the wrong answer. Changing it is a
+ * behaviour change and does not belong in a move.
+ */
+
+/** A tree path with its last segment removed. `''` when there is no parent. */
+export function slashPathParent(value: string | undefined): string {
+  const parts = (value ?? '').split('/').filter(Boolean)
+  parts.pop()
+  return parts.join('/')
+}
+
+/**
+ * Whether `value` is `prefix` or sits beneath it.
+ *
+ * The boundary matters: `a/bc` is NOT beneath `a/b`, so the check appends a
+ * separator rather than using a bare `startsWith`. Getting that wrong would
+ * make a sibling folder register as a descendant, which is how a drag-and-drop
+ * ends up refusing a legal move or permitting a folder into its own subtree.
+ */
+export function slashPathHasPrefix(
+  value: string | undefined,
+  prefix: string | undefined,
+): boolean {
+  const normalizedValue = (value ?? '').split('/').filter(Boolean).join('/')
+  const normalizedPrefix = (prefix ?? '').split('/').filter(Boolean).join('/')
+  return (
+    normalizedValue !== '' &&
+    normalizedPrefix !== '' &&
+    (normalizedValue === normalizedPrefix ||
+      normalizedValue.startsWith(`${normalizedPrefix}/`))
+  )
+}
+
+/** Joins a parent and child, dropping either if empty so no `//` appears. */
+export function joinSlashPath(parent: string, child: string): string {
+  return [parent, child].filter(Boolean).join('/')
+}
+
+/**
  * A request's filesystem basename, with its format extension removed.
  *
  * Falls back through the display name to a constant, because a request created

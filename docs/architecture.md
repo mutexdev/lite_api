@@ -163,6 +163,39 @@ Grouped `var` and `const` blocks move as one unit, because package-level
 initialisation order follows **filename** sort order within a package — the one
 class of error here that compiles and passes tests.
 
+### The frontend: App.svelte is not a stalled extraction
+
+`src/App.svelte` is ~10,700 lines and looks like the obvious next target. The
+plan for this work assumed the lever was the one the repo had already used
+successfully — move pure logic into plain `.ts` modules under `src/lib/` with
+`node --test` coverage, leaving the `.svelte` file as a thin reactive shell.
+
+**That lever is very nearly exhausted, and the number is worth knowing before
+anyone budgets a project around it.** `frontend/scripts/scanScript.mjs` parses
+the `<script>` block with the TypeScript compiler API and reports which
+top-level functions are free of component state:
+
+```
+cd frontend && node scripts/scanScript.mjs          # summary
+node scripts/scanScript.mjs --list                  # the pure ones, by size
+node scripts/scanScript.mjs --why <name>            # what binds one function
+```
+
+Of 618 top-level functions, **585 are component-bound** — 461 touch `$state`
+directly and 375 call a Wails binding. The analysis is deliberately
+conservative (any identifier collision counts, including a local shadowing a
+state name), but that is not what makes the number small: relaxing the strictest
+rule would reclaim 15 functions. The ~40 `src/lib/` modules that already exist
+took the extractable logic, and a scan of what is left mostly returns one-line
+delegations to those modules — which is a component shell doing its job, not
+debt.
+
+So the remaining size is markup (~3,600 lines) and genuinely reactive code.
+Reducing it means splitting out child components — props, bindings and event
+flow — which is a different risk profile with no equivalent of the compiler-
+verified safety net the Go moves had. `svelte-check` reports 0/0 and is the
+main guard; treat that as a floor, not a proof.
+
 ### Then run the gates
 
 `qa/` holds the checks the ordinary build does not make — see `qa/README.md`.
