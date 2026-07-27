@@ -10,7 +10,10 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "lint": "eslint .",
     "test": "node --test test/*.mts",
-    "pretest": "node -e \"const fs=require('fs');const n=fs.existsSync('test')?fs.readdirSync('test').filter(f=>f.endsWith('.test.mts')).length:0;if(n<25){console.error('pretest: found '+n+' test files, expected at least 25. node --test EXITS 0 when its glob matches nothing, so a moved directory or a changed glob would leave CI green having run no tests at all. Fix the path, or lower this floor deliberately.');process.exit(1)}\""
+    "pretest": "npm run verify:inputs --silent",
+    "verify:inputs": "node scripts/verify-inputs.mjs",
+    "precheck": "npm run verify:inputs --silent",
+    "prelint": "npm run verify:inputs --silent"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
