@@ -455,6 +455,14 @@ func (c *Cache) TransportFor(spec Spec) (*http.Transport, error) {
 // sweepIfDue runs the eviction scan at most once per
 // transportCacheSweepInterval. On the hit path the common case is one atomic
 // load.
+//
+// The deadline is checked TWICE, and the two checks are one mechanism rather
+// than two guards. The first avoids taking the lock at all, which is what keeps
+// a cache hit off the mutex; the second covers two goroutines that both passed
+// the first before either swept. NEITHER IS OBSERVABLE ON ITS OWN — remove
+// either and the behaviour is identical, remove both and every hit scans the
+// whole map. The tests pin that property rather than either line, which is why
+// a control deleting one of them correctly fails nothing.
 func (c *Cache) sweepIfDue(now time.Time) {
 	if now.UnixNano() < c.nextSweep.Load() {
 		return

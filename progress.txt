@@ -8350,3 +8350,41 @@ US-026 - Store layer. DONE. Both named collapses complete.
   certificate appended, and the control fails 1.
 
   Five controls, five failures after that fix.
+
+--- the transport cache sweep: 20% -> 80%, and a control that SHOULD fail 0 ---
+
+  sweepIfDue keeps a cache HIT from scanning the whole entry map. The existing
+  cache tests reach evictLocked through TransportFor's MISS path; none exercised
+  the sweep, so its rate limiting — the entire reason it exists — was untested.
+
+  4 tests. Internal total 83.6% -> 83.7%.
+
+  Pinned:
+    - THE CACHE DELIBERATELY TOLERATES A STALE ENTRY between sweeps rather than
+      scanning on each hit. That is the trade the function makes, and it is only
+      visible from a hit before the interval elapses.
+    - and when the sweep IS due, the same hit evicts. Without that half the cache
+      only ever shrinks on a MISS, so a workspace that settles into one posture
+      holds every transport it ever built. Control fails 1.
+    - a sweep pushes the next one out by a full interval, so a burst scans once
+      rather than once each. Controls fail 1 for not advancing it and 1 for
+      advancing it from zero instead of now.
+
+  TWO CONTROLS FAILED 0, AND THAT IS THE RIGHT ANSWER.
+
+  The deadline is checked TWICE — once before taking the lock, once after. I
+  removed each in turn and neither failed a test. That is not a gap: the two are
+  ONE MECHANISM. The first avoids taking the mutex on a hit; the second covers
+  two goroutines that both passed the first before either swept. Remove either
+  and the behaviour is IDENTICAL; remove BOTH and every hit scans the whole map —
+  which I checked, and it fails 1.
+
+  So the tests pin the PROPERTY (hits are rate-limited) rather than either line,
+  and a control deleting one line correctly reports nothing. I nearly wrote this
+  up as two uncovered branches needing tests; they cannot have tests, because
+  neither line has an observable effect alone. Recorded in a comment on the
+  function so the next reader does not delete one as redundant.
+
+  That is a SEVENTH disposition for code a test cannot pin: not decorative, not
+  compiler-required, not an untestable production path — but half of a pair
+  where only the pair is observable.
