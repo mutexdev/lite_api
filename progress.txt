@@ -8452,3 +8452,42 @@ US-026 - Store layer. DONE. Both named collapses complete.
   failed and the package count dropped 27 -> 26. Fixed by removing the import.
   The lesson is the same one as the .ts extension earlier: run the WHOLE gate,
   not the piece you just touched.
+
+--- TimelineSourceFileForItem: 28.6% -> 100%, and a PRIVACY property ---
+
+  This produces the source label on every timeline entry, and
+  SaveResponseTimeline writes those entries to a file THE USER CHOOSES AND
+  SHARES. That makes the relative-path branch a privacy property rather than a
+  readability one: an absolute path carries the user's account name and
+  directory layout into an exported artifact.
+
+  10 tests. Internal total 83.8% -> 83.9%.
+
+  Pinned:
+    - A REQUEST INSIDE THE COLLECTION IS LABELLED RELATIVE TO IT. Without it the
+      exported timeline reads /Users/alice/work/private-client/auth/login.bru,
+      naming the user AND the client to anyone the file reaches. Control fails 3.
+    - a path OUTSIDE the collection is left absolute — there is no meaningful
+      relative form, and forcing one produces a chain of "..". Control fails 1.
+    - THE FILE PATH WINS OVER THE NAME: it is what exists on disk, and the name
+      can differ after a rename that has not been saved. Control fails 5.
+    - the extension is added ONLY when there is none, so "config.json" does not
+      become "config.json.yml". Control fails 1.
+    - the folder is trimmed of separators before joining, so a stored "/auth/"
+      does not produce a leading slash that reads as an absolute path. Fails 1.
+    - a request with neither path nor name yields "" — honest, and better than a
+      bare ".yml". Control fails 1.
+
+  AN EIGHTH DISPOSITION: PLATFORM-CONDITIONAL CODE.
+
+  Removing every filepath.ToSlash call fails NOTHING here, because on Unix
+  ToSlash IS THE IDENTITY FUNCTION. The branch is only observable on Windows,
+  where Join produces backslashes — and this suite runs on macOS locally and
+  ubuntu in CI, so no test in this repo can pin it.
+
+  The Windows cross-compile gate proves the code COMPILES there, not that it
+  behaves. Recorded in the test file rather than papered over: the alternative
+  would be asserting on a hand-built backslash path, which tests
+  filepath.ToSlash rather than this function.
+
+  Seven controls: six failures, one correctly unobservable on this platform.
