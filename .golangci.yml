@@ -41,7 +41,10 @@ linters:
       # that users already have on disk. Go deprecated these without providing a
       # replacement, so refusing such keys would drop a working feature.
       # Re-anchored from ^app\.go$ — moved to internal/transport.
-      - path: ^internal/transport/transport\.go$
+      # Re-anchored when transport.go was split by domain: the RFC-1423 PEM
+      # decryption moved to clientcert.go. qa/lint-exclusions.sh reported the
+      # exclusion as suppressing nothing, which is how this was noticed.
+      - path: ^internal/transport/clientcert\.go$
         linters: [staticcheck]
         text: 'SA1019: x509\.(IsEncryptedPEMBlock|DecryptPEMBlock) has been deprecated'
 
