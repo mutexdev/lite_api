@@ -221,3 +221,36 @@ scope: -run Multipart .
 		entry := map[string]interface{}{
 			"name": part.Name,
 		}
+===
+desc: close dialog: a bad reference half-saves instead of refusing the whole list
+file: draft_guard.go
+scope: -run SaveUnsavedDrafts .
+--- old
+	if _, err := a.validateUnsavedDraftsLocked(drafts); err != nil {
+		return AppState{}, err
+	}
+	now := time.Now()
+--- new
+	now := time.Now()
+===
+desc: close dialog: a draft is marked saved without its file being written
+file: draft_guard.go
+scope: -run SaveUnsavedDrafts .
+--- old
+		if err := a.writeCollectionFilesLocked(collection); err != nil {
+			*item = original
+			return AppState{}, err
+		}
+		if collection.Scratch {
+--- new
+		if collection.Scratch {
+===
+desc: close dialog: discarding a request listed once per tab errors out
+file: draft_guard.go
+scope: -run DiscardUnsavedDraftsTolerates .
+--- old
+	for _, draft := range uniqueUnsavedDrafts(drafts) {
+		ws, collection, err := a.findCollectionWithWorkspaceLocked(draft.CollectionID)
+--- new
+	for _, draft := range drafts {
+		ws, collection, err := a.findCollectionWithWorkspaceLocked(draft.CollectionID)
