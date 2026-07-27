@@ -8657,3 +8657,47 @@ US-026 - Store layer. DONE. Both named collapses complete.
   That is the value of scanning for a SHAPE rather than relying on having
   learned a lesson: the scan does not get tired, and it does not assume its own
   recent work is fine.
+
+=== SCANNING FOR THE SECOND KNOWN-DANGEROUS SHAPE: NEAR-IDENTICAL NAMES ===
+
+  The other shape that has bitten repeatedly is two functions whose names differ
+  by a letter or two and whose BEHAVIOUR differs meaningfully. The repo already
+  records one such incident (yamlstore_test.go: a mechanical rewrite pointed its
+  body-mode call sites at codegen's near-namesake, which COMPILED and passed
+  every test), and I tripped over another this session
+  (variableNamesForRequest vs collectPromptNames).
+
+  So I scanned: every Go function name of six characters or more, compared
+  pairwise by similarity, restricted to pairs in DIFFERENT FILES. The top new
+  hit was one letter apart:
+
+      NormalizeBodyMode    internal/store/bru/bru.go
+      NormalizedBodyMode   internal/codegen/codegen.go
+
+  A THIRD normaliser exists too — yamlstore's normalizeYAMLBodyMode — and all
+  three are differently scoped. Measured rather than reasoned about: the two
+  EXPORTED ones differ on exactly two inputs.
+
+      "ws"        bru -> "text"      codegen -> "ws"
+      "GraphQL"   bru -> "graphql"   codegen -> "GraphQL"   (bru folds case)
+
+  Everywhere else bru DELEGATES to codegen rather than restating the aliases, so
+  a new alias added in one place is understood in both. Both halves are now
+  pinned: the two differences, and the delegation. Five controls —
+  redirecting bru wholesale at codegen (the recorded bug) fails 1, dropping the
+  ws fold 1, dropping the graphql fold 1, replacing the delegation with a copy
+  2, making codegen case-insensitive 1.
+
+  A CONTROL THAT FAILED 0 BECAUSE MY ASSERTION COULD NOT SEE THE MUTATION.
+  I checked codegen's case-sensitivity with "GraphQL", which passes through
+  unchanged whether or not codegen folds case — its default arm returns the
+  original either way. The difference only SHOWS on a form alias:
+  "FormUrlEncoded" stays put while "formUrlEncoded" matches. Assertion moved
+  there; the control now fails.
+
+  AND THE NON-UNIQUE-ANCHOR TRAP, AGAIN. My ad-hoc mutation used re.search on
+  `case "graphql":` — which appears TWICE in bru.go. It edited the other one,
+  reported "matched: True", and the control read 0 failing on a function that
+  had not been touched. I only caught it by printing the function afterwards.
+  The ctl helper I use elsewhere refuses a pattern that is not unique; this
+  one-off did not. Re-run anchored on the enclosing function: fails 1.
