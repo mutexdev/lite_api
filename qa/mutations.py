@@ -11,8 +11,7 @@ Each catalogue entry names a break that MUST fail the tests. A break that no
 longer fails is reported as BLIND — either a test was weakened, or the code
 moved and the entry is stale. Both need a person.
 
-Three ways a control lies, all of them seen for real here, all refused rather
-than counted as a pass:
+Four ways a control lies, all refused rather than counted as a pass:
 
   1. The pattern does not match, so nothing changed and the green run means
      nothing.
@@ -21,6 +20,9 @@ than counted as a pass:
      after editing a different function than the one under test.
   3. The edit does not compile, so there are no failures to see and a build
      error reads exactly like a pass.
+  4. The edit makes a test HANG. The run then dies on a timeout and exits
+     non-zero, and non-zero used to be the whole definition of caught — so a
+     stall was reported as a success while nothing asserted anything.
 
 The tree is restored on every exit path, including an interrupt.
 """
@@ -93,10 +95,32 @@ def parse(text):
     return mutations
 
 
-def run(command):
-    return subprocess.run(
-        command, cwd=ROOT, shell=True, capture_output=True, text=True
-    ).returncode
+# A mutated test run is bounded, and hitting the bound is its OWN outcome.
+#
+# Without this a break that makes a test hang is counted as caught: the run
+# eventually dies on Go's default 10-minute timeout, exits non-zero, and
+# "non-zero" was the entire definition of caught. That is a ten-minute stall
+# reported as a success, and nothing asserted anything — the same class of lie
+# as NO COMPILE, where a build error also reads exactly like a pass.
+TEST_TIMEOUT = "120s"  # passed to `go test`, so it bounds execution not building
+SUBPROCESS_TIMEOUT = 600  # a backstop for the go tool itself wedging
+
+
+def run(command, timeout=None):
+    """Runs a command, returning (returncode, combined output).
+
+    A returncode of None means the subprocess timeout was reached. Callers must
+    treat that as its own result rather than folding it into "failed", which is
+    the distinction this whole script exists to make.
+    """
+    try:
+        done = subprocess.run(
+            command, cwd=ROOT, shell=True, capture_output=True, text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return None, ""
+    return done.returncode, (done.stdout or "") + (done.stderr or "")
 
 
 def main():
@@ -129,7 +153,7 @@ def main():
         return 0
 
     # A catalogue is only meaningful against a passing tree.
-    if run("go build ./...") != 0:
+    if run("go build ./...")[0] != 0:
         print("mutations: the tree does not build, so no result means anything", file=sys.stderr)
         return 1
 
@@ -151,10 +175,16 @@ def main():
                     problems.append(f"{label:14}{mutation.desc}")
                     continue
                 target.write_text(source.replace(mutation.old, mutation.new))
-                if run("go build ./...") != 0:
+                if run("go build ./...")[0] != 0:
                     problems.append(f"NO COMPILE    {mutation.desc}")
                     continue
-                if run(f"go test -count=1 {mutation.scope}") == 0:
+                code, output = run(
+                    f"go test -count=1 -timeout {TEST_TIMEOUT} {mutation.scope}",
+                    timeout=SUBPROCESS_TIMEOUT,
+                )
+                if code is None or "test timed out" in output:
+                    problems.append(f"TIMED OUT     {mutation.desc}")
+                elif code == 0:
                     problems.append(f"BLIND         {mutation.desc}")
                 else:
                     caught += 1

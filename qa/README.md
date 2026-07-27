@@ -80,12 +80,16 @@ behaviours are actually CHECKED, and in this repo the two came apart badly (see
 the note below). Every entry in `baseline/mutations.txt` corresponds to a real
 defect or a real blind spot found here, so the same gap cannot reopen quietly.
 
-It distinguishes three ways a control lies, all seen for real, none counted as
-a pass: `NOT FOUND` when the pattern no longer matches, `AMBIGUOUS(n)` when it
-matches more than once — two controls here reported a clean result after
-editing a different function than the one intended — and `NO COMPILE`, where a
-build error otherwise reads exactly like a pass. `BLIND` means the break
-landed, compiled, and nothing failed.
+It distinguishes four ways a control lies, none counted as a pass: `NOT FOUND`
+when the pattern no longer matches, `AMBIGUOUS(n)` when it matches more than
+once — two controls here reported a clean result after editing a different
+function than the one intended — `NO COMPILE`, where a build error otherwise
+reads exactly like a pass, and `TIMED OUT`, where the break makes a test hang.
+That last one was counted as caught until the run was bounded: a hang exits
+non-zero on Go's default 10-minute timeout, and non-zero was the entire
+definition of caught, so a long stall was reported as a success while nothing
+asserted anything. `BLIND` means the break landed, compiled, ran, and nothing
+failed.
 
 Run `qa/mutation.sh --list` to see the catalogue, `--only <text>` for one entry.
 Add an entry whenever a test is written for something that would be expensive
