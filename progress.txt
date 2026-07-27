@@ -8967,3 +8967,41 @@ US-026 - Store layer. DONE. Both named collapses complete.
   Also: I reached for `timeout` again and it is still not on macOS — a lesson
   already written down in this very file. Reading my own notes is apparently not
   the same as remembering them.
+
+=== THE SAME SHAPE ON THE FRONTEND, AND IT WAS THE WORST ONE ===
+
+  Having read the Go jobs and found a misplaced step, I read the frontend job
+  too. Its steps are in the right place — but `npm test` runs
+  `node --test test/*.mts`, and I checked what that does when the glob matches
+  nothing.
+
+  IT EXITS 0.
+
+  Bash leaves an unmatched glob as a literal string, node --test finds no such
+  file, reports zero tests, and succeeds. I confirmed it by renaming the test
+  directory: `npm test` printed a clean summary and exited 0 having run NOTHING.
+  CI would have gone green with all 797 frontend tests silently disabled.
+
+  That is the same "measures nothing and passes" shape as the lint check with no
+  linter and the coverage check with a failing suite — and it is the most
+  consequential of the three, because the other two guard a report while this
+  one guards the entire frontend suite.
+
+  Fixed with a `pretest` floor: at least 25 test files must exist (there are 43)
+  or the run fails with an explanation. A floor rather than an exact count, so
+  it does not need editing every time a test file is added — but not merely
+  "> 0" either, because a glob that narrows to one file would still pass that.
+
+  Two controls:
+    the test directory renamed      exit 1, names the cause
+    the glob narrowed to one file   exit 1, "found 1 test files, expected 25"
+
+  FOUR PLACES NOW CHECK THAT THEY MEASURED SOMETHING BEFORE REPORTING SUCCESS:
+    qa/lint-exclusions.sh   refuses without golangci-lint, and on a dirty baseline
+    qa/coverage.sh          refuses when the suite failed or wrote no profile
+    qa/bindings.sh          refuses when go doc returns no methods
+    npm pretest             refuses when the test glob matches too little
+
+  Every one was found by asking the same question of a different gate: WHAT DOES
+  THIS DO WHEN THE THING IT MEASURES IS NOT THERE? Not one of them answered
+  "fail" before being asked.
