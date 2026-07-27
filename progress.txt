@@ -8270,3 +8270,44 @@ US-026 - Store layer. DONE. Both named collapses complete.
   `go test -cover`, because most of its statements are exercised from package
   main's suite rather than its own. The 83.3% above is from the merged
   -coverpkg profile. Same trap as before, same instrument.
+
+--- swagger2PromotePathBody: 0.0% -> 90.9% ---
+
+  The only 0%-covered function left in internal/. Its own comment says dropping
+  a path-level body "would silently lose the payload for every operation under
+  the path" — and NOTHING VERIFIED THAT IT DOES NOT.
+
+  A path-level body parameter is legal Swagger 2 and has no OpenAPI 3
+  equivalent at that level, so the conversion must move it or lose it. 6 tests,
+  written through the PUBLIC converter rather than against the unexported
+  function, because the promotion only matters if the real import path reaches
+  it. Internal total 83.5% -> 83.6%.
+
+  Pinned:
+    - the body reaches EVERY operation under the path. Without the promotion
+      both convert with no requestBody and the imported requests send nothing.
+      Control fails 3.
+    - AN OPERATION'S OWN BODY WINS — it is the more specific declaration, and
+      overwriting it replaces a documented per-operation payload with the path's
+      generic one. Control fails 1.
+    - formData is promoted too; it is the other half of the same rule and is
+      lost the same way. Control fails 1.
+    - a path with only a QUERY parameter gains nothing, rather than importing as
+      a request that sends an empty payload where it should send none.
+
+  TWO OF MY OWN TESTS WERE WEAKER THAN THEY LOOKED.
+
+  "only HTTP methods receive the body" failed NOTHING when the method check was
+  removed. My fixture's only non-method key was "parameters" — which is an
+  ARRAY, so the type assertion skips it in the CODE and in the TEST alike. The
+  test and the bug had the same blind spot. Rewritten with a vendor extension
+  ("x-metadata": {...}), which is an OBJECT and is what a real Swagger 2 path
+  item actually carries; the control now fails 1.
+
+  And the function's internal nil guard is unreachable through the converter,
+  because the one call site performs the same check three lines earlier. It is
+  still the unit's own contract — a distinct function that must be safe to call
+  with nothing to promote — so it is now exercised DIRECTLY from the in-package
+  test rather than left looking untested. Control fails 1.
+
+  Five controls, five failures after both fixes.
