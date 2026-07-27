@@ -254,3 +254,24 @@ scope: -run DiscardUnsavedDraftsTolerates .
 --- new
 	for _, draft := range drafts {
 		ws, collection, err := a.findCollectionWithWorkspaceLocked(draft.CollectionID)
+===
+desc: shortcuts: Go and the frontend disagree on an action's display name
+file: app_prefs_normalize.go
+scope: -run KeyBindingNamesAgreeWithTheFrontend .
+--- old
+	case "sidebarSearch":
+		return "Search Sidebar"
+--- new
+	case "sidebarSearch":
+		return "Sidebar Search"
+===
+desc: tabs: a switch to a tab the backend does not hold is accepted
+file: app_tabs.go
+scope: -run SetActiveTab .
+--- old
+	found, err := a.setActiveTabLocked(tabID)
+	if !found {
+		return AppState{}, err
+	}
+--- new
+	_, err := a.setActiveTabLocked(tabID)
