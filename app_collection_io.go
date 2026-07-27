@@ -55,8 +55,19 @@ func (a *App) writeCollectionFileLocked(path string, data []byte) error {
 		a.collectionFileFingerprints = map[string]string{}
 	}
 	if known, ok := a.collectionFileFingerprints[path]; ok {
+		// A recorded fingerprint says what we last WROTE here, not that the
+		// file is still there. Collections are plain files in a directory the
+		// user owns — this app ships a watcher because they get edited and
+		// removed outside it — so the skip must confirm the file exists.
+		// Without that check, once a file had been deleted externally every
+		// later save producing identical bytes was skipped and the file stayed
+		// missing while the app went on showing the request.
 		if known == fingerprint {
-			return nil
+			if _, err := os.Stat(path); err == nil {
+				return nil
+			}
+			// Unreadable for any reason, including simply gone: fall through
+			// and write, which reports the real error if there is one.
 		}
 	} else if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, data) {
 		a.collectionFileFingerprints[path] = fingerprint

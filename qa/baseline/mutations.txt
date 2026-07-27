@@ -275,3 +275,38 @@ scope: -run SetActiveTab .
 	}
 --- new
 	_, err := a.setActiveTabLocked(tabID)
+===
+desc: saves: a file deleted outside the app is never rewritten
+file: app_collection_io.go
+scope: -run "SavingRestores|ResetRestoresEvery" .
+--- old
+		if known == fingerprint {
+			if _, err := os.Stat(path); err == nil {
+				return nil
+			}
+--- new
+		if known == fingerprint {
+			if true {
+				return nil
+			}
+===
+desc: quit: a second close event opens a dialog over the open one
+file: native_close.go
+scope: -run BeforeClose .
+--- old
+	if a == nil || !nativeClosePromptActive.CompareAndSwap(false, true) {
+		return true
+	}
+--- new
+	if a == nil {
+		return true
+	}
+===
+desc: reset: a scoped workspace window may wipe every workspace
+file: app_export_bindings.go
+scope: -run ResetDemoData .
+--- old
+	if a.workspaceRuntime != nil {
+		return AppState{}, errors.New("reset demo data is unavailable from a scoped workspace window")
+	}
+--- new
