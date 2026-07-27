@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { withOptimisticPatch } from '../src/lib/optimisticPatch.ts'
+import { historyEntryExists, withOptimisticPatch } from '../src/lib/optimisticPatch.ts'
 import type { types } from '../wailsjs/go/models'
 
 function state(): types.AppState {
@@ -131,4 +131,73 @@ test('a collection with no items array is handled and normalised', () => {
   const before = { workspaces: [{ id: 'w', collections: [{ id: 'c' }] }] } as types.AppState
   const next = withOptimisticPatch(before, 'c', 'i', { url: 'x' } as types.RequestPatch)
   assert.deepEqual(next.workspaces?.[0].collections?.[0].items, [])
+})
+
+// THE PROPERTY THAT MAKES THIS ONE FUNCTION RATHER THAN TWO CHECKS. The item is
+// looked for inside the MATCHING collection. Checking "some collection has this
+// id" and "some item has this id" separately both pass for a request that has
+// since been moved to a different collection, and the history row would offer
+// to open something that is not there.
+test('a request moved to another collection does not count as present', () => {
+  const moved = {
+    workspaces: [
+      {
+        id: 'ws',
+        collections: [
+          { id: 'col-a', items: [{ id: 'other' }] },
+          { id: 'col-b', items: [{ id: 'req-1' }] }
+        ]
+      }
+    ]
+  } as types.AppState
+
+  // Both halves exist somewhere, but not together.
+  assert.equal(historyEntryExists(moved, 'col-a', 'req-1'), false)
+  // And the pair that does match is found.
+  assert.equal(historyEntryExists(moved, 'col-b', 'req-1'), true)
+})
+
+// History records a send, and a scratch request sent before it was ever saved
+// has no collection to point back at. Those rows must not offer to open.
+test('an entry missing either id is not openable', () => {
+  const state = { workspaces: [{ id: 'ws', collections: [{ id: 'c', items: [{ id: 'i' }] }] }] } as types.AppState
+  assert.equal(historyEntryExists(state, undefined, 'i'), false)
+  assert.equal(historyEntryExists(state, 'c', undefined), false)
+  assert.equal(historyEntryExists(state, '', ''), false)
+})
+
+// The case above cannot show why the guard is needed: against well-formed data
+// the comparison already fails, since no collection has an id of undefined. The
+// guard earns its place against MALFORMED data — a collection that arrived
+// without an id MATCHES an entry that has none, and undefined === undefined is
+// true. The row would then offer to open a request that is not there.
+//
+// Removing the guard fails only this test, which is the point of it.
+test('an entry with no ids does not match a collection that has none either', () => {
+  const malformed = {
+    workspaces: [{ id: 'ws', collections: [{ items: [{}] }] }]
+  } as unknown as types.AppState
+  assert.equal(historyEntryExists(malformed, undefined, undefined), false)
+})
+
+test('an entry is found across any workspace', () => {
+  const state = {
+    workspaces: [
+      { id: 'ws-1', collections: [{ id: 'c1', items: [{ id: 'a' }] }] },
+      { id: 'ws-2', collections: [{ id: 'c2', items: [{ id: 'b' }] }] }
+    ]
+  } as types.AppState
+  assert.equal(historyEntryExists(state, 'c2', 'b'), true)
+})
+
+test('a deleted request is not found', () => {
+  const state = { workspaces: [{ id: 'ws', collections: [{ id: 'c', items: [] }] }] } as types.AppState
+  assert.equal(historyEntryExists(state, 'c', 'gone'), false)
+})
+
+// The history panel renders before the first state arrives.
+test('an absent or empty tree is handled', () => {
+  assert.equal(historyEntryExists(undefined, 'c', 'i'), false)
+  assert.equal(historyEntryExists({} as types.AppState, 'c', 'i'), false)
+  assert.equal(historyEntryExists({ workspaces: [{ id: 'ws' }] } as types.AppState, 'c', 'i'), false)
 })

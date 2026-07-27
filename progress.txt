@@ -9431,3 +9431,36 @@ US-026 - Store layer. DONE. Both named collapses complete.
   REVERSING ON NEW EVIDENCE IS NOT THE SAME AS BEING TALKED ROUND. The first
   call was right on what I knew then; the second is right on what I know now,
   and the difference between them is a specific fact I went and got.
+
+--- historyEntryStillExists: the last pure logic left in App.svelte ---
+
+  A scan of App.svelte's commented functions for assertion-style claims returned
+  ZERO — and the positive control confirmed the pattern works (11 commented
+  functions found, 4 in virtualList.ts). That zero is real and it is the point:
+  the assertion-bearing comments have MIGRATED to lib modules along with the
+  code they describe. Of the 11 remaining, every "pure" one is a delegate I
+  already created.
+
+  The exception was historyEntryStillExists. Moved beside withOptimisticPatch,
+  which walks the identical shape — workspaces, collections, items — so the file
+  now describes reaching a single request in the state tree rather than only
+  patching one. Suite 783 -> 789.
+
+  THE PROPERTY THAT MAKES IT ONE FUNCTION RATHER THAN TWO CHECKS: the item is
+  looked for INSIDE the matching collection. "Some collection has this id" and
+  "some item has this id" as separate checks both pass for a request that has
+  since been MOVED to another collection, and the history row offers to open
+  something that is not there. Control fails 1.
+
+  A CONTROL THAT FAILED 0, AND THE GUARD TURNED OUT TO BE REAL. Removing
+  `if (!collectionId || !itemId) return false` broke nothing, because against
+  well-formed data the comparison already fails — no collection has an id of
+  undefined. Probing it directly showed what it protects: a MALFORMED collection
+  that arrived without an id MATCHES an entry that has none, since
+  undefined === undefined. Without the guard that returns TRUE and the row
+  offers to open a request that does not exist. Test added for exactly that
+  shape; the control now fails 1.
+
+  Also: svelte-check caught the delegation immediately — appState is
+  `AppState | null` and my parameter took `| undefined`. Widened, rather than
+  casting at the call site for a case the function already handles.

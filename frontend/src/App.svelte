@@ -110,7 +110,7 @@
     visibleEnvironmentVariables
   } from './lib/environmentVariables'
   import { resolveNativeMenuCommand } from './lib/nativeMenu'
-  import { withOptimisticPatch } from './lib/optimisticPatch'
+  import { historyEntryExists, withOptimisticPatch } from './lib/optimisticPatch'
   import {
     runnerSelectableItems,
     runnerSelectedCount as runnerSelectedCountOf,
@@ -1237,13 +1237,7 @@
   // The original request may have been renamed, moved or deleted since the
   // send, so this is checked against live appState rather than assumed.
   function historyEntryStillExists(entry: history.HistoryEntry) {
-    if (!entry.collectionId || !entry.itemId) return false
-    return (appState?.workspaces ?? []).some((workspace) =>
-      (workspace.collections ?? []).some(
-        (collection) =>
-          collection.id === entry.collectionId && (collection.items ?? []).some((item) => item.id === entry.itemId)
-      )
-    )
+    return historyEntryExists(appState, entry.collectionId, entry.itemId)
   }
 
   async function openHistoryEntryInTab(entry: history.HistoryEntry) {
