@@ -2,7 +2,6 @@ package core
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,22 +10,16 @@ import (
 	"github.com/mutexdev/lite_api/internal/prefs"
 	"github.com/mutexdev/lite_api/internal/types"
 	"io"
-	"net/http"
-	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	"gopkg.in/yaml.v3"
 
 	"github.com/mutexdev/lite_api/internal/importers"
-	"github.com/mutexdev/lite_api/internal/openapisync"
-	"github.com/mutexdev/lite_api/internal/recovery"
 	"github.com/mutexdev/lite_api/internal/scalar"
 	"github.com/mutexdev/lite_api/internal/store/bru"
 	"github.com/mutexdev/lite_api/internal/store/yamlstore"
@@ -532,144 +525,6 @@ func collectionRequestFilesystemPath(collection *Collection, item RequestItem) (
 	return targetPath, nil
 }
 
-func gitVersion() (string, error) {
-	if _, err := exec.LookPath("git"); err != nil {
-		return "", errors.New("git is not installed or not on PATH")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	output, err := exec.CommandContext(ctx, "git", "--version").CombinedOutput()
-	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return "", errors.New("git --version timed out")
-		}
-		return "", fmt.Errorf("git --version failed: %s", strings.TrimSpace(string(output)))
-	}
-	return strings.TrimSpace(string(output)), nil
-}
-
-func (a *App) emitGitCloneProgress(stage, message, targetPath string) {
-	if a == nil || a.ctx == nil {
-		return
-	}
-	message = strings.TrimSpace(message)
-	if message == "" {
-		return
-	}
-	wailsruntime.EventsEmit(a.ctx, "git:clone:progress", GitCloneProgress{
-		Stage:      stage,
-		Message:    message,
-		TargetPath: targetPath,
-		At:         time.Now().Format(time.RFC3339Nano),
-	})
-}
-
-func scanGitProgressToken(data []byte, atEOF bool) (advance int, token []byte, err error) {
-	for index, b := range data {
-		if b == '\n' || b == '\r' {
-			return index + 1, bytes.TrimSpace(data[:index]), nil
-		}
-	}
-	if atEOF && len(data) > 0 {
-		return len(data), bytes.TrimSpace(data), nil
-	}
-	return 0, nil, nil
-}
-
-func deriveGitRepoName(remote string) string {
-	remote = strings.TrimSpace(remote)
-	// Opaque must be empty as well as the scheme set. "myserver:repo.git" — the
-	// scp form with the host coming from an ssh config alias — parses as
-	// scheme="myserver" with an empty Path, so accepting it here derives the
-	// name from nothing. A URL with a real "//" authority always has an empty
-	// Opaque, which separates the two forms without a list of known schemes.
-	if parsed, err := url.Parse(remote); err == nil && parsed.Scheme != "" && parsed.Opaque == "" {
-		base := strings.TrimSuffix(pathBase(parsed.Path), ".git")
-		return sanitizeFilename(base)
-	}
-	if colon := strings.LastIndex(remote, ":"); colon >= 0 && colon < len(remote)-1 {
-		return sanitizeFilename(strings.TrimSuffix(pathBase(remote[colon+1:]), ".git"))
-	}
-	return sanitizeFilename(strings.TrimSuffix(pathBase(remote), ".git"))
-}
-
-func pathBase(value string) string {
-	value = strings.TrimRight(strings.TrimSpace(value), "/")
-	if value == "" {
-		return ""
-	}
-	index := strings.LastIndex(value, "/")
-	if index >= 0 {
-		return value[index+1:]
-	}
-	return value
-}
-
-func scanBrunoCollections(rootPath string) ([]GitCollectionCandidate, error) {
-	rootPath = strings.TrimSpace(rootPath)
-	if rootPath == "" {
-		return nil, errors.New("scan path is required")
-	}
-	info, err := os.Stat(rootPath)
-	if err != nil {
-		return nil, err
-	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("%s is not a directory", rootPath)
-	}
-	rootPath = filepath.Clean(rootPath)
-	candidates := []GitCollectionCandidate{}
-	err = filepath.WalkDir(rootPath, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if !entry.IsDir() {
-			return nil
-		}
-		base := entry.Name()
-		if path != rootPath && (base == ".git" || base == "node_modules" || base == "environments") {
-			return filepath.SkipDir
-		}
-		if !looksLikeCollectionDir(path) {
-			return nil
-		}
-		collection, err := readCollectionFromDisk(path)
-		if err != nil {
-			return err
-		}
-		candidates = append(candidates, GitCollectionCandidate{
-			Name:         collection.Name,
-			Path:         filepath.Clean(path),
-			Format:       collection.Format,
-			RequestCount: len(collection.Items),
-		})
-		if path != rootPath {
-			return filepath.SkipDir
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	sort.SliceStable(candidates, func(i, j int) bool {
-		return strings.ToLower(candidates[i].Path) < strings.ToLower(candidates[j].Path)
-	})
-	return candidates, nil
-}
-
-func looksLikeCollectionDir(path string) bool {
-	for _, name := range []string{"bruno.json", "opencollection.yml", "opencollection.yaml"} {
-		if info, err := os.Stat(filepath.Join(path, name)); err == nil && !info.IsDir() {
-			return true
-		}
-	}
-	return false
-}
-
-func updateManagedGitIgnore(workspacePath, collectionPath string, add bool) error {
-	return recovery.UpdateManagedGitIgnore(workspacePath, collectionPath, add)
-}
-
 func collectionFromImport(payload ImportPayload) (Collection, error) {
 	now := time.Now()
 	name := strings.TrimSpace(payload.Name)
@@ -790,100 +645,6 @@ func (a *App) openAPILocalDriftInputs(collectionID string) (Collection, string, 
 	return collectionCopy, content, config, noStoredSpec, nil
 }
 
-func newOpenAPISyncConfig(sourceURL, groupBy, hash string) OpenAPISyncConfig {
-	return OpenAPISyncConfig{
-		SourceURL:         strings.TrimSpace(sourceURL),
-		GroupBy:           normalizeOpenAPISyncGroupBy(groupBy),
-		LastSyncDate:      time.Now().UTC().Format(time.RFC3339),
-		SpecHash:          hash,
-		AutoCheck:         true,
-		AutoCheckInterval: 5,
-	}
-}
-
-func newOpenAPISyncConfigPreservingSettings(sourceURL, groupBy, hash string, existing OpenAPISyncConfig) OpenAPISyncConfig {
-	next := newOpenAPISyncConfig(sourceURL, groupBy, hash)
-	existing = normalizeOpenAPISyncConfig(existing)
-	next.AutoCheck = existing.AutoCheck
-	next.AutoCheckInterval = normalizeOpenAPISyncAutoCheckInterval(existing.AutoCheckInterval)
-	return next
-}
-
-func validateOpenAPISyncSource(sourceURL string) error {
-	sourceURL = strings.TrimSpace(sourceURL)
-	if sourceURL == "" {
-		return errors.New("OpenAPI source URL or file path is required")
-	}
-	if parsed, err := url.Parse(sourceURL); err == nil && parsed.Scheme != "" {
-		switch strings.ToLower(parsed.Scheme) {
-		case "http", "https", "file":
-			return nil
-		default:
-			return errors.New("invalid source: only http/https URLs and local file paths are allowed")
-		}
-	}
-	return nil
-}
-
-func fetchOpenAPISyncContent(collectionPath, sourceURL string, client *http.Client) (string, error) {
-	sourceURL = strings.TrimSpace(sourceURL)
-	if sourceURL == "" {
-		return "", errors.New("OpenAPI source URL or file path is required")
-	}
-	if err := validateOpenAPISyncSource(sourceURL); err != nil {
-		return "", err
-	}
-	if parsed, err := url.Parse(sourceURL); err == nil && parsed.Scheme != "" {
-		switch strings.ToLower(parsed.Scheme) {
-		case "http", "https":
-			if client == nil {
-				client = http.DefaultClient
-			}
-			fetchURL := sourceURL
-			separator := "?"
-			if strings.Contains(fetchURL, "?") {
-				separator = "&"
-			}
-			fetchURL += separator + "_=" + strconv.FormatInt(time.Now().UnixMilli(), 10)
-			req, err := http.NewRequest(http.MethodGet, fetchURL, nil)
-			if err != nil {
-				return "", err
-			}
-			req.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
-			req.Header.Set("Pragma", "no-cache")
-			res, err := client.Do(req)
-			if err != nil {
-				return "", fmt.Errorf("could not reach %s: %w", sourceURL, err)
-			}
-			defer func() { _ = res.Body.Close() }()
-			if res.StatusCode < 200 || res.StatusCode >= 300 {
-				return "", fmt.Errorf("failed to fetch spec: %d %s", res.StatusCode, http.StatusText(res.StatusCode))
-			}
-			data, err := io.ReadAll(io.LimitReader(res.Body, 16<<20))
-			if err != nil {
-				return "", err
-			}
-			return string(data), nil
-		case "file":
-			sourceURL = parsed.Path
-		default:
-			return "", errors.New("invalid source: only http/https URLs and local file paths are allowed")
-		}
-	}
-	path := sourceURL
-	if !filepath.IsAbs(path) && strings.TrimSpace(collectionPath) != "" {
-		path = filepath.Join(collectionPath, path)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("spec file not found at: %s", sourceURL)
-		}
-		return "", err
-	}
-	return string(data), nil
-}
-
 type openAPISpecMetadataEntry struct {
 	Filename  string `json:"filename"`
 	SourceURL string `json:"sourceUrl"`
@@ -898,99 +659,6 @@ func (a *App) openAPISyncSpecsDirLocked() string {
 
 func (a *App) openAPISyncSpecMetadataPathLocked() string {
 	return filepath.Join(a.openAPISyncSpecsDirLocked(), "metadata.json")
-}
-
-func (a *App) readOpenAPISyncSpecMetadataLocked() map[string][]openAPISpecMetadataEntry {
-	path := a.openAPISyncSpecMetadataPathLocked()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return map[string][]openAPISpecMetadataEntry{}
-	}
-	var meta map[string][]openAPISpecMetadataEntry
-	if err := json.Unmarshal(data, &meta); err != nil || meta == nil {
-		return map[string][]openAPISpecMetadataEntry{}
-	}
-	return meta
-}
-
-func (a *App) writeOpenAPISyncSpecMetadataLocked(meta map[string][]openAPISpecMetadataEntry) error {
-	if meta == nil {
-		meta = map[string][]openAPISpecMetadataEntry{}
-	}
-	path := a.openAPISyncSpecMetadataPathLocked()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(meta, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o600)
-}
-
-func (a *App) saveOpenAPISyncSpecLocked(collectionPath, sourceURL, content string) error {
-	if strings.TrimSpace(collectionPath) == "" || strings.TrimSpace(content) == "" {
-		return nil
-	}
-	specsDir := a.openAPISyncSpecsDirLocked()
-	if err := os.MkdirAll(specsDir, 0o755); err != nil {
-		return err
-	}
-	meta := a.readOpenAPISyncSpecMetadataLocked()
-	key := filepath.Clean(collectionPath)
-	entry := openAPISpecMetadataEntry{}
-	if entries := meta[key]; len(entries) > 0 {
-		entry = entries[0]
-	}
-	if strings.TrimSpace(entry.Filename) == "" {
-		ext := ".json"
-		if openapisync.OpenAPISyncSpecLooksYAML(content) {
-			ext = ".yaml"
-		}
-		entry.Filename = newID("spec") + ext
-	}
-	entry.SourceURL = strings.TrimSpace(sourceURL)
-	meta[key] = []openAPISpecMetadataEntry{entry}
-	if err := os.WriteFile(filepath.Join(specsDir, entry.Filename), []byte(content), 0o600); err != nil {
-		return err
-	}
-	return a.writeOpenAPISyncSpecMetadataLocked(meta)
-}
-
-func (a *App) loadOpenAPISyncSpecLocked(collectionPath string) (string, bool, error) {
-	if strings.TrimSpace(collectionPath) == "" {
-		return "", true, nil
-	}
-	meta := a.readOpenAPISyncSpecMetadataLocked()
-	entries := meta[filepath.Clean(collectionPath)]
-	if len(entries) == 0 || strings.TrimSpace(entries[0].Filename) == "" {
-		return "", true, nil
-	}
-	specsDir := a.openAPISyncSpecsDirLocked()
-	target := filepath.Clean(filepath.Join(specsDir, entries[0].Filename))
-	if !pathInside(specsDir, target) {
-		return "", true, nil
-	}
-	data, err := os.ReadFile(target)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", true, nil
-		}
-		return "", false, err
-	}
-	return string(data), false, nil
-}
-
-func (a *App) cleanupOpenAPISyncSpecLocked(collectionPath string) {
-	meta := a.readOpenAPISyncSpecMetadataLocked()
-	key := filepath.Clean(collectionPath)
-	for _, entry := range meta[key] {
-		if strings.TrimSpace(entry.Filename) != "" {
-			_ = os.Remove(filepath.Join(a.openAPISyncSpecsDirLocked(), entry.Filename))
-		}
-	}
-	delete(meta, key)
-	_ = a.writeOpenAPISyncSpecMetadataLocked(meta)
 }
 
 const collectionFileCacheVersion = 1

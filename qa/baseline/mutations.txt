@@ -34,7 +34,7 @@ scope: -run CustomRootCA ./internal/core/
 	if !roots.AppendCertsFromPEM(certPEM) && false {
 ===
 desc: git remote: the .git suffix is not stripped
-file: internal/core/app_collection_io.go
+file: internal/core/app_git.go
 scope: -run DeriveGitRepoName ./internal/core/
 --- old
 		base := strings.TrimSuffix(pathBase(parsed.Path), ".git")
@@ -42,7 +42,7 @@ scope: -run DeriveGitRepoName ./internal/core/
 		base := pathBase(parsed.Path)
 ===
 desc: git remote: an ssh-alias remote is treated as a URL
-file: internal/core/app_collection_io.go
+file: internal/core/app_git.go
 scope: -run DeriveGitRepoName ./internal/core/
 --- old
 	if parsed, err := url.Parse(remote); err == nil && parsed.Scheme != "" && parsed.Opaque == "" {
