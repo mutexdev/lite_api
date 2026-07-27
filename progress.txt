@@ -8740,3 +8740,44 @@ US-026 - Store layer. DONE. Both named collapses complete.
   as a string and the test failed — the code was right and the fixture was not.
   Third time this session a failing test has been my mistake rather than the
   code's, and each time the cheap move would have been to "fix" the code.
+
+=== THE THIRD SHAPE: COMMENTS CLAIMING TO MIRROR GO ===
+
+  Two places in src/lib say in a comment that they mirror Go code. NEITHER CLAIM
+  WAS CHECKED — and "mirrors X" is exactly the kind of comment that stays put
+  while X changes.
+
+  Both are now contract tests that READ THE GO SOURCE, the same technique as the
+  native-menu test. Suite 790 -> 793.
+
+  1. normalizedRunnerIterations "mirrors normalizeRunnerIterations, including
+     the 200 cap". The test extracts runnerIterationLimit from app_runner.go and
+     compares. Drift means the input offers 500 iterations and 200 actually run,
+     with the UI having promised otherwise. Raising the Go limit fails 1.
+
+  2. scanBodyPrompts is "the frontend twin of scanBodyPromptVariables". The
+     checkable claim is that both dispatch over THE SAME SET OF BODY MODES —
+     if Go scans a mode the frontend does not, the prompt dialog never asks and
+     the request goes out with a literal {{?token}}. The test parses the case
+     labels out of the Go switch and the `body.mode ===` chain out of the TS,
+     and compares the sets both ways. Adding a Go mode fails 1; removing one
+     fails 1.
+
+  AND THE ONE PLACE THEY DELIBERATELY DIFFER, WHICH I FOUND BY READING BOTH:
+
+      Go:  if !part.Enabled          skips false OR UNSET
+      TS:  if (part.enabled === false)  skips only an EXPLICIT false
+
+  So a multipart part with no enabled flag is scanned by the frontend and not by
+  Go. The frontend therefore prompts for a SUPERSET of what Go substitutes,
+  which is the safe direction: a user may be asked for a value that goes
+  nowhere, but never has a literal token sent because nobody asked. Flipping
+  either guard reverses that, so both are now pinned — loosening Go's fails 1,
+  tightening the frontend's fails 1.
+
+  Five controls, five failures.
+
+  THE LAST ONE NEEDED THE FUNCTION AS ITS ANCHOR. `part.enabled === false`
+  appears TWICE in requestScanning.ts, so a whole-file replace refused with
+  AMBIGUOUS(2) — correctly. Anchoring on scanBodyPrompts made it unique. That
+  guard has now caught the same class of mistake twice today.
