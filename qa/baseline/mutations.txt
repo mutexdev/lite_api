@@ -358,3 +358,21 @@ scope: ./internal/envsecrets/
 	if encoded == "" {
 		return "", nil
 	}
+===
+desc: share: a shared collection carries its secret values
+file: internal/export/export.go
+scope: ./internal/export/
+--- old
+			if env.Variables[index].Secret {
+				env.Variables[index].Value = ""
+			}
+--- new
+			_ = env.Variables[index].Secret
+===
+desc: share: an archive entry may name a path outside the archive
+file: internal/export/export.go
+scope: ./internal/export/
+--- old
+	if name == "." || name == "" || strings.HasPrefix(name, "../") || name == ".." || strings.HasPrefix(name, "/") || filepath.IsAbs(name) {
+--- new
+	if name == "." || name == "" {
