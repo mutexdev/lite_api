@@ -9037,3 +9037,41 @@ US-026 - Store layer. DONE. Both named collapses complete.
   FIVE GATES NOW REFUSE TO REPORT SUCCESS WITHOUT INPUTS. Every one was found by
   asking the same question — what does this do when the thing it measures is not
   there? — and not one of them answered "fail" until it was made to.
+
+=== A FIFTH INSTRUMENT ERROR, AND IT IS ONE I REPEATED IN EVERY SUMMARY ===
+
+  Asked the "what if the input is missing" question of the Go side. `go test
+  ./...` reports "[no test files]" for a package with none and EXITS 0 — so a
+  package losing its tests leaves CI green.
+
+  Checking that turned up something worse. I have said, several times, "27 Go
+  packages, ALL WITH TESTS, all passing". THAT IS FALSE. Four packages have no
+  test files of their own.
+
+  THE MEASUREMENT LIED BECAUSE OF A FLAG. I counted with
+  `go test -cover ./... | grep -c "no test files"` and got 0. With -cover, a
+  package that has no tests prints "coverage: 0.0% of statements" INSTEAD of
+  "[no test files]" — so the string I was counting never appears. Without the
+  flag the same command finds 4.
+
+  The four, and why each is fine:
+    docs/qa/fixtures     a fixture package; data for other tests to read
+    .../flatted          vendored third-party Go inside node_modules, swept up
+                         by ./... and unrelated to this project
+    internal/grpcexec    exercised through package main's suite; 83.8% covered
+    tools/extraction     build-ignored tooling
+
+  So the substance was fine and the claim was not. Corrected here and gated:
+  qa/test-presence.sh compares the real list against
+  qa/baseline/untested-packages.txt IN BOTH DIRECTIONS — a package that loses
+  its tests fails, and one that gains them and is not removed fails too, so the
+  file cannot rot into a blanket exemption. Deliberately runs WITHOUT -cover,
+  with a comment saying why. Wired into CI.
+
+  Controls: removing urlbuild's tests reports "+internal/urlbuild" and exits 1;
+  adding a test to tools/extraction reports "-tools/extraction" and exits 1.
+
+  FIFTH TIME AN INSTRUMENT HAS BEEN WRONG RATHER THAN THE CODE, and the second
+  time a flag changed the output format under a grep. The first was -count=1 and
+  cached packages contributing no coverage data. Both times the fix was to
+  measure the thing directly instead of grepping for the absence of a string.

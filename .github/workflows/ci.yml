@@ -71,6 +71,12 @@ jobs:
       - name: Check the Wails binding surface
         run: ./qa/bindings.sh
 
+      # `go test ./...` reports "[no test files]" and exits 0, so a package
+      # losing its tests leaves CI green. -cover makes it worse by printing a
+      # coverage line instead, which is how the gap went unnoticed here.
+      - name: Check every package still has its tests
+        run: ./qa/test-presence.sh
+
       - name: Test
         run: go test -tags webkit2_41 ./...
 

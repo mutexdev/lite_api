@@ -1,0 +1,15 @@
+# Packages with no _test.go files of their own, and why each is acceptable.
+# qa/test-presence.sh fails if this list and reality disagree in either
+# direction — a package that silently loses its tests, or one that gains them
+# and is not removed from here.
+#
+# docs/qa/fixtures        a fixture package: data for other tests to read
+# .../flatted             vendored third-party Go inside node_modules, swept up
+#                         by ./... and nothing to do with this project
+# internal/grpcexec       exercised through package main's suite, not its own;
+#                         83.8% covered, measured with -coverpkg
+# tools/extraction        build-ignored tooling for the extraction work
+docs/qa/fixtures
+frontend/node_modules/flatted/golang/pkg/flatted
+internal/grpcexec
+tools/extraction
