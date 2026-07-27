@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mutexdev/lite_api/internal/runner"
 	"github.com/mutexdev/lite_api/internal/scripting"
 )
 
@@ -83,13 +84,13 @@ func (a *App) RunCollectionWithOptions(collectionID, environmentID string, optio
 	runContext, finishRun := a.startCancellableCollectionRun(collectionID)
 	defer finishRun()
 
-	dataRows, err := runnerDataRows(options.DataFile)
+	dataRows, err := runner.DataRows(options.DataFile)
 	if err != nil {
 		return AppState{}, err
 	}
-	// US-046. With a data file the row count leads: see runnerIterationPlan for
+	// US-046. With a data file the row count leads: see runner.IterationPlan for
 	// why asking for more iterations than rows is clamped rather than padded.
-	totalIterations := runnerIterationPlan(dataRows, options.Iterations)
+	totalIterations := runner.IterationPlan(dataRows, options.Iterations)
 	results := make([]RunResult, 0, len(items)*totalIterations)
 	completedIterations := 0
 	// US-045. The labelled loop is what makes "stop the run" mean the RUN and
@@ -98,7 +99,7 @@ func (a *App) RunCollectionWithOptions(collectionID, environmentID string, optio
 	// not quietly start iteration 3.
 iterations:
 	for iteration := 1; iteration <= totalIterations; iteration++ {
-		iterationRow := runnerDataRowFor(dataRows, iteration)
+		iterationRow := runner.DataRowFor(dataRows, iteration)
 		currentRequestIndex := 0
 		// jumps resets per iteration because it guards against an infinite
 		// setNextRequest cycle WITHIN one pass. Carrying it across iterations
@@ -128,7 +129,7 @@ iterations:
 				currentRequestIndex++
 				continue
 			}
-			state, controls, res, err := a.sendRequestWithControlsContext(runContext, collectionID, item.ID, environmentID, nil, lookupIndex, runnerIteration{
+			state, controls, res, err := a.sendRequestWithControlsContext(runContext, collectionID, item.ID, environmentID, nil, lookupIndex, runner.Iteration{
 				Index: iteration,
 				Count: totalIterations,
 				Data:  iterationRow,
@@ -298,24 +299,12 @@ func filterRunnerItems(items []RequestItem, selectedItemIDs []string) []RequestI
 	return out
 }
 
-// runnerIterationLimit caps a run at a size that stays workable.
+// runner.IterationLimit caps a run at a size that stays workable.
 //
 // Every request of every iteration becomes a row in RunnerSnapshot.Results,
 // which is persisted in state.json and rendered in full — so the cap is a
 // memory and file-size bound, not an arbitrary number. 200 iterations of a
 // 100-request collection is already 20,000 rows.
-const runnerIterationLimit = 200
-
-func normalizeRunnerIterations(iterations int) int {
-	if iterations < 1 {
-		return 1
-	}
-	if iterations > runnerIterationLimit {
-		return runnerIterationLimit
-	}
-	return iterations
-}
-
 // stampIteration records which iteration a row belongs to.
 //
 // Only for multi-iteration runs: a single-iteration run leaves Iteration at

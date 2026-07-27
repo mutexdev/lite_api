@@ -15,6 +15,7 @@ import (
 	"github.com/mutexdev/lite_api/internal/grpcexec"
 	"github.com/mutexdev/lite_api/internal/prefs"
 	"github.com/mutexdev/lite_api/internal/responsestore"
+	"github.com/mutexdev/lite_api/internal/runner"
 	"github.com/mutexdev/lite_api/internal/scripting"
 )
 
@@ -29,7 +30,7 @@ func (a *App) SendRequestWithPromptValues(collectionID, itemID, environmentID st
 }
 
 func (a *App) sendRequestWithControls(collectionID, itemID, environmentID string, promptValues map[string]string) (AppState, scripting.Controls, error) {
-	state, controls, _, err := a.sendRequestWithControlsContext(context.Background(), collectionID, itemID, environmentID, promptValues, nil, runnerIteration{})
+	state, controls, _, err := a.sendRequestWithControlsContext(context.Background(), collectionID, itemID, environmentID, promptValues, nil, runner.Iteration{})
 	return state, controls, err
 }
 
@@ -42,7 +43,7 @@ func (a *App) sendRequestWithControls(collectionID, itemID, environmentID string
 // The fourth return value is the *Response this call stored on the item. The
 // collection runner used to re-find the item in the returned state purely to
 // read it back, which was another linear scan per request.
-func (a *App) sendRequestWithControlsContext(parent context.Context, collectionID, itemID, environmentID string, promptValues map[string]string, index *runnerLookupIndex, iteration runnerIteration) (AppState, scripting.Controls, *Response, error) {
+func (a *App) sendRequestWithControlsContext(parent context.Context, collectionID, itemID, environmentID string, promptValues map[string]string, index *runnerLookupIndex, iteration runner.Iteration) (AppState, scripting.Controls, *Response, error) {
 	controls := scripting.Controls{}
 	a.mu.Lock()
 	if err := a.ensureReadyLocked(); err != nil {

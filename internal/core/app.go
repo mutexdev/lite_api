@@ -1707,7 +1707,7 @@ func (a *App) SelectCustomCaCertificate() (string, error) {
 }
 
 // SelectRunnerDataFile picks the CSV or JSON file that drives a data-driven
-// run (US-046). The filters mirror runnerDataRows' accepted extensions, which
+// run (US-046). The filters mirror runner.DataRows' accepted extensions, which
 // are matched on extension rather than sniffed content.
 func (a *App) SelectRunnerDataFile() (string, error) {
 	if a.ctx == nil {

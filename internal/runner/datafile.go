@@ -1,4 +1,4 @@
-package core
+package runner
 
 // US-046 — runner data files.
 //
@@ -34,15 +34,15 @@ const runnerDataFileLimit = 32 << 20 // 32 MiB
 // runnerDataRowLimit bounds the row count for the same reason the iteration
 // count is capped: every row becomes an iteration, and every iteration's
 // results are persisted into state.json.
-const runnerDataRowLimit = runnerIterationLimit
+const runnerDataRowLimit = IterationLimit
 
-// runnerDataRows reads path and returns one map per iteration.
+// DataRows reads path and returns one map per iteration.
 //
 // Format is chosen by extension, not by sniffing content. Sniffing would let a
 // mislabelled file parse as the wrong format and produce plausible-looking
 // garbage — a JSON array read as CSV yields one column named `[` — whereas an
 // unknown extension is an error the user can act on.
-func runnerDataRows(path string) ([]map[string]string, error) {
+func DataRows(path string) ([]map[string]string, error) {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
 		return nil, nil
@@ -192,35 +192,35 @@ func runnerDataValueString(value interface{}) string {
 	}
 }
 
-// runnerIterationPlan decides how many iterations run and which row backs each.
+// IterationPlan decides how many iterations run and which row backs each.
 //
 // The clamp is the point. With a data file the row count leads, because an
 // iteration with no row sends {{userId}} unresolved to the server — a silent
 // wrong request rather than an error. Asking for more iterations than there
 // are rows is therefore clamped down, not padded.
-func runnerIterationPlan(rows []map[string]string, requested int) int {
+func IterationPlan(rows []map[string]string, requested int) int {
 	if len(rows) == 0 {
-		return normalizeRunnerIterations(requested)
+		return NormalizeIterations(requested)
 	}
 	if requested < 1 {
 		return len(rows)
 	}
-	return min(normalizeRunnerIterations(requested), len(rows))
+	return min(NormalizeIterations(requested), len(rows))
 }
 
-// runnerDataRowFor returns the row backing a 1-based iteration, or nil.
-func runnerDataRowFor(rows []map[string]string, iteration int) map[string]string {
+// DataRowFor returns the row backing a 1-based iteration, or nil.
+func DataRowFor(rows []map[string]string, iteration int) map[string]string {
 	if iteration < 1 || iteration > len(rows) {
 		return nil
 	}
 	return rows[iteration-1]
 }
 
-// runnerIteration is where a request sits in a collection run.
+// Iteration is where a request sits in a collection run.
 //
 // Index is 1-based and Count is 0 for a one-off send outside the runner, which
 // is what lets pm.info distinguish "not in a run" from "iteration 1 of 1".
-type runnerIteration struct {
+type Iteration struct {
 	Index int
 	Count int
 	Data  map[string]string

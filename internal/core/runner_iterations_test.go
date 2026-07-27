@@ -11,6 +11,7 @@ package core
 
 import (
 	"fmt"
+	"github.com/mutexdev/lite_api/internal/runner"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -20,12 +21,12 @@ import (
 func TestNormalizeRunnerIterations(t *testing.T) {
 	for _, tc := range []struct{ in, want int }{
 		{0, 1}, {-5, 1}, {1, 1}, {7, 7},
-		{runnerIterationLimit, runnerIterationLimit},
-		{runnerIterationLimit + 1, runnerIterationLimit},
-		{1 << 30, runnerIterationLimit},
+		{runner.IterationLimit, runner.IterationLimit},
+		{runner.IterationLimit + 1, runner.IterationLimit},
+		{1 << 30, runner.IterationLimit},
 	} {
-		if got := normalizeRunnerIterations(tc.in); got != tc.want {
-			t.Errorf("normalizeRunnerIterations(%d) = %d, want %d", tc.in, got, tc.want)
+		if got := runner.NormalizeIterations(tc.in); got != tc.want {
+			t.Errorf("runner.NormalizeIterations(%d) = %d, want %d", tc.in, got, tc.want)
 		}
 	}
 }
