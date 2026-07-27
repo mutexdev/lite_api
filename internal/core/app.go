@@ -247,11 +247,6 @@ type grpcStreamSessionEvent struct {
 	At        time.Time `json:"at"`
 }
 
-type collectionExportFile struct {
-	Name    string
-	Content []byte
-}
-
 type environmentSecretsFile struct {
 	Collections []environmentSecretCollection `json:"collections"`
 	Workspaces  []environmentSecretWorkspace  `json:"workspaces,omitempty"`
@@ -1367,7 +1362,7 @@ func responseExampleFromItem(item RequestItem, name string) ResponseExample {
 			Params:         cloneKeyValues(item.Params),
 			FormURLEncoded: cloneKeyValues(item.Body.FormURLEncoded),
 			MultipartForm:  cloneFormParts(item.Body.Multipart),
-			File:           cloneFileBodyEntries(fileBodyEntries(item.Body)),
+			File:           cloneFileBodyEntries(types.FileBodyEntriesOf(item.Body)),
 		},
 		Response: ResponseExamplePayload{
 			Status:     response.Status,
@@ -1399,7 +1394,7 @@ func blankResponseExampleFromItem(item RequestItem, name, description string) Re
 			Params:         cloneKeyValues(item.Params),
 			FormURLEncoded: cloneKeyValues(item.Body.FormURLEncoded),
 			MultipartForm:  cloneFormParts(item.Body.Multipart),
-			File:           cloneFileBodyEntries(fileBodyEntries(item.Body)),
+			File:           cloneFileBodyEntries(types.FileBodyEntriesOf(item.Body)),
 		},
 		Response: ResponseExamplePayload{
 			Status:     http.StatusOK,
@@ -2382,13 +2377,13 @@ func findFolderConfig(collection *Collection, folderPath string) (*FolderConfig,
 }
 
 func findFolderConfigIndex(collection *Collection, folderPath string) (int, error) {
-	normalized := normalizeFolderPathKey(folderPath)
+	normalized := types.NormalizeFolderPathKey(folderPath)
 	if normalized == "" {
 		return -1, errors.New("folder path is required")
 	}
 	for i := range collection.Folders {
 		folder := &collection.Folders[i]
-		if normalizeFolderPathKey(folder.Path) == normalized || normalizeFolderPathKey(folder.DisplayPath) == normalized {
+		if types.NormalizeFolderPathKey(folder.Path) == normalized || types.NormalizeFolderPathKey(folder.DisplayPath) == normalized {
 			return i, nil
 		}
 	}
@@ -2411,7 +2406,7 @@ func (a *App) ensureCollectionDirectoryForWriteLocked(collection *Collection) er
 }
 
 func collectionFolderParentPaths(collection *Collection, parentFolderPath string) (string, string, error) {
-	parentFolderPath = normalizeFolderPathKey(parentFolderPath)
+	parentFolderPath = types.NormalizeFolderPathKey(parentFolderPath)
 	if parentFolderPath == "" {
 		return "", "", nil
 	}
@@ -2419,13 +2414,13 @@ func collectionFolderParentPaths(collection *Collection, parentFolderPath string
 	if err != nil {
 		return "", "", err
 	}
-	parentPath := normalizeFolderPathKey(parent.Path)
-	parentDisplayPath := normalizeFolderPathKey(firstNonEmpty(parent.DisplayPath, parent.Name, parent.Path))
+	parentPath := types.NormalizeFolderPathKey(parent.Path)
+	parentDisplayPath := types.NormalizeFolderPathKey(firstNonEmpty(parent.DisplayPath, parent.Name, parent.Path))
 	return parentPath, parentDisplayPath, nil
 }
 
 func joinCollectionFolderPath(parent, child string) string {
-	parent = normalizeFolderPathKey(parent)
+	parent = types.NormalizeFolderPathKey(parent)
 	child = strings.Trim(child, "/")
 	if parent == "" {
 		return child
@@ -2437,11 +2432,11 @@ func joinCollectionFolderPath(parent, child string) string {
 }
 
 func collectionHasChildFolder(collection *Collection, parentPath, directoryName string) bool {
-	parentPath = normalizeFolderPathKey(parentPath)
+	parentPath = types.NormalizeFolderPathKey(parentPath)
 	directoryName = strings.TrimSpace(directoryName)
 	for _, folder := range collection.Folders {
-		folderPath := normalizeFolderPathKey(folder.Path)
-		if normalizeFolderPathKey(parentFolderDisplayPath(folderPath)) != parentPath {
+		folderPath := types.NormalizeFolderPathKey(folder.Path)
+		if types.NormalizeFolderPathKey(types.ParentFolderDisplayPath(folderPath)) != parentPath {
 			continue
 		}
 		if strings.TrimSpace(filepath.Base(filepath.FromSlash(folderPath))) == directoryName {
@@ -2452,15 +2447,15 @@ func collectionHasChildFolder(collection *Collection, parentPath, directoryName 
 }
 
 func nextCollectionFolderSeq(collection Collection, parentPath string) int {
-	parentPath = normalizeFolderPathKey(parentPath)
+	parentPath = types.NormalizeFolderPathKey(parentPath)
 	count := 0
 	for _, folder := range collection.Folders {
-		if normalizeFolderPathKey(parentFolderDisplayPath(folder.Path)) == parentPath {
+		if types.NormalizeFolderPathKey(types.ParentFolderDisplayPath(folder.Path)) == parentPath {
 			count++
 		}
 	}
 	for _, item := range collection.Items {
-		if normalizeFolderPathKey(item.FolderPath) == parentPath {
+		if types.NormalizeFolderPathKey(item.FolderPath) == parentPath {
 			count++
 		}
 	}
@@ -2476,13 +2471,13 @@ type collectionSibling struct {
 }
 
 func (a *App) resequenceCollectionSiblingsLocked(collection *Collection, parentPath, parentDisplayPath string) error {
-	parentPath = normalizeFolderPathKey(parentPath)
-	parentDisplayPath = normalizeFolderPathKey(parentDisplayPath)
+	parentPath = types.NormalizeFolderPathKey(parentPath)
+	parentDisplayPath = types.NormalizeFolderPathKey(parentDisplayPath)
 	siblings := []collectionSibling{}
 	for i := range collection.Folders {
 		folder := collection.Folders[i]
-		folderParentPath := normalizeFolderPathKey(parentFolderDisplayPath(folder.Path))
-		folderParentDisplayPath := normalizeFolderPathKey(parentFolderDisplayPath(firstNonEmpty(folder.DisplayPath, folder.Name, folder.Path)))
+		folderParentPath := types.NormalizeFolderPathKey(types.ParentFolderDisplayPath(folder.Path))
+		folderParentDisplayPath := types.NormalizeFolderPathKey(types.ParentFolderDisplayPath(firstNonEmpty(folder.DisplayPath, folder.Name, folder.Path)))
 		if folderParentPath != parentPath && folderParentDisplayPath != parentDisplayPath {
 			continue
 		}
@@ -2495,7 +2490,7 @@ func (a *App) resequenceCollectionSiblingsLocked(collection *Collection, parentP
 	}
 	for i := range collection.Items {
 		item := collection.Items[i]
-		if normalizeFolderPathKey(item.FolderPath) != parentDisplayPath {
+		if types.NormalizeFolderPathKey(item.FolderPath) != parentDisplayPath {
 			continue
 		}
 		siblings = append(siblings, collectionSibling{
@@ -2530,7 +2525,7 @@ func (a *App) resequenceCollectionSiblingsLocked(collection *Collection, parentP
 			requestSeqChanged = true
 		}
 	}
-	sortFoldersLikeBruno(collection.Folders)
+	types.SortFoldersLikeBruno(collection.Folders)
 	if requestSeqChanged {
 		return a.writeCollectionFilesLocked(collection)
 	}
@@ -2585,15 +2580,15 @@ func sortSequencedSiblingsLikeBruno(siblings []collectionSibling) []collectionSi
 // callees for the rest would be harder to reason about than either extreme, and
 // three string cleanups per rename cost nothing.
 func updateCollectionFolderRenameState(collection *Collection, oldPath, newPath, oldDisplayPath, newDisplayPath, oldDir, newDir string) {
-	oldPath = normalizeFolderPathKey(oldPath)
-	newPath = normalizeFolderPathKey(newPath)
-	oldDisplayPath = normalizeFolderPathKey(oldDisplayPath)
-	newDisplayPath = normalizeFolderPathKey(newDisplayPath)
+	oldPath = types.NormalizeFolderPathKey(oldPath)
+	newPath = types.NormalizeFolderPathKey(newPath)
+	oldDisplayPath = types.NormalizeFolderPathKey(oldDisplayPath)
+	newDisplayPath = types.NormalizeFolderPathKey(newDisplayPath)
 	for i := range collection.Folders {
 		folder := &collection.Folders[i]
 		folder.Path = replaceFolderPathPrefix(folder.Path, oldPath, newPath)
 		folder.DisplayPath = replaceFolderPathPrefix(firstNonEmpty(folder.DisplayPath, folder.Name, folder.Path), oldDisplayPath, newDisplayPath)
-		if normalizeFolderPathKey(folder.Path) == newPath {
+		if types.NormalizeFolderPathKey(folder.Path) == newPath {
 			folder.Name = pathBaseSlash(newDisplayPath)
 		}
 	}
@@ -2607,13 +2602,13 @@ func updateCollectionFolderRenameState(collection *Collection, oldPath, newPath,
 			}
 		}
 	}
-	sortFoldersLikeBruno(collection.Folders)
+	types.SortFoldersLikeBruno(collection.Folders)
 }
 
 func replaceFolderPathPrefix(value, oldPrefix, newPrefix string) string {
-	value = normalizeFolderPathKey(value)
-	oldPrefix = normalizeFolderPathKey(oldPrefix)
-	newPrefix = normalizeFolderPathKey(newPrefix)
+	value = types.NormalizeFolderPathKey(value)
+	oldPrefix = types.NormalizeFolderPathKey(oldPrefix)
+	newPrefix = types.NormalizeFolderPathKey(newPrefix)
 	if oldPrefix == "" {
 		return value
 	}
@@ -2627,8 +2622,8 @@ func replaceFolderPathPrefix(value, oldPrefix, newPrefix string) string {
 }
 
 func folderPathHasPrefix(value, prefix string) bool {
-	value = normalizeFolderPathKey(value)
-	prefix = normalizeFolderPathKey(prefix)
+	value = types.NormalizeFolderPathKey(value)
+	prefix = types.NormalizeFolderPathKey(prefix)
 	if value == "" || prefix == "" {
 		return false
 	}
@@ -2636,24 +2631,11 @@ func folderPathHasPrefix(value, prefix string) bool {
 }
 
 func pathBaseSlash(value string) string {
-	value = normalizeFolderPathKey(value)
+	value = types.NormalizeFolderPathKey(value)
 	if value == "" {
 		return ""
 	}
 	return filepath.Base(filepath.FromSlash(value))
-}
-
-func normalizeFolderPathKey(value string) string {
-	value = strings.TrimSpace(filepath.ToSlash(value))
-	value = strings.Trim(value, "/")
-	if value == "" {
-		return ""
-	}
-	cleaned := filepath.ToSlash(filepath.Clean(value))
-	if cleaned == "." || strings.HasPrefix(cleaned, "../") || cleaned == ".." {
-		return value
-	}
-	return cleaned
 }
 
 func mergeFolderSettingsUpdate(folder *FolderConfig, updated FolderConfig) {

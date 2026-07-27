@@ -92,7 +92,7 @@ func (a *App) writeCollectionFilesLocked(collection *Collection) error {
 	if err := os.MkdirAll(collection.Path, 0o755); err != nil {
 		return err
 	}
-	ensureRequestFilePaths(collection, requestFileExtensionForCollection(*collection))
+	types.EnsureRequestFilePaths(collection, requestFileExtensionForCollection(*collection))
 	if err := a.storeCollectionEnvironmentSecretsLocked(collection); err != nil {
 		return err
 	}
@@ -407,7 +407,7 @@ func (a *App) writeFolderConfigLocked(collection *Collection, folder FolderConfi
 	if strings.TrimSpace(collection.Path) == "" {
 		return errors.New("collection path is empty")
 	}
-	folderPath := normalizeFolderPathKey(folder.Path)
+	folderPath := types.NormalizeFolderPathKey(folder.Path)
 	if folderPath == "" {
 		return errors.New("folder path is required")
 	}
@@ -493,7 +493,7 @@ func collectionFolderFilesystemPath(collection *Collection, folderPath string) (
 	if err != nil {
 		return "", err
 	}
-	physicalPath := normalizeFolderPathKey(firstNonEmpty(folder.Path, folder.DisplayPath, folder.Name))
+	physicalPath := types.NormalizeFolderPathKey(firstNonEmpty(folder.Path, folder.DisplayPath, folder.Name))
 	if physicalPath == "" {
 		return "", errors.New("folder path is required")
 	}
@@ -519,9 +519,9 @@ func collectionRequestFilesystemPath(collection *Collection, item RequestItem) (
 		filename = item.ID
 	}
 	folder := filepath.Clean(collection.Path)
-	if folderPath := normalizeFolderPathKey(item.FolderPath); folderPath != "" {
+	if folderPath := types.NormalizeFolderPathKey(item.FolderPath); folderPath != "" {
 		if folderConfig, err := findFolderConfig(collection, folderPath); err == nil {
-			folderPath = normalizeFolderPathKey(firstNonEmpty(folderConfig.Path, folderConfig.DisplayPath, folderConfig.Name))
+			folderPath = types.NormalizeFolderPathKey(firstNonEmpty(folderConfig.Path, folderConfig.DisplayPath, folderConfig.Name))
 		}
 		folder = filepath.Join(collection.Path, filepath.FromSlash(folderPath))
 	}
@@ -530,45 +530,6 @@ func collectionRequestFilesystemPath(collection *Collection, item RequestItem) (
 		return "", fmt.Errorf("request path %s escapes collection", targetPath)
 	}
 	return targetPath, nil
-}
-
-func ensureRequestFilePaths(collection *Collection, defaultExt string) {
-	used := map[string]bool{}
-	for i := range collection.Items {
-		target := ""
-		if pathInside(collection.Path, collection.Items[i].FilePath) {
-			target = filepath.Clean(collection.Items[i].FilePath)
-			if used[target] {
-				target = ""
-			}
-		}
-		if target == "" {
-			target = uniqueRequestFilePath(*collection, collection.Items[i], defaultExt, used)
-		}
-		collection.Items[i].FilePath = target
-		used[target] = true
-	}
-}
-
-func uniqueRequestFilePath(collection Collection, item RequestItem, defaultExt string, used map[string]bool) string {
-	filename := sanitizeFilename(item.Name)
-	if filename == "" {
-		filename = item.ID
-	}
-	folder := filepath.Clean(collection.Path)
-	if strings.TrimSpace(item.FolderPath) != "" {
-		folder = filepath.Join(folder, filepath.FromSlash(item.FolderPath))
-	}
-	for index := 0; ; index++ {
-		candidateName := filename
-		if index > 0 {
-			candidateName = fmt.Sprintf("%s %d", filename, index+1)
-		}
-		candidate := filepath.Clean(filepath.Join(folder, candidateName+defaultExt))
-		if !used[candidate] {
-			return candidate
-		}
-	}
 }
 
 func gitVersion() (string, error) {

@@ -21,7 +21,7 @@ desc: custom CA: default CAs are kept whatever the setting says
 file: internal/core/app_execute_http.go
 scope: -run CustomRootCA ./internal/core/
 --- old
-	if boolPtrValue(preferences.KeepDefaultCaCertificates.Enabled, true) {
+	if prefs.BoolPtrValue(preferences.KeepDefaultCaCertificates.Enabled, true) {
 --- new
 	if true {
 ===
@@ -150,8 +150,8 @@ scope: -run GlobalEnvironment ./internal/core/
 		_ = ws
 ===
 desc: postman export: a file part keeps its stale text value beside src
-file: internal/core/app_export_build.go
-scope: -run SharePostmanFormData ./internal/core/
+file: internal/export/export.go
+scope: -run SharePostmanFormData ./internal/export/
 --- old
 			entry["src"] = value.FilePath
 			delete(entry, "value")
@@ -256,7 +256,7 @@ scope: -run DiscardUnsavedDraftsTolerates ./internal/core/
 		ws, collection, err := a.findCollectionWithWorkspaceLocked(draft.CollectionID)
 ===
 desc: shortcuts: Go and the frontend disagree on an action's display name
-file: internal/core/app_prefs_normalize.go
+file: internal/prefs/prefs.go
 scope: -run KeyBindingNamesAgreeWithTheFrontend ./internal/core/
 --- old
 	case "sidebarSearch":

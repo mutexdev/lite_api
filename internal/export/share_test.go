@@ -1,6 +1,7 @@
-package core
+package export
 
 import (
+	"github.com/mutexdev/lite_api/internal/types"
 	"testing"
 )
 
@@ -9,12 +10,12 @@ import (
 // caught by anything here — the user finds out when the import fails or, worse,
 // succeeds with the wrong content.
 
-func formPart(name, value, filePath string, enabled bool) FormPart {
-	return FormPart{Name: name, Value: value, FilePath: filePath, Enabled: enabled}
+func formPart(name, value, filePath string, enabled bool) types.FormPart {
+	return types.FormPart{Name: name, Value: value, FilePath: filePath, Enabled: enabled}
 }
 
 func TestSharePostmanFormDataEmitsATextPart(t *testing.T) {
-	out := sharePostmanFormData([]FormPart{formPart("field", "v", "", true)})
+	out := sharePostmanFormData([]types.FormPart{formPart("field", "v", "", true)})
 	if len(out) != 1 {
 		t.Fatalf("got %d entries, want 1", len(out))
 	}
@@ -34,7 +35,7 @@ func TestSharePostmanFormDataEmitsATextPart(t *testing.T) {
 // treats the two as alternatives; leaving a stale value behind next to src is
 // how an import silently attaches the wrong content.
 func TestSharePostmanFormDataDropsValueOnAFilePart(t *testing.T) {
-	out := sharePostmanFormData([]FormPart{formPart("upload", "leftover text", "/tmp/a.bin", true)})
+	out := sharePostmanFormData([]types.FormPart{formPart("upload", "leftover text", "/tmp/a.bin", true)})
 	if len(out) != 1 {
 		t.Fatalf("got %d entries, want 1", len(out))
 	}
@@ -54,7 +55,7 @@ func TestSharePostmanFormDataDropsValueOnAFilePart(t *testing.T) {
 // spaces is not a file, and treating it as one emits src:"   ", which imports
 // as a part pointing at nothing.
 func TestSharePostmanFormDataTreatsABlankPathAsText(t *testing.T) {
-	out := sharePostmanFormData([]FormPart{formPart("field", "v", "   ", true)})
+	out := sharePostmanFormData([]types.FormPart{formPart("field", "v", "   ", true)})
 	if len(out) != 1 {
 		t.Fatalf("got %d entries, want 1", len(out))
 	}
@@ -70,7 +71,7 @@ func TestSharePostmanFormDataTreatsABlankPathAsText(t *testing.T) {
 // the row the user deliberately kept but switched off — an export is a copy of
 // the request, not of the enabled subset.
 func TestSharePostmanFormDataMarksDisabledPartsRatherThanDroppingThem(t *testing.T) {
-	out := sharePostmanFormData([]FormPart{
+	out := sharePostmanFormData([]types.FormPart{
 		formPart("on", "1", "", true),
 		formPart("off", "2", "", false),
 	})
@@ -92,7 +93,7 @@ func TestSharePostmanFormDataMarksDisabledPartsRatherThanDroppingThem(t *testing
 // keyless entry has nothing to import as. This is the one case where dropping
 // is right, and it is distinct from the disabled case above.
 func TestSharePostmanFormDataDropsNamelessParts(t *testing.T) {
-	out := sharePostmanFormData([]FormPart{
+	out := sharePostmanFormData([]types.FormPart{
 		formPart("", "orphan", "", true),
 		formPart("   ", "also orphan", "", true),
 		formPart("kept", "v", "", true),
@@ -109,7 +110,7 @@ func TestSharePostmanFormDataDropsNamelessParts(t *testing.T) {
 // empty slice for exactly that reason, and a null formdata array is not what
 // Postman's schema describes.
 func TestSharePostmanFormDataReturnsAnEmptySliceNotNil(t *testing.T) {
-	for name, input := range map[string][]FormPart{
+	for name, input := range map[string][]types.FormPart{
 		"nil input":         nil,
 		"empty input":       {},
 		"all parts dropped": {formPart("", "x", "", true)},
@@ -125,7 +126,7 @@ func TestSharePostmanFormDataReturnsAnEmptySliceNotNil(t *testing.T) {
 }
 
 func TestShareSelectedFileBodyEntryPicksTheSelectedFile(t *testing.T) {
-	body := RequestBody{Files: []FileBodyEntry{
+	body := types.RequestBody{Files: []types.FileBodyEntry{
 		{FilePath: "/tmp/a", Selected: false},
 		{FilePath: "/tmp/b", Selected: true},
 		{FilePath: "/tmp/c", Selected: true},
@@ -142,7 +143,7 @@ func TestShareSelectedFileBodyEntryPicksTheSelectedFile(t *testing.T) {
 // A selected row whose path is blank is not a file to export. Returning it
 // would put an entry with no source into the payload.
 func TestShareSelectedFileBodyEntrySkipsASelectedRowWithNoPath(t *testing.T) {
-	body := RequestBody{Files: []FileBodyEntry{
+	body := types.RequestBody{Files: []types.FileBodyEntry{
 		{FilePath: "  ", Selected: true},
 		{FilePath: "/tmp/real", Selected: true},
 	}}
@@ -156,10 +157,10 @@ func TestShareSelectedFileBodyEntrySkipsASelectedRowWithNoPath(t *testing.T) {
 }
 
 func TestShareSelectedFileBodyEntryReportsNothingWhenNoneApply(t *testing.T) {
-	for name, body := range map[string]RequestBody{
+	for name, body := range map[string]types.RequestBody{
 		"no files":       {},
-		"none selected":  {Files: []FileBodyEntry{{FilePath: "/tmp/a"}}},
-		"selected blank": {Files: []FileBodyEntry{{FilePath: "", Selected: true}}},
+		"none selected":  {Files: []types.FileBodyEntry{{FilePath: "/tmp/a"}}},
+		"selected blank": {Files: []types.FileBodyEntry{{FilePath: "", Selected: true}}},
 	} {
 		if got := shareSelectedFileBodyEntry(body); got != nil {
 			t.Errorf("%s: got %+v, want nil", name, got)
@@ -184,7 +185,7 @@ func TestShareSelectedFileBodyEntryReportsNothingWhenNoneApply(t *testing.T) {
 // it. The redundant line is left alone; deleting it is a change to working
 // code that no test asked for.
 func TestShareSelectedFileBodyEntryReturnsACopy(t *testing.T) {
-	body := RequestBody{Files: []FileBodyEntry{{FilePath: "/tmp/a", ContentType: "text/plain", Selected: true}}}
+	body := types.RequestBody{Files: []types.FileBodyEntry{{FilePath: "/tmp/a", ContentType: "text/plain", Selected: true}}}
 	got := shareSelectedFileBodyEntry(body)
 	if got == nil {
 		t.Fatal("nothing was selected")

@@ -1,11 +1,13 @@
-package core
+package export
 
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/mutexdev/lite_api/internal/scalar"
+	"github.com/mutexdev/lite_api/internal/store/bru"
 	"github.com/mutexdev/lite_api/internal/store/yamlstore"
+	"github.com/mutexdev/lite_api/internal/types"
 	"html"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,12 +16,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func buildCollectionDocsYAML(collection Collection, selectedEnvironmentIDs []string, generatedAt time.Time) (string, int, int, error) {
+func BuildDocsYAML(collection types.Collection, selectedEnvironmentIDs []string, generatedAt time.Time) (string, int, int, error) {
 	root, err := yamlMapFromString(yamlstore.StringifyCollection(collection))
 	if err != nil {
 		return "", 0, 0, err
 	}
-	info, _ := mapValue(root["info"])
+	info, _ := scalar.Map(root["info"])
 	if info == nil {
 		info = map[string]interface{}{}
 	}
@@ -35,18 +37,18 @@ func buildCollectionDocsYAML(collection Collection, selectedEnvironmentIDs []str
 	}
 	root["items"] = items
 
-	config, _ := mapValue(root["config"])
+	config, _ := scalar.Map(root["config"])
 	if config == nil {
 		config = map[string]interface{}{}
 	}
 	config["environments"] = yamlDocsEnvironments(collection.Environments, selectedEnvironmentIDs)
 	root["config"] = config
 
-	extensions, _ := mapValue(root["extensions"])
+	extensions, _ := scalar.Map(root["extensions"])
 	if extensions == nil {
 		extensions = map[string]interface{}{}
 	}
-	bruno, _ := mapValue(extensions["bruno"])
+	bruno, _ := scalar.Map(extensions["bruno"])
 	if bruno == nil {
 		bruno = map[string]interface{}{}
 	}
@@ -62,7 +64,7 @@ func buildCollectionDocsYAML(collection Collection, selectedEnvironmentIDs []str
 	return string(data), folderCount, requestCount, nil
 }
 
-func buildCollectionDocsHTML(collectionName, yamlContent string) (string, error) {
+func BuildDocsHTML(collectionName, yamlContent string) (string, error) {
 	encoded, err := json.Marshal(yamlContent)
 	if err != nil {
 		return "", err
@@ -107,7 +109,7 @@ func yamlMapFromString(content string) (map[string]interface{}, error) {
 	return raw, nil
 }
 
-func collectionDocsItems(collection Collection, parentPath string) ([]map[string]interface{}, int, int, error) {
+func collectionDocsItems(collection types.Collection, parentPath string) ([]map[string]interface{}, int, int, error) {
 	folders := collectionDocsChildFolders(collection.Folders, parentPath)
 	requests := collectionDocsChildRequests(collection.Items, parentPath)
 	items := make([]map[string]interface{}, 0, len(folders)+len(requests))
@@ -144,28 +146,28 @@ func collectionDocsItems(collection Collection, parentPath string) ([]map[string
 	return items, folderCount, requestCount, nil
 }
 
-func collectionDocsChildFolders(folders []FolderConfig, parentPath string) []FolderConfig {
-	parentPath = normalizeFolderPathKey(parentPath)
-	children := make([]FolderConfig, 0)
+func collectionDocsChildFolders(folders []types.FolderConfig, parentPath string) []types.FolderConfig {
+	parentPath = types.NormalizeFolderPathKey(parentPath)
+	children := make([]types.FolderConfig, 0)
 	for _, folder := range folders {
-		displayPath := normalizeFolderPathKey(firstNonEmpty(folder.DisplayPath, folder.Path))
+		displayPath := types.NormalizeFolderPathKey(scalar.FirstNonEmpty(folder.DisplayPath, folder.Path))
 		if displayPath == "" {
 			continue
 		}
-		if normalizeFolderPathKey(parentFolderDisplayPath(displayPath)) == parentPath {
+		if types.NormalizeFolderPathKey(types.ParentFolderDisplayPath(displayPath)) == parentPath {
 			if folder.DisplayPath == "" {
 				folder.DisplayPath = displayPath
 			}
 			children = append(children, folder)
 		}
 	}
-	sortFoldersLikeBruno(children)
+	types.SortFoldersLikeBruno(children)
 	return children
 }
 
-func collectionDocsChildRequests(items []RequestItem, parentPath string) []RequestItem {
-	parentPath = normalizeFolderPathKey(parentPath)
-	children := make([]RequestItem, 0)
+func collectionDocsChildRequests(items []types.RequestItem, parentPath string) []types.RequestItem {
+	parentPath = types.NormalizeFolderPathKey(parentPath)
+	children := make([]types.RequestItem, 0)
 	for _, item := range items {
 		if item.Transient {
 			continue
@@ -173,7 +175,7 @@ func collectionDocsChildRequests(items []RequestItem, parentPath string) []Reque
 		if !collectionDocsRequestIsExportable(item) {
 			continue
 		}
-		if normalizeFolderPathKey(item.FolderPath) == parentPath {
+		if types.NormalizeFolderPathKey(item.FolderPath) == parentPath {
 			children = append(children, item)
 		}
 	}
@@ -186,34 +188,11 @@ func collectionDocsChildRequests(items []RequestItem, parentPath string) []Reque
 	return children
 }
 
-func collectionDocsRequestIsExportable(item RequestItem) bool {
+func collectionDocsRequestIsExportable(item types.RequestItem) bool {
 	return item.Type == "" || item.Type == "http" || item.Type == "graphql" || item.Type == "websocket" || item.Type == "grpc"
 }
 
-func sortFoldersLikeBruno(folders []FolderConfig) {
-	sort.SliceStable(folders, func(i, j int) bool {
-		leftValid := folders[i].Seq > 0
-		rightValid := folders[j].Seq > 0
-		if leftValid && rightValid && folders[i].Seq != folders[j].Seq {
-			return folders[i].Seq < folders[j].Seq
-		}
-		if leftValid != rightValid {
-			return leftValid
-		}
-		return strings.ToLower(firstNonEmpty(folders[i].Name, folders[i].DisplayPath, folders[i].Path)) < strings.ToLower(firstNonEmpty(folders[j].Name, folders[j].DisplayPath, folders[j].Path))
-	})
-}
-
-func parentFolderDisplayPath(path string) string {
-	path = normalizeFolderPathKey(path)
-	parent := filepath.ToSlash(filepath.Dir(path))
-	if parent == "." {
-		return ""
-	}
-	return parent
-}
-
-func yamlDocsEnvironments(environments []Environment, selectedEnvironmentIDs []string) []map[string]interface{} {
+func yamlDocsEnvironments(environments []types.Environment, selectedEnvironmentIDs []string) []map[string]interface{} {
 	includeAll := selectedEnvironmentIDs == nil
 	selected := map[string]bool{}
 	for _, id := range selectedEnvironmentIDs {
@@ -227,13 +206,13 @@ func yamlDocsEnvironments(environments []Environment, selectedEnvironmentIDs []s
 		out = append(out, map[string]interface{}{
 			"name":      env.Name,
 			"color":     env.Color,
-			"variables": yamlVariables(env.Variables),
+			"variables": bru.YAMLVariables(env.Variables),
 		})
 	}
 	return out
 }
 
-func collectionDisplayVersion(version string) string {
+func DisplayVersion(version string) string {
 	version = strings.TrimSpace(strings.TrimPrefix(version, "v"))
 	if version == "" {
 		return "v1.0.0"

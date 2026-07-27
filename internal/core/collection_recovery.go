@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/mutexdev/lite_api/internal/types"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,8 +115,8 @@ func (a *App) DeleteFolderRecoverable(collectionID, folderPath string) (recovery
 		return recovery.RecoverableDeleteResult{}, err
 	}
 	folder := collection.Folders[folderIndex]
-	oldPath := normalizeFolderPathKey(folder.Path)
-	oldDisplayPath := normalizeFolderPathKey(firstNonEmpty(folder.DisplayPath, folder.Name, folder.Path))
+	oldPath := types.NormalizeFolderPathKey(folder.Path)
+	oldDisplayPath := types.NormalizeFolderPathKey(firstNonEmpty(folder.DisplayPath, folder.Name, folder.Path))
 	if oldPath == "" {
 		return recovery.RecoverableDeleteResult{}, errors.New("folder path is required")
 	}
@@ -159,18 +160,18 @@ func (a *App) DeleteFolderRecoverable(collectionID, folderPath string) (recovery
 	collection.Items = remainingItems
 	remainingFolders := collection.Folders[:0]
 	for _, candidate := range collection.Folders {
-		candidatePath := normalizeFolderPathKey(candidate.Path)
-		candidateDisplayPath := normalizeFolderPathKey(firstNonEmpty(candidate.DisplayPath, candidate.Name, candidate.Path))
+		candidatePath := types.NormalizeFolderPathKey(candidate.Path)
+		candidateDisplayPath := types.NormalizeFolderPathKey(firstNonEmpty(candidate.DisplayPath, candidate.Name, candidate.Path))
 		if !folderPathHasPrefix(candidatePath, oldPath) && !folderPathHasPrefix(candidateDisplayPath, oldDisplayPath) {
 			remainingFolders = append(remainingFolders, candidate)
 		}
 	}
 	collection.Folders = remainingFolders
-	sortFoldersLikeBruno(collection.Folders)
+	types.SortFoldersLikeBruno(collection.Folders)
 	if err := os.RemoveAll(targetDir); err != nil {
 		return rollback(err)
 	}
-	if err := a.resequenceCollectionSiblingsLocked(collection, normalizeFolderPathKey(parentFolderDisplayPath(oldPath)), normalizeFolderPathKey(parentFolderDisplayPath(oldDisplayPath))); err != nil {
+	if err := a.resequenceCollectionSiblingsLocked(collection, types.NormalizeFolderPathKey(types.ParentFolderDisplayPath(oldPath)), types.NormalizeFolderPathKey(types.ParentFolderDisplayPath(oldDisplayPath))); err != nil {
 		return rollback(err)
 	}
 	a.seedCollectionWatchFingerprintLocked(collection.Path)
@@ -559,12 +560,12 @@ func (a *App) rollbackCollectionRemovalLocked(snapshot recovery.Snapshot) {
 }
 
 func recoveryParentPaths(collection *Collection, item RequestItem) (string, string) {
-	parentPath := normalizeFolderPathKey(item.FolderPath)
+	parentPath := types.NormalizeFolderPathKey(item.FolderPath)
 	parentDisplayPath := parentPath
 	if parentDisplayPath != "" {
 		if folder, err := findFolderConfig(collection, parentDisplayPath); err == nil {
-			parentPath = normalizeFolderPathKey(folder.Path)
-			parentDisplayPath = normalizeFolderPathKey(firstNonEmpty(folder.DisplayPath, folder.Name, folder.Path))
+			parentPath = types.NormalizeFolderPathKey(folder.Path)
+			parentDisplayPath = types.NormalizeFolderPathKey(firstNonEmpty(folder.DisplayPath, folder.Name, folder.Path))
 		}
 	}
 	return parentPath, parentDisplayPath
@@ -573,7 +574,7 @@ func recoveryParentPaths(collection *Collection, item RequestItem) (string, stri
 func recoveryFolderRequestIDs(collection *Collection, oldPath, oldDisplayPath, targetDir string) map[string]bool {
 	result := map[string]bool{}
 	for _, item := range collection.Items {
-		itemFolderPath := normalizeFolderPathKey(item.FolderPath)
+		itemFolderPath := types.NormalizeFolderPathKey(item.FolderPath)
 		if folderPathHasPrefix(itemFolderPath, oldDisplayPath) || folderPathHasPrefix(itemFolderPath, oldPath) || (strings.TrimSpace(item.FilePath) != "" && pathInside(targetDir, item.FilePath)) {
 			result[item.ID] = true
 		}

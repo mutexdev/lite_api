@@ -1,4 +1,4 @@
-package core
+package export
 
 import (
 	"archive/zip"
@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/mutexdev/lite_api/internal/scalar"
 	"github.com/mutexdev/lite_api/internal/store/yamlstore"
 	"github.com/mutexdev/lite_api/internal/types"
 	"net/http"
@@ -21,12 +22,19 @@ import (
 	"github.com/mutexdev/lite_api/internal/transport"
 )
 
-func collectionShareSnapshot(collection Collection) Collection {
+// File is one entry of an exported collection: a path inside the archive and
+// its bytes.
+type File struct {
+	Name    string
+	Content []byte
+}
+
+func ShareSnapshot(collection types.Collection) types.Collection {
 	snapshot := collection
 	snapshot.Remote = ""
 	snapshot.NotFoundLocally = false
 	snapshot.RuntimeVariables = nil
-	snapshot.Items = make([]RequestItem, 0, len(collection.Items))
+	snapshot.Items = make([]types.RequestItem, 0, len(collection.Items))
 	for _, item := range collection.Items {
 		if item.Transient {
 			continue
@@ -38,10 +46,10 @@ func collectionShareSnapshot(collection Collection) Collection {
 		item.FilePath = ""
 		snapshot.Items = append(snapshot.Items, item)
 	}
-	snapshot.Folders = append([]FolderConfig(nil), collection.Folders...)
-	snapshot.Environments = make([]Environment, 0, len(collection.Environments))
+	snapshot.Folders = append([]types.FolderConfig(nil), collection.Folders...)
+	snapshot.Environments = make([]types.Environment, 0, len(collection.Environments))
 	for _, env := range collection.Environments {
-		env.Variables = append([]Variable(nil), env.Variables...)
+		env.Variables = append([]types.Variable(nil), env.Variables...)
 		for index := range env.Variables {
 			if env.Variables[index].Secret {
 				env.Variables[index].Value = ""
@@ -52,8 +60,8 @@ func collectionShareSnapshot(collection Collection) Collection {
 	return snapshot
 }
 
-func buildCollectionShareYAML(collection Collection, generatedAt time.Time) (string, int, int, error) {
-	content, folderCount, requestCount, err := buildCollectionDocsYAML(collection, nil, generatedAt)
+func BuildShareYAML(collection types.Collection, generatedAt time.Time) (string, int, int, error) {
+	content, folderCount, requestCount, err := BuildDocsYAML(collection, nil, generatedAt)
 	if err != nil {
 		return "", 0, 0, err
 	}
@@ -69,8 +77,8 @@ func buildCollectionShareYAML(collection Collection, generatedAt time.Time) (str
 	return string(data), folderCount, requestCount, nil
 }
 
-func buildCollectionZipExportFiles(collection Collection) ([]collectionExportFile, int, int, error) {
-	files := []collectionExportFile{}
+func BuildZipFiles(collection types.Collection) ([]File, int, int, error) {
+	files := []File{}
 	used := map[string]bool{}
 	exportRoot := filepath.Join(os.TempDir(), "liteapi-export-root")
 	collection.Path = exportRoot
@@ -84,11 +92,11 @@ func buildCollectionZipExportFiles(collection Collection) ([]collectionExportFil
 			return nil, 0, 0, err
 		}
 		root["bundled"] = false
-		extensions, _ := mapValue(root["extensions"])
+		extensions, _ := scalar.Map(root["extensions"])
 		if extensions == nil {
 			extensions = map[string]interface{}{}
 		}
-		bruno, _ := mapValue(extensions["bruno"])
+		bruno, _ := scalar.Map(extensions["bruno"])
 		if bruno == nil {
 			bruno = map[string]interface{}{}
 		}
@@ -106,7 +114,7 @@ func buildCollectionZipExportFiles(collection Collection) ([]collectionExportFil
 				addCollectionExportFile(&files, used, filepath.ToSlash(filepath.Join(filepath.FromSlash(folderPath), "folder.yml")), []byte(yamlstore.StringifyFolder(folder)))
 			}
 		}
-		ensureRequestFilePaths(&collection, ".yml")
+		types.EnsureRequestFilePaths(&collection, ".yml")
 		for _, item := range collection.Items {
 			content, err := yamlstore.StringifyRequest(item)
 			if err != nil {
@@ -124,7 +132,7 @@ func buildCollectionZipExportFiles(collection Collection) ([]collectionExportFil
 	config := map[string]interface{}{
 		"name":    collection.Name,
 		"type":    "collection",
-		"version": firstNonEmpty(collection.Version, "1"),
+		"version": scalar.FirstNonEmpty(collection.Version, "1"),
 		"ignore":  []string{"node_modules", ".git"},
 	}
 	if transport.HasProxyConfig(collection.Proxy) {
@@ -149,7 +157,7 @@ func buildCollectionZipExportFiles(collection Collection) ([]collectionExportFil
 	addCollectionExportFile(&files, used, "bruno.json", configData)
 	addCollectionExportFile(&files, used, "collection.bru", []byte(bru.StringifyBruCollection(collection)))
 	for _, env := range collection.Environments {
-		name := sanitizeFilename(env.Name)
+		name := scalar.SanitizeFilename(env.Name)
 		if name == "" {
 			name = env.ID
 		}
@@ -160,7 +168,7 @@ func buildCollectionZipExportFiles(collection Collection) ([]collectionExportFil
 			addCollectionExportFile(&files, used, filepath.ToSlash(filepath.Join(filepath.FromSlash(folderPath), "folder.bru")), []byte(bru.StringifyBruFolder(folder)))
 		}
 	}
-	ensureRequestFilePaths(&collection, ".bru")
+	types.EnsureRequestFilePaths(&collection, ".bru")
 	for _, item := range collection.Items {
 		rel, ok := exportRelativePath(collection.Path, item.FilePath)
 		if !ok {
@@ -171,14 +179,14 @@ func buildCollectionZipExportFiles(collection Collection) ([]collectionExportFil
 	return files, len(collection.Folders), len(collection.Items), nil
 }
 
-func addCollectionExportFile(files *[]collectionExportFile, used map[string]bool, name string, content []byte) {
+func addCollectionExportFile(files *[]File, used map[string]bool, name string, content []byte) {
 	name = cleanExportArchivePath(name)
 	if name == "" {
 		return
 	}
 	name = uniqueCollectionExportPath(name, used)
 	used[name] = true
-	*files = append(*files, collectionExportFile{Name: name, Content: append([]byte(nil), content...)})
+	*files = append(*files, File{Name: name, Content: append([]byte(nil), content...)})
 }
 
 func cleanExportArchivePath(name string) string {
@@ -209,8 +217,8 @@ func uniqueCollectionExportPath(name string, used map[string]bool) string {
 	}
 }
 
-func exportFolderPath(folder FolderConfig) string {
-	folderPath := normalizeFolderPathKey(firstNonEmpty(folder.DisplayPath, folder.Path))
+func exportFolderPath(folder types.FolderConfig) string {
+	folderPath := types.NormalizeFolderPathKey(scalar.FirstNonEmpty(folder.DisplayPath, folder.Path))
 	if folderPath == "" {
 		return ""
 	}
@@ -226,7 +234,7 @@ func exportRelativePath(root, target string) (string, bool) {
 	return clean, clean != ""
 }
 
-func zipCollectionExportFiles(files []collectionExportFile) ([]byte, error) {
+func ZipFiles(files []File) ([]byte, error) {
 	var buffer bytes.Buffer
 	archive := zip.NewWriter(&buffer)
 	for _, file := range files {
@@ -252,14 +260,14 @@ func zipCollectionExportFiles(files []collectionExportFile) ([]byte, error) {
 	return buffer.Bytes(), nil
 }
 
-func collectionExportBytes(result CollectionExportResult) ([]byte, error) {
+func Bytes(result types.CollectionExportResult) ([]byte, error) {
 	if strings.TrimSpace(result.ContentBase64) != "" {
 		return base64.StdEncoding.DecodeString(result.ContentBase64)
 	}
 	return []byte(result.Content), nil
 }
 
-func buildPostmanCollectionExport(collection Collection) (string, int, []string, error) {
+func BuildPostmanCollection(collection types.Collection) (string, int, []string, error) {
 	skipped := []string{}
 	skippedSeen := map[string]bool{}
 	items, count := postmanCollectionItems(collection, "", &skipped, skippedSeen)
@@ -270,7 +278,7 @@ func buildPostmanCollectionExport(collection Collection) (string, int, []string,
 		},
 		"item": items,
 	}
-	// US-053. Collection-level state was previously dropped entirely, so an
+	// US-053. types.Collection-level state was previously dropped entirely, so an
 	// export round trip silently lost every collection variable, the
 	// collection auth every request inherits, and the collection scripts that
 	// run before each one. The result imported cleanly and behaved differently.
@@ -290,13 +298,13 @@ func buildPostmanCollectionExport(collection Collection) (string, int, []string,
 	return string(data), count, skipped, nil
 }
 
-func postmanCollectionItems(collection Collection, parentPath string, skipped *[]string, skippedSeen map[string]bool) ([]interface{}, int) {
+func postmanCollectionItems(collection types.Collection, parentPath string, skipped *[]string, skippedSeen map[string]bool) ([]interface{}, int) {
 	out := []interface{}{}
 	count := 0
 	for _, folder := range collectionDocsChildFolders(collection.Folders, parentPath) {
 		children, childCount := postmanCollectionItems(collection, folder.DisplayPath, skipped, skippedSeen)
 		entry := map[string]interface{}{
-			"name": firstNonEmpty(folder.Name, filepath.Base(filepath.FromSlash(folder.DisplayPath)), filepath.Base(filepath.FromSlash(folder.Path))),
+			"name": scalar.FirstNonEmpty(folder.Name, filepath.Base(filepath.FromSlash(folder.DisplayPath)), filepath.Base(filepath.FromSlash(folder.Path))),
 			"item": children,
 		}
 		if events := sharePostmanEvents(folder.PreScript, folder.PostScript, ""); len(events) > 0 {
@@ -330,8 +338,8 @@ func addSkippedCollectionExportType(skipped *[]string, seen map[string]bool, lab
 	*skipped = append(*skipped, label)
 }
 
-func sharePostmanRequestItem(item RequestItem) map[string]interface{} {
-	method := strings.ToUpper(firstNonEmpty(item.Method, http.MethodGet))
+func sharePostmanRequestItem(item types.RequestItem) map[string]interface{} {
+	method := strings.ToUpper(scalar.FirstNonEmpty(item.Method, http.MethodGet))
 	request := map[string]interface{}{
 		"method": method,
 		"url":    sharePostmanURL(item),
@@ -402,7 +410,7 @@ func sharePostmanEvents(preScript, postScript, tests string) []interface{} {
 }
 
 // sharePostmanVariables exports collection variables.
-func sharePostmanVariables(variables []Variable) []interface{} {
+func sharePostmanVariables(variables []types.Variable) []interface{} {
 	out := make([]interface{}, 0, len(variables))
 	for _, variable := range variables {
 		name := strings.TrimSpace(variable.Name)
@@ -421,7 +429,7 @@ func sharePostmanVariables(variables []Variable) []interface{} {
 	return out
 }
 
-func sharePostmanURL(item RequestItem) map[string]interface{} {
+func sharePostmanURL(item types.RequestItem) map[string]interface{} {
 	url := map[string]interface{}{"raw": item.URL}
 	if len(item.Params) > 0 {
 		query := []map[string]interface{}{}
@@ -457,7 +465,7 @@ func sharePostmanURL(item RequestItem) map[string]interface{} {
 	return url
 }
 
-func sharePostmanBody(item RequestItem) map[string]interface{} {
+func sharePostmanBody(item types.RequestItem) map[string]interface{} {
 	if item.Type == "graphql" {
 		return map[string]interface{}{
 			"mode": "graphql",
@@ -499,7 +507,7 @@ func sharePostmanRawBody(body, language string) map[string]interface{} {
 	}
 }
 
-func sharePostmanKeyValues(values []KeyValue, keyName string) []map[string]interface{} {
+func sharePostmanKeyValues(values []types.KeyValue, keyName string) []map[string]interface{} {
 	out := []map[string]interface{}{}
 	for _, value := range values {
 		if strings.TrimSpace(value.Name) == "" {
@@ -514,7 +522,7 @@ func sharePostmanKeyValues(values []KeyValue, keyName string) []map[string]inter
 	return out
 }
 
-func sharePostmanFormData(values []FormPart) []map[string]interface{} {
+func sharePostmanFormData(values []types.FormPart) []map[string]interface{} {
 	out := []map[string]interface{}{}
 	for _, value := range values {
 		if strings.TrimSpace(value.Name) == "" {
@@ -538,8 +546,8 @@ func sharePostmanFormData(values []FormPart) []map[string]interface{} {
 	return out
 }
 
-func shareSelectedFileBodyEntry(body RequestBody) *FileBodyEntry {
-	for _, file := range fileBodyEntries(body) {
+func shareSelectedFileBodyEntry(body types.RequestBody) *types.FileBodyEntry {
+	for _, file := range types.FileBodyEntriesOf(body) {
 		if file.Selected && strings.TrimSpace(file.FilePath) != "" {
 			copy := file
 			return &copy
@@ -548,7 +556,7 @@ func shareSelectedFileBodyEntry(body RequestBody) *FileBodyEntry {
 	return nil
 }
 
-func sharePostmanAuth(auth AuthConfig) map[string]interface{} {
+func sharePostmanAuth(auth types.AuthConfig) map[string]interface{} {
 	switch strings.ToLower(strings.TrimSpace(auth.Mode)) {
 	case "basic":
 		return map[string]interface{}{"type": "basic", "basic": []map[string]interface{}{
@@ -563,7 +571,7 @@ func sharePostmanAuth(auth AuthConfig) map[string]interface{} {
 		return map[string]interface{}{"type": "apikey", "apikey": []map[string]interface{}{
 			{"key": "key", "value": auth.APIKey, "type": "string"},
 			{"key": "value", "value": auth.APIValue, "type": "string"},
-			{"key": "in", "value": firstNonEmpty(auth.APILocation, "header"), "type": "string"},
+			{"key": "in", "value": scalar.FirstNonEmpty(auth.APILocation, "header"), "type": "string"},
 		}}
 	default:
 		return nil

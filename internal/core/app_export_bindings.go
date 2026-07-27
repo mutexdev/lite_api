@@ -11,6 +11,7 @@ import (
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"github.com/mutexdev/lite_api/internal/export"
 	"github.com/mutexdev/lite_api/internal/store/bru"
 )
 
@@ -32,14 +33,14 @@ func (a *App) ExportCollectionWithOptions(collectionID string, options Collectio
 	if err != nil {
 		return CollectionExportResult{}, err
 	}
-	snapshot := collectionShareSnapshot(*collection)
+	snapshot := export.ShareSnapshot(*collection)
 	format := strings.ToLower(strings.TrimSpace(options.Format))
 	if format == "" {
 		format = "zip"
 	}
 	switch format {
 	case "yaml", "yml":
-		content, folderCount, requestCount, err := buildCollectionShareYAML(snapshot, time.Now().UTC())
+		content, folderCount, requestCount, err := export.BuildShareYAML(snapshot, time.Now().UTC())
 		if err != nil {
 			return CollectionExportResult{}, err
 		}
@@ -53,11 +54,11 @@ func (a *App) ExportCollectionWithOptions(collectionID string, options Collectio
 			EnvironmentCount: len(snapshot.Environments),
 		}, nil
 	case "zip":
-		files, folderCount, requestCount, err := buildCollectionZipExportFiles(snapshot)
+		files, folderCount, requestCount, err := export.BuildZipFiles(snapshot)
 		if err != nil {
 			return CollectionExportResult{}, err
 		}
-		data, err := zipCollectionExportFiles(files)
+		data, err := export.ZipFiles(files)
 		if err != nil {
 			return CollectionExportResult{}, err
 		}
@@ -71,7 +72,7 @@ func (a *App) ExportCollectionWithOptions(collectionID string, options Collectio
 			EnvironmentCount: len(snapshot.Environments),
 		}, nil
 	case "postman":
-		content, requestCount, skippedTypes, err := buildPostmanCollectionExport(snapshot)
+		content, requestCount, skippedTypes, err := export.BuildPostmanCollection(snapshot)
 		if err != nil {
 			return CollectionExportResult{}, err
 		}
@@ -136,7 +137,7 @@ func (a *App) SaveCollectionExport(collectionID string, options CollectionExport
 	if info, err := os.Stat(targetPath); err == nil && info.IsDir() {
 		targetPath = filepath.Join(targetPath, result.Filename)
 	}
-	data, err := collectionExportBytes(result)
+	data, err := export.Bytes(result)
 	if err != nil {
 		return CollectionSaveResult{}, err
 	}
@@ -163,11 +164,11 @@ func (a *App) GenerateCollectionDocs(collectionID string, options GenerateCollec
 	snapshot.Items = append([]RequestItem(nil), collection.Items...)
 	snapshot.Folders = append([]FolderConfig(nil), collection.Folders...)
 	snapshot.Environments = append([]Environment(nil), collection.Environments...)
-	yamlContent, folderCount, requestCount, err := buildCollectionDocsYAML(snapshot, options.EnvironmentIDs, time.Now().UTC())
+	yamlContent, folderCount, requestCount, err := export.BuildDocsYAML(snapshot, options.EnvironmentIDs, time.Now().UTC())
 	if err != nil {
 		return GenerateCollectionDocsResult{}, err
 	}
-	htmlContent, err := buildCollectionDocsHTML(snapshot.Name, yamlContent)
+	htmlContent, err := export.BuildDocsHTML(snapshot.Name, yamlContent)
 	if err != nil {
 		return GenerateCollectionDocsResult{}, err
 	}
@@ -175,7 +176,7 @@ func (a *App) GenerateCollectionDocs(collectionID string, options GenerateCollec
 		FileName:     sanitizeFilename(snapshot.Name) + "-documentation.html",
 		HTML:         htmlContent,
 		YAML:         yamlContent,
-		Version:      collectionDisplayVersion(snapshot.Version),
+		Version:      export.DisplayVersion(snapshot.Version),
 		FolderCount:  folderCount,
 		RequestCount: requestCount,
 	}, nil

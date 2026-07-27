@@ -47,7 +47,7 @@ func (a *App) CreateRequest(collectionID, requestType, name string) (AppState, e
 		// disk. Establish that identity before opening the tab so an internal
 		// save, watcher refresh, or restart cannot strand the tab on a temporary
 		// random ID.
-		ensureRequestFilePaths(collection, requestFileExtensionForCollection(*collection))
+		types.EnsureRequestFilePaths(collection, requestFileExtensionForCollection(*collection))
 		created := &collection.Items[len(collection.Items)-1]
 		created.ID = deterministicID("request", filepath.Clean(created.FilePath))
 		assignExampleIDs(created)
@@ -134,7 +134,7 @@ func (a *App) CreateFolder(collectionID, parentFolderPath, folderName, directory
 		return AppState{}, err
 	}
 	collection.Folders = append(collection.Folders, folder)
-	sortFoldersLikeBruno(collection.Folders)
+	types.SortFoldersLikeBruno(collection.Folders)
 	now := time.Now()
 	collection.UpdatedAt = now
 	ws.UpdatedAt = now
@@ -167,8 +167,8 @@ func (a *App) RenameFolder(collectionID, folderPath, folderName, directoryName s
 		return AppState{}, err
 	}
 	folder := collection.Folders[folderIndex]
-	oldPath := normalizeFolderPathKey(folder.Path)
-	oldDisplayPath := normalizeFolderPathKey(firstNonEmpty(folder.DisplayPath, folder.Name, folder.Path))
+	oldPath := types.NormalizeFolderPathKey(folder.Path)
+	oldDisplayPath := types.NormalizeFolderPathKey(firstNonEmpty(folder.DisplayPath, folder.Name, folder.Path))
 	if oldPath == "" {
 		return AppState{}, errors.New("folder path is required")
 	}
@@ -182,8 +182,8 @@ func (a *App) RenameFolder(collectionID, folderPath, folderName, directoryName s
 	if strings.EqualFold(directoryName, "collection") || strings.EqualFold(directoryName, "folder") {
 		return AppState{}, errors.New(`the file names "collection" and "folder" are reserved in bruno`)
 	}
-	parentPath := normalizeFolderPathKey(parentFolderDisplayPath(oldPath))
-	parentDisplayPath := normalizeFolderPathKey(parentFolderDisplayPath(oldDisplayPath))
+	parentPath := types.NormalizeFolderPathKey(types.ParentFolderDisplayPath(oldPath))
+	parentDisplayPath := types.NormalizeFolderPathKey(types.ParentFolderDisplayPath(oldDisplayPath))
 	newPath := joinCollectionFolderPath(parentPath, directoryName)
 	newDisplayPath := joinCollectionFolderPath(parentDisplayPath, name)
 	if newPath != oldPath && collectionHasChildFolder(collection, parentPath, directoryName) {
@@ -260,8 +260,8 @@ func (a *App) DeleteFolder(collectionID, folderPath string) (AppState, error) {
 		return AppState{}, err
 	}
 	folder := collection.Folders[folderIndex]
-	oldPath := normalizeFolderPathKey(folder.Path)
-	oldDisplayPath := normalizeFolderPathKey(firstNonEmpty(folder.DisplayPath, folder.Name, folder.Path))
+	oldPath := types.NormalizeFolderPathKey(folder.Path)
+	oldDisplayPath := types.NormalizeFolderPathKey(firstNonEmpty(folder.DisplayPath, folder.Name, folder.Path))
 	if oldPath == "" {
 		return AppState{}, errors.New("folder path is required")
 	}
@@ -284,7 +284,7 @@ func (a *App) DeleteFolder(collectionID, folderPath string) (AppState, error) {
 	removedRequestIDs := map[string]bool{}
 	remainingItems := collection.Items[:0]
 	for _, item := range collection.Items {
-		itemFolderPath := normalizeFolderPathKey(item.FolderPath)
+		itemFolderPath := types.NormalizeFolderPathKey(item.FolderPath)
 		remove := folderPathHasPrefix(itemFolderPath, oldDisplayPath) || folderPathHasPrefix(itemFolderPath, oldPath)
 		if !remove && strings.TrimSpace(item.FilePath) != "" {
 			remove = pathInside(targetDir, item.FilePath)
@@ -299,21 +299,21 @@ func (a *App) DeleteFolder(collectionID, folderPath string) (AppState, error) {
 
 	remainingFolders := collection.Folders[:0]
 	for _, candidate := range collection.Folders {
-		candidatePath := normalizeFolderPathKey(candidate.Path)
-		candidateDisplayPath := normalizeFolderPathKey(firstNonEmpty(candidate.DisplayPath, candidate.Name, candidate.Path))
+		candidatePath := types.NormalizeFolderPathKey(candidate.Path)
+		candidateDisplayPath := types.NormalizeFolderPathKey(firstNonEmpty(candidate.DisplayPath, candidate.Name, candidate.Path))
 		if folderPathHasPrefix(candidatePath, oldPath) || folderPathHasPrefix(candidateDisplayPath, oldDisplayPath) {
 			continue
 		}
 		remainingFolders = append(remainingFolders, candidate)
 	}
 	collection.Folders = remainingFolders
-	sortFoldersLikeBruno(collection.Folders)
+	types.SortFoldersLikeBruno(collection.Folders)
 
 	if err := os.RemoveAll(targetDir); err != nil {
 		return AppState{}, err
 	}
-	parentPath := normalizeFolderPathKey(parentFolderDisplayPath(oldPath))
-	parentDisplayPath := normalizeFolderPathKey(parentFolderDisplayPath(oldDisplayPath))
+	parentPath := types.NormalizeFolderPathKey(types.ParentFolderDisplayPath(oldPath))
+	parentDisplayPath := types.NormalizeFolderPathKey(types.ParentFolderDisplayPath(oldDisplayPath))
 	if err := a.resequenceCollectionSiblingsLocked(collection, parentPath, parentDisplayPath); err != nil {
 		return AppState{}, err
 	}
@@ -371,12 +371,12 @@ func (a *App) DeleteRequest(collectionID, itemID string) (AppState, error) {
 		return AppState{}, fmt.Errorf("%s is not a request file", oldFile)
 	}
 
-	parentPath := normalizeFolderPathKey(item.FolderPath)
+	parentPath := types.NormalizeFolderPathKey(item.FolderPath)
 	parentDisplayPath := parentPath
 	if parentDisplayPath != "" {
 		if folder, folderErr := findFolderConfig(collection, parentDisplayPath); folderErr == nil {
-			parentPath = normalizeFolderPathKey(folder.Path)
-			parentDisplayPath = normalizeFolderPathKey(firstNonEmpty(folder.DisplayPath, folder.Name, folder.Path))
+			parentPath = types.NormalizeFolderPathKey(folder.Path)
+			parentDisplayPath = types.NormalizeFolderPathKey(firstNonEmpty(folder.DisplayPath, folder.Name, folder.Path))
 		}
 	}
 
@@ -425,8 +425,8 @@ func (a *App) CloneFolder(collectionID, folderPath, folderName, directoryName st
 		return AppState{}, err
 	}
 	sourceFolder := collection.Folders[folderIndex]
-	sourcePath := normalizeFolderPathKey(sourceFolder.Path)
-	sourceDisplayPath := normalizeFolderPathKey(firstNonEmpty(sourceFolder.DisplayPath, sourceFolder.Name, sourceFolder.Path))
+	sourcePath := types.NormalizeFolderPathKey(sourceFolder.Path)
+	sourceDisplayPath := types.NormalizeFolderPathKey(firstNonEmpty(sourceFolder.DisplayPath, sourceFolder.Name, sourceFolder.Path))
 	if sourcePath == "" {
 		return AppState{}, errors.New("folder path is required")
 	}
@@ -440,8 +440,8 @@ func (a *App) CloneFolder(collectionID, folderPath, folderName, directoryName st
 	if strings.EqualFold(directoryName, "collection") || strings.EqualFold(directoryName, "folder") {
 		return AppState{}, errors.New(`the file names "collection" and "folder" are reserved in bruno`)
 	}
-	parentPath := normalizeFolderPathKey(parentFolderDisplayPath(sourcePath))
-	parentDisplayPath := normalizeFolderPathKey(parentFolderDisplayPath(sourceDisplayPath))
+	parentPath := types.NormalizeFolderPathKey(types.ParentFolderDisplayPath(sourcePath))
+	parentDisplayPath := types.NormalizeFolderPathKey(types.ParentFolderDisplayPath(sourceDisplayPath))
 	targetPath := joinCollectionFolderPath(parentPath, directoryName)
 	targetDisplayPath := joinCollectionFolderPath(parentDisplayPath, name)
 	if collectionHasChildFolder(collection, parentPath, directoryName) {
@@ -473,8 +473,8 @@ func (a *App) CloneFolder(collectionID, folderPath, folderName, directoryName st
 	clonedFolders := make([]FolderConfig, 0)
 	rootSeq := nextCollectionFolderSeq(*collection, parentPath)
 	for _, folder := range collection.Folders {
-		folderPhysicalPath := normalizeFolderPathKey(folder.Path)
-		folderDisplayPath := normalizeFolderPathKey(firstNonEmpty(folder.DisplayPath, folder.Name, folder.Path))
+		folderPhysicalPath := types.NormalizeFolderPathKey(folder.Path)
+		folderDisplayPath := types.NormalizeFolderPathKey(firstNonEmpty(folder.DisplayPath, folder.Name, folder.Path))
 		if !folderPathHasPrefix(folderPhysicalPath, sourcePath) && !folderPathHasPrefix(folderDisplayPath, sourceDisplayPath) {
 			continue
 		}
@@ -492,7 +492,7 @@ func (a *App) CloneFolder(collectionID, folderPath, folderName, directoryName st
 		if !cloneFolderCopiesRequestType(item.Type) {
 			continue
 		}
-		itemFolderPath := normalizeFolderPathKey(item.FolderPath)
+		itemFolderPath := types.NormalizeFolderPathKey(item.FolderPath)
 		include := folderPathHasPrefix(itemFolderPath, sourceDisplayPath)
 		if !include && strings.TrimSpace(item.FilePath) != "" {
 			include = pathInside(sourceDir, item.FilePath)
@@ -528,7 +528,7 @@ func (a *App) CloneFolder(collectionID, folderPath, folderName, directoryName st
 	}
 	collection.Folders = append(collection.Folders, clonedFolders...)
 	collection.Items = append(collection.Items, clonedItems...)
-	sortFoldersLikeBruno(collection.Folders)
+	types.SortFoldersLikeBruno(collection.Folders)
 	collection.UpdatedAt = now
 	ws.UpdatedAt = now
 	for _, folder := range clonedFolders {
@@ -780,7 +780,7 @@ func requestCloneFilenameBase(filename, fallbackName string) string {
 }
 
 func cloneRequestTargetDirectory(collection *Collection, item RequestItem) (string, string, error) {
-	folderPath := normalizeFolderPathKey(item.FolderPath)
+	folderPath := types.NormalizeFolderPathKey(item.FolderPath)
 	if pathInside(collection.Path, item.FilePath) {
 		return filepath.Dir(filepath.Clean(item.FilePath)), folderPath, nil
 	}
@@ -789,7 +789,7 @@ func cloneRequestTargetDirectory(collection *Collection, item RequestItem) (stri
 	}
 	folder, err := findFolderConfig(collection, folderPath)
 	if err == nil {
-		return filepath.Join(collection.Path, filepath.FromSlash(folder.Path)), normalizeFolderPathKey(firstNonEmpty(folder.DisplayPath, folder.Name, folder.Path)), nil
+		return filepath.Join(collection.Path, filepath.FromSlash(folder.Path)), types.NormalizeFolderPathKey(firstNonEmpty(folder.DisplayPath, folder.Name, folder.Path)), nil
 	}
 	return filepath.Join(collection.Path, filepath.FromSlash(folderPath)), folderPath, nil
 }
@@ -799,7 +799,7 @@ func collectionHasRequestFileSibling(collection *Collection, folderPath, filenam
 }
 
 func collectionHasRequestFileSiblingExcept(collection *Collection, folderPath, filename, exceptItemID string) bool {
-	folderPath = normalizeFolderPathKey(folderPath)
+	folderPath = types.NormalizeFolderPathKey(folderPath)
 	filename = strings.TrimSpace(filename)
 	if filename == "" {
 		return false
@@ -808,7 +808,7 @@ func collectionHasRequestFileSiblingExcept(collection *Collection, folderPath, f
 		if exceptItemID != "" && item.ID == exceptItemID {
 			continue
 		}
-		if normalizeFolderPathKey(item.FolderPath) != folderPath {
+		if types.NormalizeFolderPathKey(item.FolderPath) != folderPath {
 			continue
 		}
 		if strings.EqualFold(requestItemFilename(*collection, item), filename) {
@@ -833,10 +833,10 @@ func requestItemFilename(collection Collection, item RequestItem) string {
 }
 
 func nextCollectionRequestSeq(collection Collection, folderPath string) int {
-	folderPath = normalizeFolderPathKey(folderPath)
+	folderPath = types.NormalizeFolderPathKey(folderPath)
 	count := 0
 	for _, item := range collection.Items {
-		if normalizeFolderPathKey(item.FolderPath) == folderPath {
+		if types.NormalizeFolderPathKey(item.FolderPath) == folderPath {
 			count++
 		}
 	}

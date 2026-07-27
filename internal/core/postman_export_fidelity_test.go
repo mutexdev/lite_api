@@ -21,6 +21,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mutexdev/lite_api/internal/export"
 	"github.com/mutexdev/lite_api/internal/importers"
 	"github.com/mutexdev/lite_api/internal/scripting"
 )
@@ -101,9 +102,9 @@ func importFidelityCollection(t *testing.T, content string) Collection {
 
 func exportFidelityCollection(t *testing.T, collection Collection) string {
 	t.Helper()
-	content, _, _, err := buildPostmanCollectionExport(collection)
+	content, _, _, err := export.BuildPostmanCollection(collection)
 	if err != nil {
-		t.Fatalf("buildPostmanCollectionExport: %v", err)
+		t.Fatalf("export.BuildPostmanCollection: %v", err)
 	}
 	return content
 }

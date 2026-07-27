@@ -4,11 +4,8 @@ import (
 	"github.com/mutexdev/lite_api/internal/openapisync"
 	"github.com/mutexdev/lite_api/internal/scalar"
 	"github.com/mutexdev/lite_api/internal/scripting"
-	"github.com/mutexdev/lite_api/internal/store/bru"
 	"github.com/mutexdev/lite_api/internal/types"
 )
-
-func yamlVariables(values []Variable) []map[string]interface{} { return bru.YAMLVariables(values) }
 
 func requestFilePath(collection Collection, item RequestItem, defaultExt string) string {
 	return openapisync.RequestFilePath(collection, item, defaultExt)
@@ -91,8 +88,6 @@ func cloneFormParts(values []FormPart) []FormPart { return types.CloneFormParts(
 func cloneFileBodyEntries(values []FileBodyEntry) []FileBodyEntry {
 	return types.CloneFileBodyEntries(values)
 }
-
-func fileBodyEntries(body RequestBody) []FileBodyEntry { return types.FileBodyEntriesOf(body) }
 
 func requestBodySnapshot(body RequestBody) string { return types.RequestBodySnapshot(body) }
 
