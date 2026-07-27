@@ -15,10 +15,6 @@
 
 import type { types } from '../../wailsjs/go/models'
 
-/** A blank key/value row, with every field present rather than undefined. */
-export function blankKeyValueRow(): types.KeyValue {
-  return { name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue
-}
 
 /**
  * Moves one row up or down by a single position.
@@ -75,39 +71,4 @@ export function normalizeBulkKeyValueRows(
         description: row.description ?? ''
       }) as types.KeyValue
   )
-}
-
-/**
- * Writes one field of one row.
- *
- * An index past the end writes a blank row rather than throwing or being
- * ignored. That path is reachable: the table renders from state that a
- * background refresh can shorten between the render and the keystroke, and
- * losing the character the user just typed is worse than gaining a row they can
- * delete.
- */
-export function updatedRow<T extends object>(
-  rows: readonly T[] | undefined,
-  index: number,
-  field: keyof T,
-  value: unknown,
-  blank: () => T
-): T[] {
-  const next = [...(rows ?? [])]
-  const current = next[index] ?? blank()
-  next[index] = { ...current, [field]: value } as T
-  return next
-}
-
-/** Removes one row, leaving the list alone when the index is out of range. */
-export function removedRow<T>(rows: readonly T[] | undefined, index: number): T[] {
-  const next = [...(rows ?? [])]
-  if (index < 0 || index >= next.length) return next
-  next.splice(index, 1)
-  return next
-}
-
-/** Appends a row. */
-export function appendedRow<T>(rows: readonly T[] | undefined, row: T): T[] {
-  return [...(rows ?? []), row]
 }

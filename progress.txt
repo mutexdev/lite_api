@@ -9290,3 +9290,42 @@ US-026 - Store layer. DONE. Both named collapses complete.
   copies were "proven identical by a differential test before they were
   collapsed". These stay, because the seam earns its keep — so the differential
   test stays with them instead.
+
+=== THE SAME SCAN ON THE FRONTEND, AND FOUR OF THE SIX HITS WERE MINE ===
+
+  240 exported functions in src/lib; 6 with no production reference.
+
+  FOUR OF THEM I WROTE THIS SESSION. Extracting the key/value row operations, I
+  pulled out movedRows, reorderedRows and normalizeBulkKeyValueRows — the three
+  App.svelte actually had inline — and then added appendedRow, blankKeyValueRow,
+  removedRow and updatedRow "for completeness". Nothing calls them. They had 8
+  tests between them, so they were dead code WITH PASSING TESTS, which is
+  exactly the thing this scan exists to find and exactly what the plan warns
+  against: "If in doubt, leave it out."
+
+  Deleted, with their tests. rowEdits.ts 113 -> 74 lines, suite 797 -> 789.
+
+  handledNativeMenuCommands is legitimate: it exists so the Go/TS contract test
+  can enumerate what the frontend handles. A test-support export with a reason.
+
+  AND ONE FINDING THAT IS NOT MINE AND IS NOT SMALL.
+
+  src/lib/sidebarTree.ts IS ENTIRELY UNUSED. Not one of its eight exports is
+  imported by any .svelte or production .ts file. The only reference anywhere is
+  a COMMENT in variableResolution.ts naming it as an exemplar. Three independent
+  confirmations:
+
+    - no import, static or dynamic
+    - NOT IN THE BUILT BUNDLE — the tree-shaker drops it entirely
+    - last touched by "US-031: tested flattening core for the virtualized
+      collection tree", and the sidebar is now virtualized through
+      sidebarFilter.ts and virtualList.ts instead
+
+  So it is a superseded predecessor: ~130 lines plus a test file, maintained and
+  run in CI, reachable by nothing.
+
+  NOT DELETED, DELIBERATELY. Removing my own speculative four costs nothing and
+  is unambiguous. Removing a module someone wrote for a story is a judgment
+  about product history I do not have — the virtualized tree may be in progress.
+  Recorded here with the evidence so it is a decision someone can take in one
+  step, rather than a drive-by at the end of a long session.
