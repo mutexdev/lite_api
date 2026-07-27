@@ -9329,3 +9329,32 @@ US-026 - Store layer. DONE. Both named collapses complete.
   about product history I do not have — the virtualized tree may be in progress.
   Recorded here with the evidence so it is a decision someone can take in one
   step, rather than a drive-by at the end of a long session.
+
+=== FULL VERIFICATION AFTER THE SCAN WORK ===
+
+  Every gate, both sides, measured now rather than recalled.
+
+    Go        build, vet ok; 28 packages passing; 28 race-clean, 0 data races
+              golangci-lint 0 issues
+              windows/amd64, darwin/arm64, linux/amd64 all cross-compile
+    Gates     bindings 188, Go == App.d.ts == App.js
+              test presence: 3 packages knowingly without their own tests
+              lint exclusions: all 4 still suppressing
+              selftest: all 5 gate controls still catch their break
+    Coverage  internal 84.2% (10,487 blocks), all 79.0% (20,073)
+    Frontend  789 tests, 0 failing
+              svelte-check 236 files, 0 errors 0 warnings
+              eslint clean, vite builds
+              99.88% lines, 97.74% branch, 98.49% functions
+
+    app.go       3,414 lines (from 17,314)
+    App.svelte  10,760 lines (from 12,320)
+
+  Working tree clean.
+
+  One number moved the wrong way and it is accounted for: frontend branch
+  coverage 97.79% -> 97.74%, and function coverage 98.42% -> 98.49%. Deleting
+  four unused exports removed their fully-covered branches from the denominator
+  while their absence raises the function figure. A percentage that moves when
+  code is DELETED is not a regression, and saying so beats quietly restating the
+  new number as if it were the old one.
