@@ -99,7 +99,7 @@ scope: -run "CountRegularCollections|TheFirstRealCollectionIsPlacedAboveScratch"
 		_ = collection
 ===
 desc: gRPC: a reconnect's session is deleted by the old session's teardown
-file: internal/core/app_grpc.go
+file: internal/core/app_grpc_stream.go
 scope: -run GRPCStreamSession ./internal/core/
 --- old
 	if a.grpcStreamSessions[key] == session {
