@@ -9178,3 +9178,33 @@ US-026 - Store layer. DONE. Both named collapses complete.
 
   Also verified `qa/bindings.sh --update` behaves as documented: it rewrites the
   baseline and leaves no diff when the surface has not changed.
+
+--- grpcexec gets its first test file, and the gate caught the consequence ---
+
+  grpcReflectionServiceName was at 15.4% and internal/grpcexec had NO test file
+  at all — it was one of the four packages on the exemption list, exercised only
+  through package main.
+
+  Most of it needs a live server, but its FIRST BRANCH does not: a name that is
+  already qualified returns before any reflection call is made. That is not an
+  optimisation. SERVER REFLECTION IS OPTIONAL, and plenty of production gRPC
+  servers have it disabled — the short-circuit is what lets those servers be
+  called at all when the user supplies the full name. Route a qualified name
+  through the reflection request and every such server becomes unreachable, with
+  an error about reflection rather than about the service asked for.
+
+  Tested with a NIL CONNECTION on purpose: if the short-circuit ever stops
+  short-circuiting, the test panics rather than quietly making a call. And a
+  second test asserts the unqualified case DOES panic on that nil — otherwise
+  the first test could pass for the wrong reason, on a nil that simply went
+  unused. Controls fail 2 and 1.
+
+  AND THE GATE EARNED ITS KEEP ON A REAL CHANGE. Adding the file made
+  qa/test-presence.sh fail:
+
+      -internal/grpcexec
+      One with '-' has gained tests; remove it from qa/baseline/...
+
+  Not a synthetic control — an actual edit, caught in the direction that stops
+  the exemption list rotting into a blanket excuse. List updated; three packages
+  remain knowingly without their own tests.
