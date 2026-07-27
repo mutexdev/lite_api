@@ -8111,3 +8111,35 @@ US-026 - Store layer. DONE. Both named collapses complete.
   normalised to [] so the caller renders a tree without a null check. Fails 1.
 
   Frontend totals: 99.88% lines, 97.69% branch, 98.42% functions, 790 tests.
+
+--- the branch plateau, and what it turned out to be made of ---
+
+  After the sweep every remaining module sat at 93.8-94.7% branch — a flat
+  plateau rather than a tail. Before grinding each one I checked WHAT the
+  residue was made of, and the answer changed what to do about it.
+
+  requestScanning had three guards that could each be removed with the code
+  still compiling and NOT ONE TEST FAILING:
+
+      rawURL.split(/[?#]/, 1)[0] ?? rawURL
+      (match[1] ?? '').replace(...)
+      rawURL.split('#')[0]?.split('?').slice(1).join('?') ?? ''
+
+  All three guard against something the STANDARD LIBRARY already guarantees:
+  String.split always returns at least one element, and join always returns a
+  string. They are not defensive, they are decorative — and they read as
+  protection against a failure mode that does not exist. DELETED, with one
+  comment where the guarantee is worth stating.
+
+  requestScanning 93.94% -> 96.12% branch WITH NO NEW TESTS. The branches were
+  not uncovered; they were UNCOVERABLE, and the honest fix was to stop having
+  them rather than to write tests that could never fail.
+
+  I CHECKED THIS BEFORE ASSUMING IT. The hypothesis was that the residue was
+  compiler-mandated narrowing like urlSegments' `pathParams ?? []`, which cannot
+  be removed. It was not: this project's tsconfig does not set
+  noUncheckedIndexedAccess, so array indexing is typed as defined and these
+  guards are pure decoration. The distinction mattered — one kind must stay and
+  the other must go, and they look identical.
+
+  Frontend totals: 99.88% lines, 97.79% branch, 98.42% functions, 790 tests.

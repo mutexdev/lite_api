@@ -214,7 +214,9 @@ export function pathParamNamesFromURL(rawURL: string) {
     const url = new URL(rawURL.startsWith('http://') || rawURL.startsWith('https://') ? rawURL : `http://${rawURL}`)
     pathSource = url.pathname
   } catch {
-    pathSource = rawURL.split(/[?#]/, 1)[0] ?? rawURL
+    // String.split always returns at least one element, so [0] cannot be
+    // undefined and needs no fallback.
+    pathSource = rawURL.split(/[?#]/, 1)[0]
   }
   const names: string[] = []
   const seen = new Set<string>()
@@ -232,14 +234,14 @@ export function pathParamNamesFromURL(rawURL: string) {
     const regex = /[:]([a-zA-Z_]\w*)/g
     let match: RegExpExecArray | null
     while ((match = regex.exec(segment)) !== null) {
-      add((match[1] ?? '').replace(/[')"`]+$/, '').replace(/^[('"`]+/, ''))
+      add(match[1].replace(/[')"`]+$/, '').replace(/^[('"`]+/, ''))
     }
   }
   return names
 }
 
 export function queryParamsForURL(rawURL: string, currentRows: types.KeyValue[] = []) {
-  const query = rawURL.split('#')[0]?.split('?').slice(1).join('?') ?? ''
+  const query = rawURL.split('#')[0].split('?').slice(1).join('?')
   const disabledRows = currentRows.filter((row) => row.enabled === false).map((row) => ({ ...row }))
   if (!query) return disabledRows
   const rows: types.KeyValue[] = []
