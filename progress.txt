@@ -9075,3 +9075,36 @@ US-026 - Store layer. DONE. Both named collapses complete.
   time a flag changed the output format under a grep. The first was -count=1 and
   cached packages contributing no coverage data. Both times the fix was to
   measure the thing directly instead of grepping for the absence of a string.
+
+--- and the exclusion check now reads JSON, not prose ---
+
+  Two of this session's five instrument errors came from GREPPING A TOOL'S
+  HUMAN-READABLE OUTPUT for a string: -cover turned "[no test files]" into a
+  coverage line, and a cached package contributed no coverage data at all. The
+  exclusion check had the same fragility — it counted findings with
+  `grep -cE '^[a-z].*\.go:[0-9]+'` over golangci-lint's prose.
+
+  Now it counts from `--output.json.path stdout`. A format meant for machines
+  does not move under a flag, and a format that DOES change is reported rather
+  than silently counted as zero.
+
+  TWO MISTAKES ON THE WAY, BOTH VISIBLE ONLY BECAUSE THE OUTPUT WAS ABSURD.
+  The script printed the count AND the failure marker together — "17
+  PARSE_FAILED". That cannot happen if either branch alone is taken, so
+  something was appending.
+
+  I diagnosed SIGPIPE from `head -1` closing the pipe on golangci-lint, and
+  rewrote the parse to drain stdin. IT DID NOT HELP, because that was not the
+  cause. GOLANGCI-LINT EXITS NON-ZERO WHEN IT FINDS ISSUES — which is the entire
+  case being measured — and pipefail propagated it, so every SUCCESSFUL
+  measurement looked like a failure.
+
+  Fixed with `|| true` on the linter and the parse keeping its own error path,
+  so a real format change is still distinguishable from findings existing.
+
+  Three controls, all fail: a misanchored exclusion (dirty baseline), no
+  golangci-lint on PATH, and the JSON flag renamed so nothing parses.
+
+  The lesson I actually take from this: I was wrong about the cause and the fix
+  did not work, and the ONLY reason I noticed was that the output was
+  self-contradictory. A quieter wrong diagnosis would have shipped.

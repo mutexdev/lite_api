@@ -55,7 +55,34 @@ fi
 # somebody else's. I found that by controlling this script: misanchoring one
 # exclusion made lint dirty, every other count rose by exactly its findings, and
 # the broken anchor still reported "live".
-baseline=$(golangci-lint run --timeout 5m 2>&1 | grep -cE '^[a-z].*\.go:[0-9]+' || true)
+# Counted from golangci-lint's JSON, not from a regex over its human-readable
+# output. Two instrument errors in this session came from grepping a tool's
+# prose for a string: -cover changed "[no test files]" into a coverage line, and
+# a cached package contributed no coverage data at all. A format meant for
+# machines does not move under a flag.
+#
+# `|| true` on the LINTER, not on the parse. golangci-lint exits non-zero when
+# it finds issues — which is the entire case being measured here — and pipefail
+# propagates that, so without it every successful measurement looked like a
+# failure. I first blamed SIGPIPE from `head` and fixed the wrong thing; the
+# giveaway was that the count AND the failure marker were both printed.
+#
+# The parse keeps its own error path, so a genuinely unreadable format is still
+# reported rather than counted as zero.
+count_issues() {
+  local raw
+  raw=$(golangci-lint run --timeout 5m --output.json.path stdout 2>/dev/null || true)
+  printf '%s' "$raw" | python3 -c 'import sys,json
+print(len(json.loads(sys.stdin.readline()).get("Issues") or []))' 2>/dev/null \
+    || echo "PARSE_FAILED"
+}
+
+baseline=$(count_issues)
+if [ "$baseline" = "PARSE_FAILED" ] || [ -z "$baseline" ]; then
+  echo "could not read golangci-lint's JSON output; the check cannot measure" >&2
+  echo "anything and will not guess. Has the --output flag changed?" >&2
+  exit 1
+fi
 if [ "$baseline" -ne 0 ]; then
   echo "golangci-lint reports $baseline findings before anything is removed." >&2
   echo "This check measures what each exclusion suppresses, which is only" >&2
@@ -81,7 +108,11 @@ for line in open(source).read().split('\n'):
     out.append(line)
 open(dest, 'w').write('\n'.join(out))
 PY
-  count=$(golangci-lint run --timeout 5m 2>&1 | grep -cE '^[a-z].*\.go:[0-9]+' || true)
+  count=$(count_issues)
+  if [ "$count" = "PARSE_FAILED" ]; then
+    echo "golangci-lint's JSON became unreadable while testing $path." >&2
+    exit 1
+  fi
   if [ "$count" -eq 0 ]; then
     printf 'DEAD    %-42s suppresses nothing\n' "$path" >&2
     status=1
