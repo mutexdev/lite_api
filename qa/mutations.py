@@ -102,6 +102,14 @@ def parse(text):
 # "non-zero" was the entire definition of caught. That is a ten-minute stall
 # reported as a success, and nothing asserted anything — the same class of lie
 # as NO COMPILE, where a build error also reads exactly like a pass.
+# The bound has to be far above the slowest legitimate entry, or it becomes a
+# source of false TIMED OUTs on a slower machine. Measured rather than guessed:
+# the eight entries that run a whole package with no -run filter (types,
+# transport, prefs, envsecrets, export) each take about a second, and the
+# slowest -run scoped entry in internal/core takes two. 120s is roughly sixty
+# times the slowest observed run. Raise it rather than trim it if that ever
+# looks tight — a false TIMED OUT costs a person an investigation, while a
+# generous bound only costs time on a break that genuinely hangs.
 TEST_TIMEOUT = "120s"  # passed to `go test`, so it bounds execution not building
 SUBPROCESS_TIMEOUT = 600  # a backstop for the go tool itself wedging
 
