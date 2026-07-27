@@ -296,3 +296,34 @@ test('dragging the last column does nothing', () => {
 test('clicking a column that is current but has no direction restarts ascending', () => {
   assert.deepEqual(nextNetworkSort('status', '', 'status'), { key: 'status', direction: 'asc' })
 })
+
+// A URL with no host — file:, mailto:, data: — parses successfully, so the
+// catch never runs and `parsed.host` is the empty string. Falling back to the
+// raw URL keeps the row identifiable; showing "" would leave a blank domain
+// cell beside a request that plainly went somewhere.
+test('a hostless scheme falls back to the raw url for its domain', () => {
+  for (const url of ['file:///tmp/x.json', 'mailto:a@b.test', 'data:text/plain,hi']) {
+    assert.equal(networkDomain(row({ url })), url, url)
+  }
+  assert.equal(networkDomain(row({ url: 'grpc://host/svc' })), 'host', 'a real host still wins')
+})
+
+// The path of a hostless URL is still its meaningful part, so it is shown
+// rather than falling back — file:///tmp/x.json is about /tmp/x.json.
+test('a hostless scheme still yields its path', () => {
+  assert.equal(networkPath(row({ url: 'file:///tmp/x.json' })), '/tmp/x.json')
+  assert.equal(networkPath(row({ url: 'mailto:a@b.test' })), 'a@b.test')
+})
+
+// A stored width that is not a number reaches Math.round as NaN, and a NaN
+// width collapses the column to nothing with no way to drag it back. The `|| 0`
+// turns it into the minimum instead.
+test('an unusable stored width becomes the minimum, not NaN', () => {
+  const withNaN = [...DEFAULT_NETWORK_COLUMN_WIDTHS]
+  withNaN[6] = Number.NaN
+  assert.equal(normalizedNetworkColumnWidths(withNaN)[6], 60)
+
+  const withText = [...DEFAULT_NETWORK_COLUMN_WIDTHS] as unknown as number[]
+  withText[0] = 'wide' as unknown as number
+  assert.equal(normalizedNetworkColumnWidths(withText)[0], 60)
+})

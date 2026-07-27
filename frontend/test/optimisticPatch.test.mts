@@ -122,3 +122,13 @@ test('a workspace with no collections is handled', () => {
   )
   assert.deepEqual(next.workspaces?.[0].collections, [])
 })
+
+// A collection with no items array at all — one that failed to load, or was
+// created empty — must not throw while a keystroke is being applied, and comes
+// back with an empty array so the caller can render a tree without a null
+// check.
+test('a collection with no items array is handled and normalised', () => {
+  const before = { workspaces: [{ id: 'w', collections: [{ id: 'c' }] }] } as types.AppState
+  const next = withOptimisticPatch(before, 'c', 'i', { url: 'x' } as types.RequestPatch)
+  assert.deepEqual(next.workspaces?.[0].collections?.[0].items, [])
+})

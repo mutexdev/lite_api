@@ -8085,3 +8085,29 @@ US-026 - Store layer. DONE. Both named collapses complete.
       Control fails 1.
 
   Frontend totals: 99.88% lines, 97.62% branch, 98.42% functions, 786 tests.
+
+--- networkSort and optimisticPatch: hostless URLs and absent arrays ---
+
+  Suite 786 -> 790. optimisticPatch.ts reaches 100/100/100.
+
+  A URL WITH NO HOST PARSES SUCCESSFULLY. file:, mailto: and data: all construct
+  without throwing, so the catch never runs and `parsed.host` is the EMPTY
+  STRING — a case the malformed-URL fallback does not cover because nothing was
+  malformed. The domain falls back to the raw URL, because a blank domain cell
+  beside a request that plainly went somewhere reads as a rendering fault.
+  Control fails 1.
+
+  But the PATH of such a URL is still its meaningful part — file:///tmp/x.json
+  is about /tmp/x.json — so that is shown rather than falling back. The two
+  columns treat the same URL differently on purpose; a control making the path
+  follow the domain's fallback fails 1.
+
+  A stored column width that is not a number reaches Math.round as NaN, and a
+  NaN width collapses the column to nothing with NO WAY TO DRAG IT BACK. The
+  `|| 0` makes it the minimum instead. Control fails 1.
+
+  A collection with no items array — one that failed to load, or was created
+  empty — does not throw while a keystroke is being applied, and comes back
+  normalised to [] so the caller renders a tree without a null check. Fails 1.
+
+  Frontend totals: 99.88% lines, 97.69% branch, 98.42% functions, 790 tests.
