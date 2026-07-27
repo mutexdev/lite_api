@@ -67,11 +67,27 @@ func TestTheStoredFormDoesNotContainThePlaintext(t *testing.T) {
 // file can therefore tell which entries share a value — two environments using
 // the same token are visibly the same token — without decrypting anything.
 //
-// It is recorded rather than changed because the format is on disk: the "$01:"
-// prefix identifies it, and altering the scheme without a migration would make
-// every secret already written unreadable. Fixing it means a "$02" with a random
-// IV per value and a reader that still accepts "$01", which is a deliberate
-// piece of work and not a side effect of a file move.
+// It is recorded rather than changed, and the reason is stronger than "the
+// format is on disk". THE DETERMINISM IS LOAD-BEARING. That was established by
+// building the fix and watching what broke, not by reasoning about it:
+//
+//   - secrets.json is only rewritten when its bytes change. With a random IV
+//     the bytes change on every write, so twenty mutations that touched no
+//     secret rewrote the file twenty times — churning a sensitive file and
+//     waking the collection watcher each time.
+//   - the workspace migration verifies its artifacts are IDEMPOTENT by
+//     comparing what it wrote against what a second run produces. Random IVs
+//     make that comparison fail by construction.
+//
+// So a "$02" with a per-value random IV is necessary but not sufficient. It
+// also needs change detection that compares DECRYPTED content rather than
+// ciphertext, in the persist path and in the migration's artifact check. That
+// is a deliberate piece of work across three areas, not a swap of the cipher —
+// which is exactly why it is not folded into a restructuring pass.
+//
+// The reader would keep accepting "$01" so existing files stay readable; the
+// consequence to state when it happens is that values written by the new build
+// cannot be read by an older one.
 func TestEncryptionIsDeterministicWhichLeaksEquality(t *testing.T) {
 	dir := pinKey(t)
 	first := EncryptString(dir, "same value")
