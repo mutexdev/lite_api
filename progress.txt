@@ -8930,3 +8930,40 @@ US-026 - Store layer. DONE. Both named collapses complete.
   All three qa scripts are committed 100755, so CI will not hit a permission
   error. Verified with `git ls-files -s`, not by looking at the working tree —
   the working-tree bit and the recorded bit are different things.
+
+=== APPLYING THE LESSON TO THE OTHER TWO SCRIPTS ===
+
+  Having shipped the same "measurement with no instrument" bug twice in an hour,
+  I stopped relying on noticing it and checked the other two qa scripts for the
+  same shape. Both had it.
+
+  qa/coverage.sh discarded `go test`'s OUTPUT and its STATUS together. A failing
+  suite still writes a profile — a partial one — and the script would report a
+  percentage for code that did not pass. Now it checks the status and refuses.
+  Control: break one assertion in urlbuild_test.go and it exits 1 saying so,
+  instead of quoting a number.
+
+  qa/bindings.sh could write an EMPTY BASELINE. `go doc` prints nothing and
+  exits 0 when the module will not load, and `--update` would then overwrite the
+  baseline with nothing, report "baseline updated: 0 bound methods", and leave
+  the gate permanently dead. A Wails app with zero bound methods does not exist,
+  so an empty result is an instrument failure.
+
+  AND THE GUARD I ADDED FOR IT WAS UNREACHABLE. The control proved it: with a
+  broken go.mod the script exited 1 either way, WITH NO OUTPUT AT ALL. `grep`
+  exits 1 when it matches nothing, `pipefail` propagates that, `set -e` kills
+  the script — three lines before my check. The baseline was safe, but for a
+  reason I had not identified, and the operator got a silent exit 1 with nothing
+  to act on.
+
+  Fixed with `|| true` on the pipeline so the check can run and say what
+  happened. It now prints three lines naming the likely cause.
+
+  THE CONTROL DID NOT CONFIRM MY GUARD; IT SHOWED THE GUARD WAS DEAD AND
+  SOMETHING ELSE WAS DOING THE WORK. That is the fourth time this session a
+  control has corrected me rather than the code, and the second time it found
+  code of mine that could never run.
+
+  Also: I reached for `timeout` again and it is still not on macOS — a lesson
+  already written down in this very file. Reading my own notes is apparently not
+  the same as remembering them.

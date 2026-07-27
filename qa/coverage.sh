@@ -23,7 +23,21 @@ cd "$(dirname "$0")/.."
 measure() {
   local scope="$1" label="$2" raw merged
   raw=$(mktemp) merged=$(mktemp)
-  go test -count=1 -coverpkg="$scope" -coverprofile="$raw" ./... >/dev/null 2>&1
+  # The test output is discarded but its STATUS is not. A failing suite still
+  # writes a profile — a partial one — and reporting a percentage from it is
+  # reporting a number for code that did not pass. Same shape as the lint
+  # exclusion check measuring with no linter installed.
+  if ! go test -count=1 -coverpkg="$scope" -coverprofile="$raw" ./... >/dev/null 2>&1; then
+    echo "go test failed for scope $scope; coverage from a failing suite is not a" >&2
+    echo "figure worth quoting. Fix the tests first." >&2
+    rm -f "$raw" "$merged"
+    exit 1
+  fi
+  if [ ! -s "$raw" ]; then
+    echo "no coverage profile was written for scope $scope." >&2
+    rm -f "$raw" "$merged"
+    exit 1
+  fi
   go run tools/coverage/mergeprofile.go "$raw" > "$merged"
   printf '%-10s %s   (%s blocks)\n' \
     "$label" \
