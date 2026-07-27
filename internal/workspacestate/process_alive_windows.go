@@ -1,6 +1,6 @@
 //go:build windows
 
-package core
+package workspacestate
 
 import "golang.org/x/sys/windows"
 

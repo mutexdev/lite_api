@@ -36,10 +36,10 @@ type WorkspaceWindowTarget struct {
 
 type workspaceWindowRuntime struct {
 	intent         workspacestate.WindowLaunchIntent
-	owner          WorkspaceWindowOwner
+	owner          workspacestate.WindowOwner
 	session        workspacestate.WindowSession
 	sharedBaseline SharedAppState
-	locks          WorkspaceWindowLockStore
+	locks          workspacestate.WindowLockStore
 	stop           chan struct{}
 	once           sync.Once
 	mu             sync.Mutex
@@ -187,7 +187,7 @@ func (a *App) loadWorkspaceWindow(intent workspacestate.WindowLaunchIntent) erro
 	if session.WorkspacePath != "" && !sameCanonicalWorkspacePath(session.WorkspacePath, target.Path) {
 		return errors.New("window session path does not match selected workspace")
 	}
-	locks := NewWorkspaceWindowLockStore(intent.DataDir)
+	locks := workspacestate.NewWindowLockStore(intent.DataDir)
 	owner, err := locks.Acquire(target.Path, intent.SessionID, os.Getpid())
 	if err != nil {
 		return fmt.Errorf("open workspace window: %w", err)
@@ -506,7 +506,7 @@ func (a *App) OpenNewWindow() (WorkspaceWindowTarget, error) {
 		if workspace.ID == current {
 			continue
 		}
-		if NewWorkspaceWindowLockStore(a.dataDir).Available(workspace.Path) != nil {
+		if workspacestate.NewWindowLockStore(a.dataDir).Available(workspace.Path) != nil {
 			continue
 		}
 		return a.openWorkspaceInNewWindowLocked(workspace.ID)
@@ -549,7 +549,7 @@ func (a *App) openWorkspaceInNewWindowLocked(workspaceID string) (WorkspaceWindo
 	if a.workspaceRuntime != nil && a.workspaceRuntime.intent.WorkspaceID == workspace.ID {
 		return WorkspaceWindowTarget{}, errors.New("workspace is already open in this window")
 	}
-	if err := NewWorkspaceWindowLockStore(a.dataDir).Available(workspace.Path); err != nil {
+	if err := workspacestate.NewWindowLockStore(a.dataDir).Available(workspace.Path); err != nil {
 		return WorkspaceWindowTarget{}, err
 	}
 	if !reused {

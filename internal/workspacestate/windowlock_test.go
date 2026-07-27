@@ -1,4 +1,4 @@
-package core
+package workspacestate
 
 import (
 	"os"
@@ -7,14 +7,12 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/mutexdev/lite_api/internal/workspacestate"
 )
 
 func TestWorkspaceWindowLockOwnershipStaleAndReplacementSafety(t *testing.T) {
 	now := time.Now().UTC()
 	alive := map[int]bool{1: true, 2: true}
-	s := NewWorkspaceWindowLockStore(t.TempDir())
+	s := NewWindowLockStore(t.TempDir())
 	s.Now = func() time.Time { return now }
 	s.ProcessAlive = func(pid int) bool { return alive[pid] }
 	first, err := s.Acquire("/work/a", "one", 1)
@@ -24,7 +22,7 @@ func TestWorkspaceWindowLockOwnershipStaleAndReplacementSafety(t *testing.T) {
 	if _, err := s.Acquire("/work/a", "two", 2); err == nil {
 		t.Fatal("expected exclusion")
 	}
-	if _, err := s.Heartbeat(WorkspaceWindowOwner{Workspace: first.Workspace, SessionID: "wrong", PID: 1, AcquiredAt: first.AcquiredAt}); err == nil {
+	if _, err := s.Heartbeat(WindowOwner{Workspace: first.Workspace, SessionID: "wrong", PID: 1, AcquiredAt: first.AcquiredAt}); err == nil {
 		t.Fatal("expected owner check")
 	}
 	alive[1] = false
@@ -41,7 +39,7 @@ func TestWorkspaceWindowLockOwnershipStaleAndReplacementSafety(t *testing.T) {
 }
 
 func TestWorkspaceWindowLockConcurrentAcquireHasOneWinner(t *testing.T) {
-	s := NewWorkspaceWindowLockStore(t.TempDir())
+	s := NewWindowLockStore(t.TempDir())
 	// The contenders use synthetic PIDs; model them as live so the test checks
 	// lock exclusion rather than production process-liveness replacement.
 	s.ProcessAlive = func(int) bool { return true }
@@ -65,7 +63,7 @@ func TestWorkspaceWindowLockConcurrentAcquireHasOneWinner(t *testing.T) {
 	}
 }
 func TestWorkspaceWindowLockRejectsCorruptTraversalAndPrivateRecord(t *testing.T) {
-	s := NewWorkspaceWindowLockStore(t.TempDir())
+	s := NewWindowLockStore(t.TempDir())
 	if _, err := s.Acquire("../escape", "s", 1); err == nil {
 		t.Fatal("expected traversal")
 	}
@@ -105,7 +103,7 @@ func TestWorkspaceWindowLockAndRegistryCanonicalizeSymlinkAliases(t *testing.T) 
 	}
 	realWorkspace := filepath.Join(realRoot, "new-workspace")
 	aliasWorkspace := filepath.Join(aliasRoot, "new-workspace")
-	locks := NewWorkspaceWindowLockStore(dir)
+	locks := NewWindowLockStore(dir)
 	locks.ProcessAlive = func(int) bool { return true }
 	owner, err := locks.Acquire(realWorkspace, "real", 1)
 	if err != nil {
@@ -117,7 +115,7 @@ func TestWorkspaceWindowLockAndRegistryCanonicalizeSymlinkAliases(t *testing.T) 
 	if err := locks.Release(owner); err != nil {
 		t.Fatal(err)
 	}
-	registry := workspacestate.WorkspaceRegistry{Version: 1, Workspaces: []workspacestate.WorkspaceRegistryEntry{{ID: "real", Path: realWorkspace}, {ID: "alias", Path: aliasWorkspace}}}
+	registry := WorkspaceRegistry{Version: 1, Workspaces: []WorkspaceRegistryEntry{{ID: "real", Path: realWorkspace}, {ID: "alias", Path: aliasWorkspace}}}
 	if err := registry.Validate(); err == nil {
 		t.Fatal("registry accepted duplicate physical workspace paths")
 	}

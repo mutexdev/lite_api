@@ -63,7 +63,7 @@ func TestWorkspaceWindowLaunchPreflightAndSpawnCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	ws := app.state.Workspaces[0]
-	owner, err := NewWorkspaceWindowLockStore(dir).Acquire(ws.Path, "live", os.Getpid())
+	owner, err := workspacestate.NewWindowLockStore(dir).Acquire(ws.Path, "live", os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestWorkspaceWindowLaunchPreflightAndSpawnCleanup(t *testing.T) {
 	if _, err := app.OpenWorkspaceInNewWindow(ws.ID); err == nil || called {
 		t.Fatalf("live owner was not refused before spawn: err=%v called=%v", err, called)
 	}
-	if err := NewWorkspaceWindowLockStore(dir).Release(owner); err != nil {
+	if err := workspacestate.NewWindowLockStore(dir).Release(owner); err != nil {
 		t.Fatal(err)
 	}
 	app.workspaceProcessStart = func(string, []string) error { return errors.New("spawn failed") }
@@ -244,7 +244,7 @@ func TestScopedRuntimePersistenceKeepsOtherWorkspaceAndLegacyUntouched(t *testin
 		t.Fatal(err)
 	}
 	legacyHash := fileChecksum(legacyBytes)
-	locks := NewWorkspaceWindowLockStore(dir)
+	locks := workspacestate.NewWindowLockStore(dir)
 	owner, err := locks.Acquire("/workspace/a", "a-session", os.Getpid())
 	if err != nil {
 		t.Fatal(err)
@@ -283,7 +283,7 @@ func TestReplacedWorkspaceOwnerCannotHeartbeatPersistOrReleaseReplacement(t *tes
 		t.Fatal(err)
 	}
 	alive := map[int]bool{1: true, 2: true}
-	locks := NewWorkspaceWindowLockStore(dir)
+	locks := workspacestate.NewWindowLockStore(dir)
 	locks.ProcessAlive = func(pid int) bool { return alive[pid] }
 	first, err := locks.Acquire("/workspace/a", "first", 1)
 	if err != nil {
@@ -615,7 +615,7 @@ func TestReplacedOwnerCannotMutateRequestBeforeSideEffects(t *testing.T) {
 	if err := ExecuteWorkspaceMigration(dir, state, "main-window"); err != nil {
 		t.Fatal(err)
 	}
-	locks := NewWorkspaceWindowLockStore(dir)
+	locks := workspacestate.NewWindowLockStore(dir)
 	alive := map[int]bool{1: true, 2: true}
 	locks.ProcessAlive = func(pid int) bool { return alive[pid] }
 	first, err := locks.Acquire(state.Workspaces[0].Path, "first", 1)
