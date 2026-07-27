@@ -603,7 +603,12 @@ func scanGitProgressToken(data []byte, atEOF bool) (advance int, token []byte, e
 
 func deriveGitRepoName(remote string) string {
 	remote = strings.TrimSpace(remote)
-	if parsed, err := url.Parse(remote); err == nil && parsed.Scheme != "" {
+	// Opaque must be empty as well as the scheme set. "myserver:repo.git" — the
+	// scp form with the host coming from an ssh config alias — parses as
+	// scheme="myserver" with an empty Path, so accepting it here derives the
+	// name from nothing. A URL with a real "//" authority always has an empty
+	// Opaque, which separates the two forms without a list of known schemes.
+	if parsed, err := url.Parse(remote); err == nil && parsed.Scheme != "" && parsed.Opaque == "" {
 		base := strings.TrimSuffix(pathBase(parsed.Path), ".git")
 		return sanitizeFilename(base)
 	}
