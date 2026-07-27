@@ -283,7 +283,13 @@ func (spec Spec) Build() (*http.Transport, error) {
 // against PEM bytes that were already read (the read happens per request so the
 // key reflects the file's current content). Same error strings.
 func ApplyCustomRootCAPEM(tlsConfig *tls.Config, filePath string, certPEM []byte, KeepDefaultCAs bool) error {
-	if tlsConfig == nil || len(certPEM) == 0 {
+	// Gated on the PATH being empty, not the PEM. An empty path is "no custom
+	// CA configured", which ReadCustomCACertificatePEM reports for both the
+	// disabled feature and a blank setting. An empty PEM is a configured file
+	// that turned out to hold nothing, and that is an error — falling through
+	// to a nil RootCAs would mean the SYSTEM pool, so a request configured to
+	// trust only a custom CA would silently trust every CA on the machine.
+	if tlsConfig == nil || filePath == "" {
 		return nil
 	}
 	var roots *x509.CertPool
