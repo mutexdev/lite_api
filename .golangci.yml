@@ -49,7 +49,7 @@ linters:
       # order to exercise the legacy client-certificate import path. Using
       # Modern.Encode here would stop testing the code path that exists to read
       # bundles produced by older tooling.
-      - path: ^app_test\.go$
+      - path: ^internal/core/app_test\.go$
         linters: [staticcheck]
         text: 'SA1019: pkcs12\.Encode is deprecated'
 

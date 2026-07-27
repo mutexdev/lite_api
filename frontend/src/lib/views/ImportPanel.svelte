@@ -11,7 +11,7 @@
   // missed prop names, the second got all 35 names right and all 37 signatures
   // wrong. importReadyRows, for instance, reads like a count and is a
   // CollectionImportPreviewRow[].
-  import type { main, types } from '../../../wailsjs/go/models'
+  import type { core, types } from '../../../wailsjs/go/models'
 
   // Mirrors App.svelte's local types; neither is exported from an importable
   // module (checked — unlike WorkbenchCommandID, which is).
@@ -43,23 +43,23 @@
   export let state: types.AppState
   export let busy: string
   export let importStatus: string
-  export let importReadyRows: main.CollectionImportPreviewRow[]
-  export let importPreview: main.CollectionImportPreview | undefined
-  export let importSources: main.CollectionImportSource[]
-  export let importApplyResult: main.CollectionImportApplyResult | undefined
+  export let importReadyRows: core.CollectionImportPreviewRow[]
+  export let importPreview: core.CollectionImportPreview | undefined
+  export let importSources: core.CollectionImportSource[]
+  export let importApplyResult: core.CollectionImportApplyResult | undefined
   export let importApplyInFlight: boolean
   export let gitCloneInProgress: boolean
-  export let importDecisionFor: (row: main.CollectionImportPreviewRow) => ImportDecision
+  export let importDecisionFor: (row: core.CollectionImportPreviewRow) => ImportDecision
   export let selectImportSourceMode: (mode: ImportSourceMode) => void
   export let chooseImportFiles: () => void
   export let chooseImportFolder: () => void
-  export let previewImportSources: (sources: main.CollectionImportSource[], focusFirst?: boolean, resetDecisions?: boolean) => void
+  export let previewImportSources: (sources: core.CollectionImportSource[], focusFirst?: boolean, resetDecisions?: boolean) => void
   export let previewURLImport: () => void
   export let previewPasteImport: () => void
   export let requestPlannedImport: () => void
   export let updateImportDecision: (candidateID: string, update: Partial<ImportDecision>) => void
-  export let updateImportOverride: (row: main.CollectionImportPreviewRow, kindOverride: string) => void
-  export let toggleImportChild: (row: main.CollectionImportPreviewRow, kind: 'folders' | 'environments' | 'requests', id: string, selected: boolean) => void
+  export let updateImportOverride: (row: core.CollectionImportPreviewRow, kindOverride: string) => void
+  export let toggleImportChild: (row: core.CollectionImportPreviewRow, kind: 'folders' | 'environments' | 'requests', id: string, selected: boolean) => void
   export let exportCollection: () => void
   export let scanGitCollections: () => void
   export let cloneGitRepository: () => void

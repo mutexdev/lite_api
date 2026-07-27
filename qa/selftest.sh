@@ -107,9 +107,9 @@ restore; RESTORE=(); STASH=$(mktemp -d)
 # A test that newly SKIPS reports success while checking nothing, and the
 # suite still prints "ok". The control makes one skip and requires the gate to
 # notice.
-stash app_scratch_placement_test.go
+stash internal/core/app_scratch_placement_test.go
 python3 - <<'PY'
-p = 'app_scratch_placement_test.go'
+p = 'internal/core/app_scratch_placement_test.go'
 s = open(p).read()
 old = 'func TestScratchCollectionInsertIndex(t *testing.T) {'
 new = 'func TestScratchCollectionInsertIndex(t *testing.T) {\n\tt.Skip("qa/selftest control")'

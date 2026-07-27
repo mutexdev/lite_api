@@ -10,3 +10,9 @@
 docs/qa/fixtures
 frontend/node_modules/flatted/golang/pkg/flatted
 tools/extraction
+# The repository root, which holds main.go and nothing else. It is 22 lines:
+# the embedded frontend bundle — which cannot move, because //go:embed resolves
+# relative to its own file — and a call into internal/core.Run. Everything it
+# does needs a live Wails runtime, so there is nothing here a test can reach.
+# The logic it used to hold now lives in internal/core and is tested there.
+.

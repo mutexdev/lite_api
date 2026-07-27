@@ -10,7 +10,7 @@
 #     compile. The first breaks every call site at runtime with an argument
 #     mismatch; the second removes a feature silently.
 #
-#  2. The Go method NAMES match what frontend/wailsjs/go/main/App.d.ts declares.
+#  2. The Go method NAMES match what frontend/wailsjs/go/core/App.d.ts declares.
 #     The generated bindings are committed, so a rename in Go that is not
 #     followed by `wails generate module` leaves the frontend calling a method
 #     that no longer exists — and nothing in either build says so, because the
@@ -34,7 +34,7 @@ trap 'rm -f "$current" "$go_names" "$ts_names" "$js_names"' EXIT
 # dies here with NO OUTPUT AT ALL, and the check below — the one that explains
 # what went wrong — never runs. I found that by controlling the check and
 # discovering it was unreachable.
-go doc -all . 2>/dev/null | grep -E '^func \(a \*App\) [A-Z]' | sed 's/^func (a \*App) //' | sort > "$current" || true
+go doc -all ./internal/core 2>/dev/null | grep -E '^func \(a \*App\) [A-Z]' | sed 's/^func (a \*App) //' | sort > "$current" || true
 
 # AN EMPTY RESULT IS AN INSTRUMENT FAILURE, NOT A FINDING. `go doc` prints
 # nothing and exits 0 when it cannot load the package — run from the wrong
@@ -65,8 +65,8 @@ if ! diff -u "$BASELINE" "$current"; then
 fi
 
 awk '{print $1}' "$current" | sed 's/(.*//' | sort > "$go_names"
-grep -oE '^export function [A-Za-z0-9_]+' frontend/wailsjs/go/main/App.d.ts | awk '{print $3}' | sort > "$ts_names"
-grep -oE '^export function [A-Za-z0-9_]+' frontend/wailsjs/go/main/App.js  | awk '{print $3}' | sort > "$js_names"
+grep -oE '^export function [A-Za-z0-9_]+' frontend/wailsjs/go/core/App.d.ts | awk '{print $3}' | sort > "$ts_names"
+grep -oE '^export function [A-Za-z0-9_]+' frontend/wailsjs/go/core/App.js  | awk '{print $3}' | sort > "$js_names"
 
 if ! diff -u "$go_names" "$ts_names" > /dev/null; then
   echo "FAIL: Go and App.d.ts disagree. Run 'wails generate module'." >&2

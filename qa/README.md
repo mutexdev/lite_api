@@ -22,6 +22,13 @@ Every one of these was written after finding the gap it now guards.
 `frontend/scripts/verify-inputs.mjs` is the frontend counterpart, wired to
 `pretest`, `precheck` and `prelint` so it runs automatically.
 
+**A note on paths.** The application lives in `internal/core`; the repository
+root holds only `main.go`. Several gates are anchored to file paths, and those
+anchors are the first thing to update when code moves — an exclusion or a
+mutation entry pointing at a path that no longer exists does not error, it just
+stops applying. `lint-exclusions.sh` and `mutation.sh` exist because that has
+already happened here.
+
 ## Why each exists
 
 **`bindings.sh`** — the 188 bound methods are the contract between `package
@@ -46,9 +53,12 @@ moves the anchor stops matching, silently: nothing errors, the exclusion just
 stops applying. This repo reached 45 live issues that way once, with five
 exclusions still pointing at `app.go` after the code had moved to `internal/`.
 
-**`coverage.sh`** — reports, it does not gate. Two scopes, because they measure
-different things and were once quoted interchangeably: `internal/` alone, and
-`internal/` plus root `package main`.
+**`coverage.sh`** — reports, it does not gate. ONE scope, `./internal/...`.
+It used to report two, `internal/` alone and `internal/` plus root `package
+main`, because those measured genuinely different things while the application
+lived in package main at the repository root. Now that root holds only
+`main.go`, the two differ by rounding, and offering both would only invite
+quoting whichever is higher.
 
 **`skip-audit.sh`** — a skipped test reports success while checking nothing,
 and `go test` prints `ok` either way. Written after a test here skipped on every
@@ -126,8 +136,8 @@ not growth.
 **100% line coverage is not evidence of a tested behaviour.**
 `countRegularCollections` and `firstScratchCollectionIndex` both reported 100%.
 Changing `countRegularCollections` to count scratch collections as regular —
-inverting the one thing it exists to decide — left the entire `package main`
-suite green. Every line ran on the way to somewhere else and nothing asserted
+inverting the one thing it exists to decide — left the entire `internal/core`
+suite green (then `package main`, before the restructure). Every line ran on the way to somewhere else and nothing asserted
 what any of it meant.
 
 The same held one level up: `restoreCollectionRemovalLocked` was 60% covered,

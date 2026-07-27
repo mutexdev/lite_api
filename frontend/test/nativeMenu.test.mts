@@ -8,7 +8,7 @@ import {
 } from '../src/lib/nativeMenu.ts'
 
 const goSource = readFileSync(
-  fileURLToPath(new URL('../../native_menu.go', import.meta.url)),
+  fileURLToPath(new URL('../../internal/core/native_menu.go', import.meta.url)),
   'utf8',
 )
 

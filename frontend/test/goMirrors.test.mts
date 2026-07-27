@@ -29,11 +29,11 @@ function goFunction(source: string, name: string): string {
 // the frontend uses it to stop the input showing a number the backend will not
 // honour, so a drift means the UI promises 500 iterations and 200 run.
 test('the runner iteration cap matches the Go limit', () => {
-  const runner = goFunction(goSource('app_runner.go'), 'normalizeRunnerIterations')
+  const runner = goFunction(goSource('internal/core/app_runner.go'), 'normalizeRunnerIterations')
   assert.match(runner, /runnerIterationLimit/, 'the Go function no longer clamps to a named limit')
 
-  const limit = /runnerIterationLimit\s*=\s*(\d+)/.exec(goSource('app_runner.go'))
-    ?? /runnerIterationLimit\s*=\s*(\d+)/.exec(goSource('app.go'))
+  const limit = /runnerIterationLimit\s*=\s*(\d+)/.exec(goSource('internal/core/app_runner.go'))
+    ?? /runnerIterationLimit\s*=\s*(\d+)/.exec(goSource('internal/core/app.go'))
   assert.ok(limit, 'could not find the value of runnerIterationLimit in the Go source')
 
   assert.equal(

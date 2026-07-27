@@ -17,290 +17,7 @@ export namespace codegen {
 
 }
 
-export namespace gitworkbench {
-	
-	export class CollectionGitDiff {
-	    path: string;
-	    staged: boolean;
-	    text: string;
-	    truncated: boolean;
-	    binary: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new CollectionGitDiff(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.path = source["path"];
-	        this.staged = source["staged"];
-	        this.text = source["text"];
-	        this.truncated = source["truncated"];
-	        this.binary = source["binary"];
-	    }
-	}
-	export class CollectionGitFile {
-	    path: string;
-	    index: string;
-	    worktree: string;
-	    staged: boolean;
-	    untracked: boolean;
-	    conflicted: boolean;
-	    binary: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new CollectionGitFile(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.path = source["path"];
-	        this.index = source["index"];
-	        this.worktree = source["worktree"];
-	        this.staged = source["staged"];
-	        this.untracked = source["untracked"];
-	        this.conflicted = source["conflicted"];
-	        this.binary = source["binary"];
-	    }
-	}
-	export class CollectionGitRemote {
-	    name: string;
-	    url: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new CollectionGitRemote(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.url = source["url"];
-	    }
-	}
-	export class CollectionGitSnapshot {
-	    available: boolean;
-	    initialized: boolean;
-	    rootLabel?: string;
-	    branch?: string;
-	    detached: boolean;
-	    upstream?: string;
-	    ahead: number;
-	    behind: number;
-	    clean: boolean;
-	    conflicts: boolean;
-	    remotes: CollectionGitRemote[];
-	    branches: string[];
-	    files: CollectionGitFile[];
-	
-	    static createFrom(source: any = {}) {
-	        return new CollectionGitSnapshot(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.available = source["available"];
-	        this.initialized = source["initialized"];
-	        this.rootLabel = source["rootLabel"];
-	        this.branch = source["branch"];
-	        this.detached = source["detached"];
-	        this.upstream = source["upstream"];
-	        this.ahead = source["ahead"];
-	        this.behind = source["behind"];
-	        this.clean = source["clean"];
-	        this.conflicts = source["conflicts"];
-	        this.remotes = this.convertValues(source["remotes"], CollectionGitRemote);
-	        this.branches = source["branches"];
-	        this.files = this.convertValues(source["files"], CollectionGitFile);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class CollectionGitOperationResult {
-	    snapshot: CollectionGitSnapshot;
-	    message: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new CollectionGitOperationResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.snapshot = this.convertValues(source["snapshot"], CollectionGitSnapshot);
-	        this.message = source["message"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	
-
-}
-
-export namespace history {
-	
-	export class HistoryEntry {
-	    id: string;
-	    // Go type: time
-	    at: any;
-	    collectionId?: string;
-	    itemId?: string;
-	    name?: string;
-	    method: string;
-	    url: string;
-	    status?: number;
-	    statusText?: string;
-	    durationMs?: number;
-	    size?: number;
-	    error?: string;
-	    requestHeaders?: types.KeyValue[];
-	    responseHeaders?: types.KeyValue[];
-	    redacted?: boolean;
-	    bodyHandle?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new HistoryEntry(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.at = this.convertValues(source["at"], null);
-	        this.collectionId = source["collectionId"];
-	        this.itemId = source["itemId"];
-	        this.name = source["name"];
-	        this.method = source["method"];
-	        this.url = source["url"];
-	        this.status = source["status"];
-	        this.statusText = source["statusText"];
-	        this.durationMs = source["durationMs"];
-	        this.size = source["size"];
-	        this.error = source["error"];
-	        this.requestHeaders = this.convertValues(source["requestHeaders"], types.KeyValue);
-	        this.responseHeaders = this.convertValues(source["responseHeaders"], types.KeyValue);
-	        this.redacted = source["redacted"];
-	        this.bodyHandle = source["bodyHandle"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class HistoryQuery {
-	    text?: string;
-	    collectionId?: string;
-	    method?: string;
-	    onlyFailures?: boolean;
-	    limit?: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new HistoryQuery(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.text = source["text"];
-	        this.collectionId = source["collectionId"];
-	        this.method = source["method"];
-	        this.onlyFailures = source["onlyFailures"];
-	        this.limit = source["limit"];
-	    }
-	}
-
-}
-
-export namespace localserver {
-	
-	export class DocsServerStatus {
-	    collectionId: string;
-	    running: boolean;
-	    port: number;
-	    url?: string;
-	    error?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new DocsServerStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.collectionId = source["collectionId"];
-	        this.running = source["running"];
-	        this.port = source["port"];
-	        this.url = source["url"];
-	        this.error = source["error"];
-	    }
-	}
-	export class MockServerStatus {
-	    collectionId: string;
-	    running: boolean;
-	    port: number;
-	    url?: string;
-	    routes: number;
-	    error?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new MockServerStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.collectionId = source["collectionId"];
-	        this.running = source["running"];
-	        this.port = source["port"];
-	        this.url = source["url"];
-	        this.routes = source["routes"];
-	        this.error = source["error"];
-	    }
-	}
-
-}
-
-export namespace main {
+export namespace core {
 	
 	export class CollectionImportSelection {
 	    sourceId: string;
@@ -883,6 +600,289 @@ export namespace main {
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.path = source["path"];
+	    }
+	}
+
+}
+
+export namespace gitworkbench {
+	
+	export class CollectionGitDiff {
+	    path: string;
+	    staged: boolean;
+	    text: string;
+	    truncated: boolean;
+	    binary: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionGitDiff(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.staged = source["staged"];
+	        this.text = source["text"];
+	        this.truncated = source["truncated"];
+	        this.binary = source["binary"];
+	    }
+	}
+	export class CollectionGitFile {
+	    path: string;
+	    index: string;
+	    worktree: string;
+	    staged: boolean;
+	    untracked: boolean;
+	    conflicted: boolean;
+	    binary: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionGitFile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.index = source["index"];
+	        this.worktree = source["worktree"];
+	        this.staged = source["staged"];
+	        this.untracked = source["untracked"];
+	        this.conflicted = source["conflicted"];
+	        this.binary = source["binary"];
+	    }
+	}
+	export class CollectionGitRemote {
+	    name: string;
+	    url: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionGitRemote(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.url = source["url"];
+	    }
+	}
+	export class CollectionGitSnapshot {
+	    available: boolean;
+	    initialized: boolean;
+	    rootLabel?: string;
+	    branch?: string;
+	    detached: boolean;
+	    upstream?: string;
+	    ahead: number;
+	    behind: number;
+	    clean: boolean;
+	    conflicts: boolean;
+	    remotes: CollectionGitRemote[];
+	    branches: string[];
+	    files: CollectionGitFile[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionGitSnapshot(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.initialized = source["initialized"];
+	        this.rootLabel = source["rootLabel"];
+	        this.branch = source["branch"];
+	        this.detached = source["detached"];
+	        this.upstream = source["upstream"];
+	        this.ahead = source["ahead"];
+	        this.behind = source["behind"];
+	        this.clean = source["clean"];
+	        this.conflicts = source["conflicts"];
+	        this.remotes = this.convertValues(source["remotes"], CollectionGitRemote);
+	        this.branches = source["branches"];
+	        this.files = this.convertValues(source["files"], CollectionGitFile);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CollectionGitOperationResult {
+	    snapshot: CollectionGitSnapshot;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionGitOperationResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.snapshot = this.convertValues(source["snapshot"], CollectionGitSnapshot);
+	        this.message = source["message"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+
+}
+
+export namespace history {
+	
+	export class HistoryEntry {
+	    id: string;
+	    // Go type: time
+	    at: any;
+	    collectionId?: string;
+	    itemId?: string;
+	    name?: string;
+	    method: string;
+	    url: string;
+	    status?: number;
+	    statusText?: string;
+	    durationMs?: number;
+	    size?: number;
+	    error?: string;
+	    requestHeaders?: types.KeyValue[];
+	    responseHeaders?: types.KeyValue[];
+	    redacted?: boolean;
+	    bodyHandle?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new HistoryEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.at = this.convertValues(source["at"], null);
+	        this.collectionId = source["collectionId"];
+	        this.itemId = source["itemId"];
+	        this.name = source["name"];
+	        this.method = source["method"];
+	        this.url = source["url"];
+	        this.status = source["status"];
+	        this.statusText = source["statusText"];
+	        this.durationMs = source["durationMs"];
+	        this.size = source["size"];
+	        this.error = source["error"];
+	        this.requestHeaders = this.convertValues(source["requestHeaders"], types.KeyValue);
+	        this.responseHeaders = this.convertValues(source["responseHeaders"], types.KeyValue);
+	        this.redacted = source["redacted"];
+	        this.bodyHandle = source["bodyHandle"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class HistoryQuery {
+	    text?: string;
+	    collectionId?: string;
+	    method?: string;
+	    onlyFailures?: boolean;
+	    limit?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new HistoryQuery(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.text = source["text"];
+	        this.collectionId = source["collectionId"];
+	        this.method = source["method"];
+	        this.onlyFailures = source["onlyFailures"];
+	        this.limit = source["limit"];
+	    }
+	}
+
+}
+
+export namespace localserver {
+	
+	export class DocsServerStatus {
+	    collectionId: string;
+	    running: boolean;
+	    port: number;
+	    url?: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocsServerStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.collectionId = source["collectionId"];
+	        this.running = source["running"];
+	        this.port = source["port"];
+	        this.url = source["url"];
+	        this.error = source["error"];
+	    }
+	}
+	export class MockServerStatus {
+	    collectionId: string;
+	    running: boolean;
+	    port: number;
+	    url?: string;
+	    routes: number;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MockServerStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.collectionId = source["collectionId"];
+	        this.running = source["running"];
+	        this.port = source["port"];
+	        this.url = source["url"];
+	        this.routes = source["routes"];
+	        this.error = source["error"];
 	    }
 	}
 

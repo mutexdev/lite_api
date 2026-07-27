@@ -29,7 +29,7 @@
 //     happen, but treating "impossible" as "need not be handled" is how a
 //     desynchronised UI becomes permanent; recovery costs one GetState.
 
-import type { main, types } from '../../wailsjs/go/models'
+import type { core, types } from '../../wailsjs/go/models'
 
 export type AppStateLike = types.AppState
 
@@ -73,7 +73,7 @@ export function canApplyNarrowResult(expected: number, incoming: number): MergeO
 export function applyRequestMutation(
   state: AppStateLike,
   expectedRevision: number,
-  result: main.RequestMutation,
+  result: core.RequestMutation,
 ): MergeOutcome {
   const gap = canApplyNarrowResult(expectedRevision, result.revision)
   if (gap) return gap
@@ -120,7 +120,7 @@ export function applyRequestMutation(
 export function applyTabsMutation(
   state: AppStateLike,
   expectedRevision: number,
-  result: main.TabsMutation,
+  result: core.TabsMutation,
 ): MergeOutcome {
   const gap = canApplyNarrowResult(expectedRevision, result.revision)
   if (gap) return gap

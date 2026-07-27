@@ -46,5 +46,9 @@ measure() {
   rm -f "$raw" "$merged"
 }
 
+# One scope, not two. These used to be `./internal/...` and `./...`, which
+# measured genuinely different things while the application lived in package
+# main at the repository root. Now that root holds only main.go — 22 lines of
+# Wails wiring with nothing a test can reach — the two figures differ by
+# rounding, and reporting both invites quoting whichever is higher.
 measure ./internal/... internal
-measure ./...          all

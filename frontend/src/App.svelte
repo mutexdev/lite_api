@@ -351,8 +351,8 @@
 	    UpdateRequest,
     WriteTerminalSession,
     UpdateResponseExample
-  } from '../wailsjs/go/main/App'
-  import type { gitworkbench, history, localserver, main, types } from '../wailsjs/go/models'
+  } from '../wailsjs/go/core/App'
+  import type { gitworkbench, history, localserver, core, types } from '../wailsjs/go/models'
   import {
     displayTooltipValue,
     findTooltipVariable,
@@ -552,9 +552,9 @@
   let tabLifecycleDialog = $state<TabLifecycleDialog | null>(null)
   let tabLifecycleDecisionBusy = $state(false)
   let tabLifecycleCancelButton = $state<HTMLButtonElement | null>(null)
-  let recoveryEntries = $state<main.RecoveryEntry[]>([])
+  let recoveryEntries = $state<core.RecoveryEntry[]>([])
   let recoveryBusyEntryID = $state('')
-  let workspaceWindowTargets = $state<main.WorkspaceWindowTarget[]>([])
+  let workspaceWindowTargets = $state<core.WorkspaceWindowTarget[]>([])
   let workspaceWindowPickerOpen = $state(false)
   let workspaceWindowPickerBusy = $state(false)
   let workspaceWindowPickerBusyAction = $state<'loading' | 'opening' | 'creating' | ''>('')
@@ -606,11 +606,11 @@
   let removeSystemThemeListener: (() => void) | undefined
   let exportText = $state('')
 	  let importSourceMode = $state<ImportSourceMode>('files')
-	  let importSources = $state<main.CollectionImportSource[]>([])
-	  let importPreview = $state<main.CollectionImportPreview | undefined>()
+	  let importSources = $state<core.CollectionImportSource[]>([])
+	  let importPreview = $state<core.CollectionImportPreview | undefined>()
 	  let importDecisions = $state<Record<string, ImportDecision>>({})
 	  let importExpanded = $state<Record<string, boolean>>({})
-	  let importApplyResult = $state<main.CollectionImportApplyResult | undefined>()
+	  let importApplyResult = $state<core.CollectionImportApplyResult | undefined>()
 	  // US-044. Off by default: pm.* runs natively now, so an imported Postman
   // script works as written. Translation is for collections whose scripts were
   // already migrated by hand against the bru API.
@@ -1923,12 +1923,12 @@
     recoveryEntries = (await ListRecoveryEntries()) ?? []
   }
 
-  function recoveryExpiryLabel(entry: main.RecoveryEntry) {
+  function recoveryExpiryLabel(entry: core.RecoveryEntry) {
     const value = new Date(entry.expiresAt)
     return Number.isNaN(value.getTime()) ? 'expiry unavailable' : `expires ${value.toLocaleString()}`
   }
 
-  async function restoreRecoveryEntry(entry: main.RecoveryEntry) {
+  async function restoreRecoveryEntry(entry: core.RecoveryEntry) {
     if (recoveryBusyEntryID) return
     recoveryBusyEntryID = entry.id
     let restored = false
@@ -1941,7 +1941,7 @@
     recoveryBusyEntryID = ''
   }
 
-  async function discardRecoveryEntry(entry: main.RecoveryEntry) {
+  async function discardRecoveryEntry(entry: core.RecoveryEntry) {
     if (recoveryBusyEntryID) return
     recoveryBusyEntryID = entry.id
     await runAction('discard recovery entry', async () => {
@@ -3032,7 +3032,7 @@
     workspaceWindowPickerError = ''
   }
 
-  async function openSelectedWorkspaceInNewWindow(target: main.WorkspaceWindowTarget) {
+  async function openSelectedWorkspaceInNewWindow(target: core.WorkspaceWindowTarget) {
     if (workspaceWindowPickerBusy || target.id === appState?.activeWorkspaceId) return
     workspaceWindowPickerBusy = true
     workspaceWindowPickerBusyAction = 'opening'
@@ -3195,7 +3195,7 @@
     })
   }
 
-  function importDecisionFor(row: main.CollectionImportPreviewRow): ImportDecision {
+  function importDecisionFor(row: core.CollectionImportPreviewRow): ImportDecision {
     return importDecisions[row.candidateId] ?? defaultImportDecision(row)
   }
 
@@ -3223,7 +3223,7 @@
 	    importStatus = ''
 	  }
 
-	  async function previewImportSources(sources: main.CollectionImportSource[], focusFirst = false, resetDecisions = false) {
+	  async function previewImportSources(sources: core.CollectionImportSource[], focusFirst = false, resetDecisions = false) {
 	    if (!importDestinationWorkspaceID || sources.length === 0) return
 	    const priorDecisions = importDecisions
 	    importSources = []
@@ -3233,7 +3233,7 @@
 	    clearImportAttemptResults()
 	    let previewSucceeded = false
 	    await runAction('preview import', async () => {
-	      const preview = await PreviewCollectionImport({ workspaceId: importDestinationWorkspaceID, destinationRoot: importDestinationRoot, sources } as main.CollectionImportPreviewRequest)
+	      const preview = await PreviewCollectionImport({ workspaceId: importDestinationWorkspaceID, destinationRoot: importDestinationRoot, sources } as core.CollectionImportPreviewRequest)
       importSources = sources
       importPreview = preview
       const next: Record<string, ImportDecision> = {}
@@ -3252,13 +3252,13 @@
   }
 
   async function previewImportPaths(paths: string[], focusFirst = true) {
-    const sources = paths.map((path, index) => ({ id: `path-${Date.now()}-${index}`, path } as main.CollectionImportSource))
+    const sources = paths.map((path, index) => ({ id: `path-${Date.now()}-${index}`, path } as core.CollectionImportSource))
     await previewImportSources(sources, focusFirst)
   }
 
   async function chooseImportFiles() {
     const returnFocus = document.activeElement as HTMLElement | null
-    let result: main.CollectionImportPickerResult | undefined
+    let result: core.CollectionImportPickerResult | undefined
     await runAction('choose import files', async () => { result = await ChooseCollectionImportFiles() })
     if (!result) {
       importStatus = 'File picker could not be opened. Try again.'
@@ -3275,7 +3275,7 @@
 
   async function chooseImportFolder() {
     const returnFocus = document.activeElement as HTMLElement | null
-    let result: main.CollectionImportPickerResult | undefined
+    let result: core.CollectionImportPickerResult | undefined
     await runAction('choose import folder', async () => { result = await ChooseCollectionImportFolder() })
     if (!result) {
       importStatus = 'Folder picker could not be opened. Try again.'
@@ -3292,32 +3292,32 @@
 
   async function previewURLImport() {
     if (!importURL.trim()) return
-    await previewImportSources([{ id: `url-${Date.now()}`, url: importURL.trim() } as main.CollectionImportSource], true)
+    await previewImportSources([{ id: `url-${Date.now()}`, url: importURL.trim() } as core.CollectionImportSource], true)
   }
 
   async function previewPasteImport() {
     if (!importContent.trim()) return
-    await previewImportSources([{ id: `paste-${Date.now()}`, name: importPasteName.trim() || 'Pasted import', content: importContent } as main.CollectionImportSource], true)
+    await previewImportSources([{ id: `paste-${Date.now()}`, name: importPasteName.trim() || 'Pasted import', content: importContent } as core.CollectionImportSource], true)
   }
 
-  async function updateImportOverride(row: main.CollectionImportPreviewRow, kindOverride: string) {
+  async function updateImportOverride(row: core.CollectionImportPreviewRow, kindOverride: string) {
     const source = importSources.find((entry) => entry.id === row.sourceId)
     if (!source) return
-    const nextSources = importSources.map((entry) => entry.id === row.sourceId ? { ...entry, kindOverride } as main.CollectionImportSource : entry)
+    const nextSources = importSources.map((entry) => entry.id === row.sourceId ? { ...entry, kindOverride } as core.CollectionImportSource : entry)
     await previewImportSources(nextSources, false, true)
   }
 
-  function selectedImportIDs(row: main.CollectionImportPreviewRow, kind: 'environments' | 'folders' | 'requests') {
+  function selectedImportIDs(row: core.CollectionImportPreviewRow, kind: 'environments' | 'folders' | 'requests') {
     return importDecisionFor(row)[kind]
   }
 
-  function toggleImportChild(row: main.CollectionImportPreviewRow, kind: 'environments' | 'folders' | 'requests', id: string, checked: boolean) {
+  function toggleImportChild(row: core.CollectionImportPreviewRow, kind: 'environments' | 'folders' | 'requests', id: string, checked: boolean) {
     const next = toggleImportChildID(selectedImportIDs(row, kind), id, checked)
     updateImportDecision(row.candidateId, { [kind]: next } as Partial<ImportDecision>)
   }
 
-  function importSelectionFor(row: main.CollectionImportPreviewRow): main.CollectionImportSelection {
-    return importSelectionOf(row, importDecisionFor(row)) as main.CollectionImportSelection
+  function importSelectionFor(row: core.CollectionImportPreviewRow): core.CollectionImportSelection {
+    return importSelectionOf(row, importDecisionFor(row)) as core.CollectionImportSelection
   }
 
   // Keep both dependencies visible to Svelte: changes to a row checkbox must
@@ -3362,7 +3362,7 @@
 	  let applySucceeded = false
     try {
       await runAction('apply import', async () => {
-	        const result = await ApplyCollectionImport({ workspaceId: importDestinationWorkspaceID, destinationRoot: importDestinationRoot, sources: importSources, selections: importReadyRows.map(importSelectionFor), translatePostmanScripts: importTranslatePostmanScripts } as main.CollectionImportApplyRequest)
+	        const result = await ApplyCollectionImport({ workspaceId: importDestinationWorkspaceID, destinationRoot: importDestinationRoot, sources: importSources, selections: importReadyRows.map(importSelectionFor), translatePostmanScripts: importTranslatePostmanScripts } as core.CollectionImportApplyRequest)
         importApplyResult = result
 	        workspaceStore.appState = result.state
         const completed = new Set([...(result.applied ?? []), ...(result.skipped ?? [])].map((row) => row.candidateId))
