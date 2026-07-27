@@ -13,6 +13,7 @@ import (
 
 	"github.com/mutexdev/lite_api/internal/cookiejar"
 	"github.com/mutexdev/lite_api/internal/grpcexec"
+	"github.com/mutexdev/lite_api/internal/responsestore"
 	"github.com/mutexdev/lite_api/internal/scripting"
 )
 
@@ -233,7 +234,7 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 	} else {
 		item.Timeline = append(item.Timeline, mainRequestTimelineItem(*item, requestCopy, response))
 		if requestCopy.Type == "http" || requestCopy.Type == "graphql" {
-			item.Timeline = append(item.Timeline, httpTimingTimelineItems(*item, response)...)
+			item.Timeline = append(item.Timeline, responsestore.TimingTimelineItems(*item, response)...)
 		}
 		if requestCopy.Type == "grpc" {
 			grpcTimelineRequest := requestCopy

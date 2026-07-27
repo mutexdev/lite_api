@@ -26,6 +26,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/mutexdev/lite_api/internal/responsestore"
 	"unicode/utf8"
 )
 
@@ -72,7 +73,7 @@ func (a *App) ReadResponseBody(handle string, offset int, length int) (ResponseB
 	if err != nil {
 		return ResponseBodySlice{}, err
 	}
-	body, err := store.Get(responseHandle(handle))
+	body, err := store.Get(responsestore.Handle(handle))
 	if err != nil {
 		return ResponseBodySlice{}, fmt.Errorf("read response body: %w", err)
 	}

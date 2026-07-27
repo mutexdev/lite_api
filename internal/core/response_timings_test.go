@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"github.com/mutexdev/lite_api/internal/responsestore"
+	"github.com/mutexdev/lite_api/internal/types"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,8 +15,8 @@ import (
 
 func TestHTTPTimingTimelineItemsExposeMeasuredAndReuseRows(t *testing.T) {
 	item := RequestItem{ID: "r"}
-	response := Response{Status: 200, Timings: ResponseTimings{DNSAvailable: true, ConnectAvailable: true, TLSAvailable: true, UploadAvailable: true, WaitAvailable: true, WaitMs: 12, DownloadAvailable: true, DownloadMs: 5, ConnectionReused: true, RedirectCount: 1}}
-	rows := httpTimingTimelineItems(item, response)
+	response := Response{Status: 200, Timings: types.ResponseTimings{DNSAvailable: true, ConnectAvailable: true, TLSAvailable: true, UploadAvailable: true, WaitAvailable: true, WaitMs: 12, DownloadAvailable: true, DownloadMs: 5, ConnectionReused: true, RedirectCount: 1}}
+	rows := responsestore.TimingTimelineItems(item, response)
 	phases := map[string]bool{}
 	for _, row := range rows {
 		phases[row.Phase] = true

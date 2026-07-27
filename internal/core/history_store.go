@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/mutexdev/lite_api/internal/history"
+	"github.com/mutexdev/lite_api/internal/responsestore"
 )
 
 func (a *App) history() *history.Store {
@@ -66,7 +67,7 @@ func (a *App) GetHistoryBody(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	body, err := store.Get(responseHandle(entry.BodyHandle))
+	body, err := store.Get(responsestore.Handle(entry.BodyHandle))
 	if err != nil {
 		// The store is pruned independently of history, so a missing body is
 		// expected for old entries rather than an error worth failing on.

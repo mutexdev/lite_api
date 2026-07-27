@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"errors"
+	"github.com/mutexdev/lite_api/internal/types"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,14 +26,14 @@ type responseTimelineExport struct {
 		URL    string `json:"url"`
 	} `json:"request"`
 	Response struct {
-		Status        int             `json:"status"`
-		StatusText    string          `json:"statusText"`
-		DurationMs    int64           `json:"durationMs"`
-		Size          int             `json:"size"`
-		Error         string          `json:"error"`
-		Cancelled     bool            `json:"cancelled"`
-		Timings       ResponseTimings `json:"timings"`
-		HeaderEntries []KeyValue      `json:"headerEntries,omitempty"`
+		Status        int                   `json:"status"`
+		StatusText    string                `json:"statusText"`
+		DurationMs    int64                 `json:"durationMs"`
+		Size          int                   `json:"size"`
+		Error         string                `json:"error"`
+		Cancelled     bool                  `json:"cancelled"`
+		Timings       types.ResponseTimings `json:"timings"`
+		HeaderEntries []KeyValue            `json:"headerEntries,omitempty"`
 	} `json:"response"`
 	ExportedAt time.Time      `json:"exportedAt"`
 	Timeline   []TimelineItem `json:"timeline"`

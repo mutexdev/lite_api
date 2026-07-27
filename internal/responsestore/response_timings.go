@@ -1,4 +1,4 @@
-package core
+package responsestore
 
 import (
 	"crypto/tls"
@@ -14,16 +14,16 @@ import (
 var timingTimelineSequence atomic.Uint64
 
 type ResponseTimings = types.ResponseTimings
-type responseTimingTrace struct {
+type TimingTrace struct {
 	mu                                                                     sync.Mutex
 	start, dnsStart, connectStart, tlsStart, connAt, writeStart, firstByte time.Time
 	timings                                                                ResponseTimings
 }
 
-func newResponseTimingTrace(start time.Time) *responseTimingTrace {
-	return &responseTimingTrace{start: start}
+func NewTimingTrace(start time.Time) *TimingTrace {
+	return &TimingTrace{start: start}
 }
-func (t *responseTimingTrace) trace() *httptrace.ClientTrace {
+func (t *TimingTrace) Trace() *httptrace.ClientTrace {
 	return &httptrace.ClientTrace{
 		DNSStart: func(httptrace.DNSStartInfo) { t.mu.Lock(); t.dnsStart = time.Now(); t.mu.Unlock() }, DNSDone: func(httptrace.DNSDoneInfo) {
 			t.mu.Lock()
@@ -73,8 +73,8 @@ func (t *responseTimingTrace) trace() *httptrace.ClientTrace {
 		},
 	}
 }
-func (t *responseTimingTrace) redirect() { t.mu.Lock(); t.timings.RedirectCount++; t.mu.Unlock() }
-func (t *responseTimingTrace) finalize(end time.Time) ResponseTimings {
+func (t *TimingTrace) Redirect() { t.mu.Lock(); t.timings.RedirectCount++; t.mu.Unlock() }
+func (t *TimingTrace) Finalize(end time.Time) ResponseTimings {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	out := t.timings
@@ -86,24 +86,24 @@ func (t *responseTimingTrace) finalize(end time.Time) ResponseTimings {
 	return out
 }
 
-func httpTimingTimelineItems(item RequestItem, response Response) []TimelineItem {
+func TimingTimelineItems(item types.RequestItem, response types.Response) []types.TimelineItem {
 	t := response.Timings
 	rows := []struct {
 		name      string
 		available bool
 		ms        int64
 	}{{"dns", t.DNSAvailable, t.DNSMs}, {"connect", t.ConnectAvailable, t.ConnectMs}, {"tls", t.TLSAvailable, t.TLSMs}, {"upload", t.UploadAvailable, t.UploadMs}, {"wait", t.WaitAvailable, t.WaitMs}, {"download", t.DownloadAvailable, t.DownloadMs}}
-	out := []TimelineItem{}
+	out := []types.TimelineItem{}
 	for _, row := range rows {
 		if row.available {
-			out = append(out, TimelineItem{ID: nextTimingTimelineID(item.ID, row.name), Kind: "network", Message: row.name, At: time.Now(), Duration: row.ms, RequestID: item.ID, Source: "network", Phase: row.name, Status: response.Status, StatusText: response.StatusText})
+			out = append(out, types.TimelineItem{ID: nextTimingTimelineID(item.ID, row.name), Kind: "network", Message: row.name, At: time.Now(), Duration: row.ms, RequestID: item.ID, Source: "network", Phase: row.name, Status: response.Status, StatusText: response.StatusText})
 		}
 	}
 	if t.RedirectCount > 0 {
-		out = append(out, TimelineItem{ID: nextTimingTimelineID(item.ID, "redirect"), Kind: "network", Message: "redirect", At: time.Now(), Duration: int64(t.RedirectCount), RequestID: item.ID, Source: "network", Phase: "redirect", Status: response.Status, StatusText: response.StatusText})
+		out = append(out, types.TimelineItem{ID: nextTimingTimelineID(item.ID, "redirect"), Kind: "network", Message: "redirect", At: time.Now(), Duration: int64(t.RedirectCount), RequestID: item.ID, Source: "network", Phase: "redirect", Status: response.Status, StatusText: response.StatusText})
 	}
 	if t.ConnectionReused {
-		out = append(out, TimelineItem{ID: nextTimingTimelineID(item.ID, "connection-reused"), Kind: "network", Message: "connection reused", At: time.Now(), RequestID: item.ID, Source: "network", Phase: "connection-reused", Status: response.Status, StatusText: response.StatusText})
+		out = append(out, types.TimelineItem{ID: nextTimingTimelineID(item.ID, "connection-reused"), Kind: "network", Message: "connection reused", At: time.Now(), RequestID: item.ID, Source: "network", Phase: "connection-reused", Status: response.Status, StatusText: response.StatusText})
 	}
 	return out
 }

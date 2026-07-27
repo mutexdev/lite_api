@@ -33,6 +33,7 @@ import (
 	"github.com/mutexdev/lite_api/internal/interp"
 	"github.com/mutexdev/lite_api/internal/localserver"
 	"github.com/mutexdev/lite_api/internal/openapisync"
+	"github.com/mutexdev/lite_api/internal/responsestore"
 	"github.com/mutexdev/lite_api/internal/scripting"
 	"github.com/mutexdev/lite_api/internal/store/bru"
 	xport "github.com/mutexdev/lite_api/internal/transport"
@@ -172,7 +173,7 @@ type App struct {
 	docsOnce    sync.Once
 	docsMu      sync.Mutex
 	docsServers map[string]*localserver.DocsServer
-	responses   *responseStore
+	responses   *responsestore.Store
 
 	// US-013. Fingerprints of what each auxiliary file last contained, so a
 	// persist that changes nothing in a file does no work for that file.

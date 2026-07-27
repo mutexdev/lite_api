@@ -18,6 +18,7 @@ import (
 
 	"github.com/mutexdev/lite_api/internal/auth/digest"
 	"github.com/mutexdev/lite_api/internal/codegen"
+	"github.com/mutexdev/lite_api/internal/responsestore"
 	"github.com/mutexdev/lite_api/internal/scripting"
 	"github.com/mutexdev/lite_api/internal/transport"
 )
@@ -86,8 +87,8 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 		result.DurationMs = time.Since(start).Milliseconds()
 		return result
 	}
-	timingTrace := newResponseTimingTrace(start)
-	req = req.WithContext(httptrace.WithClientTrace(req.Context(), timingTrace.trace()))
+	timingTrace := responsestore.NewTimingTrace(start)
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), timingTrace.Trace()))
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
@@ -127,13 +128,13 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 	client.Timeout = time.Duration(timeout) * time.Millisecond
 	if !item.Settings.FollowRedirects {
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			timingTrace.redirect()
+			timingTrace.Redirect()
 			return http.ErrUseLastResponse
 		}
 	} else if item.Settings.MaxRedirects > 0 {
 		max := item.Settings.MaxRedirects
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			timingTrace.redirect()
+			timingTrace.Redirect()
 			if len(via) >= max {
 				return http.ErrUseLastResponse
 			}
@@ -142,7 +143,7 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 		}
 	} else {
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			timingTrace.redirect()
+			timingTrace.Redirect()
 			attachCookiesToHTTPRequest(req, redirectCookies.Snapshot())
 			return nil
 		}
@@ -158,7 +159,7 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 			result.Error = result.Error + "; onFail: " + onFailErr.Error()
 		}
 		result.DurationMs = time.Since(start).Milliseconds()
-		result.Timings = timingTrace.finalize(time.Now())
+		result.Timings = timingTrace.Finalize(time.Now())
 		return result
 	}
 	if digest.ShouldRetry(res, item.Auth) {
@@ -168,7 +169,7 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 		if retryErr != nil {
 			result.Error = retryErr.Error()
 			result.DurationMs = time.Since(start).Milliseconds()
-			result.Timings = timingTrace.finalize(time.Now())
+			result.Timings = timingTrace.Finalize(time.Now())
 			return result
 		}
 		attachCookiesToHTTPRequest(retryReq, redirectCookies.Snapshot())
@@ -183,7 +184,7 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 				result.Error = result.Error + "; onFail: " + onFailErr.Error()
 			}
 			result.DurationMs = time.Since(start).Milliseconds()
-			result.Timings = timingTrace.finalize(time.Now())
+			result.Timings = timingTrace.Finalize(time.Now())
 			return result
 		}
 	}
@@ -219,7 +220,7 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 	}
 	result.BodyBase64 = base64.StdEncoding.EncodeToString(body)
 	result.DurationMs = time.Since(start).Milliseconds()
-	result.Timings = timingTrace.finalize(time.Now())
+	result.Timings = timingTrace.Finalize(time.Now())
 	for name, values := range res.Header {
 		result.Headers[name] = strings.Join(values, ", ")
 		for _, value := range values {

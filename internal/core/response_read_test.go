@@ -21,7 +21,7 @@ func storeBody(t *testing.T, app *App, body string) string {
 	t.Helper()
 	store, err := app.responseStore()
 	if err != nil {
-		t.Fatalf("responseStore: %v", err)
+		t.Fatalf("responsestore.Store: %v", err)
 	}
 	handle, err := store.Put([]byte(body))
 	if err != nil {

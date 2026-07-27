@@ -1,4 +1,4 @@
-package core
+package responsestore
 
 // US-009, step 1 — the response body store, standalone.
 //
@@ -43,43 +43,43 @@ import (
 // 50 MB-plus responses US-011 has to handle.
 const responseStoreMemoryBudget = 32 << 20
 
-// responseHandle identifies a stored body. It is the content hash, so identical
+// Handle identifies a stored body. It is the content hash, so identical
 // bodies share one file — re-running a request that returns the same payload
 // costs nothing extra on disk.
-type responseHandle string
+type Handle string
 
 type responseStoreEntry struct {
-	handle responseHandle
+	handle Handle
 	body   []byte
 	elem   *list.Element
 }
 
-// responseStore keeps recently used bodies in memory and all bodies on disk.
+// Store keeps recently used bodies in memory and all bodies on disk.
 //
-// The zero value is not usable; construct with newResponseStore.
-type responseStore struct {
+// The zero value is not usable; construct with New.
+type Store struct {
 	mu       sync.Mutex
 	dir      string
-	entries  map[responseHandle]*responseStoreEntry
+	entries  map[Handle]*responseStoreEntry
 	order    *list.List // front = most recently used
 	resident int
 	budget   int
 }
 
-func newResponseStore(dataDir string) (*responseStore, error) {
+func New(dataDir string) (*Store, error) {
 	dir := filepath.Join(dataDir, "responses")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create response store: %w", err)
 	}
-	return &responseStore{
+	return &Store{
 		dir:     dir,
-		entries: map[responseHandle]*responseStoreEntry{},
+		entries: map[Handle]*responseStoreEntry{},
 		order:   list.New(),
 		budget:  responseStoreMemoryBudget,
 	}, nil
 }
 
-func (s *responseStore) path(handle responseHandle) string {
+func (s *Store) path(handle Handle) string {
 	return filepath.Join(s.dir, string(handle))
 }
 
@@ -89,9 +89,9 @@ func (s *responseStore) path(handle responseHandle) string {
 // returned for a body that is not on disk. Storing the same bytes twice is a
 // no-op beyond refreshing recency: the handle is the content hash, so the file
 // already exists and is already correct.
-func (s *responseStore) Put(body []byte) (responseHandle, error) {
+func (s *Store) Put(body []byte) (Handle, error) {
 	sum := sha256.Sum256(body)
-	handle := responseHandle(hex.EncodeToString(sum[:]))
+	handle := Handle(hex.EncodeToString(sum[:]))
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -115,7 +115,7 @@ func (s *responseStore) Put(body []byte) (responseHandle, error) {
 
 // Get returns a body by handle, reading it back from disk if it has been
 // evicted from memory.
-func (s *responseStore) Get(handle responseHandle) ([]byte, error) {
+func (s *Store) Get(handle Handle) ([]byte, error) {
 	s.mu.Lock()
 	if entry, ok := s.entries[handle]; ok {
 		s.order.MoveToFront(entry.elem)
@@ -139,7 +139,7 @@ func (s *responseStore) Get(handle responseHandle) ([]byte, error) {
 
 // rememberLocked records a body in the memory front and evicts until the
 // budget is met. s.mu must be held.
-func (s *responseStore) rememberLocked(handle responseHandle, body []byte) {
+func (s *Store) rememberLocked(handle Handle, body []byte) {
 	if entry, ok := s.entries[handle]; ok {
 		s.order.MoveToFront(entry.elem)
 		return
@@ -166,7 +166,7 @@ func (s *responseStore) rememberLocked(handle responseHandle, body []byte) {
 }
 
 // residentBytes reports the current memory footprint. Test-facing.
-func (s *responseStore) residentBytes() int {
+func (s *Store) residentBytes() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.resident

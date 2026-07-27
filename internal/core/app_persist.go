@@ -12,6 +12,7 @@ import (
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/mutexdev/lite_api/internal/atomicfile"
+	"github.com/mutexdev/lite_api/internal/responsestore"
 )
 
 // bumpRevisionLocked advances the mutation counter and stamps it into the state
@@ -212,12 +213,12 @@ func responseBodyHead(body string) string {
 	return body[:cut]
 }
 
-// responseStore returns the App's body store, creating it on first use.
+// responsestore.Store returns the App's body store, creating it on first use.
 //
 // Returns an error rather than a nil store when the directory cannot be made:
 // a caller that silently got nil would write a body nowhere and report success,
 // which is the failure mode this whole story exists to remove.
-func (a *App) responseStore() (*responseStore, error) {
+func (a *App) responseStore() (*responsestore.Store, error) {
 	a.responsesMu.Lock()
 	defer a.responsesMu.Unlock()
 	if a.responses != nil {
@@ -227,7 +228,7 @@ func (a *App) responseStore() (*responseStore, error) {
 	if dir == "" {
 		dir = defaultDataDir()
 	}
-	store, err := newResponseStore(dir)
+	store, err := responsestore.New(dir)
 	if err != nil {
 		return nil, err
 	}

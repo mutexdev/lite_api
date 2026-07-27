@@ -8,7 +8,7 @@
 // The availability flags matter more than they look. A zero duration and an
 // unmeasured phase are the same number, so the flag is the only thing that
 // distinguishes "this took no time" from "Go never reported this".
-package core
+package responsestore
 
 import (
 	"testing"
@@ -17,9 +17,9 @@ import (
 
 func TestFinalizeReportsMilliseconds(t *testing.T) {
 	start := time.Now()
-	trace := newResponseTimingTrace(start)
+	trace := NewTimingTrace(start)
 
-	got := trace.finalize(start.Add(1500 * time.Millisecond))
+	got := trace.Finalize(start.Add(1500 * time.Millisecond))
 
 	if got.TotalMs != 1500 {
 		t.Fatalf("TotalMs = %d for a 1.5s request, want 1500 (a unit slip would give 1500000 or 1)", got.TotalMs)
@@ -28,9 +28,9 @@ func TestFinalizeReportsMilliseconds(t *testing.T) {
 
 func TestFinalizeRoundsSubMillisecondToZeroNotNegative(t *testing.T) {
 	start := time.Now()
-	trace := newResponseTimingTrace(start)
+	trace := NewTimingTrace(start)
 
-	got := trace.finalize(start.Add(400 * time.Microsecond))
+	got := trace.Finalize(start.Add(400 * time.Microsecond))
 
 	if got.TotalMs != 0 {
 		t.Fatalf("TotalMs = %d for a 400µs request, want 0", got.TotalMs)
@@ -42,9 +42,9 @@ func TestFinalizeRoundsSubMillisecondToZeroNotNegative(t *testing.T) {
 // attributing the whole wait to download.
 func TestDownloadTimingIsUnavailableUntilAFirstByte(t *testing.T) {
 	start := time.Now()
-	trace := newResponseTimingTrace(start)
+	trace := NewTimingTrace(start)
 
-	got := trace.finalize(start.Add(time.Second))
+	got := trace.Finalize(start.Add(time.Second))
 	if got.DownloadAvailable {
 		t.Fatal("download reported as available with no first byte recorded")
 	}
@@ -55,10 +55,10 @@ func TestDownloadTimingIsUnavailableUntilAFirstByte(t *testing.T) {
 
 func TestDownloadTimingMeasuresFromTheFirstByte(t *testing.T) {
 	start := time.Now()
-	trace := newResponseTimingTrace(start)
+	trace := NewTimingTrace(start)
 	trace.firstByte = start.Add(700 * time.Millisecond)
 
-	got := trace.finalize(start.Add(time.Second))
+	got := trace.Finalize(start.Add(time.Second))
 
 	if !got.DownloadAvailable {
 		t.Fatal("download should be available once a first byte was seen")
@@ -74,11 +74,11 @@ func TestDownloadTimingMeasuresFromTheFirstByte(t *testing.T) {
 }
 
 func TestRedirectCountAccumulates(t *testing.T) {
-	trace := newResponseTimingTrace(time.Now())
+	trace := NewTimingTrace(time.Now())
 	for i := 0; i < 3; i++ {
-		trace.redirect()
+		trace.Redirect()
 	}
-	if got := trace.finalize(time.Now()).RedirectCount; got != 3 {
+	if got := trace.Finalize(time.Now()).RedirectCount; got != 3 {
 		t.Fatalf("RedirectCount = %d, want 3", got)
 	}
 }
