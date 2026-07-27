@@ -8022,3 +8022,31 @@ US-026 - Store layer. DONE. Both named collapses complete.
   what the code would cost if removed, and to whom.
 
   Frontend totals: 99.88% lines, 97.44% branch, 98.40% functions, 774 tests.
+
+--- networkSort and importPlanning: the defensive arms ---
+
+  Suite 774 -> 778. importPlanning.ts reaches 100/100/100.
+
+  networkSort had an uncovered LINE, not just a branch — the final arm of
+  nextNetworkSort, reached when the clicked column IS the current one and the
+  direction is EMPTY. nextNetworkSort never produces that state itself (turning
+  sorting off clears the key too), so it can only arrive from a stored
+  preference written inconsistently or by a build whose normalizer differed.
+  Clicking recovers to ascending rather than doing nothing, which is what keeps
+  the header usable instead of dead. Control fails 1.
+
+  importPlanning's remaining branches were all "the backend told us less than
+  usual":
+    - a source whose collection name could not be determined seeds an EMPTY
+      rename field, not the string "undefined" — which the user would otherwise
+      have to notice and clear before naming the import anything sensible.
+      Control fails 1.
+    - a row with NO child lists at all (an empty or unreadable collection) still
+      yields a usable decision and a selection with nothing filtered, rather
+      than throwing while the preview list renders. Control fails 1.
+    - reconciling against such a row drops every stale id rather than handing
+      the backend ids it no longer knows. Control fails 1.
+
+  Four controls, four failures.
+
+  Frontend totals: 99.88% lines, 97.58% branch, 98.41% functions, 778 tests.

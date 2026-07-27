@@ -181,3 +181,41 @@ test('a kind with no children does not read as filtered', () => {
   const row = detailRow({ folders: [] })
   assert.equal(importSelectionFor(row, defaultImportDecision(row)).filterFolders, false)
 })
+
+// The output name seeds the rename field. A source whose collection name the
+// backend could not determine must seed it EMPTY rather than "undefined" —
+// which is what the user would otherwise have to notice and clear before the
+// import could be named anything sensible.
+test('a row with no collection name seeds an empty output name', () => {
+  const decision = defaultImportDecision(detailRow({ collectionName: undefined }))
+  assert.equal(decision.outputName, '')
+})
+
+// A preview row for a source with no environments, folders or requests at all —
+// an empty or unreadable collection — must still produce a usable decision
+// rather than throwing while the preview list renders.
+test('a row with no child lists still yields a decision and a selection', () => {
+  const bare = {
+    candidateId: 'c1',
+    sourceId: 's1',
+    defaultSelect: true
+  } as ImportPreviewRowDetail
+  const decision = defaultImportDecision(bare)
+  assert.deepEqual(decision.environments, [])
+  assert.deepEqual(decision.folders, [])
+  assert.deepEqual(decision.requests, [])
+
+  const selection = importSelectionFor(bare, decision)
+  assert.equal(selection.filterEnvironments, false, 'nothing was deselected, so nothing is filtered')
+  assert.equal(selection.filterFolders, false)
+  assert.equal(selection.filterRequests, false)
+})
+
+// Reconciling against a row that lost its child lists drops the stale ids
+// rather than passing them to a backend that no longer knows them.
+test('reconciling against a row with no child lists drops every id', () => {
+  const prior = { ...defaultImportDecision(detailRow()), requests: ['r1'] }
+  const next = reconcileImportDecision(prior, { candidateId: 'c1', sourceId: 's1' } as ImportPreviewRowDetail)
+  assert.deepEqual(next.requests, [])
+  assert.deepEqual(next.environments, [])
+})

@@ -287,3 +287,12 @@ test('dragging the last column does nothing', () => {
   assert.deepEqual(resizeAdjacentColumns(widths, -1, 50), widths)
   assert.notEqual(resizeAdjacentColumns(widths, 2, 50), widths)
 })
+
+// The same column with NO direction is a state nextNetworkSort never produces —
+// turning sorting off clears the key as well. It can only arrive from a stored
+// preference written inconsistently, or from a build whose normalizer differed.
+// Clicking recovers to ascending rather than doing nothing, which is what makes
+// the header usable again instead of dead.
+test('clicking a column that is current but has no direction restarts ascending', () => {
+  assert.deepEqual(nextNetworkSort('status', '', 'status'), { key: 'status', direction: 'asc' })
+})
