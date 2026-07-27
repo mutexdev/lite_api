@@ -78,14 +78,30 @@ expect_failure "test-presence.sh: a package losing its tests" ./qa/test-presence
 restore; RESTORE=(); STASH=$(mktemp -d)
 
 # --- qa/lint-exclusions.sh ------------------------------------------------
+# This control NAMED an anchor, and the anchor moved — transport.go was split
+# and the RFC-1423 exclusion went to clientcert.go, so the mutation stopped
+# applying and the control reported BLIND. That is the very drift the gate
+# exists to catch, reproduced one level up in the thing checking it.
+#
+# So derive the anchor rather than spell it. Renaming whatever the first
+# exclusion points at is exactly the real failure mode: the file moved, the
+# `path:` regex quietly stopped matching, and the suppression silently became
+# dead while the config still looked deliberate.
 stash .golangci.yml
 python3 - <<'PY'
-p = '.golangci.yml'
-s = open(p).read()
-old = r'      - path: ^internal/transport/transport\.go$'
-new = r'      - path: ^internal/transport/cache\.go$'
-assert s.count(old) == 1
-open(p, 'w').write(s.replace(old, new))
+import re, sys
+path = '.golangci.yml'
+text = open(path).read()
+match = re.search(r'^( *- path: )(\S+)$', text, re.M)
+if not match:
+    sys.exit("no `- path:` exclusion found in .golangci.yml; this control "
+             "cannot mutate anything and will not report a pass")
+moved = match.group(2).replace(r'\.go$', r'_moved\.go$')
+if moved == match.group(2):
+    sys.exit(f"could not rewrite the anchor {match.group(2)!r}; has the "
+             "anchoring convention changed?")
+open(path, 'w').write(text[:match.start()] + match.group(1) + moved
+                      + text[match.end():])
 PY
 expect_failure "lint-exclusions.sh: an exclusion anchored at the wrong file" ./qa/lint-exclusions.sh
 restore; RESTORE=(); STASH=$(mktemp -d)
@@ -131,6 +147,41 @@ stash main.go
 printf 'package main\n\nfunc selftestStray() {}\n' > selftest_stray.go
 expect_failure "layout.sh: a stray .go file in the repository root" ./qa/layout.sh
 rm -f selftest_stray.go
+restore; RESTORE=(); STASH=$(mktemp -d)
+
+# The same gate checks that the figures docs/architecture.md quotes are still
+# true. It said 41 packages when there were 37, having drifted inside a single
+# afternoon, because nothing measured it.
+stash docs/architecture.md
+sed -i '' 's/37 packages/41 packages/' docs/architecture.md
+expect_failure "layout.sh: a stale package count in the architecture doc" ./qa/layout.sh
+restore; RESTORE=(); STASH=$(mktemp -d)
+
+# EVERY occurrence must be checked, not just one. The first version of this
+# check used `grep -q`, which passes when ANY occurrence matches — so a stale
+# copy sailed through by hiding behind a correct one. The count appears three
+# times; each is mutated separately here, because a control that only ever
+# breaks the first one would not have caught that.
+occurrences=$(grep -c '188 bound methods' docs/architecture.md)
+for i in $(seq 1 "$occurrences"); do
+  stash docs/architecture.md
+  python3 - "$i" <<'PY'
+import sys, pathlib
+i = int(sys.argv[1])
+path = pathlib.Path("docs/architecture.md")
+parts = path.read_text().split("188 bound methods")
+path.write_text("188 bound methods".join(parts[:i]) + "190 bound methods"
+                + "188 bound methods".join(parts[i:]))
+PY
+  expect_failure "layout.sh: a stale method count at occurrence $i of $occurrences" ./qa/layout.sh
+  restore; RESTORE=(); STASH=$(mktemp -d)
+done
+
+# An ABSENT count is a failed measurement, not a pass — the same trap the
+# bound-method assertion in layout.sh guards against.
+stash docs/architecture.md
+sed -i '' 's/bound methods/bound thingies/g' docs/architecture.md
+expect_failure "layout.sh: the architecture doc quoting no method count at all" ./qa/layout.sh
 restore; RESTORE=(); STASH=$(mktemp -d)
 
 echo ""

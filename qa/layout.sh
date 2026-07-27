@@ -75,7 +75,37 @@ if [ -n "$dupes" ]; then
   status=1
 fi
 
+# --- 5. the figures docs/architecture.md quotes are still true -------------
+# The document names a package count and a bound-method count. Both went stale
+# inside a single afternoon — it said 41 packages when there were 37 — because
+# nothing measured them. A number nobody checks is the same failure mode as a
+# lint exclusion anchored to a path that moved: it does not error, it just stops
+# being true, and it is believed for exactly as long as that goes unnoticed.
+packages=$(find internal -mindepth 1 -type d -not -path '*/.*' | wc -l | tr -d ' ')
+for quoted in $(grep -oE '\b[0-9]+ packages\b|existing [0-9]+\.' docs/architecture.md \
+                 | grep -oE '[0-9]+' || true); do
+  if [ "$quoted" != "$packages" ]; then
+    echo "docs/architecture.md quotes $quoted packages; there are $packages." >&2
+    status=1
+  fi
+done
+# EVERY occurrence must agree, not merely one of them. `grep -q` was the first
+# attempt and it was blind: the count appears twice, so a stale copy passed by
+# hiding behind a correct one. The negative control below is what caught it.
+quoted_methods=$(grep -oE '\b[0-9]+ bound methods\b' docs/architecture.md | grep -oE '^[0-9]+' || true)
+if [ -z "$quoted_methods" ]; then
+  echo "docs/architecture.md no longer quotes a bound-method count at all." >&2
+  echo "That is a failed measurement rather than a pass." >&2
+  status=1
+fi
+for quoted in $quoted_methods; do
+  if [ "$quoted" != "$methods" ]; then
+    echo "docs/architecture.md quotes $quoted bound methods; there are $methods." >&2
+    status=1
+  fi
+done
+
 if [ "$status" -eq 0 ]; then
-  echo "layout ok: root holds main.go alone, $methods bound methods in internal/core"
+  echo "layout ok: root holds main.go alone, $methods bound methods in internal/core, $packages packages, docs agree"
 fi
 exit "$status"

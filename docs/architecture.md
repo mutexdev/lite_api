@@ -3,7 +3,7 @@
 LiteAPI is a Wails v2 desktop app: Go behind a Svelte 5 frontend, one binary.
 
 The repository root holds **one Go file**. Everything else is under `internal/`,
-41 packages. This document says why the root looks like that, what decides
+37 packages. This document says why the root looks like that, what decides
 where a thing goes, and which constraints were verified rather than assumed —
 so the next person changing the shape does not have to re-derive them.
 
@@ -13,7 +13,7 @@ lite_api/
   internal/
     core/                  the App: 188 bound methods, the state lock
     types/                 the domain structs everything speaks in
-    ...39 more
+    ...35 more
   frontend/                Svelte 5 + the generated Wails bindings
   qa/                      the checks the ordinary build does not make
 ```
@@ -37,7 +37,7 @@ reason a Go file remains in the root.
 
 ## Why the App is NOT in package main
 
-An earlier plan asserted that all 188 bound methods "must remain methods on
+An earlier plan asserted that every bound method "must remain a method on
 `*App` in package main". **That is false**, and acting on it is what kept 142
 files in the root.
 
@@ -64,7 +64,7 @@ Two consequences that bite if forgotten:
 - **Bound types are addressed by SHORT package name.** `reflect.Type.String()`
   yields `types`, never the import path, so two packages with the same short
   name collide silently in the generated TypeScript rather than failing to
-  build. Check a new package name against the existing 41.
+  build. Check a new package name against the existing 37.
 
 ## What lives where
 
@@ -113,6 +113,57 @@ cross a package boundary without being exported into the *production* API, and
 a permission check is not worth widening that surface. Each copy says so.
 
 ## Changing the shape
+
+### Decide by reading the declaration list, never by the filename
+
+```
+go run ./tools/gosplit -src internal/store/bru/write.go -list
+```
+
+A file's name records what someone *intended* to put in it. Four times during
+the restructure a file was called coherent on the strength of its name and its
+size, and four times the full list showed otherwise — most recently
+`store/bru/write.go`, which was carrying the rules for what a collection file
+may be *named* and a ledger of Bruno/Postman feature support alongside the code
+that writes `.bru` content. Nothing about "write.go, 939 lines" suggests any of
+that. The list does, in one screen.
+
+The reverse also holds: `store/bru/bru.go` is 975 lines and every declaration in
+it parses `.bru`. Size decides nothing in either direction.
+
+### Move declarations with the AST, not with text
+
+`tools/gosplit` moves named top-level declarations between files:
+
+```
+go run ./tools/gosplit -src <from> -dst <to> -names A,B,C -header "<doc comment>"
+```
+
+It exists because text manipulation failed at this five separate times, each
+time producing code that still compiled. An identifier appears in roles a
+pattern cannot distinguish: a struct field whose name matches its type, a method
+named for its own receiver type, a `var` block header whose body is left behind,
+and — the one that decided it — the string `imp` matching *inside* a line, which
+deleted `hash := ""` from an unrelated URL parser. `gosplit` asks `go/ast` where
+a declaration begins and ends and copies those bytes.
+
+Two properties are worth knowing:
+
+- **`-verify` proves reassembly is byte-identical.** It passes on all 383 Go
+  files in the repo. `tools/gosplit/main_test.go` pins each construct that
+  broke an earlier version — including a signature returning
+  `[]map[string]interface{}`, where the first `{` is in the return type and not
+  the body. The tool written to fix a class of bug shipped with a fresh instance
+  of that same bug; the test is there because of it.
+- **Conservation is the check text could never offer.** Count declarations in
+  the source before, count both files after, and the sum must match. Run it on
+  every move.
+
+Grouped `var` and `const` blocks move as one unit, because package-level
+initialisation order follows **filename** sort order within a package — the one
+class of error here that compiles and passes tests.
+
+### Then run the gates
 
 `qa/` holds the checks the ordinary build does not make — see `qa/README.md`.
 Three matter when moving code:

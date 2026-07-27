@@ -108,6 +108,29 @@ nothing.
 
 ## Things learned the hard way, so they are not re-learned
 
+**A control that NAMES a path goes stale exactly like the thing it checks.** The
+`lint-exclusions` control spelled out `^internal/transport/transport\.go$`. That
+file was later split, the exclusion moved to `clientcert.go`, and the control's
+mutation stopped applying — so it reported BLIND rather than a false pass, which
+is the right failure but still a control that had quietly stopped working. It
+now finds the first `- path:` anchor in the config and renames *that*, so it
+cannot drift again. Prefer deriving the target over naming it; when a control
+must name something, it has to be in the catalogue so `NOT FOUND` is loud.
+
+**`grep -q` is the wrong shape for "this value is correct everywhere."** It
+answers *does any occurrence match*, so a stale copy passes by hiding behind a
+correct one. `layout.sh` checks that `docs/architecture.md` still quotes the
+real bound-method count; the first version used `grep -q`, and the doc has three
+occurrences, so mutating one of them sailed through. It now extracts every
+occurrence and compares each. The selftest mutates all three separately, because
+a control that only breaks the first would not have caught this either.
+
+**A figure in a document is unchecked code.** `docs/architecture.md` claimed 41
+packages when there were 37, having drifted within one working session. Numbers
+in prose are believed for exactly as long as nobody measures them, which is the
+same failure mode as a lint exclusion anchored to a path that moved — no error,
+it just silently stops being true.
+
 **Coverage needs `tools/coverage/mergeprofile.go`.** With `-coverpkg` over a
 multi-package build, every test binary writes a full profile and `go test
 -coverprofile` concatenates them, so one source block appears once per binary —
