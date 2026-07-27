@@ -8415,3 +8415,40 @@ US-026 - Store layer. DONE. Both named collapses complete.
     - a nil used map is accepted rather than panicking. Control fails 1.
 
   Six controls, six failures.
+
+--- HAR form bodies: harFormFields 37.5% -> 95.8% ---
+
+  It reads a recorded form submission back into a request, and RECORDERS
+  DISAGREE about how they record one: some populate `params`, some only the raw
+  `text`, some both. Reading only one loses the body for every recorder that
+  used the other.
+
+  11 tests, including an end-to-end HAR import. The fallback half was the
+  untested one, and removing it fails 6 — the widest control in the Go sweep.
+
+  Pinned:
+    - PARSED PARAMS ARE PREFERRED, because they are already split and so cannot
+      be mis-split by a value containing an ampersand. Control fails 1.
+    - percent-encoding is undone on BOTH SIDES in BOTH PATHS. A name left
+      encoded does not match the field the server expects; a value left encoded
+      is sent double-escaped once the request is re-encoded on the way out.
+      Control fails 1.
+    - AN UNDECODABLE VALUE IS KEPT AS WRITTEN, not dropped. A stray "%" in
+      recorded data is ordinary, and losing the field silently changes what the
+      request sends. Two controls, one per path, fail 1 each.
+    - nameless fields are skipped in both paths — they cannot be sent as
+      anything, and an empty name renders as a blank row to notice and delete.
+    - a pair with no "=" is a name with an EMPTY VALUE, which is what a recorded
+      checkbox looks like.
+    - every imported field arrives ENABLED; one imported switched off is one the
+      user must find and tick before the request behaves as recorded. Fails 1.
+
+  Eight controls, eight failures.
+
+  A SELF-INFLICTED BREAK, caught by running the gates rather than the package.
+  I removed a `var _ = types.KeyValue{}` line left over from drafting, which
+  left the types import unused — `go test ./internal/importers/` still passed
+  because I ran it before the edit, but `go vet ./...` and golangci-lint both
+  failed and the package count dropped 27 -> 26. Fixed by removing the import.
+  The lesson is the same one as the .ts extension earlier: run the WHOLE gate,
+  not the piece you just touched.
