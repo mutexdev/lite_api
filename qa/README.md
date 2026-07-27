@@ -15,6 +15,7 @@ Every one of these was written after finding the gap it now guards.
 | `test-presence.sh` | a package lost its tests, or gained them without leaving the exemption list | ~45s | yes |
 | `lint-exclusions.sh` | a `.golangci.yml` exclusion has stopped suppressing anything | ~5s | yes |
 | `skip-audit.sh` | a test skips that did not before, or a baseline entry no longer skips | ~50s | yes |
+| `layout.sh` | the repository root gains a Go file, or bound methods appear outside `internal/core` | <1s | yes |
 | `mutation.sh` | a catalogued break stops failing the tests | ~170s | no |
 | `coverage.sh` | nothing — it reports two figures | ~90s | no |
 | `selftest.sh` | one of the gates above can no longer fail | ~60s | no |
@@ -89,6 +90,17 @@ landed, compiled, and nothing failed.
 Run `qa/mutation.sh --list` to see the catalogue, `--only <text>` for one entry.
 Add an entry whenever a test is written for something that would be expensive
 to get wrong.
+
+**`layout.sh`** — the repository root holds exactly `main.go`, and the bound
+struct lives in exactly one package. Both are the outcome of a restructure that
+moved ~70,000 lines, and neither is enforced by anything the compiler does: a
+new file in the root builds perfectly well, and so does a second bound struct.
+The layout would drift back one file at a time with every other gate green.
+
+It also checks that `main.go` still declares the `//go:embed` that pins it
+there, and that no two `internal/` packages share a short name — Wails resolves
+bound types by short name, so duplicates collide silently in the generated
+TypeScript. `docs/architecture.md` has the reasoning.
 
 **`selftest.sh`** — breaks each gate's premise on purpose and requires the gate
 to notice. A gate that has lost its ability to fail is a green tick that means

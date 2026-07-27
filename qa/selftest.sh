@@ -124,6 +124,15 @@ echo "TestThatDoesNotActuallySkip" >> qa/baseline/skipped-tests.txt
 expect_failure "skip-audit.sh: a baseline entry that no longer skips" ./qa/skip-audit.sh
 restore; RESTORE=(); STASH=$(mktemp -d)
 
+# --- qa/layout.sh ---------------------------------------------------------
+# The root holding one Go file is the outcome of a large restructure and is
+# enforced by nothing the compiler does — a stray file there builds fine.
+stash main.go
+printf 'package main\n\nfunc selftestStray() {}\n' > selftest_stray.go
+expect_failure "layout.sh: a stray .go file in the repository root" ./qa/layout.sh
+rm -f selftest_stray.go
+restore; RESTORE=(); STASH=$(mktemp -d)
+
 echo ""
 if [ "$failed" -ne 0 ]; then
   echo "$failed gate(s) did not fail when they should have. A gate that cannot" >&2
