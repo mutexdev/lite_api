@@ -8491,3 +8491,37 @@ US-026 - Store layer. DONE. Both named collapses complete.
   filepath.ToSlash rather than this function.
 
   Seven controls: six failures, one correctly unobservable on this platform.
+
+--- importedEnvironmentVariableValue: 40% -> 100%, and its agreement with the YAML twin ---
+
+  This is the IMPORT twin of parseYAMLTypedValue, which I tested earlier in this
+  sweep. Both turn a stored environment value into the Go value interpolated
+  into a request body; both decide whether 42 arrives as a NUMBER or as "42".
+
+  10 tests. Internal total 83.9% -> 84.0%.
+
+  THE TEST THAT MATTERS MOST IS THE AGREEMENT ONE. The JSON and YAML readers
+  must classify the same logical value the same way, or the FORMAT AN
+  ENVIRONMENT HAPPENS TO BE STORED IN CHANGES WHAT THE REQUEST SENDS — one
+  sending {"count":42} and the other {"count":"42"}, with nothing in the UI to
+  explain it. Six cases walked across both readers.
+
+  Compared by KIND rather than exact Go type, deliberately: the JSON path yields
+  int64 (json.Number.Int64) and the YAML path int (strconv.Atoi). That is a
+  difference in width, not in meaning — both interpolate as 42 — and asserting
+  exact types would have failed on a distinction that does not matter.
+
+  Also pinned:
+    - nil becomes "" — a nil would interpolate as "<nil>". Control fails 1.
+    - a JSON number under a NON-number type becomes its TEXT, not dropped. The
+      Postman import path passes "string" for every variable, so that is the
+      branch it always takes. Control fails 1.
+    - integers stay integers and floats stay floats, as in the YAML twin.
+      Controls fail 1 and 1.
+    - an unparseable value is kept AS TEXT, not zeroed: a half-typed number in
+      an imported file is something the user can see and fix, a silently zeroed
+      one is not. Control fails 2.
+    - an already-typed JSON bool or float passes through rather than being
+      re-stringified into the text "true". Control fails 1.
+
+  Eight controls, eight failures.
