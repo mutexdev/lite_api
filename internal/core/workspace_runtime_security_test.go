@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"errors"
+	"github.com/mutexdev/lite_api/internal/workspacestate"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -12,21 +13,21 @@ import (
 func TestProductionRejectsSymlinkMutableArtifact(t *testing.T) {
 	dir := t.TempDir()
 	legacy := AppState{Workspaces: []Workspace{{ID: "a", Name: "A", Path: filepath.Join(dir, "a")}}, ActiveWorkspaceID: "a"}
-	if err := ExecuteWorkspaceMigration(dir, legacy, "main-window"); err != nil {
+	if err := workspacestate.ExecuteWorkspaceMigration(dir, legacy, "main-window"); err != nil {
 		t.Fatal(err)
 	}
 	external := filepath.Join(dir, "external-shared.json")
-	data, err := os.ReadFile(sharedAppStatePath(dir))
+	data, err := os.ReadFile(workspacestate.SharedAppStatePath(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(external, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(sharedAppStatePath(dir)); err != nil {
+	if err := os.Remove(workspacestate.SharedAppStatePath(dir)); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(external, sharedAppStatePath(dir)); err != nil {
+	if err := os.Symlink(external, workspacestate.SharedAppStatePath(dir)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := newProductionAppForTest(t, dir, nil); err == nil {
@@ -37,7 +38,7 @@ func TestProductionRejectsSymlinkMutableArtifact(t *testing.T) {
 func TestOAuthCorruptionPropagatesWithoutOverwritingEvidence(t *testing.T) {
 	dir := t.TempDir()
 	legacy := AppState{Workspaces: []Workspace{{ID: "a", Name: "A", Path: filepath.Join(dir, "a")}}, ActiveWorkspaceID: "a"}
-	if err := ExecuteWorkspaceMigration(dir, legacy, "main-window"); err != nil {
+	if err := workspacestate.ExecuteWorkspaceMigration(dir, legacy, "main-window"); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "oauth2.json")

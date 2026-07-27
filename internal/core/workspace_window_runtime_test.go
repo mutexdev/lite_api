@@ -21,7 +21,7 @@ func TestWorkspaceWindowRuntimeLaunchesStrictChildAndHydratesOnlySelectedWorkspa
 	if err := parent.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
-	if err := ExecuteWorkspaceMigration(dir, parent.state, "main-window"); err != nil {
+	if err := workspacestate.ExecuteWorkspaceMigration(dir, parent.state, "main-window"); err != nil {
 		t.Fatal(err)
 	}
 	var executable string
@@ -59,7 +59,7 @@ func TestWorkspaceWindowLaunchPreflightAndSpawnCleanup(t *testing.T) {
 	if err := app.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
-	if err := ExecuteWorkspaceMigration(dir, app.state, "main-window"); err != nil {
+	if err := workspacestate.ExecuteWorkspaceMigration(dir, app.state, "main-window"); err != nil {
 		t.Fatal(err)
 	}
 	ws := app.state.Workspaces[0]
@@ -95,7 +95,7 @@ func TestProductionMarkerLaunchRejectsStaleLegacyAndCorruptMarker(t *testing.T) 
 		t.Fatal(err)
 	}
 	legacy.state.Workspaces[0].Name = "scoped truth"
-	if err := ExecuteWorkspaceMigration(dir, legacy.state, "main-window"); err != nil {
+	if err := workspacestate.ExecuteWorkspaceMigration(dir, legacy.state, "main-window"); err != nil {
 		t.Fatal(err)
 	}
 	stale := defaultState(dir)
@@ -115,7 +115,7 @@ func TestProductionMarkerLaunchRejectsStaleLegacyAndCorruptMarker(t *testing.T) 
 	// persistWorkspaceRuntimeLocked needs, so pending state must land first.
 	flushPersistForTest(t, app)
 	app.workspaceRuntime.release()
-	if err := os.WriteFile(workspaceMigrationMarkerPath(dir), []byte("{"), 0o600); err != nil {
+	if err := os.WriteFile(workspacestate.MigrationMarkerPath(dir), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := newProductionAppForTest(t, dir, nil); err == nil {
@@ -129,7 +129,7 @@ func TestProductionRelaunchAcceptsMutableArtifactsButRejectsCorruption(t *testin
 	if err := legacy.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
-	if err := ExecuteWorkspaceMigration(dir, legacy.state, "main-window"); err != nil {
+	if err := workspacestate.ExecuteWorkspaceMigration(dir, legacy.state, "main-window"); err != nil {
 		t.Fatal(err)
 	}
 	app, err := newProductionAppForTest(t, dir, nil)
@@ -158,7 +158,7 @@ func TestProductionRelaunchAcceptsMutableArtifactsButRejectsCorruption(t *testin
 	// persistWorkspaceRuntimeLocked needs, so pending state must land first.
 	flushPersistForTest(t, reloaded)
 	reloaded.workspaceRuntime.release()
-	if err := os.WriteFile(sharedAppStatePath(dir), []byte("{"), 0o600); err != nil {
+	if err := os.WriteFile(workspacestate.SharedAppStatePath(dir), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := newProductionAppForTest(t, dir, nil); err == nil {
@@ -236,14 +236,14 @@ func TestScopedRuntimePersistenceKeepsOtherWorkspaceAndLegacyUntouched(t *testin
 	if err := os.WriteFile(legacyPath, legacyBytes, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := ExecuteWorkspaceMigration(dir, legacy, "main-window"); err != nil {
+	if err := workspacestate.ExecuteWorkspaceMigration(dir, legacy, "main-window"); err != nil {
 		t.Fatal(err)
 	}
 	beforeB, err := os.ReadFile(workspacestate.WorkspaceScopedStatePath(dir, "b"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyHash := fileChecksum(legacyBytes)
+	legacyHash := workspacestate.FileChecksum(legacyBytes)
 	locks := workspacestate.NewWindowLockStore(dir)
 	owner, err := locks.Acquire("/workspace/a", "a-session", os.Getpid())
 	if err != nil {
@@ -260,17 +260,17 @@ func TestScopedRuntimePersistenceKeepsOtherWorkspaceAndLegacyUntouched(t *testin
 	flushPersistForTest(t, app)
 	app.workspaceRuntime.release()
 	afterB, err := os.ReadFile(workspacestate.WorkspaceScopedStatePath(dir, "b"))
-	if err != nil || fileChecksum(beforeB) != fileChecksum(afterB) {
+	if err != nil || workspacestate.FileChecksum(beforeB) != workspacestate.FileChecksum(afterB) {
 		t.Fatalf("A persistence changed B: err=%v", err)
 	}
-	if data, err := os.ReadFile(legacyPath); err != nil || fileChecksum(data) != legacyHash {
+	if data, err := os.ReadFile(legacyPath); err != nil || workspacestate.FileChecksum(data) != legacyHash {
 		t.Fatalf("A persistence changed legacy: err=%v", err)
 	}
-	a, err := ReadWorkspaceScopedState(dir, "a")
+	a, err := workspacestate.ReadWorkspaceScopedState(dir, "a")
 	if err != nil || a.Workspace.Name != "A changed" {
 		t.Fatalf("A did not reload: %+v err=%v", a, err)
 	}
-	b, err := ReadWorkspaceScopedState(dir, "b")
+	b, err := workspacestate.ReadWorkspaceScopedState(dir, "b")
 	if err != nil || b.Workspace.Name != "B" {
 		t.Fatalf("B did not reload: %+v err=%v", b, err)
 	}
@@ -279,7 +279,7 @@ func TestScopedRuntimePersistenceKeepsOtherWorkspaceAndLegacyUntouched(t *testin
 func TestReplacedWorkspaceOwnerCannotHeartbeatPersistOrReleaseReplacement(t *testing.T) {
 	dir := t.TempDir()
 	legacy := AppState{Workspaces: []Workspace{{ID: "a", Name: "A", Path: "/workspace/a"}}, ActiveWorkspaceID: "a"}
-	if err := ExecuteWorkspaceMigration(dir, legacy, "main-window"); err != nil {
+	if err := workspacestate.ExecuteWorkspaceMigration(dir, legacy, "main-window"); err != nil {
 		t.Fatal(err)
 	}
 	alive := map[int]bool{1: true, 2: true}
@@ -318,7 +318,7 @@ func TestWorkspaceSessionReuseRestoresWorkspaceStateAndMainSession(t *testing.T)
 		{ID: "a", Name: "A", Path: filepath.Join(dir, "a"), Collections: []Collection{{ID: "ca", Name: "CA", NotFoundLocally: true}}},
 		{ID: "b", Name: "B", Path: filepath.Join(dir, "b"), Collections: []Collection{{ID: "cb", Name: "CB", NotFoundLocally: true}}},
 	}, ActiveWorkspaceID: "a"}
-	if err := ExecuteWorkspaceMigration(dir, legacy, "main-window"); err != nil {
+	if err := workspacestate.ExecuteWorkspaceMigration(dir, legacy, "main-window"); err != nil {
 		t.Fatal(err)
 	}
 	a, err := newProductionAppForTest(t, dir, nil)
@@ -338,7 +338,7 @@ func TestWorkspaceSessionReuseRestoresWorkspaceStateAndMainSession(t *testing.T)
 	if _, err := a.OpenWorkspaceInNewWindow("b"); err != nil {
 		t.Fatal(err)
 	}
-	bSession, err := workspacestate.ReadWindowSession(defaultWorkspaceSessionPath(dir, firstArgs[1]))
+	bSession, err := workspacestate.ReadWindowSession(workspacestate.DefaultSessionPath(dir, firstArgs[1]))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +347,7 @@ func TestWorkspaceSessionReuseRestoresWorkspaceStateAndMainSession(t *testing.T)
 	bSession.ResponsePaneOrientation = "vertical"
 	bSession.Geometry = workspacestate.WindowGeometry{X: 44, Y: 55, Width: 900, Height: 700}
 	bSession.UpdatedAt = time.Now().UTC().Add(time.Minute)
-	if err := writeWorkspaceMigrationSession(dir, bSession); err != nil {
+	if err := workspacestate.WriteWorkspaceMigrationSession(dir, bSession); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := a.OpenWorkspaceInNewWindow("b"); err != nil {
@@ -386,10 +386,10 @@ func TestWorkspaceSessionReuseRestoresWorkspaceStateAndMainSession(t *testing.T)
 func TestWorkspaceSessionIdentityFilteringAndOrientationRestore(t *testing.T) {
 	dir := t.TempDir()
 	legacy := AppState{Workspaces: []Workspace{{ID: "a", Name: "A", Path: filepath.Join(dir, "a"), Collections: []Collection{{ID: "allowed", NotFoundLocally: true}}}}, ActiveWorkspaceID: "a"}
-	if err := ExecuteWorkspaceMigration(dir, legacy, "main-window"); err != nil {
+	if err := workspacestate.ExecuteWorkspaceMigration(dir, legacy, "main-window"); err != nil {
 		t.Fatal(err)
 	}
-	session, err := workspacestate.ReadWindowSession(defaultWorkspaceSessionPath(dir, "main-window"))
+	session, err := workspacestate.ReadWindowSession(workspacestate.DefaultSessionPath(dir, "main-window"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +397,7 @@ func TestWorkspaceSessionIdentityFilteringAndOrientationRestore(t *testing.T) {
 	session.ClosedTabs = []OpenTab{{ID: "foreign-closed", CollectionID: "other"}}
 	session.ActiveTabID = "foreign"
 	session.ResponsePaneOrientation = "vertical"
-	if err := writeWorkspaceMigrationSession(dir, session); err != nil {
+	if err := workspacestate.WriteWorkspaceMigrationSession(dir, session); err != nil {
 		t.Fatal(err)
 	}
 	app, err := newProductionAppForTest(t, dir, nil)
@@ -413,7 +413,7 @@ func TestWorkspaceSessionIdentityFilteringAndOrientationRestore(t *testing.T) {
 	app.workspaceRuntime.release()
 	session.WorkspaceID = ""
 	session.WorkspacePath = filepath.Join(dir, "wrong")
-	if err := writeWorkspaceMigrationSession(dir, session); err != nil {
+	if err := workspacestate.WriteWorkspaceMigrationSession(dir, session); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := newProductionAppForTest(t, dir, nil); err == nil {
@@ -425,13 +425,13 @@ func TestReusableWorkspaceSessionDoesNotPathMatchDifferentID(t *testing.T) {
 	dir := t.TempDir()
 	workspace := workspacestate.WorkspaceRegistryEntry{ID: "target", Path: filepath.Join(dir, "workspace")}
 	session := workspacestate.WindowSession{Version: 1, ID: "wrong-id", WorkspaceID: "different", WorkspacePath: "", UpdatedAt: time.Now().UTC()}
-	if err := writeWorkspaceMigrationSession(dir, session); err != nil {
+	if err := workspacestate.WriteWorkspaceMigrationSession(dir, session); err != nil {
 		t.Fatal(err)
 	}
 	// A valid session cannot carry both identities. Write a path-selected
 	// session separately to prove that path reuse remains supported.
 	pathSession := workspacestate.WindowSession{Version: 1, ID: "path-id", WorkspacePath: workspace.Path, UpdatedAt: time.Now().UTC().Add(-time.Minute)}
-	if err := writeWorkspaceMigrationSession(dir, pathSession); err != nil {
+	if err := workspacestate.WriteWorkspaceMigrationSession(dir, pathSession); err != nil {
 		t.Fatal(err)
 	}
 	got, reused, err := findReusableWorkspaceSession(dir, workspace)
@@ -471,7 +471,7 @@ func TestWorkspaceGeometryRestoreClampsToVisibleScreen(t *testing.T) {
 func TestWorkspaceGeometryCaptureKeepsOnlyValidDimensions(t *testing.T) {
 	dir := t.TempDir()
 	session := workspacestate.WindowSession{Version: 1, ID: "capture", WorkspaceID: "a", Geometry: workspacestate.WindowGeometry{X: 1, Y: 2, Width: 800, Height: 600}}
-	if err := writeWorkspaceMigrationSession(dir, session); err != nil {
+	if err := workspacestate.WriteWorkspaceMigrationSession(dir, session); err != nil {
 		t.Fatal(err)
 	}
 	originalPosition, originalSize := workspaceWindowGetPosition, workspaceWindowGetSize
@@ -496,11 +496,11 @@ func TestWindowOrientationRemainsSessionPrivateAcrossRuntimes(t *testing.T) {
 		{ID: "a", Name: "A", Path: filepath.Join(dir, "a")},
 		{ID: "b", Name: "B", Path: filepath.Join(dir, "b")},
 	}, ActiveWorkspaceID: "a"}
-	if err := ExecuteWorkspaceMigration(dir, legacy, "a-session"); err != nil {
+	if err := workspacestate.ExecuteWorkspaceMigration(dir, legacy, "a-session"); err != nil {
 		t.Fatal(err)
 	}
 	bSession := workspacestate.WindowSession{Version: 1, ID: "b-session", WorkspaceID: "b", ResponsePaneOrientation: "vertical", UpdatedAt: time.Now().UTC()}
-	if err := writeWorkspaceMigrationSession(dir, bSession); err != nil {
+	if err := workspacestate.WriteWorkspaceMigrationSession(dir, bSession); err != nil {
 		t.Fatal(err)
 	}
 	a := newAppBase(dir)
@@ -522,15 +522,15 @@ func TestWindowOrientationRemainsSessionPrivateAcrossRuntimes(t *testing.T) {
 	if err := a.persistWorkspaceRuntimeLocked(); err != nil {
 		t.Fatal(err)
 	}
-	shared, err := ReadSharedAppState(dir)
+	shared, err := workspacestate.ReadSharedAppState(dir)
 	if err != nil || shared.Preferences.Layout.ResponsePaneOrientation != "horizontal" {
 		t.Fatalf("session orientation leaked to shared state: %+v err=%v", shared.Preferences.Layout, err)
 	}
-	aStored, err := workspacestate.ReadWindowSession(defaultWorkspaceSessionPath(dir, "a-session"))
+	aStored, err := workspacestate.ReadWindowSession(workspacestate.DefaultSessionPath(dir, "a-session"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	bStored, err := workspacestate.ReadWindowSession(defaultWorkspaceSessionPath(dir, "b-session"))
+	bStored, err := workspacestate.ReadWindowSession(workspacestate.DefaultSessionPath(dir, "b-session"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -542,7 +542,7 @@ func TestWindowOrientationRemainsSessionPrivateAcrossRuntimes(t *testing.T) {
 func TestScopedCreateWorkspaceDoesNotSwitchAndCanLaunchNewTarget(t *testing.T) {
 	dir := t.TempDir()
 	legacy := AppState{Workspaces: []Workspace{{ID: "a", Name: "A", Path: filepath.Join(dir, "a")}}, ActiveWorkspaceID: "a"}
-	if err := ExecuteWorkspaceMigration(dir, legacy, "main-window"); err != nil {
+	if err := workspacestate.ExecuteWorkspaceMigration(dir, legacy, "main-window"); err != nil {
 		t.Fatal(err)
 	}
 	app, err := newProductionAppForTest(t, dir, nil)
@@ -585,8 +585,8 @@ func TestScopedCreateWorkspaceDoesNotSwitchAndCanLaunchNewTarget(t *testing.T) {
 	if data, err := os.ReadFile(sentinel); err != nil || string(data) != "keep" {
 		t.Fatalf("preexisting workspace data changed: %q err=%v", data, err)
 	}
-	originalWrite := workspacePersistenceWriteAtomic
-	workspacePersistenceWriteAtomic = func(path string, data []byte) error {
+	originalWrite := workspacestate.PersistenceWriteAtomic
+	workspacestate.PersistenceWriteAtomic = func(path string, data []byte) error {
 		if path == workspacestate.WorkspaceRegistryPath(dir) {
 			return errors.New("injected registry failure")
 		}
@@ -595,7 +595,7 @@ func TestScopedCreateWorkspaceDoesNotSwitchAndCanLaunchNewTarget(t *testing.T) {
 	if _, err := app.CreateWorkspace("Rolled Back"); err == nil {
 		t.Fatal("injected registry failure was ignored")
 	}
-	workspacePersistenceWriteAtomic = originalWrite
+	workspacestate.PersistenceWriteAtomic = originalWrite
 	if _, err := os.Lstat(filepath.Join(dir, "Rolled Back")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("newly-created workspace directory was not rolled back: %v", err)
 	}
@@ -612,7 +612,7 @@ func TestReplacedOwnerCannotMutateRequestBeforeSideEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := AppState{Workspaces: []Workspace{{ID: "a", Name: "A", Path: filepath.Join(dir, "a"), Collections: []Collection{{ID: "c", Name: "C", Path: collectionPath, Items: []RequestItem{{ID: "r", Name: "R", FilePath: sentinel}}}}}}, ActiveWorkspaceID: "a"}
-	if err := ExecuteWorkspaceMigration(dir, state, "main-window"); err != nil {
+	if err := workspacestate.ExecuteWorkspaceMigration(dir, state, "main-window"); err != nil {
 		t.Fatal(err)
 	}
 	locks := workspacestate.NewWindowLockStore(dir)

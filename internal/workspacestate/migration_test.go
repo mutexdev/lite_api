@@ -1,8 +1,9 @@
-package core
+package workspacestate
 
 import (
 	"encoding/json"
 	"errors"
+	"github.com/mutexdev/lite_api/internal/types"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/mutexdev/lite_api/internal/atomicfile"
-	"github.com/mutexdev/lite_api/internal/workspacestate"
 )
 
 const migrationSecretSentinel = "migration-environment-secret-sentinel"
@@ -24,19 +24,19 @@ func TestExecuteWorkspaceMigrationWritesVerifiedPrivateIdempotentArtifacts(t *te
 	if err := os.WriteFile(legacyPath, legacyBytes, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	legacyHash := fileChecksum(legacyBytes)
+	legacyHash := FileChecksum(legacyBytes)
 
 	if err := ExecuteWorkspaceMigration(dir, legacy, "default-session"); err != nil {
 		t.Fatal(err)
 	}
-	marker, err := readWorkspaceMigrationMarker(dir)
+	marker, err := ReadMigrationMarker(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !marker.Complete || len(marker.ArtifactChecksums) != 5 {
 		t.Fatalf("unexpected marker: %+v", marker)
 	}
-	if data, err := os.ReadFile(legacyPath); err != nil || fileChecksum(data) != legacyHash {
+	if data, err := os.ReadFile(legacyPath); err != nil || FileChecksum(data) != legacyHash {
 		t.Fatalf("legacy state changed: %q err=%v", data, err)
 	}
 
@@ -44,7 +44,7 @@ func TestExecuteWorkspaceMigrationWritesVerifiedPrivateIdempotentArtifacts(t *te
 	for relativePath := range marker.ArtifactChecksums {
 		artifactPaths = append(artifactPaths, filepath.Join(dir, filepath.FromSlash(relativePath)))
 	}
-	artifactPaths = append(artifactPaths, workspaceMigrationMarkerPath(dir))
+	artifactPaths = append(artifactPaths, MigrationMarkerPath(dir))
 	for _, path := range artifactPaths {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -59,21 +59,21 @@ func TestExecuteWorkspaceMigrationWritesVerifiedPrivateIdempotentArtifacts(t *te
 		}
 	}
 	assertWorkspaceReferenceSchema(t, dir, "a")
-	for _, path := range []string{workspaceMigrationMarkerPath(dir), defaultWorkspaceSessionPath(dir, "default-session")} {
+	for _, path := range []string{MigrationMarkerPath(dir), DefaultSessionPath(dir, "default-session")} {
 		info, err := os.Stat(path)
 		if err != nil || info.Mode().Perm() != 0o600 {
 			t.Fatalf("private file permissions %s: info=%+v err=%v", path, info, err)
 		}
 	}
 
-	firstMarker, err := os.ReadFile(workspaceMigrationMarkerPath(dir))
+	firstMarker, err := os.ReadFile(MigrationMarkerPath(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := ExecuteWorkspaceMigration(dir, legacy, "default-session"); err != nil {
 		t.Fatal(err)
 	}
-	secondMarker, err := os.ReadFile(workspaceMigrationMarkerPath(dir))
+	secondMarker, err := os.ReadFile(MigrationMarkerPath(dir))
 	if err != nil || string(firstMarker) != string(secondMarker) {
 		t.Fatalf("idempotent migration rewrote marker: err=%v", err)
 	}
@@ -99,7 +99,7 @@ func TestExecuteWorkspaceMigrationWritesVerifiedPrivateIdempotentArtifacts(t *te
 
 func assertWorkspaceReferenceSchema(t *testing.T, dir, workspaceID string) {
 	t.Helper()
-	data, err := os.ReadFile(workspacestate.WorkspaceScopedStatePath(dir, workspaceID))
+	data, err := os.ReadFile(WorkspaceScopedStatePath(dir, workspaceID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,9 +135,9 @@ func TestExecuteWorkspaceMigrationFailureLeavesNoCompleteMarkerAndRetryRepairs(t
 	if err := os.WriteFile(legacyPath, legacyBytes, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	oldWrite := workspacePersistenceWriteAtomic
+	oldWrite := PersistenceWriteAtomic
 	writes := 0
-	workspacePersistenceWriteAtomic = func(path string, data []byte) error {
+	PersistenceWriteAtomic = func(path string, data []byte) error {
 		writes++
 		if writes == 3 {
 			return errors.New("injected write failure")
@@ -145,32 +145,32 @@ func TestExecuteWorkspaceMigrationFailureLeavesNoCompleteMarkerAndRetryRepairs(t
 		return atomicfile.WritePrivate(path, data)
 	}
 	err := ExecuteWorkspaceMigration(dir, legacy, "retry-session")
-	workspacePersistenceWriteAtomic = oldWrite
+	PersistenceWriteAtomic = oldWrite
 	if err == nil {
 		t.Fatal("expected injected write failure")
 	}
-	if _, err := os.Stat(workspaceMigrationMarkerPath(dir)); !os.IsNotExist(err) {
+	if _, err := os.Stat(MigrationMarkerPath(dir)); !os.IsNotExist(err) {
 		t.Fatalf("complete marker survived failed migration: %v", err)
 	}
-	if data, err := os.ReadFile(legacyPath); err != nil || fileChecksum(data) != fileChecksum(legacyBytes) {
+	if data, err := os.ReadFile(legacyPath); err != nil || FileChecksum(data) != FileChecksum(legacyBytes) {
 		t.Fatalf("legacy changed after failed migration: %q err=%v", data, err)
 	}
 	if err := ExecuteWorkspaceMigration(dir, legacy, "retry-session"); err != nil {
 		t.Fatalf("retry did not repair partial output: %v", err)
 	}
-	if _, err := readWorkspaceMigrationMarker(dir); err != nil {
+	if _, err := ReadMigrationMarker(dir); err != nil {
 		t.Fatal(err)
 	}
 
 	oldVerify := workspaceMigrationVerifyOutputs
 	workspaceMigrationVerifyOutputs = func(string, WorkspaceMigrationMarker) error { return errors.New("injected verification failure") }
-	_ = os.Remove(workspaceMigrationMarkerPath(dir))
+	_ = os.Remove(MigrationMarkerPath(dir))
 	err = ExecuteWorkspaceMigration(dir, legacy, "verify-session")
 	workspaceMigrationVerifyOutputs = oldVerify
 	if err == nil {
 		t.Fatal("expected injected verification failure")
 	}
-	if _, err := os.Stat(workspaceMigrationMarkerPath(dir)); !os.IsNotExist(err) {
+	if _, err := os.Stat(MigrationMarkerPath(dir)); !os.IsNotExist(err) {
 		t.Fatalf("marker written despite verification failure: %v", err)
 	}
 }
@@ -181,7 +181,7 @@ func TestExecuteWorkspaceMigrationRejectsCorruptCommittedState(t *testing.T) {
 	if err := ExecuteWorkspaceMigration(dir, legacy, "repair-session"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(workspaceMigrationMarkerPath(dir), []byte("{"), 0o600); err != nil {
+	if err := os.WriteFile(MigrationMarkerPath(dir), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := ExecuteWorkspaceMigration(dir, legacy, "repair-session"); err == nil {
@@ -195,7 +195,7 @@ func TestExecuteWorkspaceMigrationRejectsCorruptCommittedState(t *testing.T) {
 	if err := ExecuteWorkspaceMigration(dir, legacy, "repair-session"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(workspacestate.WorkspaceScopedStatePath(dir, "a"), []byte("{"), 0o600); err != nil {
+	if err := os.WriteFile(WorkspaceScopedStatePath(dir, "a"), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := ExecuteWorkspaceMigration(dir, legacy, "repair-session"); err == nil {
@@ -211,9 +211,9 @@ func TestExecuteWorkspaceMigrationConcurrentRunsLeaveVerifiedMarker(t *testing.T
 	a, b := migrationLegacyState(), migrationLegacyState()
 	b.Workspaces[0].Name = "B"
 	var wg sync.WaitGroup
-	for _, state := range []AppState{a, b} {
+	for _, state := range []types.AppState{a, b} {
 		wg.Add(1)
-		go func(state AppState) {
+		go func(state types.AppState) {
 			defer wg.Done()
 			if err := ExecuteWorkspaceMigration(dir, state, "main-window"); err != nil {
 				t.Errorf("migration: %v", err)
@@ -221,13 +221,13 @@ func TestExecuteWorkspaceMigrationConcurrentRunsLeaveVerifiedMarker(t *testing.T
 		}(state)
 	}
 	wg.Wait()
-	marker, err := readWorkspaceMigrationMarker(dir)
+	marker, err := ReadMigrationMarker(dir)
 	if err != nil || workspaceMigrationVerifyOutputs(dir, marker) != nil {
 		t.Fatalf("marker/output mismatch: marker=%+v err=%v", marker, err)
 	}
 	checksumA, _ := workspaceMigrationLegacyChecksum(a, dir)
 	checksumB, _ := workspaceMigrationLegacyChecksum(b, dir)
-	registry, readErr := workspacestate.ReadWorkspaceRegistry(dir)
+	registry, readErr := ReadWorkspaceRegistry(dir)
 	if readErr != nil || len(registry.Workspaces) == 0 {
 		t.Fatalf("registry=%+v err=%v", registry, readErr)
 	}
@@ -242,18 +242,18 @@ func TestExecuteWorkspaceMigrationConcurrentRunsLeaveVerifiedMarker(t *testing.T
 	}
 }
 
-func migrationLegacyState() AppState {
-	return AppState{
-		Workspaces: []Workspace{
-			{ID: "a", Name: "A", Path: "/a", GlobalEnvironments: []Environment{{ID: "global", Variables: []Variable{{ID: "secret", Value: migrationSecretSentinel, Secret: true}, {ID: "public", Value: "region-us"}}}}, Collections: []Collection{{ID: "ca", Name: "Collection A", Path: "/a/collection-a", Format: "yml", Environments: []Environment{{ID: "collection", Variables: []Variable{{ID: "secret", Value: migrationSecretSentinel, Secret: true}, {ID: "public", Value: "region-us"}}}}, Items: []RequestItem{{ID: "request", Name: "private request", Headers: []KeyValue{{Name: "Authorization", Value: migrationSecretSentinel}}, Body: RequestBody{JSON: migrationSecretSentinel}, Auth: AuthConfig{Token: migrationSecretSentinel}}}, ClientCertificates: []ClientCertificateConfig{{Passphrase: migrationSecretSentinel}}, Auth: AuthConfig{APIKey: migrationSecretSentinel}}}},
+func migrationLegacyState() types.AppState {
+	return types.AppState{
+		Workspaces: []types.Workspace{
+			{ID: "a", Name: "A", Path: "/a", GlobalEnvironments: []types.Environment{{ID: "global", Variables: []types.Variable{{ID: "secret", Value: migrationSecretSentinel, Secret: true}, {ID: "public", Value: "region-us"}}}}, Collections: []types.Collection{{ID: "ca", Name: "Collection A", Path: "/a/collection-a", Format: "yml", Environments: []types.Environment{{ID: "collection", Variables: []types.Variable{{ID: "secret", Value: migrationSecretSentinel, Secret: true}, {ID: "public", Value: "region-us"}}}}, Items: []types.RequestItem{{ID: "request", Name: "private request", Headers: []types.KeyValue{{Name: "Authorization", Value: migrationSecretSentinel}}, Body: types.RequestBody{JSON: migrationSecretSentinel}, Auth: types.AuthConfig{Token: migrationSecretSentinel}}}, ClientCertificates: []types.ClientCertificateConfig{{Passphrase: migrationSecretSentinel}}, Auth: types.AuthConfig{APIKey: migrationSecretSentinel}}}},
 			{ID: "empty", Name: "Empty", Path: "/empty"},
 		},
 		ActiveWorkspaceID:  "a",
-		OpenTabs:           []OpenTab{{ID: "a-tab", CollectionID: "ca"}},
-		ClosedTabs:         []OpenTab{{ID: "a-closed", CollectionID: "ca"}},
+		OpenTabs:           []types.OpenTab{{ID: "a-tab", CollectionID: "ca"}},
+		ClosedTabs:         []types.OpenTab{{ID: "a-closed", CollectionID: "ca"}},
 		ActiveTabID:        "a-tab",
-		Preferences:        Preferences{Layout: LayoutPreferences{ResponsePaneOrientation: "vertical"}, Proxy: ProxyPreferences{Config: ProxyConfig{Auth: ProxyAuthConfig{Password: migrationSecretSentinel}}}},
-		GlobalEnvironments: []Environment{{ID: "app-global", Variables: []Variable{{ID: "app-secret", Value: migrationSecretSentinel, Secret: true}, {ID: "app-public", Value: "region-us"}}}},
-		Cookies:            []CookieEntry{{ID: "cookie", Name: "session", Value: migrationCookieSentinel}},
+		Preferences:        types.Preferences{Layout: types.LayoutPreferences{ResponsePaneOrientation: "vertical"}, Proxy: types.ProxyPreferences{Config: types.ProxyConfig{Auth: types.ProxyAuthConfig{Password: migrationSecretSentinel}}}},
+		GlobalEnvironments: []types.Environment{{ID: "app-global", Variables: []types.Variable{{ID: "app-secret", Value: migrationSecretSentinel, Secret: true}, {ID: "app-public", Value: "region-us"}}}},
+		Cookies:            []types.CookieEntry{{ID: "cookie", Name: "session", Value: migrationCookieSentinel}},
 	}
 }

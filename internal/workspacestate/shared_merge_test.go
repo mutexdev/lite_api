@@ -1,7 +1,8 @@
-package core
+package workspacestate
 
 import (
 	"encoding/json"
+	"github.com/mutexdev/lite_api/internal/types"
 	"testing"
 )
 
@@ -19,17 +20,17 @@ func cloneSharedMergeTestState(t *testing.T, state SharedAppState) SharedAppStat
 }
 
 func TestWorkspaceSharedDeltaPreservesUnrelatedUpdatesAndDeletes(t *testing.T) {
-	base := SharedAppState{Version: 1, Preferences: Preferences{Theme: "system"}, Cookies: []CookieEntry{{ID: "remove", Value: "1"}}, Notifications: []Notification{{ID: "notice", Message: "old"}}, GlobalEnvironments: []Environment{{ID: "env", Name: "old"}}}
+	base := SharedAppState{Version: 1, Preferences: types.Preferences{Theme: "system"}, Cookies: []types.CookieEntry{{ID: "remove", Value: "1"}}, Notifications: []types.Notification{{ID: "notice", Message: "old"}}, GlobalEnvironments: []types.Environment{{ID: "env", Name: "old"}}}
 	current := base
 	current.Cookies = nil
-	current.Notifications = []Notification{{ID: "notice", Message: "mine"}}
-	current.GlobalEnvironments = []Environment{{ID: "env", Name: "mine"}}
+	current.Notifications = []types.Notification{{ID: "notice", Message: "mine"}}
+	current.GlobalEnvironments = []types.Environment{{ID: "env", Name: "mine"}}
 	disk := base
 	disk.Preferences.Theme = "dark"
-	disk.Cookies = []CookieEntry{{ID: "remove", Value: "1"}, {ID: "other", Value: "2"}}
-	disk.Notifications = []Notification{{ID: "notice", Message: "old"}, {ID: "other", Message: "keep"}}
-	disk.GlobalEnvironments = []Environment{{ID: "env", Name: "old"}, {ID: "other", Name: "keep"}}
-	merged, err := mergeWorkspaceSharedDelta(base, current, disk)
+	disk.Cookies = []types.CookieEntry{{ID: "remove", Value: "1"}, {ID: "other", Value: "2"}}
+	disk.Notifications = []types.Notification{{ID: "notice", Message: "old"}, {ID: "other", Message: "keep"}}
+	disk.GlobalEnvironments = []types.Environment{{ID: "env", Name: "old"}, {ID: "other", Name: "keep"}}
+	merged, err := MergeSharedDelta(base, current, disk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,19 +38,19 @@ func TestWorkspaceSharedDeltaPreservesUnrelatedUpdatesAndDeletes(t *testing.T) {
 		t.Fatalf("bad delta merge: %+v", merged)
 	}
 	current.Preferences.Theme = "light"
-	merged, err = mergeWorkspaceSharedDelta(base, current, disk)
+	merged, err = MergeSharedDelta(base, current, disk)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if merged.Preferences.Theme != "light" {
 		t.Fatal("local preference update lost")
 	}
-	base.GlobalEnvironments = []Environment{{ID: "one", Name: "one"}, {ID: "two", Name: "two"}}
+	base.GlobalEnvironments = []types.Environment{{ID: "one", Name: "one"}, {ID: "two", Name: "two"}}
 	current = base
-	current.GlobalEnvironments = []Environment{{ID: "one", Name: "one-local"}}
+	current.GlobalEnvironments = []types.Environment{{ID: "one", Name: "one-local"}}
 	disk = base
-	disk.GlobalEnvironments = []Environment{{ID: "one", Name: "one"}, {ID: "two", Name: "two-disk"}, {ID: "three", Name: "three-disk"}}
-	merged, err = mergeWorkspaceSharedDelta(base, current, disk)
+	disk.GlobalEnvironments = []types.Environment{{ID: "one", Name: "one"}, {ID: "two", Name: "two-disk"}, {ID: "three", Name: "three-disk"}}
+	merged, err = MergeSharedDelta(base, current, disk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,28 +59,15 @@ func TestWorkspaceSharedDeltaPreservesUnrelatedUpdatesAndDeletes(t *testing.T) {
 	}
 }
 
-func TestOAuth2DeltaKeepsOtherProcessChangesAndDeletes(t *testing.T) {
-	base := map[string]oauth2TokenResponse{"a": {AccessToken: "old"}, "delete": {AccessToken: "gone"}}
-	current := map[string]oauth2TokenResponse{"a": {AccessToken: "mine"}, "new": {AccessToken: "new"}}
-	disk := map[string]oauth2TokenResponse{"a": {AccessToken: "other"}, "delete": {AccessToken: "gone"}, "other": {AccessToken: "keep"}}
-	merged := mergeOAuth2TokenDelta(base, current, disk)
-	if merged["a"].AccessToken != "mine" || merged["new"].AccessToken != "new" || merged["other"].AccessToken != "keep" {
-		t.Fatalf("oauth merge lost updates: %+v", merged)
-	}
-	if _, ok := merged["delete"]; ok {
-		t.Fatal("oauth delete resurrected")
-	}
-}
-
 func TestWorkspaceSharedDeltaMergesNestedPreferencesAndEnvironmentVariables(t *testing.T) {
-	base := SharedAppState{Version: 1, Preferences: Preferences{Theme: "system", Layout: LayoutPreferences{ResponsePaneOrientation: "horizontal"}}, GlobalEnvironments: []Environment{{ID: "env", Variables: []Variable{{ID: "one", Value: "1"}, {ID: "two", Value: "2"}}}}}
+	base := SharedAppState{Version: 1, Preferences: types.Preferences{Theme: "system", Layout: types.LayoutPreferences{ResponsePaneOrientation: "horizontal"}}, GlobalEnvironments: []types.Environment{{ID: "env", Variables: []types.Variable{{ID: "one", Value: "1"}, {ID: "two", Value: "2"}}}}}
 	a := cloneSharedMergeTestState(t, base)
 	a.Preferences.Theme = "dark"
 	a.GlobalEnvironments[0].Variables[0].Value = "A"
 	b := cloneSharedMergeTestState(t, base)
 	b.Preferences.Layout.ResponsePaneOrientation = "vertical"
 	b.GlobalEnvironments[0].Variables[1].Value = "B"
-	merged, err := mergeWorkspaceSharedDelta(base, a, b)
+	merged, err := MergeSharedDelta(base, a, b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,13 +77,13 @@ func TestWorkspaceSharedDeltaMergesNestedPreferencesAndEnvironmentVariables(t *t
 }
 
 func TestWorkspaceSharedDeltaMergesEnvironmentMetadataAndVariablesIndependently(t *testing.T) {
-	base := SharedAppState{Version: 1, GlobalEnvironments: []Environment{{ID: "env", Name: "old", Color: "red", Variables: []Variable{{ID: "token", Value: "old"}}}}}
+	base := SharedAppState{Version: 1, GlobalEnvironments: []types.Environment{{ID: "env", Name: "old", Color: "red", Variables: []types.Variable{{ID: "token", Value: "old"}}}}}
 	a := cloneSharedMergeTestState(t, base)
 	a.GlobalEnvironments[0].Name = "renamed"
 	a.GlobalEnvironments[0].Color = "blue"
 	b := cloneSharedMergeTestState(t, base)
 	b.GlobalEnvironments[0].Variables[0].Value = "new-token"
-	merged, err := mergeWorkspaceSharedDelta(base, a, b)
+	merged, err := MergeSharedDelta(base, a, b)
 	if err != nil {
 		t.Fatal(err)
 	}

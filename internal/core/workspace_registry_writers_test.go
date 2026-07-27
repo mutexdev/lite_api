@@ -12,11 +12,11 @@ import (
 // production.
 //
 //	workspacestate.WriteWorkspaceRegistry   used by that package's own tests
-//	writeWorkspaceMigrationRegistry (here)  used by the migration path
+//	workspacestate.WriteWorkspaceMigrationRegistry (here)  used by the migration path
 //
 // They are the same three steps — Validate, MarshalIndent, atomic write — and
 // the duplicate is JUSTIFIED: the migration one goes through the
-// workspacePersistenceWriteAtomic seam so a test can inject a failure at the
+// workspacestate.PersistenceWriteAtomic seam so a test can inject a failure at the
 // third write and check the migration leaves no completion marker. That seam is
 // worth having, so these are not collapsed.
 //
@@ -47,7 +47,7 @@ func TestBothRegistryWritersProduceIdenticalBytes(t *testing.T) {
 	}
 
 	viaMigration := t.TempDir()
-	if err := writeWorkspaceMigrationRegistry(viaMigration, registry); err != nil {
+	if err := workspacestate.WriteWorkspaceMigrationRegistry(viaMigration, registry); err != nil {
 		t.Fatalf("migration writer: %v", err)
 	}
 
@@ -86,7 +86,7 @@ func TestBothRegistryWritersRejectAnInvalidRegistryWithoutWriting(t *testing.T) 
 
 	for name, write := range map[string]func(string, workspacestate.WorkspaceRegistry) error{
 		"workspacestate": workspacestate.WriteWorkspaceRegistry,
-		"migration":      writeWorkspaceMigrationRegistry,
+		"migration":      workspacestate.WriteWorkspaceMigrationRegistry,
 	} {
 		dir := t.TempDir()
 		if err := write(dir, invalid); err == nil {

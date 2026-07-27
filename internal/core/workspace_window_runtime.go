@@ -3,12 +3,10 @@ package core
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -38,7 +36,7 @@ type workspaceWindowRuntime struct {
 	intent         workspacestate.WindowLaunchIntent
 	owner          workspacestate.WindowOwner
 	session        workspacestate.WindowSession
-	sharedBaseline SharedAppState
+	sharedBaseline workspacestate.SharedAppState
 	locks          workspacestate.WindowLockStore
 	stop           chan struct{}
 	once           sync.Once
@@ -96,11 +94,11 @@ func newProductionApp(dataDir string, args []string) (*App, error) {
 		if filepath.Clean(intent.DataDir) != dataDir {
 			return nil, errors.New("production data directory does not match launch intent")
 		}
-		if err := validatePrivateRegularArtifact(workspaceMigrationMarkerPath(dataDir)); err != nil {
+		if err := workspacestate.ValidatePrivateRegularArtifact(workspacestate.MigrationMarkerPath(dataDir)); err != nil {
 			return nil, errors.New("workspace migration artifacts are invalid; refusing to overwrite scoped state from legacy data")
 		}
-		marker, err := readWorkspaceMigrationMarker(dataDir)
-		if err != nil || validateMutableWorkspaceArtifacts(dataDir, marker) != nil {
+		marker, err := workspacestate.ReadMigrationMarker(dataDir)
+		if err != nil || workspacestate.ValidateMutableArtifacts(dataDir, marker) != nil {
 			return nil, errors.New("workspace migration artifacts are invalid; refusing to overwrite scoped state from legacy data")
 		}
 		app := newAppBase(dataDir)
@@ -109,15 +107,15 @@ func newProductionApp(dataDir string, args []string) (*App, error) {
 		}
 		return app, nil
 	}
-	if markerInfo, markerStatErr := os.Lstat(workspaceMigrationMarkerPath(dataDir)); markerStatErr == nil {
+	if markerInfo, markerStatErr := os.Lstat(workspacestate.MigrationMarkerPath(dataDir)); markerStatErr == nil {
 		if markerInfo.Mode()&os.ModeSymlink != 0 || !markerInfo.Mode().IsRegular() || markerInfo.Mode().Perm() != 0o600 {
 			return nil, errors.New("workspace migration marker is invalid; refusing to overwrite scoped state from legacy data")
 		}
-		marker, err := readWorkspaceMigrationMarker(dataDir)
-		if err != nil || validateMutableWorkspaceArtifacts(dataDir, marker) != nil {
+		marker, err := workspacestate.ReadMigrationMarker(dataDir)
+		if err != nil || workspacestate.ValidateMutableArtifacts(dataDir, marker) != nil {
 			return nil, errors.New("workspace migration marker is invalid; refusing to overwrite scoped state from legacy data")
 		}
-		session, err := workspacestate.ReadWindowSession(defaultWorkspaceSessionPath(dataDir, marker.DefaultSessionID))
+		session, err := workspacestate.ReadWindowSession(workspacestate.DefaultSessionPath(dataDir, marker.DefaultSessionID))
 		if err != nil {
 			return nil, err
 		}
@@ -135,7 +133,7 @@ func newProductionApp(dataDir string, args []string) (*App, error) {
 		return nil, err
 	}
 	defaultSessionID := "main-window"
-	if err := ExecuteWorkspaceMigration(dataDir, legacy.state, defaultSessionID); err != nil {
+	if err := workspacestate.ExecuteWorkspaceMigration(dataDir, legacy.state, defaultSessionID); err != nil {
 		return nil, fmt.Errorf("migrate workspace state: %w", err)
 	}
 	if len(legacy.state.Workspaces) == 0 {
@@ -162,7 +160,7 @@ func hasWorkspaceWindowArgs(args []string) bool {
 }
 
 func (a *App) loadWorkspaceWindow(intent workspacestate.WindowLaunchIntent) error {
-	if err := validatePrivateRegularArtifact(workspacestate.WorkspaceRegistryPath(intent.DataDir)); err != nil {
+	if err := workspacestate.ValidatePrivateRegularArtifact(workspacestate.WorkspaceRegistryPath(intent.DataDir)); err != nil {
 		return fmt.Errorf("read workspace registry: %w", err)
 	}
 	registry, err := workspacestate.ReadWorkspaceRegistry(intent.DataDir)
@@ -173,8 +171,8 @@ func (a *App) loadWorkspaceWindow(intent workspacestate.WindowLaunchIntent) erro
 	if err != nil {
 		return err
 	}
-	sessionPath := defaultWorkspaceSessionPath(intent.DataDir, intent.SessionID)
-	if err := validatePrivateRegularArtifact(sessionPath); err != nil {
+	sessionPath := workspacestate.DefaultSessionPath(intent.DataDir, intent.SessionID)
+	if err := workspacestate.ValidatePrivateRegularArtifact(sessionPath); err != nil {
 		return fmt.Errorf("read window session: %w", err)
 	}
 	session, err := workspacestate.ReadWindowSession(sessionPath)
@@ -192,20 +190,20 @@ func (a *App) loadWorkspaceWindow(intent workspacestate.WindowLaunchIntent) erro
 	if err != nil {
 		return fmt.Errorf("open workspace window: %w", err)
 	}
-	if err := validatePrivateRegularArtifact(sharedAppStatePath(intent.DataDir)); err != nil {
+	if err := workspacestate.ValidatePrivateRegularArtifact(workspacestate.SharedAppStatePath(intent.DataDir)); err != nil {
 		_ = locks.Release(owner)
 		return err
 	}
-	shared, err := ReadSharedAppState(intent.DataDir)
+	shared, err := workspacestate.ReadSharedAppState(intent.DataDir)
 	if err != nil {
 		_ = locks.Release(owner)
 		return err
 	}
-	if err := validatePrivateRegularArtifact(workspacestate.WorkspaceScopedStatePath(intent.DataDir, target.ID)); err != nil {
+	if err := workspacestate.ValidatePrivateRegularArtifact(workspacestate.WorkspaceScopedStatePath(intent.DataDir, target.ID)); err != nil {
 		_ = locks.Release(owner)
 		return err
 	}
-	scoped, err := ReadWorkspaceScopedState(intent.DataDir, target.ID)
+	scoped, err := workspacestate.ReadWorkspaceScopedState(intent.DataDir, target.ID)
 	if err != nil {
 		_ = locks.Release(owner)
 		return err
@@ -235,7 +233,7 @@ func (a *App) loadWorkspaceWindow(intent workspacestate.WindowLaunchIntent) erro
 	if session.ResponsePaneOrientation != "" {
 		a.state.Preferences.Layout.ResponsePaneOrientation = session.ResponsePaneOrientation
 	}
-	baseline, err := ProjectSharedAppState(AppState{Preferences: shared.Preferences, FeatureLedger: shared.FeatureLedger, GlobalEnvironments: shared.GlobalEnvironments, Notifications: shared.Notifications, Cookies: shared.Cookies}, intent.DataDir)
+	baseline, err := workspacestate.ProjectSharedAppState(AppState{Preferences: shared.Preferences, FeatureLedger: shared.FeatureLedger, GlobalEnvironments: shared.GlobalEnvironments, Notifications: shared.Notifications, Cookies: shared.Cookies}, intent.DataDir)
 	if err != nil {
 		_ = locks.Release(owner)
 		return err
@@ -395,7 +393,7 @@ func (r *workspaceWindowRuntime) captureGeometry(ctx context.Context) {
 	r.session.Geometry = workspacestate.WindowGeometry{X: x, Y: y, Width: width, Height: height}
 	session := r.session
 	r.mu.Unlock()
-	_ = withSharedWorkspacePersistenceGuard(r.intent.DataDir, func() error { return writeWorkspaceMigrationSession(r.intent.DataDir, session) })
+	_ = withSharedWorkspacePersistenceGuard(r.intent.DataDir, func() error { return workspacestate.WriteWorkspaceMigrationSession(r.intent.DataDir, session) })
 }
 
 func (r *workspaceWindowRuntime) heartbeat() error {
@@ -475,11 +473,11 @@ func (a *App) createScopedWorkspaceTargetLocked(name string) (AppState, error) {
 		if err != nil {
 			return err
 		}
-		if err := WriteWorkspaceScopedState(a.dataDir, scoped); err != nil {
+		if err := workspacestate.WriteWorkspaceScopedState(a.dataDir, scoped); err != nil {
 			return err
 		}
 		registry.Workspaces = append(registry.Workspaces, workspacestate.WorkspaceRegistryEntry{ID: workspace.ID, Name: workspace.Name, Path: workspace.Path, UpdatedAt: now})
-		if err := writeWorkspaceMigrationRegistry(a.dataDir, registry); err != nil {
+		if err := workspacestate.WriteWorkspaceMigrationRegistry(a.dataDir, registry); err != nil {
 			_ = os.Remove(workspacestate.WorkspaceScopedStatePath(a.dataDir, workspace.ID))
 			return err
 		}
@@ -537,13 +535,13 @@ func (a *App) openWorkspaceInNewWindowLocked(workspaceID string) (WorkspaceWindo
 	if !reused {
 		digest := fmt.Sprintf("%x", sha256.Sum256([]byte(workspace.ID)))
 		sessionID = "workspace-" + digest[:20]
-		if _, err := os.Lstat(defaultWorkspaceSessionPath(a.dataDir, sessionID)); err == nil {
+		if _, err := os.Lstat(workspacestate.DefaultSessionPath(a.dataDir, sessionID)); err == nil {
 			return WorkspaceWindowTarget{}, errors.New("deterministic workspace session path already contains invalid state")
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return WorkspaceWindowTarget{}, err
 		}
 	}
-	if err := validateWorkspaceMigrationSessionID(sessionID); err != nil {
+	if err := workspacestate.ValidateWorkspaceMigrationSessionID(sessionID); err != nil {
 		return WorkspaceWindowTarget{}, err
 	}
 	if a.workspaceRuntime != nil && a.workspaceRuntime.intent.WorkspaceID == workspace.ID {
@@ -553,18 +551,18 @@ func (a *App) openWorkspaceInNewWindowLocked(workspaceID string) (WorkspaceWindo
 		return WorkspaceWindowTarget{}, err
 	}
 	if !reused {
-		scoped, err := ReadWorkspaceScopedState(a.dataDir, workspace.ID)
+		scoped, err := workspacestate.ReadWorkspaceScopedState(a.dataDir, workspace.ID)
 		if err != nil {
 			return WorkspaceWindowTarget{}, err
 		}
 		session = workspacestate.WindowSession{Version: workspacestate.WindowSessionVersion, ID: sessionID, WorkspaceID: workspace.ID, OpenTabs: scoped.OpenTabs, ClosedTabs: scoped.ClosedTabs, ActiveTabID: scoped.ActiveTabID, ResponsePaneOrientation: a.state.Preferences.Layout.ResponsePaneOrientation, UpdatedAt: time.Now().UTC()}
-		if err := writeWorkspaceMigrationSession(a.dataDir, session); err != nil {
+		if err := workspacestate.WriteWorkspaceMigrationSession(a.dataDir, session); err != nil {
 			return WorkspaceWindowTarget{}, err
 		}
 	}
 	cleanupSession := func() {
 		if !reused {
-			_ = os.Remove(defaultWorkspaceSessionPath(a.dataDir, sessionID))
+			_ = os.Remove(workspacestate.DefaultSessionPath(a.dataDir, sessionID))
 		}
 	}
 	executable, err := os.Executable()
@@ -600,11 +598,11 @@ func findReusableWorkspaceSession(dataDir string, workspace workspacestate.Works
 			continue
 		}
 		path := filepath.Join(dir, entry.Name())
-		if err := validatePrivateRegularArtifact(path); err != nil {
+		if err := workspacestate.ValidatePrivateRegularArtifact(path); err != nil {
 			continue
 		}
 		session, err := workspacestate.ReadWindowSession(path)
-		if err != nil || defaultWorkspaceSessionPath(dataDir, session.ID) != path {
+		if err != nil || workspacestate.DefaultSessionPath(dataDir, session.ID) != path {
 			continue
 		}
 		matches := session.WorkspaceID == workspace.ID
@@ -650,7 +648,7 @@ func (a *App) persistWorkspaceRuntimeLocked() error {
 		if !updated {
 			registry.Workspaces = append(registry.Workspaces, workspacestate.WorkspaceRegistryEntry{ID: workspace.ID, Name: workspace.Name, Path: workspace.Path, UpdatedAt: workspace.UpdatedAt})
 		}
-		if err := writeWorkspaceMigrationRegistry(a.dataDir, registry); err != nil {
+		if err := workspacestate.WriteWorkspaceMigrationRegistry(a.dataDir, registry); err != nil {
 			return err
 		}
 		scoped, err := workspacestate.ProjectWorkspaceState(a.state, workspace.ID)
@@ -660,7 +658,7 @@ func (a *App) persistWorkspaceRuntimeLocked() error {
 		if err := ensureScopedCollectionIDsUnique(a.dataDir, registry, scoped); err != nil {
 			return err
 		}
-		if err := WriteWorkspaceScopedState(a.dataDir, scoped); err != nil {
+		if err := workspacestate.WriteWorkspaceScopedState(a.dataDir, scoped); err != nil {
 			return err
 		}
 		a.workspaceRuntime.mu.Lock()
@@ -671,30 +669,30 @@ func (a *App) persistWorkspaceRuntimeLocked() error {
 		// Pane orientation is window-session state. Keeping the shared baseline
 		// value here makes it a no-op in the shared three-way merge.
 		sharedProjectionState.Preferences.Layout.ResponsePaneOrientation = baseline.Preferences.Layout.ResponsePaneOrientation
-		shared, err := ProjectSharedAppState(sharedProjectionState, a.dataDir)
+		shared, err := workspacestate.ProjectSharedAppState(sharedProjectionState, a.dataDir)
 		if err != nil {
 			return err
 		}
-		if existing, err := ReadSharedAppState(a.dataDir); err == nil {
-			existingStored, err := ProjectSharedAppState(AppState{Preferences: existing.Preferences, FeatureLedger: existing.FeatureLedger, GlobalEnvironments: existing.GlobalEnvironments, Notifications: existing.Notifications, Cookies: existing.Cookies}, a.dataDir)
+		if existing, err := workspacestate.ReadSharedAppState(a.dataDir); err == nil {
+			existingStored, err := workspacestate.ProjectSharedAppState(AppState{Preferences: existing.Preferences, FeatureLedger: existing.FeatureLedger, GlobalEnvironments: existing.GlobalEnvironments, Notifications: existing.Notifications, Cookies: existing.Cookies}, a.dataDir)
 			if err != nil {
 				return err
 			}
-			shared, err = mergeWorkspaceSharedDelta(baseline, shared, existingStored)
+			shared, err = workspacestate.MergeSharedDelta(baseline, shared, existingStored)
 			if err != nil {
 				return err
 			}
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		if err := WriteSharedAppState(a.dataDir, shared); err != nil {
+		if err := workspacestate.WriteSharedAppState(a.dataDir, shared); err != nil {
 			return err
 		}
-		if refreshed, err := ReadSharedAppState(a.dataDir); err == nil {
+		if refreshed, err := workspacestate.ReadSharedAppState(a.dataDir); err == nil {
 			a.state.Preferences, a.state.FeatureLedger = refreshed.Preferences, refreshed.FeatureLedger
 			a.state.Preferences.Layout.ResponsePaneOrientation = sessionOrientation
 			a.state.GlobalEnvironments, a.state.Notifications, a.state.Cookies = refreshed.GlobalEnvironments, refreshed.Notifications, refreshed.Cookies
-			stored, err := ProjectSharedAppState(AppState{Preferences: refreshed.Preferences, FeatureLedger: refreshed.FeatureLedger, GlobalEnvironments: refreshed.GlobalEnvironments, Notifications: refreshed.Notifications, Cookies: refreshed.Cookies}, a.dataDir)
+			stored, err := workspacestate.ProjectSharedAppState(AppState{Preferences: refreshed.Preferences, FeatureLedger: refreshed.FeatureLedger, GlobalEnvironments: refreshed.GlobalEnvironments, Notifications: refreshed.Notifications, Cookies: refreshed.Cookies}, a.dataDir)
 			if err != nil {
 				return err
 			}
@@ -709,202 +707,11 @@ func (a *App) persistWorkspaceRuntimeLocked() error {
 		session.Geometry = a.workspaceRuntime.session.Geometry
 		a.workspaceRuntime.session = session
 		a.workspaceRuntime.mu.Unlock()
-		if err := writeWorkspaceMigrationSession(a.dataDir, session); err != nil {
+		if err := workspacestate.WriteWorkspaceMigrationSession(a.dataDir, session); err != nil {
 			return err
 		}
 		return nil
 	})
-}
-
-func mergeWorkspaceSharedDelta(base, current, existing SharedAppState) (SharedAppState, error) {
-	result := existing
-	preferences, err := mergePreferencesDelta(base.Preferences, current.Preferences, existing.Preferences)
-	if err != nil {
-		return SharedAppState{}, err
-	}
-	result.Preferences = preferences
-	result.FeatureLedger = mergeSharedSlice(base.FeatureLedger, current.FeatureLedger, existing.FeatureLedger, func(value Feature) string { return value.ID })
-	result.Notifications = mergeSharedSlice(base.Notifications, current.Notifications, existing.Notifications, func(value Notification) string { return value.ID })
-	result.Cookies = mergeSharedSlice(base.Cookies, current.Cookies, existing.Cookies, func(value CookieEntry) string { return value.ID })
-	result.GlobalEnvironments, err = mergeEnvironmentDelta(base.GlobalEnvironments, current.GlobalEnvironments, existing.GlobalEnvironments)
-	if err != nil {
-		return SharedAppState{}, err
-	}
-	result.Version = current.Version
-	result.UpdatedAt = time.Now().UTC()
-	return result, nil
-}
-
-func mergePreferencesDelta(base, current, disk Preferences) (Preferences, error) {
-	encode := func(value Preferences) (map[string]any, error) {
-		data, err := json.Marshal(value)
-		if err != nil {
-			return nil, err
-		}
-		var out map[string]any
-		err = json.Unmarshal(data, &out)
-		return out, err
-	}
-	var b, c, d map[string]any
-	var err error
-	if b, err = encode(base); err != nil {
-		return Preferences{}, err
-	}
-	if c, err = encode(current); err != nil {
-		return Preferences{}, err
-	}
-	if d, err = encode(disk); err != nil {
-		return Preferences{}, err
-	}
-	data, err := json.Marshal(mergeJSONDelta(b, c, d))
-	if err != nil {
-		return Preferences{}, err
-	}
-	var result Preferences
-	err = json.Unmarshal(data, &result)
-	return result, err
-}
-
-func mergeJSONDelta(base, current, disk map[string]any) map[string]any {
-	out := map[string]any{}
-	for k, v := range disk {
-		out[k] = v
-	}
-	keys := map[string]bool{}
-	for k := range base {
-		keys[k] = true
-	}
-	for k := range current {
-		keys[k] = true
-	}
-	for k := range keys {
-		b, bok := base[k]
-		c, cok := current[k]
-		d := disk[k]
-		if bok && !cok {
-			delete(out, k)
-			continue
-		}
-		if !bok && cok {
-			out[k] = c
-			continue
-		}
-		bm, bmok := b.(map[string]any)
-		cm, cmok := c.(map[string]any)
-		dm, dmok := d.(map[string]any)
-		if bmok && cmok && dmok {
-			out[k] = mergeJSONDelta(bm, cm, dm)
-			continue
-		}
-		if !reflect.DeepEqual(b, c) {
-			out[k] = c
-		}
-	}
-	return out
-}
-
-func mergeEnvironmentDelta(base, current, disk []Environment) ([]Environment, error) {
-	merged := mergeSharedSlice(base, current, disk, func(value Environment) string { return firstNonEmpty(value.ID, value.Name) })
-	baseBy := map[string]Environment{}
-	curBy := map[string]Environment{}
-	diskBy := map[string]Environment{}
-	for _, v := range base {
-		baseBy[firstNonEmpty(v.ID, v.Name)] = v
-	}
-	for _, v := range current {
-		curBy[firstNonEmpty(v.ID, v.Name)] = v
-	}
-	for _, v := range disk {
-		diskBy[firstNonEmpty(v.ID, v.Name)] = v
-	}
-	for i := range merged {
-		k := firstNonEmpty(merged[i].ID, merged[i].Name)
-		b, ok := baseBy[k]
-		c, cok := curBy[k]
-		d, dok := diskBy[k]
-		if ok && cok && dok {
-			metadata, err := mergeEnvironmentMetadata(b, c, d)
-			if err != nil {
-				return nil, err
-			}
-			metadata.Variables = mergeSharedSlice(b.Variables, c.Variables, d.Variables, func(v Variable) string { return firstNonEmpty(v.ID, v.Name) })
-			merged[i] = metadata
-		}
-	}
-	return merged, nil
-}
-
-func mergeEnvironmentMetadata(base, current, disk Environment) (Environment, error) {
-	encode := func(value Environment) (map[string]any, error) {
-		data, err := json.Marshal(value)
-		if err != nil {
-			return nil, err
-		}
-		var result map[string]any
-		if err := json.Unmarshal(data, &result); err != nil {
-			return nil, err
-		}
-		delete(result, "variables")
-		return result, nil
-	}
-	b, err := encode(base)
-	if err != nil {
-		return Environment{}, err
-	}
-	c, err := encode(current)
-	if err != nil {
-		return Environment{}, err
-	}
-	d, err := encode(disk)
-	if err != nil {
-		return Environment{}, err
-	}
-	data, err := json.Marshal(mergeJSONDelta(b, c, d))
-	if err != nil {
-		return Environment{}, err
-	}
-	var result Environment
-	if err := json.Unmarshal(data, &result); err != nil {
-		return Environment{}, err
-	}
-	return result, nil
-}
-
-func mergeSharedSlice[T any](base, current, disk []T, key func(T) string) []T {
-	b := map[string]T{}
-	c := map[string]T{}
-	out := map[string]T{}
-	for _, v := range base {
-		b[key(v)] = v
-	}
-	for _, v := range current {
-		c[key(v)] = v
-	}
-	for _, v := range disk {
-		out[key(v)] = v
-	}
-	for k, v := range b {
-		if next, ok := c[k]; !ok {
-			delete(out, k)
-		} else if !reflect.DeepEqual(v, next) {
-			out[k] = next
-		}
-	}
-	for k, v := range c {
-		if _, ok := b[k]; !ok {
-			out[k] = v
-		}
-	}
-	keys := make([]string, 0, len(out))
-	for k := range out {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	result := make([]T, 0, len(keys))
-	for _, k := range keys {
-		result = append(result, out[k])
-	}
-	return result
 }
 
 func ensureScopedCollectionIDsUnique(dataDir string, registry workspacestate.WorkspaceRegistry, scoped workspacestate.WorkspaceScopedState) error {
@@ -916,7 +723,7 @@ func ensureScopedCollectionIDsUnique(dataDir string, registry workspacestate.Wor
 		if workspace.ID == scoped.Workspace.ID {
 			continue
 		}
-		other, err := ReadWorkspaceScopedState(dataDir, workspace.ID)
+		other, err := workspacestate.ReadWorkspaceScopedState(dataDir, workspace.ID)
 		if err != nil {
 			return err
 		}
