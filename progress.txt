@@ -8825,3 +8825,37 @@ US-026 - Store layer. DONE. Both named collapses complete.
   and worth as much: four NEGATIVE results — findItemIndexed already covered,
   the two import parsers not being rivals, the frontend near-names being
   deliberate siblings, and no further decorative guards anywhere.
+
+=== RE-EXPORTS AS FUNCTIONS, AND A SECOND RUNTIME VERIFICATION ===
+
+  The urlbuild/wsmessage moves left five re-exports written as
+  `var X = otherpkg.X`. Two things wrong with that shape, neither caught by any
+  gate:
+    - a package-level var is a MUTABLE GLOBAL. Any package could reassign
+      codegen.RequestURLWithParams at runtime; the function it replaced could
+      not be.
+    - it adds entries to package initialisation, which is the one class of
+      error the restructure plan singled out as compiling and passing tests
+      while being wrong.
+
+  All five are now wrapper functions: immutable, no init, identical call sites,
+  inlined by the compiler. 27 packages still green, lint still 0.
+
+  AND THE APP HAD NOT BEEN RUN SINCE THE PACKAGE MOVES. Ran it again.
+
+  The test that matters is the one exercising the code that MOVED. Set a URL of
+  `http://127.0.0.1:18487/:folder/?a=1`, filled the path parameter with
+  `claude-501`, and sent. The app's own network log recorded:
+
+      POST http://127.0.0.1:18487/claude-501/?a=1  501  17 ms
+
+  That is urlbuild.RequestURLWithParams running in production from its new
+  package, through the Go bridge — and it confirms both ordering properties the
+  unit tests pin: the path parameter substituted, and the query string still
+  there after it. Zero console errors on the page.
+
+  A SMALL OPERATIONAL MISTAKE WORTH THE NOTE: my first `wails dev` inherited
+  /tmp as its working directory from an earlier `cd` in the same compound
+  command, and died with "open /tmp/wails.json: no such file". The app was not
+  broken; my invocation was. I nearly read the 000 response as a regression from
+  the package moves.

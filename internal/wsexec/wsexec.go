@@ -160,7 +160,15 @@ func applyAuth(headers http.Header, auth types.AuthConfig, vars map[string]strin
 
 // The message vocabulary lives in internal/wsmessage so that the file-format
 // readers can use it without importing this package, which dials sockets.
-var (
-	NormalizeMessageType = wsmessage.NormalizeMessageType
-	MessageBody          = wsmessage.MessageBody
-)
+//
+// Wrappers rather than vars, for the same reason as in internal/codegen: a
+// package-level var re-export is a mutable global and an extra init entry,
+// where a function is neither.
+
+func NormalizeMessageType(value string) string {
+	return wsmessage.NormalizeMessageType(value)
+}
+
+func MessageBody(body types.RequestBody, vars map[string]string) string {
+	return wsmessage.MessageBody(body, vars)
+}

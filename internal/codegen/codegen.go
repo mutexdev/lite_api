@@ -423,8 +423,20 @@ func ResponseBodyType(response types.Response) string {
 // The URL builders live in internal/urlbuild. They are re-exported here so the
 // generators can keep calling them unqualified, and so no caller had to change
 // when they moved out of a code-generation package they never belonged in.
-var (
-	RequestURLWithParams   = urlbuild.RequestURLWithParams
-	ApplyEnabledPathParams = urlbuild.ApplyEnabledPathParams
-	AppendEnabledQuery     = urlbuild.AppendEnabledQuery
-)
+//
+// Wrappers rather than `var X = urlbuild.X`: a package-level var would be a
+// MUTABLE global that any package could reassign, and it would add three
+// entries to this package's initialisation. A function forwards identically,
+// costs nothing after inlining, and cannot be reassigned.
+
+func RequestURLWithParams(rawURL string, queryParams, pathParams []types.KeyValue, vars map[string]string) string {
+	return urlbuild.RequestURLWithParams(rawURL, queryParams, pathParams, vars)
+}
+
+func ApplyEnabledPathParams(rawURL string, pathParams []types.KeyValue, vars map[string]string) string {
+	return urlbuild.ApplyEnabledPathParams(rawURL, pathParams, vars)
+}
+
+func AppendEnabledQuery(rawURL string, params []types.KeyValue, vars map[string]string) string {
+	return urlbuild.AppendEnabledQuery(rawURL, params, vars)
+}
