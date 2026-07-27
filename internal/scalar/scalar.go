@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -218,4 +219,27 @@ func PathInside(root, candidate string) bool {
 		return false
 	}
 	return rel == "." || (!strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".." && !filepath.IsAbs(rel))
+}
+
+// NormalizeAbsoluteDirectory resolves an absolute directory path, returning ""
+// unless it exists and is a directory. Symlinks are followed so two spellings
+// of the same directory compare equal.
+//
+// Here rather than beside the collection importer because the preferences
+// normaliser needs the same answer for the default import location, and the
+// two must agree or a saved preference would fail the check that accepted it.
+func NormalizeAbsoluteDirectory(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || !filepath.IsAbs(value) {
+		return ""
+	}
+	resolved, err := filepath.EvalSymlinks(value)
+	if err == nil {
+		value = resolved
+	}
+	info, err := os.Stat(value)
+	if err != nil || !info.IsDir() {
+		return ""
+	}
+	return filepath.Clean(value)
 }

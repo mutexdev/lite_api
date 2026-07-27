@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"github.com/mutexdev/lite_api/internal/scalar"
 	"io"
 	"net/http"
 	"os"
@@ -694,7 +695,7 @@ func TestCollectionImportPreviewConflictStatesAndRememberedDirectory(t *testing.
 	if err := os.WriteFile(file, []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := app.rememberCollectionImportDirectory([]string{file}, false); err != nil || app.collectionImportDefaultDirectory() != normalizeCollectionImportDirectory(remembered) {
+	if err := app.rememberCollectionImportDirectory([]string{file}, false); err != nil || app.collectionImportDefaultDirectory() != scalar.NormalizeAbsoluteDirectory(remembered) {
 		t.Fatalf("remembered directory=%q err=%v", app.collectionImportDefaultDirectory(), err)
 	}
 }

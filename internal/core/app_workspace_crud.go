@@ -15,6 +15,7 @@ import (
 
 	"github.com/mutexdev/lite_api/internal/cookiejar"
 	"github.com/mutexdev/lite_api/internal/gitworkbench"
+	"github.com/mutexdev/lite_api/internal/prefs"
 	"github.com/mutexdev/lite_api/internal/store/bru"
 )
 
@@ -128,7 +129,7 @@ func (a *App) CreateCollection(workspaceID, name, format string) (AppState, erro
 }
 
 func defaultCollectionRoot(preferences Preferences, workspacePath string) string {
-	preferences = normalizePreferences(preferences)
+	preferences = prefs.Normalize(preferences)
 	root := strings.TrimSpace(preferences.General.DefaultLocation)
 	if root == "" {
 		root = strings.TrimSpace(preferences.DefaultCollectionPath)

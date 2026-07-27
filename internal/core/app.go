@@ -33,6 +33,7 @@ import (
 	"github.com/mutexdev/lite_api/internal/interp"
 	"github.com/mutexdev/lite_api/internal/localserver"
 	"github.com/mutexdev/lite_api/internal/openapisync"
+	"github.com/mutexdev/lite_api/internal/prefs"
 	"github.com/mutexdev/lite_api/internal/responsestore"
 	"github.com/mutexdev/lite_api/internal/scripting"
 	"github.com/mutexdev/lite_api/internal/store/bru"
@@ -51,27 +52,7 @@ const brunoOAuth2DefaultCallbackURL = "https://oauth.usebruno.com/callback"
 const oauth2ProtocolCallbackHost = "app"
 const oauth2ProtocolCallbackPath = "/oauth2/callback"
 
-var devToolsNetworkDefaultColumnWidths = []int{80, 70, 180, 300, 110, 100, 80}
-
-const devToolsDefaultDrawerHeight = 320
 const closedTabHistoryLimit = 50
-
-var devToolsTabs = map[string]bool{
-	"console":     true,
-	"network":     true,
-	"performance": true,
-	"terminal":    true,
-}
-
-var devToolsNetworkSortKeys = map[string]bool{
-	"method":   true,
-	"status":   true,
-	"domain":   true,
-	"path":     true,
-	"time":     true,
-	"duration": true,
-	"size":     true,
-}
 
 type App struct {
 	ctx context.Context
@@ -1664,7 +1645,7 @@ func (a *App) UpdatePreferences(preferences Preferences) (AppState, error) {
 	if err := a.ensureReadyLocked(); err != nil {
 		return AppState{}, err
 	}
-	next := normalizePreferences(preferences)
+	next := prefs.Normalize(preferences)
 	if tlsSessionPreferencesChanged(a.state.Preferences, next) {
 		a.tlsSessionCache = nil
 		// The cache key already separates the old and new TLS postures, so
@@ -2307,21 +2288,21 @@ func defaultState(dir string) AppState {
 			Theme:                  "system",
 			ThemeVariantLight:      "light",
 			ThemeVariantDark:       "dark",
-			KeybindingsEnabled:     boolPtr(true),
-			Layout:                 normalizeLayoutPreferences(LayoutPreferences{}),
-			Display:                normalizeDisplayPreferences(DisplayPreferences{}),
-			Font:                   normalizeFontPreferences(FontPreferences{}, 13),
-			Request:                normalizeRequestPreferences(RequestPreferences{}, true),
-			General:                normalizeGeneralPreferences(GeneralPreferences{}, ""),
-			AutoSave:               normalizeAutoSavePreferences(AutoSavePreferences{}, false),
-			Cache:                  normalizeCachePreferences(CachePreferences{}),
-			DevTools:               normalizeDevToolsPreferences(DevToolsPreferences{}),
+			KeybindingsEnabled:     prefs.BoolPtr(true),
+			Layout:                 prefs.NormalizeLayout(LayoutPreferences{}),
+			Display:                prefs.NormalizeDisplay(DisplayPreferences{}),
+			Font:                   prefs.NormalizeFont(FontPreferences{}, 13),
+			Request:                prefs.NormalizeRequest(RequestPreferences{}, true),
+			General:                prefs.NormalizeGeneral(GeneralPreferences{}, ""),
+			AutoSave:               prefs.NormalizeAutoSave(AutoSavePreferences{}, false),
+			Cache:                  prefs.NormalizeCache(CachePreferences{}),
+			DevTools:               prefs.NormalizeDevTools(DevToolsPreferences{}),
 			Autosave:               false,
 			CodeFontSize:           13,
 			StoreCookies:           true,
 			OAuth2UseSystemBrowser: false,
 			ProxyMode:              "system",
-			Proxy:                  defaultProxyPreferences(),
+			Proxy:                  prefs.DefaultProxy(),
 		},
 	}
 }

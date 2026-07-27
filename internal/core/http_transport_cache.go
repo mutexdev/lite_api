@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mutexdev/lite_api/internal/auth/awsv4"
+	"github.com/mutexdev/lite_api/internal/prefs"
 	xport "github.com/mutexdev/lite_api/internal/transport"
 )
 
@@ -47,7 +48,7 @@ func (a *App) requestTransport(base http.RoundTripper, settings appTLSSettings, 
 		Source:          xport.Source(base),
 		VerifyTLS:       verifyTLS,
 		CustomCAEnabled: settings.Request.CustomCaCertificate.Enabled,
-		KeepDefaultCAs:  boolPtrValue(settings.Request.KeepDefaultCaCertificates.Enabled, true),
+		KeepDefaultCAs:  prefs.BoolPtrValue(settings.Request.KeepDefaultCaCertificates.Enabled, true),
 		SessionCache:    settings.ClientSessionCache,
 	}
 	// The custom root store is only consulted when verification is on; with

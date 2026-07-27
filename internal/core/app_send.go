@@ -13,6 +13,7 @@ import (
 
 	"github.com/mutexdev/lite_api/internal/cookiejar"
 	"github.com/mutexdev/lite_api/internal/grpcexec"
+	"github.com/mutexdev/lite_api/internal/prefs"
 	"github.com/mutexdev/lite_api/internal/responsestore"
 	"github.com/mutexdev/lite_api/internal/scripting"
 )
@@ -89,9 +90,9 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 		return a.runScriptedCollectionRequest(collectionID, target, environmentID, scriptVariables, scriptCookieJar, &scriptLogs, &scriptRunDepth, scriptMeta.RecordTimeline)
 	}
 	scripts := scripting.MergedRuntimeScripts(*collection, requestCopy)
-	preferences := normalizePreferences(a.state.Preferences)
-	shouldStoreCookies := boolPtrValue(preferences.Request.StoreCookies, true) && requestCopy.Settings.StoreCookies
-	shouldSendCookies := boolPtrValue(preferences.Request.SendCookies, true) && requestCopy.Settings.StoreCookies
+	preferences := prefs.Normalize(a.state.Preferences)
+	shouldStoreCookies := prefs.BoolPtrValue(preferences.Request.StoreCookies, true) && requestCopy.Settings.StoreCookies
+	shouldSendCookies := prefs.BoolPtrValue(preferences.Request.SendCookies, true) && requestCopy.Settings.StoreCookies
 	a.mu.Unlock()
 
 	// Register before pre-request scripts start so the Wails SendRequest call
@@ -640,8 +641,8 @@ func (a *App) runScriptedCollectionRequest(collectionID, targetRef, environmentI
 	collectionCopy := *collection
 	requestCopy := scripting.EffectiveRequest(collectionCopy, *item)
 	scripts := scripting.MergedRuntimeScripts(collectionCopy, requestCopy)
-	preferences := normalizePreferences(a.state.Preferences)
-	shouldSendCookies := boolPtrValue(preferences.Request.SendCookies, true) && requestCopy.Settings.StoreCookies
+	preferences := prefs.Normalize(a.state.Preferences)
+	shouldSendCookies := prefs.BoolPtrValue(preferences.Request.SendCookies, true) && requestCopy.Settings.StoreCookies
 	nestedVariables := scripting.ScriptVariableContextForItem(parentVariables, &collectionCopy, environmentID, requestCopy)
 	nestedMeta := scripting.ScriptRuntimeMeta{
 		CollectionName:            collectionCopy.Name,

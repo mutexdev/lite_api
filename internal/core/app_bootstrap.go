@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/mutexdev/lite_api/internal/prefs"
 	"github.com/mutexdev/lite_api/internal/store/yamlstore"
 	"os"
 	"path/filepath"
@@ -170,7 +171,7 @@ func (a *App) load() error {
 
 func (a *App) normalizeStateLocked() bool {
 	changed := false
-	normalizedPreferences := normalizePreferences(a.state.Preferences)
+	normalizedPreferences := prefs.Normalize(a.state.Preferences)
 	if !reflect.DeepEqual(a.state.Preferences, normalizedPreferences) {
 		a.state.Preferences = normalizedPreferences
 		changed = true

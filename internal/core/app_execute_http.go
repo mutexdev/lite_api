@@ -18,6 +18,7 @@ import (
 
 	"github.com/mutexdev/lite_api/internal/auth/digest"
 	"github.com/mutexdev/lite_api/internal/codegen"
+	"github.com/mutexdev/lite_api/internal/prefs"
 	"github.com/mutexdev/lite_api/internal/responsestore"
 	"github.com/mutexdev/lite_api/internal/scripting"
 	"github.com/mutexdev/lite_api/internal/transport"
@@ -253,7 +254,7 @@ type appTLSSettings struct {
 // may have created the cache — or disabled it — in the gap.
 func (a *App) appTLSSettingsSnapshot() appTLSSettings {
 	a.mu.RLock()
-	preferences := normalizePreferences(a.state.Preferences)
+	preferences := prefs.Normalize(a.state.Preferences)
 	if !preferences.Cache.SSLSession.Enabled {
 		a.mu.RUnlock()
 		return appTLSSettings{Request: preferences.Request}
@@ -266,7 +267,7 @@ func (a *App) appTLSSettingsSnapshot() appTLSSettings {
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	preferences = normalizePreferences(a.state.Preferences)
+	preferences = prefs.Normalize(a.state.Preferences)
 	var clientSessionCache tls.ClientSessionCache
 	if preferences.Cache.SSLSession.Enabled {
 		if a.tlsSessionCache == nil {
@@ -281,7 +282,7 @@ func (a *App) appTLSSettingsSnapshot() appTLSSettings {
 }
 
 func requestTLSVerificationEnabled(preferences RequestPreferences, requestVerifyTLS bool) bool {
-	return requestVerifyTLS && boolPtrValue(preferences.SSLVerification, true)
+	return requestVerifyTLS && prefs.BoolPtrValue(preferences.SSLVerification, true)
 }
 
 func requestTimeoutMilliseconds(itemTimeout int, preferences RequestPreferences) int {
@@ -332,7 +333,7 @@ func applyCustomRootCAsToTLSConfig(tlsConfig *tls.Config, preferences RequestPre
 		return fmt.Errorf("read custom CA certificate: %w", err)
 	}
 	var roots *x509.CertPool
-	if boolPtrValue(preferences.KeepDefaultCaCertificates.Enabled, true) {
+	if prefs.BoolPtrValue(preferences.KeepDefaultCaCertificates.Enabled, true) {
 		roots, err = x509.SystemCertPool()
 		if err != nil {
 			return fmt.Errorf("load system CA certificates: %w", err)
@@ -349,18 +350,18 @@ func applyCustomRootCAsToTLSConfig(tlsConfig *tls.Config, preferences RequestPre
 }
 
 func tlsSessionPreferencesChanged(previous, next Preferences) bool {
-	previous = normalizePreferences(previous)
-	next = normalizePreferences(next)
+	previous = prefs.Normalize(previous)
+	next = prefs.Normalize(next)
 	if previous.Cache.SSLSession.Enabled != next.Cache.SSLSession.Enabled {
 		return true
 	}
-	if boolPtrValue(previous.Request.SSLVerification, true) != boolPtrValue(next.Request.SSLVerification, true) {
+	if prefs.BoolPtrValue(previous.Request.SSLVerification, true) != prefs.BoolPtrValue(next.Request.SSLVerification, true) {
 		return true
 	}
 	if previous.Request.CustomCaCertificate != next.Request.CustomCaCertificate {
 		return true
 	}
-	if boolPtrValue(previous.Request.KeepDefaultCaCertificates.Enabled, true) != boolPtrValue(next.Request.KeepDefaultCaCertificates.Enabled, true) {
+	if prefs.BoolPtrValue(previous.Request.KeepDefaultCaCertificates.Enabled, true) != prefs.BoolPtrValue(next.Request.KeepDefaultCaCertificates.Enabled, true) {
 		return true
 	}
 	return false
@@ -387,7 +388,7 @@ func (a *App) collectionProxyResolution(collectionID string) proxyResolution {
 	if !proxy.Inherit && !transport.ProxyConfigUnset(collection.Proxy) {
 		return proxyResolution{Mode: "manual", Config: proxy}
 	}
-	preferences := normalizeProxyPreferences(a.state.Preferences.Proxy, a.state.Preferences.ProxyMode)
+	preferences := prefs.NormalizeProxy(a.state.Preferences.Proxy, a.state.Preferences.ProxyMode)
 	if preferences.Disabled {
 		return proxyResolution{Mode: "off"}
 	}

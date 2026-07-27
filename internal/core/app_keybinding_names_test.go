@@ -1,18 +1,19 @@
 package core
 
 import (
+	"github.com/mutexdev/lite_api/internal/prefs"
 	"os"
 	"regexp"
 	"testing"
 )
 
-// knownKeyBindingName was at 0%, and testing it in isolation would have been
+// prefs.KeyBindingName was at 0%, and testing it in isolation would have been
 // almost worthless: it is a six-case switch returning strings, and asserting
 // those strings against themselves proves nothing.
 //
 // What makes it worth testing is that the SAME mapping exists twice, in two
 // languages. Go uses it to normalise persisted preferences
-// (app_prefs_normalize.go: `next.Name = knownKeyBindingName(action)`), while
+// (app_prefs_normalize.go: `next.Name = prefs.KeyBindingName(action)`), while
 // frontend/src/lib/keybindings.ts carries its own name for each action in the
 // table the settings screen renders.
 //
@@ -61,7 +62,7 @@ func frontendKeyBindingNames(t *testing.T) map[string]string {
 func TestKeyBindingNamesAgreeWithTheFrontend(t *testing.T) {
 	frontend := frontendKeyBindingNames(t)
 
-	// The actions knownKeyBindingName answers for. Listed here rather than
+	// The actions prefs.KeyBindingName answers for. Listed here rather than
 	// derived, because the point is to check the Go switch, and deriving the
 	// list from that switch would compare it with itself.
 	for _, action := range []string{
@@ -72,9 +73,9 @@ func TestKeyBindingNamesAgreeWithTheFrontend(t *testing.T) {
 		"newRequest",
 		"save",
 	} {
-		goName := knownKeyBindingName(action)
+		goName := prefs.KeyBindingName(action)
 		if goName == action {
-			t.Errorf("knownKeyBindingName(%q) fell through to its default, so Go has lost this action", action)
+			t.Errorf("prefs.KeyBindingName(%q) fell through to its default, so Go has lost this action", action)
 			continue
 		}
 		frontendName, present := frontend[action]
@@ -94,8 +95,8 @@ func TestKeyBindingNamesAgreeWithTheFrontend(t *testing.T) {
 // rather than trivially true.
 func TestKeyBindingNameFallsThroughForUnknownActions(t *testing.T) {
 	for _, action := range []string{"copyItem", "collapseSidebar", "somethingInvented", ""} {
-		if got := knownKeyBindingName(action); got != action {
-			t.Errorf("knownKeyBindingName(%q) = %q, want the action returned unchanged", action, got)
+		if got := prefs.KeyBindingName(action); got != action {
+			t.Errorf("prefs.KeyBindingName(%q) = %q, want the action returned unchanged", action, got)
 		}
 	}
 }
@@ -105,8 +106,8 @@ func TestKeyBindingNameFallsThroughForUnknownActions(t *testing.T) {
 // rather than as the same one spelled differently.
 func TestKeyBindingNameMatchingIsExact(t *testing.T) {
 	for _, action := range []string{"SendRequest", "sendrequest", " sendRequest", "sendRequest "} {
-		if got := knownKeyBindingName(action); got != action {
-			t.Errorf("knownKeyBindingName(%q) = %q, want no match for a near-miss", action, got)
+		if got := prefs.KeyBindingName(action); got != action {
+			t.Errorf("prefs.KeyBindingName(%q) = %q, want no match for a near-miss", action, got)
 		}
 	}
 }

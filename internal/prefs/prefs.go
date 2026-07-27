@@ -1,42 +1,67 @@
-package core
+package prefs
 
 import (
+	"github.com/mutexdev/lite_api/internal/scalar"
 	"strconv"
 	"strings"
 
 	"github.com/mutexdev/lite_api/internal/transport"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
-func normalizePreferences(preferences Preferences) Preferences {
+// DevTools defaults. They live with the normaliser that applies them; nothing
+// else in the application referenced them.
+var DevToolsNetworkDefaultColumnWidths = []int{80, 70, 180, 300, 110, 100, 80}
+
+const devToolsDefaultDrawerHeight = 320
+
+var devToolsTabs = map[string]bool{
+	"console":     true,
+	"network":     true,
+	"performance": true,
+	"terminal":    true,
+}
+
+var devToolsNetworkSortKeys = map[string]bool{
+	"method":   true,
+	"status":   true,
+	"domain":   true,
+	"path":     true,
+	"time":     true,
+	"duration": true,
+	"size":     true,
+}
+
+func Normalize(preferences types.Preferences) types.Preferences {
 	preferences.Theme = normalizeThemeMode(preferences.Theme)
 	preferences.ThemeVariantLight = normalizeThemeVariant(preferences.ThemeVariantLight, "light")
 	preferences.ThemeVariantDark = normalizeThemeVariant(preferences.ThemeVariantDark, "dark")
 	if preferences.KeybindingsEnabled == nil {
-		preferences.KeybindingsEnabled = boolPtr(true)
+		preferences.KeybindingsEnabled = BoolPtr(true)
 	}
 	preferences.KeyBindings = normalizeKeyBindings(preferences.KeyBindings)
-	preferences.KeyBindingPreset = normalizeKeyBindingPreset(preferences.KeyBindingPreset)
+	preferences.KeyBindingPreset = NormalizeKeyBindingPreset(preferences.KeyBindingPreset)
 	if preferences.CodeFontSize <= 0 {
 		preferences.CodeFontSize = 13
 	}
-	preferences.Layout = normalizeLayoutPreferences(preferences.Layout)
-	preferences.Display = normalizeDisplayPreferences(preferences.Display)
-	preferences.Font = normalizeFontPreferences(preferences.Font, preferences.CodeFontSize)
+	preferences.Layout = NormalizeLayout(preferences.Layout)
+	preferences.Display = NormalizeDisplay(preferences.Display)
+	preferences.Font = NormalizeFont(preferences.Font, preferences.CodeFontSize)
 	preferences.CodeFontSize = preferences.Font.CodeFontSize
-	preferences.Request = normalizeRequestPreferences(preferences.Request, preferences.StoreCookies)
-	preferences.StoreCookies = boolPtrValue(preferences.Request.StoreCookies, true)
-	preferences.General = normalizeGeneralPreferences(preferences.General, preferences.DefaultCollectionPath)
+	preferences.Request = NormalizeRequest(preferences.Request, preferences.StoreCookies)
+	preferences.StoreCookies = BoolPtrValue(preferences.Request.StoreCookies, true)
+	preferences.General = NormalizeGeneral(preferences.General, preferences.DefaultCollectionPath)
 	preferences.DefaultCollectionPath = preferences.General.DefaultLocation
-	preferences.AutoSave = normalizeAutoSavePreferences(preferences.AutoSave, preferences.Autosave)
+	preferences.AutoSave = NormalizeAutoSave(preferences.AutoSave, preferences.Autosave)
 	preferences.Autosave = preferences.AutoSave.Enabled
-	preferences.Cache = normalizeCachePreferences(preferences.Cache)
-	preferences.DevTools = normalizeDevToolsPreferences(preferences.DevTools)
-	preferences.Proxy = normalizeProxyPreferences(preferences.Proxy, preferences.ProxyMode)
+	preferences.Cache = NormalizeCache(preferences.Cache)
+	preferences.DevTools = NormalizeDevTools(preferences.DevTools)
+	preferences.Proxy = NormalizeProxy(preferences.Proxy, preferences.ProxyMode)
 	preferences.ProxyMode = preferenceProxyMode(preferences.Proxy)
 	return preferences
 }
 
-func normalizeLayoutPreferences(preferences LayoutPreferences) LayoutPreferences {
+func NormalizeLayout(preferences types.LayoutPreferences) types.LayoutPreferences {
 	switch preferences.ResponsePaneOrientation {
 	case "horizontal", "vertical":
 	default:
@@ -45,7 +70,7 @@ func normalizeLayoutPreferences(preferences LayoutPreferences) LayoutPreferences
 	return preferences
 }
 
-func normalizeDisplayPreferences(preferences DisplayPreferences) DisplayPreferences {
+func NormalizeDisplay(preferences types.DisplayPreferences) types.DisplayPreferences {
 	if preferences.ZoomPercentage == 0 {
 		preferences.ZoomPercentage = 100
 	}
@@ -58,7 +83,7 @@ func normalizeDisplayPreferences(preferences DisplayPreferences) DisplayPreferen
 	return preferences
 }
 
-func normalizeFontPreferences(preferences FontPreferences, legacyCodeFontSize int) FontPreferences {
+func NormalizeFont(preferences types.FontPreferences, legacyCodeFontSize int) types.FontPreferences {
 	preferences.CodeFont = strings.TrimSpace(preferences.CodeFont)
 	if preferences.CodeFont == "" {
 		preferences.CodeFont = "default"
@@ -78,27 +103,27 @@ func normalizeFontPreferences(preferences FontPreferences, legacyCodeFontSize in
 	return preferences
 }
 
-func normalizeRequestPreferences(preferences RequestPreferences, legacyStoreCookies bool) RequestPreferences {
+func NormalizeRequest(preferences types.RequestPreferences, legacyStoreCookies bool) types.RequestPreferences {
 	if preferences.SSLVerification == nil {
-		preferences.SSLVerification = boolPtr(true)
+		preferences.SSLVerification = BoolPtr(true)
 	}
 	if preferences.StoreCookies == nil {
-		preferences.StoreCookies = boolPtr(legacyStoreCookies)
+		preferences.StoreCookies = BoolPtr(legacyStoreCookies)
 	}
 	if preferences.SendCookies == nil {
-		preferences.SendCookies = boolPtr(true)
+		preferences.SendCookies = BoolPtr(true)
 	}
 	if preferences.Timeout < 0 {
 		preferences.Timeout = 0
 	}
 	preferences.CustomCaCertificate.FilePath = strings.TrimSpace(preferences.CustomCaCertificate.FilePath)
 	if preferences.KeepDefaultCaCertificates.Enabled == nil {
-		preferences.KeepDefaultCaCertificates.Enabled = boolPtr(true)
+		preferences.KeepDefaultCaCertificates.Enabled = BoolPtr(true)
 	}
 	return preferences
 }
 
-func normalizeGeneralPreferences(preferences GeneralPreferences, legacyDefaultCollectionPath string) GeneralPreferences {
+func NormalizeGeneral(preferences types.GeneralPreferences, legacyDefaultCollectionPath string) types.GeneralPreferences {
 	preferences.DefaultLocation = strings.TrimSpace(preferences.DefaultLocation)
 	if preferences.DefaultLocation == "" {
 		preferences.DefaultLocation = strings.TrimSpace(legacyDefaultCollectionPath)
@@ -110,11 +135,11 @@ func normalizeGeneralPreferences(preferences GeneralPreferences, legacyDefaultCo
 	if len(preferences.DefaultWorkspacePath) > 1024 {
 		preferences.DefaultWorkspacePath = preferences.DefaultWorkspacePath[:1024]
 	}
-	preferences.LastImportDirectory = normalizeCollectionImportDirectory(preferences.LastImportDirectory)
+	preferences.LastImportDirectory = scalar.NormalizeAbsoluteDirectory(preferences.LastImportDirectory)
 	return preferences
 }
 
-func normalizeAutoSavePreferences(preferences AutoSavePreferences, legacyEnabled bool) AutoSavePreferences {
+func NormalizeAutoSave(preferences types.AutoSavePreferences, legacyEnabled bool) types.AutoSavePreferences {
 	if legacyEnabled && !preferences.Enabled {
 		preferences.Enabled = true
 	}
@@ -127,11 +152,11 @@ func normalizeAutoSavePreferences(preferences AutoSavePreferences, legacyEnabled
 	return preferences
 }
 
-func normalizeCachePreferences(preferences CachePreferences) CachePreferences {
+func NormalizeCache(preferences types.CachePreferences) types.CachePreferences {
 	return preferences
 }
 
-func normalizeDevToolsPreferences(preferences DevToolsPreferences) DevToolsPreferences {
+func NormalizeDevTools(preferences types.DevToolsPreferences) types.DevToolsPreferences {
 	if !devToolsTabs[preferences.ActiveTab] {
 		preferences.ActiveTab = "console"
 	}
@@ -157,7 +182,7 @@ func normalizeDevToolsPreferences(preferences DevToolsPreferences) DevToolsPrefe
 	return preferences
 }
 
-func normalizeDevToolsNetworkPreferences(preferences DevToolsNetworkPreferences) DevToolsNetworkPreferences {
+func normalizeDevToolsNetworkPreferences(preferences types.DevToolsNetworkPreferences) types.DevToolsNetworkPreferences {
 	if !devToolsNetworkSortKeys[preferences.SortKey] {
 		preferences.SortKey = ""
 	}
@@ -177,8 +202,8 @@ func normalizeDevToolsNetworkPreferences(preferences DevToolsNetworkPreferences)
 }
 
 func normalizeDevToolsNetworkColumnWidths(widths []int) []int {
-	if len(widths) != len(devToolsNetworkDefaultColumnWidths) {
-		return append([]int(nil), devToolsNetworkDefaultColumnWidths...)
+	if len(widths) != len(DevToolsNetworkDefaultColumnWidths) {
+		return append([]int(nil), DevToolsNetworkDefaultColumnWidths...)
 	}
 	normalized := make([]int, len(widths))
 	for i, width := range widths {
@@ -190,11 +215,11 @@ func normalizeDevToolsNetworkColumnWidths(widths []int) []int {
 	return normalized
 }
 
-func boolPtr(value bool) *bool {
+func BoolPtr(value bool) *bool {
 	return &value
 }
 
-func boolPtrValue(value *bool, fallback bool) bool {
+func BoolPtrValue(value *bool, fallback bool) bool {
 	if value == nil {
 		return fallback
 	}
@@ -232,33 +257,33 @@ func normalizeThemeVariant(value, mode string) string {
 	}
 }
 
-// normalizeKeyBindingPreset rejects anything but a known preset id.
+// NormalizeKeyBindingPreset rejects anything but a known preset id.
 //
 // An unknown id is coerced to "default" rather than preserved: a preset name
 // this build does not recognise would otherwise be stored, resolve to no
 // overrides, and leave the user looking at a selector showing a preset that
 // is not in effect.
-func normalizeKeyBindingPreset(value string) string {
+func NormalizeKeyBindingPreset(value string) string {
 	if strings.TrimSpace(strings.ToLower(value)) == "postman" {
 		return "postman"
 	}
 	return ""
 }
 
-func normalizeKeyBindings(bindings map[string]KeyBinding) map[string]KeyBinding {
+func normalizeKeyBindings(bindings map[string]types.KeyBinding) map[string]types.KeyBinding {
 	if len(bindings) == 0 {
 		return nil
 	}
 	known := defaultKeyBindingActions()
-	normalized := map[string]KeyBinding{}
+	normalized := map[string]types.KeyBinding{}
 	for action, binding := range bindings {
 		action = strings.TrimSpace(action)
 		if !known[action] {
 			continue
 		}
-		next := KeyBinding{Name: strings.TrimSpace(binding.Name)}
+		next := types.KeyBinding{Name: strings.TrimSpace(binding.Name)}
 		if next.Name == "" {
-			next.Name = knownKeyBindingName(action)
+			next.Name = KeyBindingName(action)
 		}
 		next.Mac = normalizeKeyBindingCombo(binding.Mac)
 		next.Windows = normalizeKeyBindingCombo(binding.Windows)
@@ -373,7 +398,7 @@ func defaultKeyBindingActions() map[string]bool {
 	}
 }
 
-func knownKeyBindingName(action string) string {
+func KeyBindingName(action string) string {
 	switch action {
 	case "sendRequest":
 		return "Send Request"
@@ -392,15 +417,15 @@ func knownKeyBindingName(action string) string {
 	}
 }
 
-func defaultProxyPreferences() ProxyPreferences {
-	return ProxyPreferences{
+func DefaultProxy() types.ProxyPreferences {
+	return types.ProxyPreferences{
 		Source: "inherit",
-		PAC:    ProxyPACConfig{},
-		Config: transport.NormalizeProxyConfig(ProxyConfig{Protocol: "http"}),
+		PAC:    types.ProxyPACConfig{},
+		Config: transport.NormalizeProxyConfig(types.ProxyConfig{Protocol: "http"}),
 	}
 }
 
-func normalizeProxyPreferences(proxy ProxyPreferences, legacyMode string) ProxyPreferences {
+func NormalizeProxy(proxy types.ProxyPreferences, legacyMode string) types.ProxyPreferences {
 	source := strings.ToLower(strings.TrimSpace(proxy.Source))
 	if source == "" {
 		switch strings.ToLower(strings.TrimSpace(legacyMode)) {
@@ -428,8 +453,8 @@ func normalizeProxyPreferences(proxy ProxyPreferences, legacyMode string) ProxyP
 	return proxy
 }
 
-func preferenceProxyMode(proxy ProxyPreferences) string {
-	proxy = normalizeProxyPreferences(proxy, "")
+func preferenceProxyMode(proxy types.ProxyPreferences) string {
+	proxy = NormalizeProxy(proxy, "")
 	if proxy.Disabled {
 		return "off"
 	}

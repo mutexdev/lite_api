@@ -310,3 +310,27 @@ scope: -run ResetDemoData ./internal/core/
 		return AppState{}, errors.New("reset demo data is unavailable from a scoped workspace window")
 	}
 --- new
+===
+desc: preferences: TLS verification defaults OFF for a file written before the flag existed
+file: internal/prefs/prefs.go
+scope: ./internal/prefs/
+--- old
+	if preferences.SSLVerification == nil {
+		preferences.SSLVerification = BoolPtr(true)
+	}
+--- new
+	if preferences.SSLVerification == nil {
+		preferences.SSLVerification = BoolPtr(false)
+	}
+===
+desc: preferences: an unset flag reads as false instead of taking its fallback
+file: internal/prefs/prefs.go
+scope: ./internal/prefs/
+--- old
+	if value == nil {
+		return fallback
+	}
+--- new
+	if value == nil {
+		return false
+	}

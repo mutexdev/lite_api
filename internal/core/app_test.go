@@ -45,6 +45,7 @@ import (
 	"github.com/mutexdev/lite_api/internal/grpcexec"
 	"github.com/mutexdev/lite_api/internal/importers"
 	"github.com/mutexdev/lite_api/internal/openapisync"
+	"github.com/mutexdev/lite_api/internal/prefs"
 	"github.com/mutexdev/lite_api/internal/scripting"
 	brustore "github.com/mutexdev/lite_api/internal/store/bru"
 	"github.com/mutexdev/lite_api/internal/store/yamlstore"
@@ -765,7 +766,7 @@ func TestHTTPCustomCaCertificateAllowsSelfSignedServer(t *testing.T) {
 	}
 	preferences := state.Preferences
 	preferences.Request.CustomCaCertificate = CustomCaCertificatePreferences{Enabled: true, FilePath: caPath}
-	preferences.Request.KeepDefaultCaCertificates.Enabled = boolPtr(false)
+	preferences.Request.KeepDefaultCaCertificates.Enabled = prefs.BoolPtr(false)
 	if _, err := app.UpdatePreferences(preferences); err != nil {
 		t.Fatal(err)
 	}
@@ -833,7 +834,7 @@ func TestSSLSessionCacheEnablesTLSResumption(t *testing.T) {
 	}
 	preferences := state.Preferences
 	preferences.Request.CustomCaCertificate = CustomCaCertificatePreferences{Enabled: true, FilePath: caPath}
-	preferences.Request.KeepDefaultCaCertificates.Enabled = boolPtr(false)
+	preferences.Request.KeepDefaultCaCertificates.Enabled = prefs.BoolPtr(false)
 	preferences.Cache.SSLSession.Enabled = true
 	state, err = app.UpdatePreferences(preferences)
 	if err != nil {
@@ -930,8 +931,8 @@ func TestPreferencesStoreAndSendCookiesAreSeparate(t *testing.T) {
 	}
 
 	preferences := state.Preferences
-	preferences.Request.SendCookies = boolPtr(false)
-	preferences.Request.StoreCookies = boolPtr(true)
+	preferences.Request.SendCookies = prefs.BoolPtr(false)
+	preferences.Request.StoreCookies = prefs.BoolPtr(true)
 	if _, err := app.UpdatePreferences(preferences); err != nil {
 		t.Fatal(err)
 	}
@@ -952,8 +953,8 @@ func TestPreferencesStoreAndSendCookiesAreSeparate(t *testing.T) {
 	}
 
 	preferences = state.Preferences
-	preferences.Request.SendCookies = boolPtr(true)
-	preferences.Request.StoreCookies = boolPtr(false)
+	preferences.Request.SendCookies = prefs.BoolPtr(true)
+	preferences.Request.StoreCookies = prefs.BoolPtr(false)
 	if _, err := app.UpdatePreferences(preferences); err != nil {
 		t.Fatal(err)
 	}
@@ -2412,7 +2413,7 @@ func TestPreferencesDevToolsPersistAndNormalize(t *testing.T) {
 	if state.Preferences.DevTools.ActiveTab != "console" || state.Preferences.DevTools.DrawerHeight != 320 || state.Preferences.DevTools.DetailsPanelWidth != 400 {
 		t.Fatalf("devtools preferences should default tab, drawer height, and details width: %#v", state.Preferences.DevTools)
 	}
-	if !reflect.DeepEqual(state.Preferences.DevTools.Network.ColumnWidths, devToolsNetworkDefaultColumnWidths) {
+	if !reflect.DeepEqual(state.Preferences.DevTools.Network.ColumnWidths, prefs.DevToolsNetworkDefaultColumnWidths) {
 		t.Fatalf("network column widths should default to Bruno widths: %#v", state.Preferences.DevTools.Network.ColumnWidths)
 	}
 
@@ -2475,7 +2476,7 @@ func TestPreferencesDevToolsPersistAndNormalize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(state.Preferences.DevTools.Network.ColumnWidths, devToolsNetworkDefaultColumnWidths) {
+	if !reflect.DeepEqual(state.Preferences.DevTools.Network.ColumnWidths, prefs.DevToolsNetworkDefaultColumnWidths) {
 		t.Fatalf("invalid column width count did not reset to defaults: %#v", state.Preferences.DevTools.Network.ColumnWidths)
 	}
 }
@@ -2635,10 +2636,10 @@ func TestPreferencesGeneralRequestAutoSaveCachePersistAndNormalize(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !boolPtrValue(state.Preferences.Request.SSLVerification, false) {
+	if !prefs.BoolPtrValue(state.Preferences.Request.SSLVerification, false) {
 		t.Fatalf("SSL verification should default on: %#v", state.Preferences.Request)
 	}
-	if !boolPtrValue(state.Preferences.Request.KeepDefaultCaCertificates.Enabled, false) {
+	if !prefs.BoolPtrValue(state.Preferences.Request.KeepDefaultCaCertificates.Enabled, false) {
 		t.Fatalf("keep-default CA certificates should default on: %#v", state.Preferences.Request)
 	}
 	if state.Preferences.AutoSave.Enabled || state.Preferences.AutoSave.Interval != 1000 || state.Preferences.Autosave {
@@ -2650,7 +2651,7 @@ func TestPreferencesGeneralRequestAutoSaveCachePersistAndNormalize(t *testing.T)
 	if state.Preferences.Cache.File.Enabled {
 		t.Fatalf("file cache should default off: %#v", state.Preferences.Cache)
 	}
-	if !boolPtrValue(state.Preferences.Request.StoreCookies, false) || !boolPtrValue(state.Preferences.Request.SendCookies, false) {
+	if !prefs.BoolPtrValue(state.Preferences.Request.StoreCookies, false) || !prefs.BoolPtrValue(state.Preferences.Request.SendCookies, false) {
 		t.Fatalf("store/send cookies should default on: %#v", state.Preferences.Request)
 	}
 	if state.Preferences.Request.Timeout != 0 {
@@ -2660,11 +2661,11 @@ func TestPreferencesGeneralRequestAutoSaveCachePersistAndNormalize(t *testing.T)
 	defaultRoot := t.TempDir()
 	caPath := filepath.Join(t.TempDir(), "root.pem")
 	preferences := state.Preferences
-	preferences.Request.SSLVerification = boolPtr(false)
+	preferences.Request.SSLVerification = prefs.BoolPtr(false)
 	preferences.Request.CustomCaCertificate = CustomCaCertificatePreferences{Enabled: true, FilePath: "  " + caPath + "  "}
-	preferences.Request.KeepDefaultCaCertificates.Enabled = boolPtr(false)
-	preferences.Request.StoreCookies = boolPtr(false)
-	preferences.Request.SendCookies = boolPtr(false)
+	preferences.Request.KeepDefaultCaCertificates.Enabled = prefs.BoolPtr(false)
+	preferences.Request.StoreCookies = prefs.BoolPtr(false)
+	preferences.Request.SendCookies = prefs.BoolPtr(false)
 	preferences.Request.Timeout = -10
 	preferences.General.DefaultLocation = defaultRoot
 	preferences.AutoSave = AutoSavePreferences{Enabled: true, Interval: 100}
@@ -2674,16 +2675,16 @@ func TestPreferencesGeneralRequestAutoSaveCachePersistAndNormalize(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if boolPtrValue(state.Preferences.Request.SSLVerification, true) {
+	if prefs.BoolPtrValue(state.Preferences.Request.SSLVerification, true) {
 		t.Fatalf("SSL verification preference was not stored: %#v", state.Preferences.Request)
 	}
 	if state.Preferences.Request.CustomCaCertificate.FilePath != caPath {
 		t.Fatalf("custom CA path was not trimmed: %#v", state.Preferences.Request.CustomCaCertificate)
 	}
-	if boolPtrValue(state.Preferences.Request.KeepDefaultCaCertificates.Enabled, true) {
+	if prefs.BoolPtrValue(state.Preferences.Request.KeepDefaultCaCertificates.Enabled, true) {
 		t.Fatalf("keep-default CA preference was not stored: %#v", state.Preferences.Request.KeepDefaultCaCertificates)
 	}
-	if boolPtrValue(state.Preferences.Request.StoreCookies, true) || boolPtrValue(state.Preferences.Request.SendCookies, true) || state.Preferences.StoreCookies {
+	if prefs.BoolPtrValue(state.Preferences.Request.StoreCookies, true) || prefs.BoolPtrValue(state.Preferences.Request.SendCookies, true) || state.Preferences.StoreCookies {
 		t.Fatalf("store/send cookie preferences were not stored and mirrored: %#v", state.Preferences)
 	}
 	if state.Preferences.Request.Timeout != 0 {
@@ -23957,8 +23958,8 @@ func TestKeyBindingPresetNormalizes(t *testing.T) {
 		{"", ""},
 		{"nonsense", ""},
 	} {
-		if got := normalizeKeyBindingPreset(tc.in); got != tc.want {
-			t.Errorf("normalizeKeyBindingPreset(%q) = %q, want %q", tc.in, got, tc.want)
+		if got := prefs.NormalizeKeyBindingPreset(tc.in); got != tc.want {
+			t.Errorf("prefs.NormalizeKeyBindingPreset(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/mutexdev/lite_api/internal/prefs"
 	"github.com/mutexdev/lite_api/internal/types"
 	"io"
 	"net/http"
@@ -1045,7 +1046,7 @@ type collectionFileCacheEntry struct {
 }
 
 func (a *App) readCollectionFromDiskCachedLocked(collectionPath string) (Collection, error) {
-	preferences := normalizePreferences(a.state.Preferences)
+	preferences := prefs.Normalize(a.state.Preferences)
 	if !preferences.Cache.File.Enabled {
 		return readCollectionFromDisk(collectionPath)
 	}

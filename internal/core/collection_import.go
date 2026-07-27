@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/mutexdev/lite_api/internal/scalar"
 	"io"
 	"net/http"
 	"net/url"
@@ -225,7 +226,7 @@ func (a *App) ChooseCollectionImportFolder() (CollectionImportPickerResult, erro
 func (a *App) collectionImportDefaultDirectory() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return normalizeCollectionImportDirectory(a.state.Preferences.General.LastImportDirectory)
+	return scalar.NormalizeAbsoluteDirectory(a.state.Preferences.General.LastImportDirectory)
 }
 
 func (a *App) rememberCollectionImportDirectory(paths []string, folder bool) error {
@@ -236,7 +237,7 @@ func (a *App) rememberCollectionImportDirectory(paths []string, folder bool) err
 	if !folder {
 		directory = filepath.Dir(directory)
 	}
-	directory = normalizeCollectionImportDirectory(directory)
+	directory = scalar.NormalizeAbsoluteDirectory(directory)
 	if directory == "" {
 		return nil
 	}
@@ -250,22 +251,6 @@ func (a *App) rememberCollectionImportDirectory(paths []string, folder bool) err
 	}
 	a.state.Preferences.General.LastImportDirectory = directory
 	return a.persistLocked()
-}
-
-func normalizeCollectionImportDirectory(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" || !filepath.IsAbs(value) {
-		return ""
-	}
-	resolved, err := filepath.EvalSymlinks(value)
-	if err == nil {
-		value = resolved
-	}
-	info, err := os.Stat(value)
-	if err != nil || !info.IsDir() {
-		return ""
-	}
-	return filepath.Clean(value)
 }
 
 func (a *App) PreviewCollectionImport(request CollectionImportPreviewRequest) (CollectionImportPreview, error) {

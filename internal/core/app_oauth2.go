@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/mutexdev/lite_api/internal/atomicfile"
+	"github.com/mutexdev/lite_api/internal/prefs"
 )
 
 type oauth2TokenResponse struct {
@@ -583,11 +584,11 @@ type oauth2ImplicitWaiter struct {
 	Shutdown    func(context.Context) error
 }
 
-// Read-only: normalizePreferences copies its argument and returns a bool.
+// Read-only: prefs.Normalize copies its argument and returns a bool.
 func (a *App) oauth2ShouldUseSystemBrowser() bool {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return normalizePreferences(a.state.Preferences).OAuth2UseSystemBrowser
+	return prefs.Normalize(a.state.Preferences).OAuth2UseSystemBrowser
 }
 
 func (a *App) openOAuth2AuthorizationURL(authorizeURL, callbackURL, grantType string) error {
