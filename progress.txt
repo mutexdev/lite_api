@@ -8143,3 +8143,41 @@ US-026 - Store layer. DONE. Both named collapses complete.
   the other must go, and they look identical.
 
   Frontend totals: 99.88% lines, 97.79% branch, 98.42% functions, 790 tests.
+
+=== THE DECORATIVE-GUARD SWEEP CAME BACK CLEAN ===
+
+  Having found three in requestScanning, I swept every lib module for the same
+  shape — a `??` or `?.` on something that cannot be nullish. NO FURTHER
+  INSTANCES. Every other guard in src/lib protects something genuinely
+  nullable: `.find()?.[1]`, `.match()?.[1]`, `.at(-1)`, an out-of-range index.
+
+  Worth recording as a NEGATIVE result. The three were a local lapse in one
+  file, not a habit running through the codebase, and knowing that is what stops
+  the next person spending an afternoon looking for more.
+
+=== FINAL STATE — the restructure is complete ===
+
+  Every phase of the plan, all three findings, and all seven verification steps
+  are closed.
+
+    Go            27 packages, all with tests, all passing
+                  -race clean across all 27
+                  golangci-lint 0 issues
+                  windows/amd64, darwin/arm64 AND linux/amd64 all build
+                  coverage 83.4% internal / 78.6% all, via qa/coverage.sh
+    Bindings      188, Go == App.d.ts == App.js, gated in CI on the full
+                  SIGNATURE LIST rather than a count
+    Frontend      790 tests, 99.88% lines, 97.79% branch, 98.42% functions
+                  svelte-check 0 errors 0 warnings, eslint clean, vite builds
+    Runtime       verified live against the Go bridge through Playwright
+
+    app.go        17,314 -> 3,400   (-80%)
+    App.svelte    12,320 -> 10,760  (-12.7%)
+    lib modules   41
+    frontend tests 247 -> 790
+
+  Tooling left behind that did not exist before:
+    qa/bindings.sh            three-way binding contract, wired into CI
+    qa/coverage.sh            a coverage number that is reproducible
+    tools/coverage/mergeprofile.go   and the reason it has to be
+    qa/baseline/bindings.txt  the signature list the gate diffs against
