@@ -9243,3 +9243,50 @@ US-026 - Store layer. DONE. Both named collapses complete.
   immutability and init order, and it turned out to buy something I had not
   argued for — VISIBILITY TO COVERAGE. A var re-export is invisible to both the
   unused linter and the coverage tool, which is a poor place to keep anything.
+
+=== SCANNING FOR EXPORTED-BUT-UNCALLED, AND WHERE IT LED ===
+
+  The dead re-exports taught that EXPORTED IDENTIFIERS ESCAPE THE `unused`
+  LINTER. So I scanned internal/ for exported functions with no PRODUCTION
+  caller: 316 exported functions, 9 with none.
+
+  MY FIRST TWO COUNTS WERE BOTH WRONG. The heuristic scan missed unqualified
+  in-package calls; then my verification grep counted the DECLARATION as a
+  caller, reporting prod=1 for every candidate. Only the third attempt —
+  excluding `:func Name(` explicitly — gave the real answer.
+
+  The nine sorted into three kinds, none of them simply dead:
+
+    RunPreRequestScript, RunPostResponseScript
+        thin delegates to the ...WithJarStateMeta versions production uses.
+        Convenience overloads over the SAME implementation, so tests through
+        them exercise production's code. Harmless.
+
+    awsv4 VerifySignature, PayloadSHA256, SSOCacheFilename
+        test helpers.
+
+    workspacestate Write*/Merge*/Migrate*
+        THE INTERESTING ONE. Production calls ReadWorkspaceRegistry ten times
+        and ReadWindowSession nine, and never the matching writers.
+
+  Chasing that asymmetry: package main writes the registry through its OWN
+  writeWorkspaceMigrationRegistry, using workspacestate only for the path. Two
+  functions, same three steps — Validate, MarshalIndent, atomic write — and the
+  duplicate is JUSTIFIED, because main's goes through the
+  workspacePersistenceWriteAtomic seam so a test can inject a failure at the
+  third write and check the migration leaves no completion marker.
+
+  So they should NOT be collapsed. What was missing was anything holding them in
+  step: a field added to the registry, or a change of indentation, in one and
+  not the other means the migration writes the same file in a different format
+  from every other write of it, and the reader would accept both.
+
+  A differential test now asserts both produce BYTE-IDENTICAL output, land at
+  the same path with owner-only mode, and both reject an invalid registry
+  BEFORE writing anything. Four controls, four failures: differing indentation,
+  either writer skipping validation, and the migration writer losing 0600.
+
+  This repo used the same technique on sameCanonicalWorkspacePath, where two
+  copies were "proven identical by a differential test before they were
+  collapsed". These stay, because the seam earns its keep — so the differential
+  test stays with them instead.
