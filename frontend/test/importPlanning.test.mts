@@ -105,10 +105,32 @@ test('a compatible decision survives a re-preview', () => {
 
 // Passing an id the backend no longer knows is not an error it reports; the
 // import simply proceeds without that item, so a stale id must be dropped here.
-test('ids the new preview no longer contains are dropped', () => {
-  const prior = { ...defaultImportDecision(detailRow()), requests: ['r1', 'r-gone'] }
-  const next = reconcileImportDecision(prior, detailRow())
-  assert.deepEqual(next.requests, ['r1'])
+//
+// EVERY KIND, not just requests. The filter is written three times, once per
+// list, and a version checking only `requests` let the environments and folders
+// lines be deleted with nothing failing — found by controlling all three rather
+// than by reading them.
+test('ids the new preview no longer contains are dropped, for every kind', () => {
+  const kinds = [
+    { key: 'environments', keep: 'e1' },
+    { key: 'folders', keep: 'f1' },
+    { key: 'requests', keep: 'r1' }
+  ] as const
+
+  for (const { key, keep } of kinds) {
+    const prior = { ...defaultImportDecision(detailRow()), [key]: [keep, `${key}-gone`] }
+    const next = reconcileImportDecision(prior as never, detailRow())
+    assert.deepEqual(next[key], [keep], `${key}: a stale id survived`)
+
+    // And the other two lists are untouched by that kind's filtering.
+    for (const other of kinds) {
+      if (other.key === key) continue
+      assert.ok(
+        next[other.key].includes(other.keep),
+        `filtering ${key} also dropped from ${other.key}`
+      )
+    }
+  }
 })
 
 // The user's choice was made when importing was still possible.

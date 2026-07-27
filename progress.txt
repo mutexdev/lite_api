@@ -8630,3 +8630,30 @@ US-026 - Store layer. DONE. Both named collapses complete.
   was asserting Windows semantics on a Linux CI run. Second time this session
   I have written a platform assumption into a test; the first was ToSlash in the
   timeline label. Case removed, and the reason recorded beside it.
+
+--- the same scan on the frontend, and it caught MY OWN recent code ---
+
+  Ran the sibling-line scan over src/lib. Most hits were CSS var() and clamp()
+  in Svelte style blocks — false positives from the regex. The real ones were
+  three x3 runs in importPlanning.ts: allChildIDs, stillPresent, deselected.
+
+  I controlled all nine lines. Seven caught. TWO DID NOT:
+
+      stillPresent(environments)   0 failing
+      stillPresent(folders)        0 failing
+      stillPresent(requests)       2 failing
+
+  My reconcile test checked only `requests`, so the environments and folders
+  filters could each be deleted with nothing failing. THIS IS CODE I WROTE
+  EARLIER IN THIS SAME SESSION, after writing the "test every kind, not one
+  representative" lesson down twice — once for the filter flags in this very
+  file, and once for the swagger2 path-item keys.
+
+  Knowing the pattern did not stop me reproducing it. Only running the control
+  over every instance did. Fixed with a loop over all three kinds, which also
+  asserts that filtering one list does not drop from the other two; all three
+  controls now fail.
+
+  That is the value of scanning for a SHAPE rather than relying on having
+  learned a lesson: the scan does not get tired, and it does not assume its own
+  recent work is fine.
