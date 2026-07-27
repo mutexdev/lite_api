@@ -3,7 +3,7 @@
 // Extracted from App.svelte, where it was ~200 lines of the trickiest pure
 // logic in the frontend with no tests at all. Nothing here is reactive; all of
 // it is state-in, value-out, which is exactly the shape that belongs in a plain
-// module the way sidebarTree.ts and patchQueue.ts already are.
+// module the way patchQueue.ts already is.
 //
 // Three things make this worth testing rather than eyeballing:
 //

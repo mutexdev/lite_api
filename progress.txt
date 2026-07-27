@@ -9401,3 +9401,33 @@ US-026 - Store layer. DONE. Both named collapses complete.
   The last test asserts the offset and the window AGREE about what a row index
   means: scrolled exactly to a group, its first item is the first visible one.
   Two functions that must share a coordinate system, now pinned to each other.
+
+--- and then I reversed the decision, on evidence rather than on nerve ---
+
+  I recorded sidebarTree.ts as unused and explicitly declined to delete it,
+  saying it was a judgment about product history I did not have. Chasing the
+  finding one step further produced the evidence that judgment was waiting on:
+
+    - not imported, not bundled                        (already known)
+    - SUPERSEDED BY A TESTED IMPLEMENTATION            (new — the live walk is
+                                                        now extracted into
+                                                        virtualList.ts)
+    - DIVERGENT FROM THE LIVE BEHAVIOUR                (new — no notFoundLocally
+                                                        rule; wiring it in would
+                                                        be a bug)
+
+  There is no state of the roadmap in which that module is the right code to
+  keep: it cannot be used as-is without introducing a bug, and the behaviour it
+  does encode is already covered by a tested replacement. Its 205-line test file
+  was pinning rules that are WRONG for this app, which is worse than no test.
+
+  Removed: 130 lines of module, 205 of tests. Suite 796 -> 783.
+
+  Both comments that named it were updated rather than left dangling — one in
+  virtualList.ts, which now explains the notFoundLocally rule without pointing
+  at a file that no longer exists, and one in variableResolution.ts that cited
+  it as an exemplar.
+
+  REVERSING ON NEW EVIDENCE IS NOT THE SAME AS BEING TALKED ROUND. The first
+  call was right on what I knew then; the second is right on what I know now,
+  and the difference between them is a specific fact I went and got.

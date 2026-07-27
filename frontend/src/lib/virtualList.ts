@@ -204,10 +204,10 @@ export type SidebarOffsetInput = {
  *   - a SEARCH overrides every collapse, since a result inside a collapsed
  *     folder has to be reachable
  *
- * The `notFoundLocally` rule is the one an older flattening helper in this
- * repo (lib/sidebarTree.ts, now unused) does not have at all — its collection
- * type has no such field. Wiring that helper in would count rows for
- * collections the markup does not draw.
+ * The `notFoundLocally` rule is the one that made an earlier flattening helper
+ * unusable here: it had no such concept, so wiring it in would have counted
+ * rows for collections the markup does not draw. That helper is gone; this
+ * comment is what is left of the reason.
  */
 export function sidebarGroupOffset(
   input: SidebarOffsetInput,
