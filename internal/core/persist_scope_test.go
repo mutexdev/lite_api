@@ -12,30 +12,43 @@ package core
 
 import (
 	"os"
-	"syscall"
 	"testing"
-	"time"
 )
 
 // fileIdentity returns something that changes if and only if the file was
-// rewritten. Inode alone is enough for the atomic-rename writers used here;
-// mtime is included so that a future non-atomic in-place write would also be
-// caught rather than silently passing.
-func fileIdentity(t *testing.T, path string) (identity string, exists bool) {
+// rewritten. Identity alone is enough for the atomic-rename writers used here;
+// mtime is compared too so that a future non-atomic in-place write would also
+// be caught rather than silently passing.
+//
+// This deliberately goes through os.FileInfo and os.SameFile rather than
+// syscall.Stat_t. The previous version read stat.Mtimespec, which exists only
+// on Darwin: on Linux the field is Mtim, and on Windows syscall.Stat_t does not
+// exist at all, so this file compiled on exactly one of the three platforms we
+// release. os.SameFile is the portable spelling of the same question — it
+// compares device and inode on Unix and the volume/file index on Windows.
+func fileIdentity(t *testing.T, path string) (info os.FileInfo, exists bool) {
 	t.Helper()
 	info, err := os.Stat(path)
 	if os.IsNotExist(err) {
-		return "", false
+		return nil, false
 	}
 	if err != nil {
 		t.Fatalf("stat %s: %v", path, err)
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		t.Fatalf("unexpected FileInfo.Sys type for %s", path)
-	}
-	return time.Unix(stat.Mtimespec.Sec, stat.Mtimespec.Nsec).String() + "/" +
-		string(rune(stat.Ino)) + "/" + info.ModTime().String(), true
+	return info, true
+}
+
+// fileWasRewritten reports whether the file changed between two fileIdentity
+// observations.
+//
+// Note this is a real behaviour change, not just a portability one. The old
+// identity string built its inode component as string(rune(stat.Ino)), which
+// converts the inode NUMBER to a single code point — every inode above
+// 0x10FFFF, and every value in the surrogate range, collapses to U+FFFD. Two
+// genuinely different inodes compared equal, so the inode half of the check was
+// mostly inert and the assertion rested on mtime alone.
+func fileWasRewritten(before, after os.FileInfo) bool {
+	return !os.SameFile(before, after) || !before.ModTime().Equal(after.ModTime())
 }
 
 // TestSecretsFileIsNotRewrittenByUnrelatedMutations guards the write-skipping
@@ -86,7 +99,7 @@ func TestSecretsFileIsNotRewrittenByUnrelatedMutations(t *testing.T) {
 	if existedBefore != existsAfter {
 		t.Fatalf("secrets.json existence changed across unrelated mutations: %v -> %v", existedBefore, existsAfter)
 	}
-	if existsAfter && before != after {
+	if existsAfter && fileWasRewritten(before, after) {
 		t.Errorf("secrets.json was rewritten by 20 mutations that changed no secret")
 	}
 }
@@ -142,7 +155,7 @@ func TestSecretsFileIsRewrittenWhenASecretChanges(t *testing.T) {
 	}
 
 	after, _ := fileIdentity(t, secretsPath)
-	if before == after {
+	if !fileWasRewritten(before, after) {
 		t.Errorf("secrets.json was NOT rewritten after a secret value changed — the gate is too aggressive")
 	}
 }
