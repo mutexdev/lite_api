@@ -872,25 +872,51 @@ pre {
   flex: 1;
 }
 
+/* The expand/collapse control. See TreeChevron.svelte for why it changed.
+   The button is the hit area and the svg is the mark: the target stays
+   comfortably clickable while the glyph itself stays small enough to sit
+   quietly beside the row label. */
 .tree-chevron {
   display: grid;
   place-items: center;
-  width: 20px;
-  min-width: 20px;
-  min-height: 20px;
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  min-height: 22px;
   padding: 0;
   border: 0;
   border-radius: var(--radius-4);
   background: transparent;
-  color: var(--rail-muted);
-  font-size: var(--font-size-9);
+  /* Was --rail-muted, which put the only affordance on the row below the
+     contrast of the text it sits next to. */
+  color: var(--rail-text);
   line-height: 1;
-  transition: transform 0.12s ease;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease, color 0.12s ease;
 }
 
+.tree-chevron svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+
+/* The old rule set the same transparent background the button already had, so
+   hovering the only control that opens a folder produced no feedback at all. */
 .tree-chevron:hover {
-  background: transparent;
-  color: var(--rail-text);
+  background: var(--rail-hover);
+  color: var(--rail-accent);
+}
+
+/* --rail-active is the accent ORANGE, not a pressed surface, so the pressed
+   state borrows the row hover tint instead of flashing a solid block. */
+.tree-chevron:active {
+  background: var(--rail-hover-2);
+}
+
+.tree-chevron:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .tree-chevron.collapsed {
@@ -935,7 +961,9 @@ pre {
      folder, so the first level sits flush and only nesting moves right. */
   padding-left: calc((var(--row-depth, 1) - 1) * 12px);
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) 24px;
+  /* First track matches .tree-chevron's width exactly; a narrower track would
+     squash the control back down to the size that made it unclickable. */
+  grid-template-columns: 22px minmax(0, 1fr) 24px;
   align-items: stretch;
   width: 100%;
   border-top: 0;
