@@ -110,6 +110,26 @@ jobs:
             -k "${KEYCHAIN_PASSWORD}" \
             "${KEYCHAIN_PATH}"
 
+          # codesign resolves --sign through the user keychain SEARCH LIST, and
+          # a freshly created keychain is not in it. `codesign --keychain` narrows
+          # where the search happens; it does not add the keychain to the list.
+          #
+          # Run 32211578536 showed the difference precisely: security import said
+          # "1 identity imported", find-identity found the Developer ID identity
+          # (it takes an explicit keychain path, so it never consults the list),
+          # the guard below passed — and codesign then failed with
+          #
+          #   Developer ID Application: MD MOSTAFIJUR RAHAMAN (QMBE7G4PQJ): no identity found
+          #
+          # Prepend ours and keep the existing entries: dropping the login
+          # keychain would break certificate-chain construction, which still
+          # consults the standard search path even when --keychain is given.
+          ORIGINAL_KEYCHAINS="$(security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//')"
+          # Word splitting is intended: this is a list of keychain paths.
+          # shellcheck disable=SC2086
+          security list-keychains -d user -s "${KEYCHAIN_PATH}" ${ORIGINAL_KEYCHAINS}
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+
           SIGNING_IDENTITY="$(security find-identity -v -p codesigning "${KEYCHAIN_PATH}" | awk -F '"' '/Developer ID Application/ { print $2; exit }')"
           if [[ -z "${SIGNING_IDENTITY}" ]]; then
             # Say what WAS imported, not just what was missing. The first time
