@@ -46,6 +46,27 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
+      # main.go embeds frontend/dist via `//go:embed all:frontend/dist`, and
+      # that directory is gitignored — so on a fresh checkout every Go
+      # compilation of package main fails before it starts. release.yml never
+      # hit this because all three of its jobs build the frontend before the Go
+      # steps; these two jobs did not, so the Go gates could not run at all.
+      #
+      # Build the real bundle rather than stubbing the directory: a stub would
+      # compile a program that ships no UI, which is not the program we release.
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build the embedded frontend bundle
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
       - name: Build
         run: go build -tags webkit2_41 ./...
 
@@ -110,6 +131,27 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
+
+      # main.go embeds frontend/dist via `//go:embed all:frontend/dist`, and
+      # that directory is gitignored — so on a fresh checkout every Go
+      # compilation of package main fails before it starts. release.yml never
+      # hit this because all three of its jobs build the frontend before the Go
+      # steps; these two jobs did not, so the Go gates could not run at all.
+      #
+      # Build the real bundle rather than stubbing the directory: a stub would
+      # compile a program that ships no UI, which is not the program we release.
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build the embedded frontend bundle
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
 
       # US-003. Pinned rather than floating: golangci-lint gates the build, so a
       # new release adding a check must be an explicit, reviewable bump.
