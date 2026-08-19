@@ -175,6 +175,7 @@
   import Modal from './lib/modals/Modal.svelte'
   import SidebarHeader from './lib/SidebarHeader.svelte'
   import SidebarActionMenu from './lib/sidebar/SidebarActionMenu.svelte'
+  import TreeChevron from './lib/sidebar/TreeChevron.svelte'
   import SidebarSearch from './lib/SidebarSearch.svelte'
   import RequestSettingsPanel from './lib/workbench/RequestSettingsPanel.svelte'
   import ProtocolRequestLine from './lib/workbench/ProtocolRequestLine.svelte'
@@ -7634,14 +7635,11 @@
           {@const collectionCollapsed = !searchQuery && Boolean(collapsedSidebarCollections[collection.id])}
           <article class:active={collection.id === activeCollection?.id}>
             <header>
-              <button
-                class="tree-chevron"
-                class:collapsed={collectionCollapsed}
-                type="button"
-                aria-expanded={!collectionCollapsed}
-                aria-label={`${collectionCollapsed ? 'Expand' : 'Collapse'} ${collection.name}`}
-                onclick={() => toggleSidebarCollection(collection.id)}
-              >▾</button>
+              <TreeChevron
+                expanded={!collectionCollapsed}
+                label={collection.name}
+                onToggle={() => toggleSidebarCollection(collection.id)}
+              />
               <button
                 class="collection-title"
                 id={sidebarRowDomId(`c:${collection.id}`)}
@@ -7653,6 +7651,7 @@
                 tabindex="-1"
                 oncontextmenu={(event) => sidebarRowContextMenu(event, `c:${collection.id}`)}
                 onclick={() => { markSidebarRowFocused(`c:${collection.id}`); selectCollection(collection.id) }}
+                ondblclick={() => toggleSidebarCollection(collection.id)}
               >{collection.name}</button>
               <button
                 class="row-menu-button"
@@ -7696,14 +7695,11 @@
                 {@const folderCollapsed = Boolean(group.folder) && !searchQuery && Boolean(collapsedSidebarFolders[sidebarFolderKey(collection.id, group.folder)])}
                 {#if group.folder}
                   <div class="folder-row-shell" style={`--row-depth: ${sidebarFolderDepth(group.folder)}`}>
-                    <button
-                      class="tree-chevron"
-                      class:collapsed={folderCollapsed}
-                      type="button"
-                      aria-expanded={!folderCollapsed}
-                      aria-label={`${folderCollapsed ? 'Expand' : 'Collapse'} folder ${group.folder}`}
-                      onclick={() => toggleSidebarFolder(collection.id, group.folder)}
-                    >▾</button>
+                    <TreeChevron
+                      expanded={!folderCollapsed}
+                      label={`folder ${group.folder}`}
+                      onToggle={() => toggleSidebarFolder(collection.id, group.folder)}
+                    />
                     <button
                       class="folder-row"
                       id={sidebarRowDomId(`f:${collection.id}:${group.folder}`)}
@@ -7713,9 +7709,10 @@
                       aria-selected={focusedSidebarRowKey === `f:${collection.id}:${group.folder}`}
                       class:row-cursor={focusedSidebarRowKey === `f:${collection.id}:${group.folder}`}
                       tabindex="-1"
-                      title={`${group.folder} settings`}
+                      title={`${group.folder} — click for settings, double-click to open`}
                       oncontextmenu={(event) => sidebarRowContextMenu(event, `f:${collection.id}:${group.folder}`)}
                       onclick={() => { markSidebarRowFocused(`f:${collection.id}:${group.folder}`); selectFolderSettings(collection, group.folder) }}
+                      ondblclick={() => toggleSidebarFolder(collection.id, group.folder)}
                     >{sidebarFolderLabel(group.folder)}</button>
                     <!-- Was seven always-visible buttons labelled F i T + ✎ C x:
                          the same actions this menu renders, spelled as single

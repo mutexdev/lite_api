@@ -298,10 +298,37 @@ func installPostmanSideEffects(runtime *goja.Runtime, pm, bruObject *goja.Object
 	// pm.execution is where modern Postman puts run control.
 	execution := runtime.NewObject()
 	_ = execution.Set("setNextRequest", bruObject.Get("setNextRequest"))
+	skipRequest := goja.Value(nil)
 	if runner := bruObject.Get("runner"); runner != nil && !goja.IsUndefined(runner) {
 		if runnerObject := runner.ToObject(runtime); runnerObject != nil {
-			_ = execution.Set("skipRequest", runnerObject.Get("skipRequest"))
+			skipRequest = runnerObject.Get("skipRequest")
+			_ = execution.Set("skipRequest", skipRequest)
 		}
 	}
 	_ = pm.Set("execution", execution)
+
+	// pm.request.abort() — an idiom rather than an API.
+	//
+	// It appears throughout published collections as the way to stop a request
+	// from a pre-request script, and it works nowhere: postman-collection's
+	// Request has no abort method, so in Postman the call throws and the
+	// request is stopped as a side effect of the script dying. Authors read
+	// that as success and the idiom spread.
+	//
+	// LiteAPI can do better than reproducing the accident. Aliasing it onto the
+	// skip machinery does what every author of the line meant, and does it
+	// deliberately: the request is marked skipped and the timeline says so,
+	// instead of the run ending in "Object has no member 'abort'".
+	//
+	// Wired here rather than in installPostmanRequestAPI because pm.request is
+	// built before the runner is in scope, and this must be the SAME function
+	// object as pm.execution.skipRequest — the send path consults the runner's
+	// flag, so a second implementation would be a skip that never happened.
+	if skipRequest != nil && !goja.IsUndefined(skipRequest) {
+		if request := pm.Get("request"); request != nil && !goja.IsUndefined(request) {
+			if requestObject := request.ToObject(runtime); requestObject != nil {
+				_ = requestObject.Set("abort", skipRequest)
+			}
+		}
+	}
 }
