@@ -11,6 +11,17 @@
   export let activeCollection: types.Collection | undefined
   export let submitCreationFlow: () => void
   export let closeCreationFlow: () => Promise<void> | void
+
+  /** The folder the request will be created in; '' means the collection root. */
+  export let destinationFolder = ''
+
+  // Naming the destination matters now that this dialog can be opened from a
+  // folder's own menu. Without it the two cases — root and folder — look
+  // identical, and the only way to find out where the request went is to go and
+  // look for it.
+  $: destination = destinationFolder
+    ? `${activeCollection?.name ?? 'the active collection'} / ${destinationFolder}`
+    : (activeCollection?.name ?? 'the active collection')
 </script>
 
 <Modal labelledBy="new-request-title" onClose={() => void closeCreationFlow()} dialogClass="prompt-dialog compact-create-dialog">
@@ -18,13 +29,13 @@
       <header>
         <div>
           <h2 id="new-request-title">New request</h2>
-          <p>Create a local scratch request in {activeCollection?.name ?? 'the active collection'}.</p>
+          <p>Create a local scratch request in {destination}.</p>
         </div>
         <button type="button" class="icon-button" aria-label="Close new request" title="Close" on:click={() => void closeCreationFlow()}>×</button>
       </header>
       <label>
         <span>Name</span>
-        <input data-new-request-name aria-label="New request name" bind:value={requestName} placeholder="Untitled request" />
+        <input data-modal-autofocus data-new-request-name aria-label="New request name" bind:value={requestName} placeholder="Untitled request" />
       </label>
       <label>
         <span>Protocol</span>

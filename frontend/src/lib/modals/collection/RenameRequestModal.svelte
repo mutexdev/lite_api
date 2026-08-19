@@ -34,7 +34,7 @@
         <div class="prompt-fields">
           <label>
             <span>Request Name</span>
-            <input
+            <input data-modal-autofocus
               id="collection-item-name"
               name="name"
               aria-label="Rename request name"

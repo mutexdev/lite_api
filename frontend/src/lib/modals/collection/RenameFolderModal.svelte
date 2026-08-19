@@ -29,7 +29,7 @@
         <div class="prompt-fields">
           <label>
             <span>Folder Name</span>
-            <input
+            <input data-modal-autofocus
               id="collection-item-name"
               name="name"
               aria-label="Rename folder name"
