@@ -118,6 +118,28 @@
   --method-ws: #0e7c86;
   --method-grpc: #623497;
   --method-graphql: #c8398a;
+
+  /* Editor syntax. See lib/workbench/syntaxHighlight.ts for why these live in
+     the theme rather than in the highlight style, and test/syntaxHighlight.test.mts
+     for the two rules they have to keep: every token legible against --surface,
+     and --syntax-invalid the only red. Red is how the linter gutter, the
+     response pane and the variable underlines say "wrong"; a string literal
+     borrowing it made an ordinary JSON body read as a page of errors. */
+  --syntax-key: #0550ae;
+  --syntax-string: #116329;
+  --syntax-number: #0b6169;
+  --syntax-boolean: #7b3fc4;
+  --syntax-keyword: #7b3fc4;
+  --syntax-function: #6639ba;
+  --syntax-type: #0b6169;
+  --syntax-tag: #116329;
+  --syntax-variable: #7a2f00;
+  --syntax-punctuation: #4a4a4a;
+  --syntax-meta: #5c5c5c;
+  --syntax-comment: #5c5c5c;
+  --syntax-heading: #0550ae;
+  --syntax-link: #0550ae;
+  --syntax-invalid: #b02a1e;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--text);
   background: var(--app-bg);
@@ -194,6 +216,23 @@ html[data-theme="dark"] {
   --method-ws: #4dc2cc;
   --method-grpc: #b18ae0;
   --method-graphql: #f06eb2;
+
+  /* The dark counterpart. Same rule, same only-red. */
+  --syntax-key: #79c0ff;
+  --syntax-string: #7ee787;
+  --syntax-number: #56d4dd;
+  --syntax-boolean: #d2a8ff;
+  --syntax-keyword: #d2a8ff;
+  --syntax-function: #d2a8ff;
+  --syntax-type: #56d4dd;
+  --syntax-tag: #7ee787;
+  --syntax-variable: #ffa657;
+  --syntax-punctuation: #bdbdbd;
+  --syntax-meta: #a8a8a8;
+  --syntax-comment: #a8a8a8;
+  --syntax-heading: #79c0ff;
+  --syntax-link: #79c0ff;
+  --syntax-invalid: #ff8a80;
 }
 
 html[data-theme-variant="light-monochrome"] {
@@ -260,6 +299,29 @@ html[data-theme-variant="catppuccin-latte"] {
   --rail-input-border: #bcc0cc;
   --rail-active: #8839ef;
   --rail-accent: #8839ef;
+
+  /* Catppuccin's own syntax mapping: mauve keywords, green strings, peach numbers,
+     blue functions. Upstream palette, not a re-derivation — except the peach, which
+     Latte publishes as #fe640b. That sits at 2.98:1 on this theme's surface, i.e.
+     just under the floor for a colour that numbers are read in. Darkened to #ea5a00
+     (3.5:1), which is the same peach a shade down rather than a different hue. Latte's
+     yellow (#df8e1d, 2.62:1) is darkened to #b5750f for the same reason — Latte is
+     published against its own #eff1f5 base and its warm end does not survive white. */
+  --syntax-key: #1e66f5;
+  --syntax-string: #40a02b;
+  --syntax-number: #ea5a00;
+  --syntax-boolean: #ea5a00;
+  --syntax-keyword: #8839ef;
+  --syntax-function: #1e66f5;
+  --syntax-type: #b5750f;
+  --syntax-tag: #1e66f5;
+  --syntax-variable: #4c4f69;
+  --syntax-punctuation: #6c6f85;
+  --syntax-meta: #7c7f93;
+  --syntax-comment: #7c7f93;
+  --syntax-heading: #1e66f5;
+  --syntax-link: #179299;
+  --syntax-invalid: #d20f39;
 }
 
 html[data-theme-variant="vscode-light"] {
@@ -293,6 +355,23 @@ html[data-theme-variant="vscode-light"] {
   --rail-input-border: #c8c8c8;
   --rail-active: #007acc;
   --rail-accent: #007acc;
+
+  /* Light+ (default light), verbatim — INCLUDING its red strings (#a31515). Someone choosing 'VS Code Light' is asking for VS Code Light; the only-red rule is a rule about THIS app's default themes, not a correction to somebody else's. */
+  --syntax-key: #0451a5;
+  --syntax-string: #a31515;
+  --syntax-number: #098658;
+  --syntax-boolean: #0000ff;
+  --syntax-keyword: #0000ff;
+  --syntax-function: #795e26;
+  --syntax-type: #267f99;
+  --syntax-tag: #800000;
+  --syntax-variable: #001080;
+  --syntax-punctuation: #3b3b3b;
+  --syntax-meta: #3b3b3b;
+  --syntax-comment: #008000;
+  --syntax-heading: #800000;
+  --syntax-link: #0000ff;
+  --syntax-invalid: #cd3131;
 }
 
 html[data-theme-variant="dark-monochrome"] {
@@ -361,6 +440,23 @@ html[data-theme-variant="catppuccin-frappe"] {
   --rail-hover-2: #353a4e;
   --rail-active: #ca9ee6;
   --rail-accent: #f4b8e4;
+
+  /* Catppuccin's own syntax mapping: mauve keywords, green strings, peach numbers, blue functions. Upstream palette, not a re-derivation. */
+  --syntax-key: #8caaee;
+  --syntax-string: #a6d189;
+  --syntax-number: #ef9f76;
+  --syntax-boolean: #ef9f76;
+  --syntax-keyword: #ca9ee6;
+  --syntax-function: #8caaee;
+  --syntax-type: #e5c890;
+  --syntax-tag: #8caaee;
+  --syntax-variable: #c6d0f5;
+  --syntax-punctuation: #b5bfe2;
+  --syntax-meta: #949cbb;
+  --syntax-comment: #949cbb;
+  --syntax-heading: #8caaee;
+  --syntax-link: #81c8be;
+  --syntax-invalid: #e78284;
 }
 
 html[data-theme-variant="catppuccin-macchiato"] {
@@ -385,6 +481,23 @@ html[data-theme-variant="catppuccin-macchiato"] {
   --rail-hover-2: #2a2e45;
   --rail-active: #c6a0f6;
   --rail-accent: #f5bde6;
+
+  /* Catppuccin's own syntax mapping: mauve keywords, green strings, peach numbers, blue functions. Upstream palette, not a re-derivation. */
+  --syntax-key: #8aadf4;
+  --syntax-string: #a6da95;
+  --syntax-number: #f5a97f;
+  --syntax-boolean: #f5a97f;
+  --syntax-keyword: #c6a0f6;
+  --syntax-function: #8aadf4;
+  --syntax-type: #eed49f;
+  --syntax-tag: #8aadf4;
+  --syntax-variable: #cad3f5;
+  --syntax-punctuation: #b8c0e0;
+  --syntax-meta: #939ab7;
+  --syntax-comment: #939ab7;
+  --syntax-heading: #8aadf4;
+  --syntax-link: #8bd5ca;
+  --syntax-invalid: #ed8796;
 }
 
 html[data-theme-variant="catppuccin-mocha"] {
@@ -409,6 +522,23 @@ html[data-theme-variant="catppuccin-mocha"] {
   --rail-hover-2: #252538;
   --rail-active: #cba6f7;
   --rail-accent: #f5c2e7;
+
+  /* Catppuccin's own syntax mapping: mauve keywords, green strings, peach numbers, blue functions. Upstream palette, not a re-derivation. */
+  --syntax-key: #89b4fa;
+  --syntax-string: #a6e3a1;
+  --syntax-number: #fab387;
+  --syntax-boolean: #fab387;
+  --syntax-keyword: #cba6f7;
+  --syntax-function: #89b4fa;
+  --syntax-type: #f9e2af;
+  --syntax-tag: #89b4fa;
+  --syntax-variable: #cdd6f4;
+  --syntax-punctuation: #bac2de;
+  --syntax-meta: #9399b2;
+  --syntax-comment: #9399b2;
+  --syntax-heading: #89b4fa;
+  --syntax-link: #94e2d5;
+  --syntax-invalid: #f38ba8;
 }
 
 html[data-theme-variant="nord"] {
@@ -433,6 +563,23 @@ html[data-theme-variant="nord"] {
   --rail-hover-2: #353c4a;
   --rail-active: #88c0d0;
   --rail-accent: #a3be8c;
+
+  /* Nord's own palette. Comments are lifted from nord3-bright (#616e88) to #8b98b0 — the upstream value sits at 2.5:1 on nord0 and is a long-standing legibility complaint about Nord, not a look worth reproducing faithfully. */
+  --syntax-key: #8fbcbb;
+  --syntax-string: #a3be8c;
+  --syntax-number: #b48ead;
+  --syntax-boolean: #81a1c1;
+  --syntax-keyword: #81a1c1;
+  --syntax-function: #88c0d0;
+  --syntax-type: #8fbcbb;
+  --syntax-tag: #81a1c1;
+  --syntax-variable: #d8dee9;
+  --syntax-punctuation: #d8dee9;
+  --syntax-meta: #8b98b0;
+  --syntax-comment: #8b98b0;
+  --syntax-heading: #88c0d0;
+  --syntax-link: #88c0d0;
+  --syntax-invalid: #bf616a;
 }
 
 html[data-theme-variant="vscode-dark"] {
@@ -457,6 +604,23 @@ html[data-theme-variant="vscode-dark"] {
   --rail-hover-2: #333337;
   --rail-active: #3794ff;
   --rail-accent: #9cdcfe;
+
+  /* Dark+ (default dark), verbatim. */
+  --syntax-key: #9cdcfe;
+  --syntax-string: #ce9178;
+  --syntax-number: #b5cea8;
+  --syntax-boolean: #569cd6;
+  --syntax-keyword: #569cd6;
+  --syntax-function: #dcdcaa;
+  --syntax-type: #4ec9b0;
+  --syntax-tag: #569cd6;
+  --syntax-variable: #9cdcfe;
+  --syntax-punctuation: #d4d4d4;
+  --syntax-meta: #d4d4d4;
+  --syntax-comment: #6a9955;
+  --syntax-heading: #569cd6;
+  --syntax-link: #4ec9b0;
+  --syntax-invalid: #f44747;
 }
 
 * {
