@@ -592,23 +592,31 @@ func TestPmResponseIsAbsentDuringThePreRequestPhase(t *testing.T) {
 
 // US-042 — pm's side effects.
 //
-// All three delegate to bru, and the tests are built to fail if any of them
-// were reimplemented instead. Each has machinery that is easy to overlook:
-// bru.sendRequest records a timeline entry and enforces the recursion depth
-// limit, bru.cookies is bound to THIS request's jar and URL, and
-// bru.setNextRequest feeds the runner's control flow. A parallel implementation
-// would produce requests missing from the timeline, cookies from the wrong
-// host, and a setNextRequest the runner never sees — none of which fails
-// visibly.
+// These delegate to bru, and the tests are built to fail if any of them were
+// reimplemented instead. Each has machinery that is easy to overlook:
+// bru.cookies is bound to THIS request's jar and URL, and bru.setNextRequest
+// feeds the runner's control flow. A parallel implementation would produce
+// cookies from the wrong host and a setNextRequest the runner never sees —
+// neither of which fails visibly.
+//
+// sendRequest USED TO BE ON THIS LIST, asserted as `pm.sendRequest ===
+// bru.sendRequest`. It no longer is, and the reason is worth recording: the two
+// APIs describe a request body differently — Postman's `body` may be a
+// definition with a `mode`, Bruno's never is — so one function cannot honour
+// both contracts. They are now built from one factory with the dialect as the
+// only difference.
+//
+// Reference identity was only ever standing in for "the machinery is shared",
+// and the machinery that matters is the timeline entry. That is asserted
+// directly in TestBothSendRequestDialectsReachTheTimeline below, which is a
+// stronger claim than `===` ever made: two identical references would satisfy
+// the old test even if both had stopped recording.
 
 func TestPmSideEffectsAreTheSameObjectsAsBru(t *testing.T) {
 	app, collectionID, itemID, closeServer := scriptProbeFixture(t)
 	defer closeServer()
 
 	state := sendWithScripts(t, app, collectionID, itemID, "", "", `
-		test("pm.sendRequest IS bru.sendRequest", function () {
-			expect(pm.sendRequest === bru.sendRequest).to.equal(true)
-		})
 		test("pm.cookies IS bru.cookies", function () {
 			expect(pm.cookies === bru.cookies).to.equal(true)
 		})
