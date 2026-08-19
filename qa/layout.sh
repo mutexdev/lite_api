@@ -105,7 +105,22 @@ fi
 # nothing measured them. A number nobody checks is the same failure mode as a
 # lint exclusion anchored to a path that moved: it does not error, it just stops
 # being true, and it is believed for exactly as long as that goes unnoticed.
-packages=$(find internal -mindepth 1 -type d -not -path '*/.*' | wc -l | tr -d ' ')
+# Counted as GO PACKAGES, not as directories.
+#
+# This used to be a plain directory count, which is not the same thing and was
+# quietly wrong in both directions. internal/auth and internal/store hold only
+# subpackages and contain no .go files of their own, so they inflated the total;
+# and a directory of vendored assets (internal/scripting/thirdparty/lodash)
+# counted as a package while being nothing of the kind.
+#
+# The distinction matters because of what the number is USED for: the document
+# tells the reader to check a new package name against the existing ones,
+# because Wails addresses bound types by short package name and two alike
+# collide silently in the generated TypeScript. A directory with no Go in it can
+# never take part in that collision, so counting it makes the advice wrong.
+packages=$(find internal -mindepth 1 -type d -not -path '*/.*' \
+             -exec sh -c 'ls "$1"/*.go >/dev/null 2>&1' _ {} \; -print \
+           | wc -l | tr -d ' ')
 for quoted in $(grep -oE '\b[0-9]+ packages\b|existing [0-9]+\.' docs/architecture.md \
                  | grep -oE '[0-9]+' || true); do
   if [ "$quoted" != "$packages" ]; then

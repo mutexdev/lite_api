@@ -133,10 +133,12 @@ func installScriptRequire(runtime *goja.Runtime, collectionPath, sandboxMode str
 	jwtObject := newScriptJWTObject(runtime)
 	modules["jsonwebtoken"] = jwtObject
 	modules["jwt"] = jwtObject
-	lodashObject := newScriptLodashObject(runtime)
-	modules["lodash"] = lodashObject
-	modules["underscore"] = lodashObject
-	installScriptLodashSubpathModules(runtime, modules, lodashObject)
+	// Deliberately NOT registered in `modules`: that map is built eagerly, and
+	// putting lodash in it would evaluate the library for every runtime. The
+	// require() implementations below consult lodashState first, so
+	// require("lodash") and require("lodash/random") resolve without lodash
+	// existing until one of them is actually called.
+	lodashState := &scriptLodashState{runtime: runtime}
 	uuidObject := newScriptUUIDObject(runtime)
 	modules["uuid"] = uuidObject
 	nanoidObject := newScriptNanoIDObject(runtime)
@@ -194,7 +196,7 @@ func installScriptRequire(runtime *goja.Runtime, collectionPath, sandboxMode str
 	modules["atob"] = atob
 	modules["btoa"] = btoa
 	_ = runtime.Set("jwt", jwtObject)
-	_ = runtime.Set("_", lodashObject)
+	installScriptLodash(runtime, lodashState)
 	_ = runtime.Set("atob", atob)
 	_ = runtime.Set("btoa", btoa)
 	bufferModule := installScriptBuffer(runtime)
@@ -323,6 +325,9 @@ func installScriptRequire(runtime *goja.Runtime, collectionPath, sandboxMode str
 			if module, ok := modules[requiredName]; ok {
 				return module
 			}
+			if module := scriptLodashModule(runtime, lodashState, requiredName); module != nil {
+				return module
+			}
 			if developerMode {
 				if module, err := loadNodeModule(moduleDir, requiredName); err == nil {
 					return module
@@ -378,6 +383,9 @@ func installScriptRequire(runtime *goja.Runtime, collectionPath, sandboxMode str
 	}
 	_ = runtime.Set("require", func(name string) goja.Value {
 		if module, ok := modules[name]; ok {
+			return module
+		}
+		if module := scriptLodashModule(runtime, lodashState, name); module != nil {
 			return module
 		}
 		if scriptModuleIsLocalPath(name) {
