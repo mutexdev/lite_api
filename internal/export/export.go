@@ -466,7 +466,26 @@ func sharePostmanURL(item types.RequestItem) map[string]interface{} {
 }
 
 func sharePostmanBody(item types.RequestItem) map[string]interface{} {
+	// A GraphQL body is reachable two ways, and this used to honour only one.
+	//
+	// `item.Type == "graphql"` is what the Postman IMPORTER sets, so imported
+	// requests exported fine. But the Body mode dropdown sets `body.mode` and
+	// leaves the type alone, so a GraphQL body added to an ordinary HTTP request
+	// — type "http", mode "graphql" — fell past this check into the switch
+	// below, which had no graphql case, and returned nil. The export was a valid
+	// collection with `"body": null`: the query and variables simply gone, with
+	// nothing anywhere saying so.
+	//
+	// Everything else in the app keys off body.Mode — buildBody sends it, the
+	// .bru store persists it — so the mode is the authority here too, with the
+	// type folded in the way store/bru does it, for a graphql-typed request
+	// whose mode was never set.
+	mode := item.Body.Mode
 	if item.Type == "graphql" {
+		mode = "graphql"
+	}
+	switch mode {
+	case "graphql":
 		return map[string]interface{}{
 			"mode": "graphql",
 			"graphql": map[string]interface{}{
@@ -474,8 +493,6 @@ func sharePostmanBody(item types.RequestItem) map[string]interface{} {
 				"variables": item.Body.GraphQLVariables,
 			},
 		}
-	}
-	switch item.Body.Mode {
 	case "json":
 		return sharePostmanRawBody(item.Body.JSON, "json")
 	case "xml":
