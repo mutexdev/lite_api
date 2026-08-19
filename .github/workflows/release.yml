@@ -190,6 +190,17 @@ jobs:
     name: Build Windows
     runs-on: windows-2025
     timeout-minutes: 60
+    # Windows is knowingly excluded from the release for now. 61 tests fail on
+    # it, and 35 of those are one unmade decision: the workspace migration
+    # rejects its own artifacts because it requires 0600 and Windows reports
+    # 0666, so the app does not start there at all. That is product work, not a
+    # release-pipeline problem.
+    #
+    # The job still runs and still reports, so the failure stays visible and the
+    # count stays measurable — it just no longer holds macOS and Linux hostage.
+    # Remove this line, and restore build-windows to the release job's needs,
+    # once the permission model has a Windows answer.
+    continue-on-error: true
     steps:
       - name: Check out source
         uses: actions/checkout@v7
@@ -448,7 +459,6 @@ jobs:
     timeout-minutes: 20
     needs:
       - build-macos
-      - build-windows
       - build-linux
     permissions:
       contents: write
@@ -465,9 +475,9 @@ jobs:
           set -euo pipefail
 
           cd dist
+          # Two, not three: see the note on build-windows above.
           expected=(
             "LiteAPI-${RELEASE_TAG}-macOS-universal.dmg"
-            "LiteAPI-${RELEASE_TAG}-windows-amd64-installer.exe"
             "LiteAPI-${RELEASE_TAG}-linux-amd64.tar.gz"
           )
 
@@ -478,9 +488,13 @@ jobs:
             fi
           done
 
+          # Still an exact count rather than a floor. If the Windows job starts
+          # passing again its artifact would appear here, and that should be a
+          # deliberate re-inclusion rather than a package quietly joining the
+          # release without its checksum being listed above.
           package_count="$(find . -maxdepth 1 -type f | wc -l | tr -d ' ')"
-          if [[ "${package_count}" != "3" ]]; then
-            echo "Expected exactly three platform packages, found ${package_count}." >&2
+          if [[ "${package_count}" != "2" ]]; then
+            echo "Expected exactly two platform packages, found ${package_count}." >&2
             find . -maxdepth 1 -type f -print
             exit 1
           fi
@@ -492,13 +506,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # A reader who finds no .exe here should learn why from the release
+          # itself rather than from the workflow file.
+          cat > "${RUNNER_TEMP}/platform-note.md" <<'NOTE'
+          ## Platforms in this release
+
+          macOS (universal, signed and notarized) and Linux (amd64).
+
+          **Windows is not included yet.** LiteAPI does not currently start on
+          Windows: the workspace migration requires owner-only file permissions
+          that Windows does not express as POSIX modes, and rejects its own
+          artifacts on startup. A Windows build will ship once that has a proper
+          answer.
+          NOTE
+
           gh release create "${RELEASE_TAG}" \
             dist/LiteAPI-${RELEASE_TAG}-macOS-universal.dmg \
-            dist/LiteAPI-${RELEASE_TAG}-windows-amd64-installer.exe \
             dist/LiteAPI-${RELEASE_TAG}-linux-amd64.tar.gz \
             dist/SHA256SUMS.txt \
             --repo "${GITHUB_REPOSITORY}" \
             --target "${GITHUB_SHA}" \
             --title "LiteAPI ${RELEASE_TAG}" \
+            --notes-file "${RUNNER_TEMP}/platform-note.md" \
             --generate-notes \
             --latest
