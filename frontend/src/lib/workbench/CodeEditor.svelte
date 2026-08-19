@@ -1,9 +1,9 @@
 <script lang="ts">
   import { isLargeDocument, utf8ExceedsLimit, variableSignature, type DocumentSizeMemo, type SignatureMemo } from './documentSize'
   import { onDestroy, onMount } from 'svelte'
-  import { Compartment, EditorSelection, EditorState, RangeSetBuilder } from '@codemirror/state'
+  import { Compartment, EditorSelection, EditorState, Prec, RangeSetBuilder } from '@codemirror/state'
   import { Decoration, EditorView, ViewPlugin, type DecorationSet } from '@codemirror/view'
-  import { bracketMatching, indentOnInput, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
+  import { bracketMatching, indentOnInput, syntaxHighlighting } from '@codemirror/language'
   import { lintGutter, linter, type Diagnostic } from '@codemirror/lint'
   import { json, jsonLanguage, jsonParseLinter } from '@codemirror/lang-json'
   import { xml } from '@codemirror/lang-xml'
@@ -11,6 +11,7 @@
   import { markdown } from '@codemirror/lang-markdown'
   import { openSearchPanel } from '@codemirror/search'
   import { basicSetup } from 'codemirror'
+  import { liteApiHighlightStyle } from './syntaxHighlight'
 
   type Language = 'json' | 'xml' | 'javascript' | 'markdown' | 'text' | 'graphql'
   type VariableInfo = { name: string; scope: string; resolvedValue: string; secret: boolean; found: boolean; validName: boolean }
@@ -111,7 +112,12 @@
       basicSetup,
       bracketMatching(),
       indentOnInput(),
-      syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+      // Prec.highest, not merely "listed later". CodeMirror resolves a tag
+      // against the HIGHEST-PRECEDENCE highlighter that has a rule for it, and
+      // `basicSetup` brings its own defaultHighlightStyle along. Appended
+      // normally this style would sit below that one and never paint a single
+      // token — the change would look applied and do nothing.
+      Prec.highest(syntaxHighlighting(liteApiHighlightStyle, { fallback: true })),
       lintGutter(),
       configurationCompartment.of(configurationExtensions()),
       EditorView.updateListener.of((update) => {

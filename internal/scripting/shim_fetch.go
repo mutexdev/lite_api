@@ -13,7 +13,10 @@ import (
 
 func installScriptFetch(runtime *goja.Runtime, vars map[string]string) {
 	_ = runtime.Set("__liteApiFetchSend", func(call goja.FunctionCall) goja.Value {
-		responseValue, errorValue, _, err := scriptSendRequest(runtime, call.Argument(0), vars)
+		// fetch() is the web API, not Postman's. Its `body` is a string or a
+		// FormData the JS shim has already encoded, so it takes the payload
+		// dialect — a `{mode: …}` object reaching here is somebody's JSON.
+		responseValue, errorValue, _, err := scriptSendRequest(runtime, dialectBruno, call.Argument(0), vars)
 		if err != nil {
 			panic(runtime.NewGoError(err))
 		}

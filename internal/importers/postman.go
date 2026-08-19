@@ -307,9 +307,26 @@ func postmanAuthBoolValue(values interface{}, key string, fallback bool) bool {
 func postmanOAuth2Auth(values interface{}) types.OAuth2Auth {
 	postmanGrantType := postmanAuthValue(values, "grant_type")
 	grantType := mapPostmanOAuth2GrantType(postmanGrantType)
-	tokenPlacement := "url"
-	if postmanAuthValue(values, "addTokenTo") == "header" {
-		tokenPlacement = "header"
+	// Where the access token goes. Postman writes `addTokenTo` only when it is
+	// not the default, so the common collection omits it entirely — and the
+	// default is the HEADER:
+	//
+	//   postman-runtime 7.56.1 lib/authorizer/oauth2.js
+	//   params.addTokenTo = params.addTokenTo || HEADER;
+	//
+	// This defaulted to "url" instead, which sent every imported OAuth2 request
+	// as `?access_token=…` with no Authorization header. Servers that read only
+	// the header see an unauthenticated call and answer with whatever they say
+	// about an empty identity — a message that names the server's own authz
+	// model and points nowhere near the import.
+	//
+	// The value for the query placement is `queryParams`, not `url`; `url` and
+	// `query` are accepted too because that is LiteAPI's own vocabulary and a
+	// hand-edited collection may carry either.
+	tokenPlacement := "header"
+	switch strings.ToLower(strings.TrimSpace(postmanAuthValue(values, "addTokenTo"))) {
+	case "queryparams", "query", "url":
+		tokenPlacement = "url"
 	}
 	credentialsPlacement := "basic_auth_header"
 	if postmanAuthValue(values, "client_authentication") == "body" {

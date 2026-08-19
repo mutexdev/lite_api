@@ -561,55 +561,7 @@ func NewScriptRuntimeWithMeta(item types.RequestItem, response types.Response, v
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 		return scriptResolvedPromise(runtime, goja.Undefined())
 	})
-	_ = bruObject.Set("sendRequest", func(call goja.FunctionCall) goja.Value {
-		responseValue, errorValue, timelineEntry, err := scriptSendRequest(runtime, call.Argument(0), vars)
-		if timelineEntry != nil && meta.RecordTimeline != nil {
-			entry := *timelineEntry
-			entry.ID = scalar.NewID("timeline")
-			entry.Kind = "scripted-request"
-			entry.Source = "sendRequest"
-			entry.Phase = scalar.FirstNonEmpty(meta.TimelinePhase, "pre-request")
-			entry.RequestID = item.ID
-			entry.SourceFile = TimelineSourceFileForItem(meta.CollectionPath, item)
-			if entry.Message == "" {
-				statusLabel := entry.StatusText
-				if entry.Status > 0 {
-					statusLabel = fmt.Sprintf("%d", entry.Status)
-				}
-				entry.Message = strings.TrimSpace(fmt.Sprintf("%s %s -> %s", entry.Method, entry.URL, statusLabel))
-			}
-			meta.RecordTimeline(entry)
-		}
-		callback, hasCallback := goja.AssertFunction(call.Argument(1))
-		if hasCallback {
-			if err != nil {
-				_, callbackErr := callback(goja.Undefined(), runtime.NewGoError(err), goja.Null())
-				if callbackErr != nil {
-					panic(callbackErr)
-				}
-				return goja.Undefined()
-			}
-			if errorValue != nil {
-				_, callbackErr := callback(goja.Undefined(), errorValue, goja.Null())
-				if callbackErr != nil {
-					panic(callbackErr)
-				}
-				return goja.Undefined()
-			}
-			_, callbackErr := callback(goja.Undefined(), goja.Null(), responseValue)
-			if callbackErr != nil {
-				panic(callbackErr)
-			}
-			return responseValue
-		}
-		if err != nil {
-			panic(runtime.NewGoError(err))
-		}
-		if errorValue != nil {
-			panic(errorValue)
-		}
-		return responseValue
-	})
+	_ = bruObject.Set("sendRequest", makeScriptSendRequest(runtime, dialectBruno, vars, item, meta))
 	if meta.RunRequest != nil {
 		_ = bruObject.Set("runRequest", func(call goja.FunctionCall) goja.Value {
 			target := ""
@@ -721,7 +673,7 @@ func NewScriptRuntimeWithMeta(item types.RequestItem, response types.Response, v
 		}
 		return goja.Undefined()
 	})
-	installPostmanScriptAPI(runtime, bruObject, reqObject, resObject, scriptVars, reqState, response, item, meta)
+	installPostmanScriptAPI(runtime, bruObject, reqObject, resObject, scriptVars, reqState, response, item, vars, meta)
 	return runtime, reqObject, reqState, resObject
 }
 

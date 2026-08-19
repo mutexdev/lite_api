@@ -27,13 +27,13 @@ import (
 // This is the core only. pm.environment / pm.collectionVariables / pm.globals
 // (US-040), pm.request / pm.response (US-041), pm.sendRequest / pm.cookies
 // (US-042) and pm.iterationData / pm.vault (US-043) land separately.
-func installPostmanScriptAPI(runtime *goja.Runtime, bruObject, reqObject, resObject *goja.Object, scriptVars *VariableContext, reqState *RequestState, response types.Response, item types.RequestItem, meta ScriptRuntimeMeta) {
+func installPostmanScriptAPI(runtime *goja.Runtime, bruObject, reqObject, resObject *goja.Object, scriptVars *VariableContext, reqState *RequestState, response types.Response, item types.RequestItem, vars map[string]string, meta ScriptRuntimeMeta) {
 	pm := runtime.NewObject()
 	_ = pm.Set("test", runtime.Get("test"))
 	_ = pm.Set("expect", runtime.Get("expect"))
 	installPostmanVariableScopes(runtime, pm, bruObject, scriptVars)
 	installPostmanRequestAPI(runtime, pm, reqObject, item)
-	installPostmanSideEffects(runtime, pm, bruObject)
+	installPostmanSideEffects(runtime, pm, bruObject, item, vars, meta)
 	installPostmanIterationData(runtime, pm, scriptVars)
 	installPostmanVisualizer(runtime, pm, reqState)
 	installPostmanVault(runtime, pm, bruObject)
@@ -280,19 +280,22 @@ func installPostmanVault(runtime *goja.Runtime, pm, bruObject *goja.Object) {
 
 // installPostmanSideEffects wires pm's outward-facing calls to bru's (US-042).
 //
-// All three are pure delegation, deliberately. Each one has real machinery
-// behind it that is easy to overlook when reimplementing: bru.sendRequest
-// records a timeline entry for the scripted request and enforces the recursion
-// depth limit, bru.cookies is bound to THIS request's jar and URL, and
-// bru.setNextRequest feeds the runner's control flow. A parallel pm
-// implementation would produce requests missing from the timeline, cookies
-// from the wrong host, and a setNextRequest the runner never sees — none of
-// which fails visibly.
-func installPostmanSideEffects(runtime *goja.Runtime, pm, bruObject *goja.Object) {
-	// Postman's pm.sendRequest(req, callback(err, response)) is already the
-	// signature bru.sendRequest implements, so this is a straight alias rather
-	// than an adapter.
-	_ = pm.Set("sendRequest", bruObject.Get("sendRequest"))
+// pm.cookies and pm.setNextRequest are pure delegation, deliberately. Each has
+// real machinery behind it that is easy to overlook when reimplementing:
+// bru.cookies is bound to THIS request's jar and URL, and bru.setNextRequest
+// feeds the runner's control flow. A parallel pm implementation would produce
+// cookies from the wrong host and a setNextRequest the runner never sees —
+// neither of which fails visibly.
+//
+// sendRequest is the exception, and the reason is a contract rather than an
+// implementation: Postman and Bruno describe a request body differently, so the
+// two surfaces cannot be the same function. They are built from the same
+// factory with the dialect as the only difference, which keeps the timeline
+// recording and the callback protocol written once. See send_request_dialect.go.
+func installPostmanSideEffects(runtime *goja.Runtime, pm, bruObject *goja.Object, item types.RequestItem, vars map[string]string, meta ScriptRuntimeMeta) {
+	// Same factory as bru.sendRequest, same signature — pm.sendRequest(req,
+	// callback(err, response)) — differing only in how a `body` is read.
+	_ = pm.Set("sendRequest", makeScriptSendRequest(runtime, dialectPostman, vars, item, meta))
 	_ = pm.Set("cookies", bruObject.Get("cookies"))
 
 	// pm.execution is where modern Postman puts run control.
