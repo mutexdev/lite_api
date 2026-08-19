@@ -524,7 +524,7 @@ func TestCollectionGitG2BranchRemoteAndUpstreamGuards(t *testing.T) {
 		t.Fatal(err)
 	}
 	runGit(t, peer, "add", "Api With Space/peer-diverge.bru", "Api With Space/ping.bru")
-	runGit(t, peer, "commit", "-m", "peer divergence")
+	runGit(t, peer, "-c", "user.name=LiteAPI Test", "-c", "user.email=liteapi@example.test", "commit", "-m", "peer divergence")
 	runGit(t, peer, "push", "origin", "g2-created")
 	if _, err := app.PullCollectionGit(collection.ID, "origin", "g2-created"); err == nil {
 		t.Fatal("expected diverged fast-forward-only pull refusal")

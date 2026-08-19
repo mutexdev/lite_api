@@ -22,6 +22,7 @@ jobs:
   build-macos:
     name: Build macOS
     runs-on: macos-latest
+    timeout-minutes: 90
     steps:
       - name: Check out source
         uses: actions/checkout@v7
@@ -177,6 +178,7 @@ jobs:
   build-windows:
     name: Build Windows
     runs-on: windows-2025
+    timeout-minutes: 60
     steps:
       - name: Check out source
         uses: actions/checkout@v7
@@ -287,6 +289,7 @@ jobs:
   build-linux:
     name: Build Linux
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - name: Check out source
         uses: actions/checkout@v7
@@ -294,8 +297,31 @@ jobs:
           persist-credentials: false
 
       - name: Install Linux build dependencies
+        timeout-minutes: 12
         run: |
-          sudo apt-get update
+          set -euo pipefail
+
+          # apt-get update stalled here for 10.5 minutes on run 32207260312 —
+          # it printed its last line fetching noble-security InRelease from
+          # archive.ubuntu.com and then went silent until a person killed it. A
+          # stall is worse than an error: with no timeout the job holds a runner
+          # for the six-hour default while producing nothing. Bound each attempt
+          # so a stall becomes a retry, and fail loudly if the mirror is really
+          # down rather than installing against stale package lists.
+          updated=false
+          for attempt in 1 2 3; do
+            if timeout 240 sudo apt-get update; then
+              updated=true
+              break
+            fi
+            echo "apt-get update attempt ${attempt} stalled or failed; retrying." >&2
+            sleep $((attempt * 15))
+          done
+          if [[ "${updated}" != true ]]; then
+            echo "apt-get update did not succeed in three attempts." >&2
+            exit 1
+          fi
+
           sudo apt-get install --yes --no-install-recommends \
             build-essential \
             libgtk-3-dev \
@@ -384,6 +410,7 @@ jobs:
   release:
     name: Publish GitHub release
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     needs:
       - build-macos
       - build-windows

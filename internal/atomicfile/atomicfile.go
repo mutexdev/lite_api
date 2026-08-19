@@ -26,9 +26,10 @@ import (
 //     crash an un-synced temp file can be renamed into place while still
 //     holding zeros — the rename is ordered, the data is not.
 //   - The parent directory is synced after the rename, so the directory entry
-//     itself survives a crash. That final sync is best-effort: a filesystem
-//     that refuses to open a directory is not a reason to report a write that
-//     did land as failed.
+//     itself survives a crash. That final sync is best-effort in BOTH halves: a
+//     filesystem that refuses to open a directory, or to sync one, is not a
+//     reason to report a write that did land as failed. The rename above has
+//     already committed the data by this point.
 func WritePrivate(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -67,5 +68,13 @@ func WritePrivate(path string, data []byte) error {
 		return nil
 	}
 	defer func() { _ = d.Close() }()
-	return d.Sync()
+	// The Sync error is dropped, not returned. Only the Open error was tolerated
+	// before, which made the "best-effort" above true on exactly the platforms
+	// where opening a directory fails. On Windows os.Open succeeds on a
+	// directory and Sync then returns "Access is denied", so every WritePrivate
+	// reported an error for data os.Rename had already committed — the workspace
+	// registry, the OAuth2 credential store, the window session file and the
+	// migration marker all write through here.
+	_ = d.Sync()
+	return nil
 }
