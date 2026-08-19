@@ -79,11 +79,21 @@ jobs:
       # windows/amd64 on every push to main, so the failure surfaced at release
       # time rather than on the PR that caused it.
       #
+      # The vet lines are not redundant with the build lines. `go build` does not
+      # compile _test.go files, so a test that only builds on one platform sails
+      # through it — which is exactly what happened: fileIdentity in
+      # internal/core/persist_scope_test.go read syscall.Stat_t.Mtimespec, a
+      # Darwin-only field, and the Windows and Linux release jobs both died on it
+      # at `go test` after this gate had gone green. `go vet` type-checks the test
+      # files, so it catches that class before the release run does.
+      #
       # Cheap: no cgo, no WebKit, no toolchain beyond the one already set up.
       - name: Cross-compile for Windows and macOS
         run: |
           GOOS=windows GOARCH=amd64 go build ./...
           GOOS=darwin GOARCH=arm64 go build ./...
+          GOOS=windows GOARCH=amd64 go vet ./...
+          GOOS=darwin GOARCH=arm64 go vet ./...
 
       # The binding surface is the contract between package main and the
       # frontend, and nothing else in this workflow checks it. A renamed or
