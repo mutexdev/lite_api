@@ -178,6 +178,10 @@ export function CreateRequestFromHistory(arg1, arg2) {
   return window['go']['core']['App']['CreateRequestFromHistory'](arg1, arg2);
 }
 
+export function CreateRequestInFolder(arg1, arg2, arg3, arg4) {
+  return window['go']['core']['App']['CreateRequestInFolder'](arg1, arg2, arg3, arg4);
+}
+
 export function CreateResponseExample(arg1, arg2, arg3, arg4) {
   return window['go']['core']['App']['CreateResponseExample'](arg1, arg2, arg3, arg4);
 }

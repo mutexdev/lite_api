@@ -12,13 +12,38 @@ import (
 	"github.com/mutexdev/lite_api/internal/types"
 )
 
+// CreateRequest creates a request at the collection root.
+//
+// Kept as the zero-folder case of CreateRequestInFolder rather than being given
+// a fourth parameter. It has more than a hundred call sites, almost all of them
+// tests, and widening the signature would have edited every one of them to pass
+// "" without changing anything any of them asserts. The three-argument meaning —
+// "create at the root" — is unchanged and pinned by a test.
 func (a *App) CreateRequest(collectionID, requestType, name string) (AppState, error) {
+	return a.CreateRequestInFolder(collectionID, requestType, name, "")
+}
+
+// CreateRequestInFolder creates a request inside folderPath, which may be
+// nested ("api/v2") or empty for the collection root.
+//
+// The folder is RESOLVED AND VALIDATED rather than trusted: an unknown path is
+// an error, not a silent demotion to the root. A request that quietly appears
+// somewhere other than where it was asked for gives the user nothing to go on.
+//
+// Setting item.FolderPath is the whole mechanism for placing the file, because
+// uniqueRequestFilePath already joins it onto the collection path. That is why
+// this needs no path handling of its own.
+func (a *App) CreateRequestInFolder(collectionID, requestType, name, folderPath string) (AppState, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.ensureReadyLocked(); err != nil {
 		return AppState{}, err
 	}
 	collection, err := a.findCollectionLocked(collectionID)
+	if err != nil {
+		return AppState{}, err
+	}
+	resolvedFolderPath, _, err := collectionFolderParentPaths(collection, folderPath)
 	if err != nil {
 		return AppState{}, err
 	}
@@ -34,6 +59,7 @@ func (a *App) CreateRequest(collectionID, requestType, name string) (AppState, e
 		name = strings.ToUpper(requestType[:1]) + requestType[1:] + " request"
 	}
 	item := types.NewRequestItem(name, requestType, len(collection.Items)+1)
+	item.FolderPath = resolvedFolderPath
 	if strings.TrimSpace(presets.RequestURL) != "" {
 		item.URL = presets.RequestURL
 	}
