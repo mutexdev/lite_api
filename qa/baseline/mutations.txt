@@ -1,0 +1,378 @@
+# Deliberate breaks that the tests MUST catch. See qa/mutations.py.
+#
+# Entries are separated by a line of "===". Each names a file, a test scope,
+# and an exact old/new pair. The old text must occur EXACTLY ONCE in the file;
+# anything else is refused rather than reported, because a control that edits
+# the wrong copy of a repeated line reports a clean result about code it never
+# touched.
+#
+# Most of these correspond to a real defect or a real blind spot found in this
+# repo. They are here so the same gap cannot reopen quietly.
+
+desc: custom CA: the cached path falls back to system trust on an empty file
+file: internal/transport/cache.go
+scope: -run BothCustomRootCAPathsAgree ./internal/core/
+--- old
+	if tlsConfig == nil || filePath == "" {
+--- new
+	if tlsConfig == nil || len(certPEM) == 0 {
+===
+desc: custom CA: default CAs are kept whatever the setting says
+file: internal/core/app_execute_http.go
+scope: -run CustomRootCA ./internal/core/
+--- old
+	if prefs.BoolPtrValue(preferences.KeepDefaultCaCertificates.Enabled, true) {
+--- new
+	if true {
+===
+desc: custom CA: a file holding no certificates is accepted
+file: internal/core/app_execute_http.go
+scope: -run CustomRootCA ./internal/core/
+--- old
+	if !roots.AppendCertsFromPEM(certPEM) {
+--- new
+	if !roots.AppendCertsFromPEM(certPEM) && false {
+===
+desc: git remote: the .git suffix is not stripped
+file: internal/core/app_git.go
+scope: -run DeriveGitRepoName ./internal/core/
+--- old
+		base := strings.TrimSuffix(pathBase(parsed.Path), ".git")
+--- new
+		base := pathBase(parsed.Path)
+===
+desc: git remote: an ssh-alias remote is treated as a URL
+file: internal/core/app_git.go
+scope: -run DeriveGitRepoName ./internal/core/
+--- old
+	if parsed, err := url.Parse(remote); err == nil && parsed.Scheme != "" && parsed.Opaque == "" {
+--- new
+	if parsed, err := url.Parse(remote); err == nil && parsed.Scheme != "" {
+===
+desc: undo a delete: the collection is appended instead of restored in place
+file: internal/core/collection_recovery.go
+scope: -run Restoring ./internal/core/
+--- old
+	index := snapshot.CollectionIndex
+	if index < 0 || index > len(ws.Collections) {
+		index = len(ws.Collections)
+	}
+	ws.Collections = append(ws.Collections, Collection{})
+--- new
+	index := len(ws.Collections)
+	ws.Collections = append(ws.Collections, Collection{})
+===
+desc: undo a delete: a negative index is not clamped, so the undo panics
+file: internal/core/collection_recovery.go
+scope: -run Restoring ./internal/core/
+--- old
+	if index < 0 || index > len(ws.Collections) {
+		index = len(ws.Collections)
+	}
+	ws.Collections = append(ws.Collections, Collection{})
+--- new
+	if index > len(ws.Collections) {
+		index = len(ws.Collections)
+	}
+	ws.Collections = append(ws.Collections, Collection{})
+===
+desc: rollback: a failed undo does not put the collection back in place
+file: internal/core/collection_recovery.go
+scope: -run RollbackCollection ./internal/core/
+--- old
+			index := snapshot.CollectionIndex
+			if index < 0 || index > len(ws.Collections) {
+				index = len(ws.Collections)
+			}
+--- new
+			index := len(ws.Collections)
+===
+desc: sidebar: scratch collections are counted as regular ones
+file: internal/core/app_bootstrap.go
+scope: -run "CountRegularCollections|TheFirstRealCollectionIsPlacedAboveScratch" ./internal/core/
+--- old
+		if !collection.Scratch {
+			count++
+		}
+--- new
+		count++
+		_ = collection
+===
+desc: gRPC: a reconnect's session is deleted by the old session's teardown
+file: internal/core/app_grpc_stream.go
+scope: -run GRPCStreamSession ./internal/core/
+--- old
+	if a.grpcStreamSessions[key] == session {
+		delete(a.grpcStreamSessions, key)
+	}
+--- new
+	delete(a.grpcStreamSessions, key)
+===
+desc: WebSocket: a reconnect's session is deleted by the old session's teardown
+file: internal/core/app_websocket.go
+scope: -run WebSocketSession ./internal/core/
+--- old
+	if a.websocketSessions[key] == session {
+		delete(a.websocketSessions, key)
+	}
+--- new
+	delete(a.websocketSessions, key)
+===
+desc: WebSocket: closing leaves the done channel open, leaking the keep-alive
+file: internal/core/app_websocket.go
+scope: -run WebSocketSession ./internal/core/
+--- old
+	if session.done != nil && !session.doneClosed {
+		close(session.done)
+		session.doneClosed = true
+	}
+--- new
+	_ = session.done
+===
+desc: environments: a blank name overwrites the one already stored
+file: internal/core/app_environments.go
+scope: -run GlobalEnvironment ./internal/core/
+--- old
+		if strings.TrimSpace(name) != "" {
+			ws.GlobalEnvironments[index].Name = strings.TrimSpace(name)
+		}
+--- new
+		ws.GlobalEnvironments[index].Name = strings.TrimSpace(name)
+===
+desc: environments: deleting the active one leaves a dangling selection
+file: internal/core/app_environments.go
+scope: -run GlobalEnvironment ./internal/core/
+--- old
+		if len(ws.GlobalEnvironments) > 0 {
+			ws.ActiveGlobalEnvironmentID = ws.GlobalEnvironments[0].ID
+		}
+--- new
+		_ = ws
+===
+desc: postman export: a file part keeps its stale text value beside src
+file: internal/export/export.go
+scope: -run SharePostmanFormData ./internal/export/
+--- old
+			entry["src"] = value.FilePath
+			delete(entry, "value")
+--- new
+			entry["src"] = value.FilePath
+===
+desc: network log: the two body caps drift apart
+file: internal/localserver/mock.go
+scope: -run NetworkLogBodyLimits ./internal/core/
+--- old
+const NetworkLogBodyLimit = 64 * 1024
+--- new
+const NetworkLogBodyLimit = 32 * 1024
+===
+desc: types: the local deterministic id diverges from scalar's
+file: internal/types/request_item.go
+scope: ./internal/types/
+--- old
+	return prefix + "-" + hex.EncodeToString(sum[:8])
+--- new
+	return prefix + "-" + hex.EncodeToString(sum[:10])
+===
+desc: transport: the resolved source is allocated fresh, so every cache lookup misses
+file: internal/transport/cache.go
+scope: ./internal/transport/
+--- old
+	if fallback, ok := http.DefaultTransport.(*http.Transport); ok && fallback != nil {
+		return fallback
+	}
+	return &http.Transport{}
+--- new
+	return &http.Transport{}
+===
+desc: yaml save: a multipart file part is written as literal text
+file: internal/store/yamlstore/codec.go
+scope: -run Multipart ./internal/store/yamlstore/
+--- old
+		if part.FilePath != "" {
+			entry["type"] = "file"
+			entry["value"] = part.FilePath
+		} else {
+--- new
+		if false {
+			entry["type"] = "file"
+			entry["value"] = part.FilePath
+		} else {
+===
+desc: yaml save: a post-response variable loses its secret flag
+file: internal/store/yamlstore/codec.go
+scope: -run PostResponseVariable ./internal/store/yamlstore/
+--- old
+		if value.Secret {
+			action["variable"].(map[string]interface{})["secret"] = true
+		}
+--- new
+		_ = value.Secret
+===
+desc: yaml save: a disabled multipart part comes back enabled
+file: internal/store/yamlstore/codec.go
+scope: -run Multipart ./internal/store/yamlstore/
+--- old
+		entry := map[string]interface{}{
+			"name":    part.Name,
+			"enabled": part.Enabled,
+		}
+--- new
+		entry := map[string]interface{}{
+			"name": part.Name,
+		}
+===
+desc: close dialog: a bad reference half-saves instead of refusing the whole list
+file: internal/core/draft_guard.go
+scope: -run SaveUnsavedDrafts ./internal/core/
+--- old
+	if _, err := a.validateUnsavedDraftsLocked(drafts); err != nil {
+		return AppState{}, err
+	}
+	now := time.Now()
+--- new
+	now := time.Now()
+===
+desc: close dialog: a draft is marked saved without its file being written
+file: internal/core/draft_guard.go
+scope: -run SaveUnsavedDrafts ./internal/core/
+--- old
+		if err := a.writeCollectionFilesLocked(collection); err != nil {
+			*item = original
+			return AppState{}, err
+		}
+		if collection.Scratch {
+--- new
+		if collection.Scratch {
+===
+desc: close dialog: discarding a request listed once per tab errors out
+file: internal/core/draft_guard.go
+scope: -run DiscardUnsavedDraftsTolerates ./internal/core/
+--- old
+	for _, draft := range uniqueUnsavedDrafts(drafts) {
+		ws, collection, err := a.findCollectionWithWorkspaceLocked(draft.CollectionID)
+--- new
+	for _, draft := range drafts {
+		ws, collection, err := a.findCollectionWithWorkspaceLocked(draft.CollectionID)
+===
+desc: shortcuts: Go and the frontend disagree on an action's display name
+file: internal/prefs/prefs.go
+scope: -run KeyBindingNamesAgreeWithTheFrontend ./internal/core/
+--- old
+	case "sidebarSearch":
+		return "Search Sidebar"
+--- new
+	case "sidebarSearch":
+		return "Sidebar Search"
+===
+desc: tabs: a switch to a tab the backend does not hold is accepted
+file: internal/core/app_tabs.go
+scope: -run SetActiveTab ./internal/core/
+--- old
+	found, err := a.setActiveTabLocked(tabID)
+	if !found {
+		return AppState{}, err
+	}
+--- new
+	_, err := a.setActiveTabLocked(tabID)
+===
+desc: saves: a file deleted outside the app is never rewritten
+file: internal/core/app_collection_io.go
+scope: -run "SavingRestores|ResetRestoresEvery" ./internal/core/
+--- old
+		if known == fingerprint {
+			if _, err := os.Stat(path); err == nil {
+				return nil
+			}
+--- new
+		if known == fingerprint {
+			if true {
+				return nil
+			}
+===
+desc: quit: a second close event opens a dialog over the open one
+file: internal/core/native_close.go
+scope: -run BeforeClose ./internal/core/
+--- old
+	if a == nil || !nativeClosePromptActive.CompareAndSwap(false, true) {
+		return true
+	}
+--- new
+	if a == nil {
+		return true
+	}
+===
+desc: reset: a scoped workspace window may wipe every workspace
+file: internal/core/app_export_bindings.go
+scope: -run ResetDemoData ./internal/core/
+--- old
+	if a.workspaceRuntime != nil {
+		return AppState{}, errors.New("reset demo data is unavailable from a scoped workspace window")
+	}
+--- new
+===
+desc: preferences: TLS verification defaults OFF for a file written before the flag existed
+file: internal/prefs/prefs.go
+scope: ./internal/prefs/
+--- old
+	if preferences.SSLVerification == nil {
+		preferences.SSLVerification = BoolPtr(true)
+	}
+--- new
+	if preferences.SSLVerification == nil {
+		preferences.SSLVerification = BoolPtr(false)
+	}
+===
+desc: preferences: an unset flag reads as false instead of taking its fallback
+file: internal/prefs/prefs.go
+scope: ./internal/prefs/
+--- old
+	if value == nil {
+		return fallback
+	}
+--- new
+	if value == nil {
+		return false
+	}
+===
+desc: secrets: a stored secret is left in the clear
+file: internal/envsecrets/envsecrets.go
+scope: ./internal/envsecrets/
+--- old
+	padded := scripting.ScriptPKCS7Pad([]byte(plain), block.BlockSize())
+--- new
+	return plain
+	padded := scripting.ScriptPKCS7Pad([]byte(plain), block.BlockSize())
+===
+desc: secrets: the legacy plaintext path is dropped, so pre-encryption files fail to load
+file: internal/envsecrets/envsecrets.go
+scope: ./internal/envsecrets/
+--- old
+	if encoded == "" {
+		return "", nil
+	}
+	if !strings.HasPrefix(encoded, "$") {
+		return encoded, nil
+	}
+--- new
+	if encoded == "" {
+		return "", nil
+	}
+===
+desc: share: a shared collection carries its secret values
+file: internal/export/export.go
+scope: ./internal/export/
+--- old
+			if env.Variables[index].Secret {
+				env.Variables[index].Value = ""
+			}
+--- new
+			_ = env.Variables[index].Secret
+===
+desc: share: an archive entry may name a path outside the archive
+file: internal/export/export.go
+scope: ./internal/export/
+--- old
+	if name == "." || name == "" || strings.HasPrefix(name, "../") || name == ".." || strings.HasPrefix(name, "/") || filepath.IsAbs(name) {
+--- new
+	if name == "." || name == "" {

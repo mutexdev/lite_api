@@ -1,0 +1,35 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "resources": [
+    {
+      "_id": "wrk_fixture",
+      "_type": "workspace",
+      "name": "Insomnia Fixture"
+    },
+    {
+      "_id": "env_fixture",
+      "_type": "environment",
+      "parentId": "wrk_fixture",
+      "name": "Fixture Base",
+      "data": {
+        "base_url": "http://127.0.0.1:18487"
+      }
+    },
+    {
+      "_id": "fld_fixture",
+      "_type": "request_group",
+      "parentId": "wrk_fixture",
+      "name": "Health"
+    },
+    {
+      "_id": "req_fixture",
+      "_type": "request",
+      "parentId": "fld_fixture",
+      "name": "Fixture status",
+      "method": "GET",
+      "url": "{{ base_url }}/json",
+      "headers": []
+    }
+  ]
+}

@@ -46,35 +46,52 @@
     enabled: boolean
   }
 
-  export let rows: MultipartRow[] = []
-  export let readonly = false
-  export let activeVariableTooltip = ''
-  export let editingVariableTooltip = ''
-  export let variableTooltipDraft = ''
-  export let revealedVariableTooltips: Record<string, boolean> = {}
-  export let copiedVariableTooltips: Record<string, boolean> = {}
-  export let busy = ''
-  export let showMove = false
-  export let onAdd: () => void = () => {}
-  export let onChange: (index: number, field: keyof MultipartRow, value: string | boolean) => void = () => {}
-  export let onMove: (index: number, direction: -1 | 1) => void = () => {}
-  export let onReorder: (from: number, to: number) => void = () => {}
-  export let onRemove: (index: number) => void = () => {}
-  export let valueVariableSegments: (value: string, index: number) => VariableTextSegment[] = () => []
-  export let displayTooltipValue: (info: VariableTooltipInfo, revealed: boolean) => string = (info) => info.resolvedValue
-  export let onToggleActive: (name: string) => void = () => {}
-  export let onBeginEdit: (info: VariableTooltipInfo) => void = () => {}
-  export let onEditorKey: (event: KeyboardEvent, info: VariableTooltipInfo) => void = () => {}
-  export let onEditorBlur: (event: FocusEvent, info: VariableTooltipInfo) => void = () => {}
-  export let onSave: (info: VariableTooltipInfo) => void | Promise<void> = () => {}
-  export let onCancel: () => void = () => {}
-  export let onCopy: (info: VariableTooltipInfo) => void | Promise<void> = () => {}
-  export let onToggleSecret: (name: string) => void = () => {}
+  // US-027 — runes. variableTooltipDraft is $bindable because App.svelte binds
+  // it; without that the parent would stop tracking what the user types in the
+  // tooltip editor and the edit would be discarded on save. Every other prop is
+  // passed by value and mutated through the callbacks.
+  type Props = {
+    rows?: MultipartRow[]
+    readonly?: boolean
+    busy?: string
+    showMove?: boolean
+    onAdd?: () => void
+    onChange?: (index: number, field: keyof MultipartRow, value: string | boolean) => void
+    onMove?: (index: number, direction: -1 | 1) => void
+    onReorder?: (from: number, to: number) => void
+    onRemove?: (index: number) => void
+    valueVariableSegments?: (value: string, index: number) => VariableTextSegment[]
+    displayTooltipValue?: (info: VariableTooltipInfo, revealed: boolean) => string
+    onEditorKey?: (event: KeyboardEvent, info: VariableTooltipInfo) => void
+    onEditorBlur?: (event: FocusEvent, info: VariableTooltipInfo) => void
+    onSave?: (info: VariableTooltipInfo) => void | Promise<void>
+    onCopy?: (info: VariableTooltipInfo) => void | Promise<void>
+  }
 
-  let valueScrollLeft: Record<number, number> = {}
-  let valueScrollTop: Record<number, number> = {}
-  let draggingIndex: number | null = null
-  let dragOverIndex: number | null = null
+  let {
+    rows = [],
+    readonly = false,
+    busy = '',
+    showMove = false,
+    onAdd = () => {},
+    onChange = () => {},
+    onMove = () => {},
+    onReorder = () => {},
+    onRemove = () => {},
+    valueVariableSegments = () => [],
+    displayTooltipValue = (info) => info.resolvedValue,
+    onEditorKey = () => {},
+    onEditorBlur = () => {},
+    onSave = () => {},
+    onCopy = () => {}
+  }: Props = $props()
+
+  // $state, not a bare let: in runes mode a plain let is not reactive, so the
+  // scroll sync and drag highlight would silently stop updating.
+  let valueScrollLeft = $state<Record<number, number>>({})
+  let valueScrollTop = $state<Record<number, number>>({})
+  let draggingIndex = $state<number | null>(null)
+  let dragOverIndex = $state<number | null>(null)
 
   function syncValueScroll(index: number, event: Event) {
     const target = event.currentTarget as HTMLTextAreaElement
@@ -131,22 +148,22 @@
     </tr>
   </thead>
   <tbody>
-    {#each rows ?? [] as row, index}
+    {#each rows ?? [] as row, index (index)}
       <tr
         class:dragging={draggingIndex === index}
         class:drag-over={dragOverIndex === index && draggingIndex !== index}
         draggable={showMove && !readonly}
-        on:dragstart={(event) => handleDragStart(index, event)}
-        on:dragover={(event) => handleDragOver(index, event)}
-        on:drop={(event) => handleDrop(index, event)}
-        on:dragend={clearDragState}
+        ondragstart={(event) => handleDragStart(index, event)}
+        ondragover={(event) => handleDragOver(index, event)}
+        ondrop={(event) => handleDrop(index, event)}
+        ondragend={clearDragState}
       >
         <td>
           <input
             type="checkbox"
             checked={row.enabled}
             disabled={readonly}
-            on:change={(event) => onChange(index, 'enabled', event.currentTarget.checked)}
+            onchange={(event) => onChange(index, 'enabled', event.currentTarget.checked)}
           />
         </td>
         <td>
@@ -154,7 +171,7 @@
             value={row.name}
             disabled={readonly}
             placeholder="name"
-            on:input={(event) => onChange(index, 'name', event.currentTarget.value)}
+            oninput={(event) => onChange(index, 'name', event.currentTarget.value)}
           />
         </td>
         <td>
@@ -165,30 +182,21 @@
               disabled={readonly}
               placeholder="value"
               rows="3"
-              on:input={(event) => changeValue(index, event)}
-              on:scroll={(event) => syncValueScroll(index, event)}
-              on:keyup={(event) => syncValueScroll(index, event)}
-              on:mouseup={(event) => syncValueScroll(index, event)}
+              oninput={(event) => changeValue(index, event)}
+              onscroll={(event) => syncValueScroll(index, event)}
+              onkeyup={(event) => syncValueScroll(index, event)}
+              onmouseup={(event) => syncValueScroll(index, event)}
             ></textarea>
             <VariableTextOverlay
               segments={valueVariableSegments(row.value ?? '', index)}
-              {activeVariableTooltip}
-              {editingVariableTooltip}
-              bind:variableTooltipDraft
-              {revealedVariableTooltips}
-              {copiedVariableTooltips}
               {busy}
               scrollLeft={valueScrollLeft[index] ?? 0}
               scrollTop={valueScrollTop[index] ?? 0}
               {displayTooltipValue}
-              {onToggleActive}
-              {onBeginEdit}
               {onEditorKey}
               {onEditorBlur}
               {onSave}
-              {onCancel}
               {onCopy}
-              {onToggleSecret}
             />
           </div>
         </td>
@@ -197,7 +205,7 @@
             value={row.filePath}
             disabled={readonly}
             placeholder="/path/to/file"
-            on:input={(event) => onChange(index, 'filePath', event.currentTarget.value)}
+            oninput={(event) => onChange(index, 'filePath', event.currentTarget.value)}
           />
         </td>
         <td>
@@ -205,17 +213,17 @@
             value={row.contentType}
             disabled={readonly}
             placeholder="Auto"
-            on:input={(event) => onChange(index, 'contentType', event.currentTarget.value)}
+            oninput={(event) => onChange(index, 'contentType', event.currentTarget.value)}
           />
         </td>
         <td>
           {#if !readonly}
             {#if showMove}
               <button class="icon-button drag-handle" title="Drag row" aria-label="Drag row to reorder">::</button>
-              <button class="icon-button" title="Move row up" aria-label="Move row up" disabled={index === 0} on:click={() => onMove(index, -1)}>^</button>
-              <button class="icon-button" title="Move row down" aria-label="Move row down" disabled={index === rows.length - 1} on:click={() => onMove(index, 1)}>v</button>
+              <button class="icon-button" title="Move row up" aria-label="Move row up" disabled={index === 0} onclick={() => onMove(index, -1)}>^</button>
+              <button class="icon-button" title="Move row down" aria-label="Move row down" disabled={index === rows.length - 1} onclick={() => onMove(index, 1)}>v</button>
             {/if}
-            <button class="icon-button" title="Remove row" aria-label="Remove row" on:click={() => onRemove(index)}>x</button>
+            <button class="icon-button" title="Remove row" aria-label="Remove row" onclick={() => onRemove(index)}>x</button>
           {/if}
         </td>
       </tr>
@@ -224,5 +232,5 @@
 </table>
 
 {#if !readonly}
-  <button on:click={onAdd}>Add row</button>
+  <button onclick={onAdd}>Add row</button>
 {/if}

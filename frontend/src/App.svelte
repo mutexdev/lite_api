@@ -5,15 +5,192 @@
 	  import MultipartTable from './lib/MultipartTable.svelte'
 	  import OAuth2AdditionalParams from './lib/OAuth2AdditionalParams.svelte'
   import VariableTextOverlay from './lib/VariableTextOverlay.svelte'
+  import RequestCommandStrip from './lib/workbench/RequestCommandStrip.svelte'
+  import ResponseInspector from './lib/workbench/ResponseInspector.svelte'
+  import {
+    applyLiveSessionPush,
+    emptyLiveSessionLog,
+    liveSessionKey,
+    type LiveSessionLog,
+    type LiveSessionPush,
+  } from './lib/liveSessionEvents'
+  import { applyRequestMutation, applyTabsMutation, type MergeOutcome } from './lib/narrowMutations'
+  import { filterCommands } from './lib/commandPalette'
+  import { memoized, KeyedMemo, type Memo } from './lib/memo'
+  import {
+    computeWindow,
+    sidebarGroupOffset as sidebarGroupOffsetOf,
+    sidebarGroupWindow
+  } from './lib/virtualList'
+  import {
+    networkSortAriaValue as devToolsNetworkSortAriaValue,
+    networkSortLabel as devToolsNetworkSortLabel,
+    nextNetworkSort,
+    networkDomain as devToolsNetworkDomain,
+    networkLogTimestamp,
+    networkPath as devToolsNetworkPath,
+    normalizedNetworkMethod,
+    sortNetworkRows as sortedDevToolsNetworkRows,
+    DEFAULT_NETWORK_COLUMN_WIDTHS,
+    normalizedNetworkColumnWidths,
+    normalizedNetworkSortDirection as normalizedDevToolsNetworkSortDirectionOf,
+    normalizedNetworkSortKey as normalizedDevToolsNetworkSortKeyOf,
+    networkSortPreference,
+    resizeAdjacentColumns
+  } from './lib/networkSort'
+  import {
+    DEFAULT_RESPONSE_SPLIT,
+    DEFAULT_SIDEBAR_WIDTH,
+    clampResponseSplit,
+    clampSidebarWidth,
+    readWorkbenchLayout,
+    splitFractionAt,
+    writeWorkbenchLayout
+  } from './lib/workbench/layout'
+  import {
+    OPENAPI_SYNC_CHECK_INTERVALS,
+    allEndpointDecisions,
+    defaultOpenAPISyncDecision,
+    formatOpenAPISyncCheckedAt,
+    formattedOpenAPISpecContent,
+    normalizedOpenAPISyncSettingsInterval,
+    openAPILocalDriftLabel,
+    openAPILocalDriftIDs as openAPILocalDriftIDsOf,
+    openAPISyncAutoCheckEnabled,
+    openAPISyncAutoCheckStatusLine as openAPISyncAutoCheckStatusLineOf,
+    openAPISyncConfigFor,
+    openAPISyncIntervalMinutes,
+    openAPISyncSpecDiffSummary,
+    reconcileEndpointDecisions
+  } from './lib/openApiSync'
+  import {
+    DEFAULT_CODE_FONT,
+    DEFAULT_CODE_FONT_FAMILY,
+    DEFAULT_CODE_FONT_SIZE,
+    codeFontFamilyFor,
+    ZOOM_DEFAULT_PERCENTAGE,
+    ZOOM_MAX_PERCENTAGE,
+    ZOOM_MIN_PERCENTAGE,
+    normalizePresetRequestType,
+    normalizedAutoSaveInterval,
+    normalizedCodeFont,
+    normalizedCodeFontSize,
+    normalizedDevToolsDetailsPanelWidth,
+    normalizedDevToolsDrawerHeight,
+    normalizedRequestTimeout,
+    normalizedResponsePaneOrientation,
+    normalizedRunnerDelayMs,
+    normalizedRunnerIterations,
+    normalizedTabID,
+    normalizedThemeMode,
+    normalizedThemeVariant as normalizedThemeVariantOf,
+    normalizedZoomPercentage,
+    sizeFromTrailingEdgeDrag
+  } from './lib/preferences'
+  import {
+    collectionFolderNameIsValid,
+    filesystemNameIsValid,
+    isReservedMetadataName,
+    isReservedRootDirectory,
+    joinSlashPath,
+    requestFilesystemBaseName as requestFilesystemBaseNameOf,
+    sanitizeCollectionFolderName,
+    slashPathBase,
+    slashPathHasPrefix,
+    slashPathParent
+  } from './lib/filesystemNames'
+  import {
+    collectionProxyWithDefaults,
+    preferenceProxyModeValue,
+    proxyModeLabel,
+    proxyModeOverrides,
+    proxyPreferencesWithDefaults as proxyPreferencesWithDefaultsOf
+  } from './lib/authDefaults'
+  import { certificateFileName as customCaFileName } from './lib/filesystemNames'
+  import {
+    environmentVariableAddLabel,
+    environmentVariableMatches,
+    visibleEnvironmentVariables
+  } from './lib/environmentVariables'
+  import { resolveNativeMenuCommand } from './lib/nativeMenu'
+  import { historyEntryExists, withOptimisticPatch } from './lib/optimisticPatch'
+  import {
+    runnerSelectableItems,
+    runnerSelectedCount as runnerSelectedCountOf,
+    setRunnerItemSelected as setRunnerSelection,
+    toggleRunnerSelectAll as toggleRunnerSelectAllOf
+  } from './lib/runnerSelection'
+  import {
+    collectionIsScratch as isScratchCollection,
+    findResponseExampleForTab,
+    methodLabel,
+    responseExampleIdentifier,
+    sidebarFolderKey,
+    tabLabel as tabLabelFor,
+    tabMethod as tabMethodFor
+  } from './lib/workbench/tabPresentation'
+  import { movedRows, normalizeBulkKeyValueRows, reorderedRows } from './lib/rowEdits'
+  import { resolveShortcut, shortcutTabNumber } from './lib/shortcuts'
+  import { workspaceStore } from './lib/stores/workspaceStore.svelte'
+  import { variableTooltips } from './lib/stores/variableTooltipStore.svelte'
+  import {
+    currentKeyBindingOS,
+    keyBindingCanEdit as canEditKeyBinding,
+    keyBindingComboFromEvent,
+    keyBindingDefaultsByAction,
+    keyBindingDisplayValueFor,
+    keyBindingSignature,
+    keyBindingValueFor,
+    keybindingsAreEnabled as keybindingsEnabledFor,
+    formatKeyBinding as formatKeyBindingFor,
+    mergeKeyBinding,
+    validateKeyBinding as validateKeyBindingRule,
+    visibleKeyBindingEntries,
+    keyBindingSections,
+    keyBindingPresets,
+    normalizeKeyBindingPreset,
+    effectiveKeyBindings,
+    type KeyBindingPresetID
+  } from './lib/keybindings'
+  import { PatchCoalescer } from './lib/patchQueue'
+  // US-036: the lazy wrapper, not CodeEditor itself — importing the real one
+  // here is what pulled all of CodeMirror into the initial chunk.
+  import CodeEditor from './lib/workbench/LazyCodeEditor.svelte'
+  import Modal from './lib/modals/Modal.svelte'
+  import SidebarHeader from './lib/SidebarHeader.svelte'
+  import SidebarSearch from './lib/SidebarSearch.svelte'
+  import RequestSettingsPanel from './lib/workbench/RequestSettingsPanel.svelte'
+  import ProtocolRequestLine from './lib/workbench/ProtocolRequestLine.svelte'
+  import WorkspaceCommandBar from './lib/workbench/WorkspaceCommandBar.svelte'
+  import WorkspaceWindowPicker from './lib/workbench/WorkspaceWindowPicker.svelte'
+  import {
+    defaultImportDecision,
+    hasReplaceImportSelection,
+    importSelectionFor as importSelectionOf,
+    reconcileImportDecision,
+    selectedImportRows,
+    toggleImportChildID
+  } from './lib/importPlanning'
+  import { canPushGitBranch, canStageGitSelection, canSwitchGitBranch, canUnstageGitSelection, reconcileGitBranch, reconcileGitRemoteBranch, reconcileGitRemoteSelection, reconcileGitSelection } from './lib/gitWorkbench'
+  import type { RequestCommandState } from './lib/workbench/types'
+  import {
+    commandPaletteCommandIDs,
+    workbenchCommandMetadata,
+    type WorkbenchCommandID
+  } from './lib/workbench/workbenchCommands'
+  import { planUnsavedClose, requestDeletionAction, type LifecycleOpenTab, type LifecycleRequest, type UnsavedRequestTab } from './lib/workbench/tabLifecycle'
   import {
     AddCookieFromHeader,
+    CancelCollectionRun,
     CancelGRPCStream,
+    CancelRequest,
     ClearFileCache,
     ClearSSLSessionCache,
     ClearCookies,
     ClearDomainCookies,
     CloseAllTabs,
     CloseTab,
+		CheckoutCollectionGitBranch,
     ClearNotifications,
     CloneGitRepository,
     CloneCollection,
@@ -31,7 +208,8 @@
     ConnectGRPCStream,
     ConnectGRPCStreamWithPromptValues,
 	    ConnectWebSocket,
-	    ConnectWebSocketWithPromptValues,
+    ConnectWebSocketWithPromptValues,
+		CommitCollectionGit,
     CreateCollection,
     CreateEnvironment,
     CreateFolder,
@@ -39,14 +217,18 @@
     CreateTerminalSession,
     CreateResponseExample,
     CreateRequest,
+    CreateWorkspace,
+		CreateCollectionGitBranch,
     CopyGlobalEnvironment,
     CopyGlobalEnvironmentAs,
     DeleteCookie,
     DeleteDotEnvFile,
-    DeleteFolder,
+    DeleteFolderRecoverable,
     DeleteGlobalEnvironment,
-    DeleteRequest,
+    DeleteRequestRecoverable,
     DeleteResponseExample,
+    DiscardRecoveryEntry,
+    DiscardRequestDraft,
     DisconnectCollectionGitRemote,
     DisconnectOpenAPISync,
 	    DisconnectWebSocket,
@@ -56,33 +238,48 @@
     ExportGlobalEnvironments,
     GenerateGrpcurlCommand,
 	    GenerateRequestCode,
+    CodeGenerationTargets,
 	    GenerateResponseExampleCode,
 	    GenerateGRPCMessage,
 	    GenerateCollectionDocs,
 	    GetOpenAPISyncSpec,
 	    GetOpenAPISyncSpecDiff,
 	    GetDevToolsSnapshot,
-	    GetFileCacheSize,
-	    GetState,
+		GetCollectionGitDiff,
+		GetCollectionGitStatus,
+    GetFileCacheSize,
+    GetState,
+	    GetWebStorageScope,
     GetTerminalSession,
     GitVersion,
+		InitializeCollectionGit,
     ImportCollection,
+	    ApplyCollectionImport,
+	    ChooseCollectionImportFiles,
+	    ChooseCollectionImportFolder,
+	    PreviewCollectionImport,
     ImportGlobalEnvironment,
     ListDotEnvFiles,
     ListGRPCMethods,
+    ListRecoveryEntries,
     ListTerminalSessions,
+    ListWorkspaceWindowTargets,
     MarkAllNotificationsRead,
     MarkNotificationRead,
     MoveOpenTab,
     OpenCollection,
     OpenGitCollections,
+    OpenNewWindow,
     OpenResponseExampleTab,
     OpenRequestTab,
+    OpenWorkspaceInNewWindow,
+		PullCollectionGit,
+		PushCollectionGit,
     ReopenLastClosedTab,
     RevealCollectionInFolder,
     RevealCollectionFolderInFolder,
     RevealRequestInFolder,
-    RemoveCollection,
+    RemoveCollectionRecoverable,
     ResolveCollectionFolderPath,
     ResetDemoData,
     RefreshChangedCollections,
@@ -92,14 +289,38 @@
     RenameRequest,
     RenameResponseExample,
     ResolveProcessEnvValues,
+    RestoreRecoveryEntry,
     ResizeTerminalSession,
     RunCollectionWithOptions,
+    StartMockServer,
+    StopMockServer,
+    StartDocsServer,
+    StopDocsServer,
+    DocsServerStatusFor,
+    MockServerStatusFor,
+    RefreshMockServer,
+    ListHistory,
+    ClearHistory,
+    CreateRequestFromHistory,
+    VisualizerDocument,
+    SelectRunnerDataFile,
     SaveResponseExample,
+		SetCollectionGitRemote,
     SaveAllTabs,
     SaveCookie,
     SaveDotEnvFile,
+		StageCollectionGitPaths,
+		UnstageCollectionGitPaths,
+		FetchCollectionGit,
+    FlushPendingWrites,
+    MoveOpenTabNarrow,
+    SetActiveTabNarrow,
+    UpdateOpenTabPanesNarrow,
+    UpdateRequestNarrow,
     SaveGlobalEnvironmentExport,
     SaveRequest,
+    SaveResponseBody,
+    SaveResponseTimeline,
     SelectCustomCaCertificate,
     SelectDefaultLocation,
     SendGRPCStreamMessage,
@@ -110,6 +331,7 @@
 	    SendWebSocketMessageWithPromptValues,
     SetActiveGlobalEnvironment,
     SetActiveTab,
+    SetActiveWorkspace,
     KillTerminalSession,
     ScanGitCollections,
     UpdateCollectionAuth,
@@ -132,23 +354,123 @@
 	    UpdateRequest,
     WriteTerminalSession,
     UpdateResponseExample
-  } from '../wailsjs/go/main/App'
-  import type { main } from '../wailsjs/go/models'
-  import { BrowserOpenURL, EventsOn, Quit } from '../wailsjs/runtime/runtime'
+  } from '../wailsjs/go/core/App'
+  import type { core, gitworkbench, history, localserver, recovery, types } from '../wailsjs/go/models'
+  import {
+    displayTooltipValue,
+    findTooltipVariable,
+    folderChainForRequest,
+    isValidVariableName,
+    pathParamTooltipInfo,
+    resolveTooltipValue,
+    resolveVariableTooltip,
+    type VariableTooltipInfo,
+    type VariableTooltipSource
+  } from './lib/variableResolution'
+  import {
+    collectPromptNames,
+    collectVariableNames,
+    fileBodyRows,
+    pathParamNamesFromURL,
+    queryParamsForURL,
+    scanBodyPrompts,
+    scanBodyVariables,
+    syncPathParamsForURL,
+    variableNamesForRequest
+  } from './lib/requestScanning'
+  import {
+    buildGlobalSearchResults,
+    isValidGlobalSearchQuery,
+    normalizeGlobalSearchQuery,
+    type GlobalSearchResult
+  } from './lib/globalSearch'
+  import {
+    fallbackVariableTooltipInfo,
+    urlVariableSegments,
+    type URLVariableSegment
+  } from './lib/urlSegments'
+  import {
+    collectionProxyMode,
+    formatRuntimeBytes,
+    isProxyConfigUnset,
+    preferencesProxyMode,
+    requestCommandState as buildRequestCommandState,
+    requestIsTransient as isRequestTransient
+  } from './lib/workbench/commandState'
+  import {
+    collectionMatches,
+    computeGroupedItems,
+    filteredFolders,
+    filteredItems,
+    folderMatches,
+    normalizedSearch,
+    requestMatches,
+    searchHit
+  } from './lib/sidebarFilter'
+  import {
+    cookieFlags,
+    cookieGroups,
+    cookieHeaderPreview,
+    cookieMatches,
+    cookieExpiresInput,
+    cookieExpiry,
+    cookieFormFor,
+    emptyCookieForm,
+    type CookieForm
+  } from './lib/cookieView'
+  import {
+    devToolsConsoleLogs,
+    responseScriptLogs,
+    type DevToolsConsoleLog,
+    type ScriptLog
+  } from './lib/devToolsConsole'
+  import {
+    notificationDate,
+    notificationDescription,
+    notificationLevelClass,
+    notificationTitle,
+    notificationType,
+    notificationsForDisplay
+  } from './lib/notificationView'
+  import { parseDotEnvRows, type DotEnvRow } from './lib/dotEnv'
+  import {
+    authWithOAuth2Defaults,
+    oauth2AuthWithDefaults,
+    proxyConfigWithDefaults
+  } from './lib/authDefaults'
+  import { contentTypeForFilePath, responseExampleBodyTypeForContentType } from './lib/contentTypes'
+  import {
+    applyResponseExampleFileRow,
+    applyResponseExampleHeader,
+    applyResponseExampleRequestField,
+    applyResponseExampleResponseField,
+    prettifyJSON,
+    removeResponseExampleFileRow,
+    suggestedResponseExampleName as suggestedResponseExampleNameOf
+  } from './lib/responseExampleEdits'
+  import { BrowserOpenURL, EventsOn, OnFileDrop, OnFileDropOff, Quit } from '../wailsjs/runtime/runtime'
 
-  type View = 'request' | 'collection' | 'runner' | 'environments' | 'import' | 'features' | 'network' | 'cookies' | 'preferences' | 'devtools'
+  type View = 'request' | 'collection' | 'git' | 'runner' | 'environments' | 'import' | 'features' | 'network' | 'cookies' | 'history' | 'preferences' | 'devtools'
   type ResponsePaneOrientation = 'horizontal' | 'vertical'
-  type GoldenEditionPricingOption = 'individuals' | 'organizations'
   type DevToolsTab = 'console' | 'network' | 'performance' | 'terminal'
   type DevToolsNetworkSortKey = 'method' | 'status' | 'domain' | 'path' | 'time' | 'duration' | 'size'
   type DevToolsNetworkSortDirection = '' | 'asc' | 'desc'
   type DevToolsNetworkDetailTab = 'request' | 'response' | 'network'
   type RequestPaneTab = 'params' | 'body' | 'headers' | 'auth' | 'vars' | 'script' | 'assert' | 'tests' | 'docs' | 'app' | 'settings'
-  type ResponseTab = 'response' | 'headers' | 'metadata' | 'trailers' | 'timeline' | 'console' | 'tests' | 'examples'
-  type TimelineKind = 'all' | 'main' | 'pre' | 'post' | 'oauth'
-  type CollectionTab = 'overview' | 'folders' | 'headers' | 'vars' | 'auth' | 'presets' | 'proxy' | 'clientCert' | 'protobuf' | 'script' | 'tests'
+  type ResponseTab = 'response' | 'headers' | 'metadata' | 'trailers' | 'timeline' | 'console' | 'tests' | 'visualizer' | 'examples'
+  type CollectionTab = 'overview' | 'folders' | 'headers' | 'vars' | 'auth' | 'presets' | 'mock' | 'docs' | 'proxy' | 'clientCert' | 'protobuf' | 'script' | 'tests'
   type FolderSettingsTab = 'headers' | 'vars' | 'auth' | 'script' | 'tests' | 'docs'
   type EnvironmentVariableTab = 'variables' | 'secrets'
+	  type ImportSourceMode = 'files' | 'url' | 'paste' | 'git'
+	  type ImportDecision = {
+	    selected: boolean
+	    environments: string[]
+	    folders: string[]
+	    requests: string[]
+	    outputName: string
+	    kindOverride: string
+	    conflictAction: string
+	  }
   type OAuth2ParamBucket = 'authorizationAdditionalParams' | 'tokenAdditionalParams' | 'refreshAdditionalParams'
   type OAuth2ParamField = 'name' | 'value' | 'enabled'
   type OAuth2ParamSendIn = 'headers' | 'queryparams' | 'body'
@@ -156,25 +478,21 @@
   type NotificationTab = 'all' | 'unread'
   type ThemeMode = 'system' | 'light' | 'dark'
   type JSSandboxMode = 'safe' | 'developer'
+  type TabLifecycleAction = 'close-active' | 'close-all' | 'quit'
+  type TabLifecycleDialog = {
+    action: TabLifecycleAction
+    affected: UnsavedRequestTab[]
+    targetTabIDs: string[]
+    returnFocus: HTMLElement | null
+  }
   type CollectionItemInfoTarget =
-    | { kind: 'folder'; collection: main.Collection; folder: main.FolderConfig }
-    | { kind: 'request'; collection: main.Collection; request: main.RequestItem }
+    | { kind: 'folder'; collection: types.Collection; folder: types.FolderConfig }
+    | { kind: 'request'; collection: types.Collection; request: types.RequestItem }
   type RequestCodeTarget = {
     collectionId: string
     itemId: string
     environmentId: string
   }
-  type WebSocketResponseEvent = {
-    direction?: string
-    name?: string
-    type?: string
-    data?: string
-    dataBase64?: string
-    dataHex?: string
-    error?: string
-    at?: string
-  }
-  type GrpcStreamEvent = WebSocketResponseEvent
   type ThemeVariant = {
     id: string
     name: string
@@ -186,109 +504,21 @@
     }
   }
   type KeyBindingOS = 'mac' | 'windows'
-  type KeyBindingDefinition = {
-    name: string
-    mac?: string
-    windows?: string
-    readOnly?: boolean
-    hidden?: boolean
-    displayValue?: Partial<Record<KeyBindingOS, string>>
-  }
-  type KeyBindingSection = {
-    heading: string
-    bindings: Record<string, KeyBindingDefinition>
-  }
+  // KeyBindingDefinition / KeyBindingSection now live in lib/keybindings.ts
+  // alongside the default table, so the table can be tested against the same
+  // collision rule the UI enforces.
+  type KeyBindingDefinition = import('./lib/keybindings').KeyBindingDefinition
+  type KeyBindingSection = import('./lib/keybindings').KeyBindingSection
   type BodyTextField = 'json' | 'xml' | 'text' | 'graphqlQuery' | 'graphqlVariables'
-  type VariableTooltipSource = 'global' | 'collection' | 'environment' | 'folder' | 'request' | 'runtime' | 'process' | 'path' | 'missing' | 'invalid'
   type IndexedVariable = {
-    variable: main.Variable
+    variable: types.Variable
     index: number
-  }
-  type TooltipResolution = {
-    value: string
-    containsSecret: boolean
-  }
-  type VariableTooltipInfo = {
-    name: string
-    scope: string
-    rawValue: string
-    resolvedValue: string
-    secret: boolean
-    readOnly: boolean
-    found: boolean
-    editable: boolean
-    validName: boolean
-    source: VariableTooltipSource
-    index: number
-    environmentId?: string
-    globalEnvironmentId?: string
-  }
-	  type URLVariableSegment =
-	    | {
-	      key: string
-	      text: string
-	      variable: false
-	      prompt: false
-	    }
-	    | {
-	      key: string
-	      text: string
-	      variable: false
-	      prompt: true
-	      name: string
-	    }
-	    | {
-	      key: string
-	      text: string
-	      variable: true
-	      prompt: false
-	      path?: boolean
-	      name: string
-	      info: VariableTooltipInfo
-	    }
-  type GlobalSearchResult = {
-    id: string
-    type: 'collection' | 'folder' | 'request' | 'documentation'
-    collectionId: string
-    itemId?: string
-    name: string
-    subtitle: string
-    meta: string
-    rank: number
   }
   type GitCloneProgress = {
     stage?: string
     message?: string
     targetPath?: string
     at?: string
-  }
-  type DotEnvRow = {
-    lineIndex: number
-    name: string
-    value: string
-  }
-  type CookieForm = {
-    id: string
-    name: string
-    value: string
-    domain: string
-    path: string
-    expires: string
-    session: boolean
-    secure: boolean
-    httpOnly: boolean
-    sameSite: string
-    hostOnly: boolean
-  }
-  type ScriptLog = {
-    level: string
-    message: string
-    args?: string[]
-  }
-  type DevToolsConsoleLog = ScriptLog & {
-    collectionName: string
-    requestName: string
-    source: string
   }
 	  type PromptDialogState = {
 	    prompts: string[]
@@ -301,221 +531,291 @@
 	    grantType: string
 	  }
 
-	  let state: main.AppState | null = null
-  let activeView: View = 'request'
-  let requestPaneTab: RequestPaneTab = 'params'
-  let responseTab: ResponseTab = 'response'
-  let responsePaneOrientation: ResponsePaneOrientation = 'horizontal'
-  let collectionTab: CollectionTab = 'overview'
-  let responseView: 'pretty' | 'raw' | 'base64' | 'hex' = 'pretty'
-  let hydratedActiveTabID = ''
-  let selectedEnvironmentId = ''
-  let loading = true
-  let busy = ''
-  let error = ''
-  let collectionName = 'New Collection'
-  let requestName = 'New Request'
-  let requestType = 'http'
-  let lastPresetKey = ''
-  let environmentName = 'Staging'
-  let globalEnvironmentName = 'Global'
-  let globalEnvironmentPayload = ''
-  let globalEnvironmentCopyName = ''
-  let globalEnvironmentExportFormat = 'single-object'
-  let globalEnvironmentExportAll = false
-  let globalEnvironmentExportFilename = ''
-  let globalEnvironmentExportPath = ''
-  let globalEnvironmentVariableTab: EnvironmentVariableTab = 'variables'
-  let environmentVariableTab: EnvironmentVariableTab = 'variables'
-  let globalEnvironmentVariableSearch = ''
-  let environmentVariableSearch = ''
-  let dotEnvFiles: main.DotEnvFile[] = []
-  let selectedDotEnvKey = ''
-  let dotEnvScope = 'workspace'
-  let dotEnvName = '.env'
-  let dotEnvContent = ''
-  let dotEnvDirty = false
-  let dotEnvContextKey = ''
+  // US-026. The state now lives in workspaceStore so components can read it
+  // without being handed pieces of it as props. This alias keeps every read in
+  // this file unchanged; assignments go to the store, and because a $derived
+  // cannot be assigned to, the compiler finds any that were missed.
+  const appState = $derived(workspaceStore.appState)
+  let activeView = $state<View>('request')
+  let requestPaneTab = $state<RequestPaneTab>('params')
+  let responseTab = $state<ResponseTab>('response')
+  let compactWorkbench = $state(false)
+  let compactWorkbenchMedia: MediaQueryList | undefined
+  let removeCompactWorkbenchListener: (() => void) | undefined
+  let removeFlushOnBlurListeners: (() => void) | undefined
+  // US-021/US-022. Live WebSocket and gRPC events are pushed one at a time
+  // rather than re-sent as a whole re-marshalled log on every call, so the
+  // accumulated log lives here. Keyed by collection+request because several
+  // requests can hold live sessions at once.
+  let liveSessionLogs = $state<Record<string, LiveSessionLog>>({})
+  let stopWebSocketEvents: (() => void) | undefined
+  let stopGrpcEvents: (() => void) | undefined
+  let collectionTab = $state<CollectionTab>('overview')
+  let responseView = $state<'pretty' | 'raw' | 'base64' | 'hex'>('pretty')
+  let tabLifecycleDialog = $state<TabLifecycleDialog | null>(null)
+  let tabLifecycleDecisionBusy = $state(false)
+  let tabLifecycleCancelButton = $state<HTMLButtonElement | null>(null)
+  let recoveryEntries = $state<recovery.Entry[]>([])
+  let recoveryBusyEntryID = $state('')
+  let workspaceWindowTargets = $state<core.WorkspaceWindowTarget[]>([])
+  let workspaceWindowPickerOpen = $state(false)
+  let workspaceWindowPickerBusy = $state(false)
+  let workspaceWindowPickerBusyAction = $state<'loading' | 'opening' | 'creating' | ''>('')
+  let workspaceWindowPickerError = $state('')
+  let nativeWindowBusy = $state(false)
+  let nativeWindowError = $state('')
+  let hydratedActiveTabID = $state('')
+  const selectedEnvironmentId = $derived(workspaceStore.selectedEnvironmentId)
+  let loading = $state(true)
+  let loadingStatus = $state('Opening workspace')
+  let busy = $state('')
+  let activeActions = $state(new Map<number, string>())
+  let nextActionID = $state(0)
+  let error = $state('')
+  let activeHTTPTransport: { collectionId: string; requestId: string } | undefined
+  let httpCancellationRequested = $state(false)
+  let activeCollectionRun = $state<{ collectionId: string; collectionName: string } | undefined>()
+  let collectionRunCancellationRequested = $state(false)
+  let lastCollectionRunCancelled = $state(false)
+  let collectionName = $state('New Collection')
+  let requestName = $state('New Request')
+  let requestType = $state('http')
+  let lastPresetKey = $state('')
+  let environmentName = $state('Staging')
+  let globalEnvironmentName = $state('Global')
+  let globalEnvironmentPayload = $state('')
+  let globalEnvironmentCopyName = $state('')
+  let globalEnvironmentExportFormat = $state('single-object')
+  let globalEnvironmentExportAll = $state(false)
+  let globalEnvironmentExportFilename = $state('')
+  let globalEnvironmentExportPath = $state('')
+  let globalEnvironmentVariableTab = $state<EnvironmentVariableTab>('variables')
+  let environmentVariableTab = $state<EnvironmentVariableTab>('variables')
+  let globalEnvironmentVariableSearch = $state('')
+  let environmentVariableSearch = $state('')
+  let dotEnvFiles = $state<types.DotEnvFile[]>([])
+  let selectedDotEnvKey = $state('')
+  let dotEnvScope = $state('workspace')
+  let dotEnvName = $state('.env')
+  let dotEnvContent = $state('')
+  let dotEnvDirty = $state(false)
+  let dotEnvContextKey = $state('')
   let dotEnvRefreshTimer: ReturnType<typeof window.setInterval> | undefined
   let collectionWatchPollTimer: ReturnType<typeof window.setInterval> | undefined
-  let collectionWatchRefreshInFlight = false
-  let dotEnvEditorMode: DotEnvEditorMode = 'table'
-  let systemThemeMode: 'light' | 'dark' = 'light'
+  let collectionWatchRefreshInFlight = $state(false)
+  let dotEnvEditorMode = $state<DotEnvEditorMode>('table')
+  let systemThemeMode = $state<'light' | 'dark'>('light')
   let systemThemeQuery: MediaQueryList | undefined
   let removeSystemThemeListener: (() => void) | undefined
-  let exportText = ''
-  let importKind = 'postman'
-  let importName = 'Imported API'
-  let importGroupBy = 'tag'
-  let importSourceURL = ''
-  let importOpenAPISync = false
-  let openAPISyncCollectionId = ''
-  let openAPISyncSourceURL = ''
-  let openAPISyncGroupBy = 'tag'
-  let openAPISyncContent = ''
-  let openAPISyncPreserveValues = true
-	  let openAPISyncEndpointDecisions: Record<string, string> = {}
-	  let openAPISyncResult: main.OpenAPISyncResult | undefined
-	  let openAPILocalDriftResult: main.OpenAPILocalDriftResult | undefined
-	  let openAPISyncSettingsOpen = false
-	  let openAPISyncSettingsSourceURL = ''
-	  let openAPISyncSettingsAutoCheck = true
-	  let openAPISyncSettingsInterval = 5
-	  let openAPISyncAutoCheckLastRun: Record<string, number> = {}
-		  let openAPISyncUpdateStatus: Record<string, main.OpenAPISyncUpdateCheckResult> = {}
-		  let openAPISyncUpdateErrors: Record<string, string> = {}
+  let exportText = $state('')
+	  let importSourceMode = $state<ImportSourceMode>('files')
+	  let importSources = $state<core.CollectionImportSource[]>([])
+	  let importPreview = $state<core.CollectionImportPreview | undefined>()
+	  let importDecisions = $state<Record<string, ImportDecision>>({})
+	  let importExpanded = $state<Record<string, boolean>>({})
+	  let importApplyResult = $state<core.CollectionImportApplyResult | undefined>()
+	  // US-044. Off by default: pm.* runs natively now, so an imported Postman
+  // script works as written. Translation is for collections whose scripts were
+  // already migrated by hand against the bru API.
+  let importTranslatePostmanScripts = $state(false)
+  let importDestinationRoot = $state('')
+	  let importDestinationWorkspaceID = $state('')
+	  let importURL = $state('')
+	  let importPasteName = $state('Pasted import')
+	  let importStatus = $state('')
+	  let importPickerButton = $state<HTMLButtonElement | null>(null)
+	  let importApplyButton = $state<HTMLButtonElement | null>(null)
+	  let importReplaceConfirmationOpen = $state(false)
+	  let importReplaceConfirmationCancelButton = $state<HTMLButtonElement | null>(null)
+	  let importReplaceConfirmationReturnFocus = $state<HTMLElement | null>(null)
+	  let importApplyInFlight = $state(false)
+  let openAPISyncCollectionId = $state('')
+  let openAPISyncSourceURL = $state('')
+  let openAPISyncGroupBy = $state('tag')
+  let openAPISyncContent = $state('')
+  let openAPISyncPreserveValues = $state(true)
+	  let openAPISyncEndpointDecisions = $state<Record<string, string>>({})
+	  let openAPISyncResult = $state<types.OpenAPISyncResult | undefined>()
+	  let openAPILocalDriftResult = $state<types.OpenAPILocalDriftResult | undefined>()
+	  let openAPISyncSettingsOpen = $state(false)
+	  let openAPISyncSettingsSourceURL = $state('')
+	  let openAPISyncSettingsAutoCheck = $state(true)
+	  let openAPISyncSettingsInterval = $state(5)
+	  let openAPISyncAutoCheckLastRun = $state<Record<string, number>>({})
+		  let openAPISyncUpdateStatus = $state<Record<string, types.OpenAPISyncUpdateCheckResult>>({})
+		  let openAPISyncUpdateErrors = $state<Record<string, string>>({})
 		  let openAPISyncPollTimer: ReturnType<typeof window.setInterval> | undefined
 			  let openAPISyncInitialPollTimer: ReturnType<typeof window.setTimeout> | undefined
-			  let openAPISpecViewerOpen = false
-			  let openAPISpecViewerResult: main.OpenAPISyncSpecViewResult | undefined
-			  let openAPISpecDiffOpen = false
-			  let openAPISpecDiffResult: main.OpenAPISyncSpecDiffResult | undefined
-			  let openAPISpecDiffActiveChangeIndex = 0
-			  let requestSearch = ''
-  let requestSearchInput: HTMLInputElement | undefined
-  let sidebarCollapsed = false
-  let runnerConfigCollectionId = ''
-  let runnerSelectedItemIds: string[] = []
-  let runnerConfigItems: main.RequestItem[] = []
-  let runnerSelectedCount = 0
-  let runnerDelayMs = 0
-  let appZoomPercentage = 100
-  let codeFont = 'default'
-  let codeFontSize = 13
-  let fileCacheSize: number | undefined
+			  let openAPISpecViewerOpen = $state(false)
+			  let openAPISpecViewerResult = $state<types.OpenAPISyncSpecViewResult | undefined>()
+			  let openAPISpecDiffOpen = $state(false)
+			  let openAPISpecDiffResult = $state<types.OpenAPISyncSpecDiffResult | undefined>()
+			  let openAPISpecDiffActiveChangeIndex = $state(0)
+			  let requestSearch = $state('')
+  let requestSearchInput = $state<HTMLInputElement | undefined>()
+  let requestURLInput = $state<HTMLInputElement | undefined>()
+  let sidebarCollapsed = $state(false)
+  let sidebarWidth = $state(DEFAULT_SIDEBAR_WIDTH)
+  let responseSplit = $state(DEFAULT_RESPONSE_SPLIT)
+	let workbenchStorageScope = $state('')
+  let creationOpen = $state(false)
+  let creationReturnFocus = $state<HTMLElement | null>(null)
+  let commandPaletteOpen = $state(false)
+  let commandPaletteQuery = $state('')
+  let commandPaletteInput = $state<HTMLInputElement | null>(null)
+  let commandPaletteReturnFocus = $state<HTMLElement | null>(null)
+  let commandPaletteActiveIndex = $state(0)
+  let runnerConfigCollectionId = $state('')
+  let runnerSelectedItemIds = $state<string[]>([])
+  let runnerDelayMs = $state(0)
+  let runnerBailOnFailure = $state(false)
+  let runnerIterations = $state(1)
+  let runnerDataFile = $state('')
+  let fileCacheSize = $state<number | undefined>()
   let autoSaveTimer: ReturnType<typeof window.setTimeout> | undefined
   let autoSaveTarget: { collectionId: string; requestId: string } | undefined
-  let requestPreferencesSaveQueue = Promise.resolve()
-  let recordingKeybindingAction = ''
-  let keybindingDraft = ''
-  let keybindingError = ''
-  let cookieSearch = ''
-  let cookieForm: CookieForm = emptyCookieForm()
-  let rawCookieHeader = 'session=abc123; Path=/; HttpOnly'
-  let rawCookieURL = 'http://127.0.0.1/'
-  let selectedCollectionId = ''
-  let selectedFolderPath = ''
-  let folderSettingsTab: FolderSettingsTab = 'headers'
-  let folderSettingDrafts: Record<string, main.FolderConfig> = {}
-  let folderSettingsSaveQueue = Promise.resolve()
-  let gitRemoteURL = ''
-  let gitRemoteCollectionId = ''
-  let gitCloneURL = ''
-  let gitCloneRoot = ''
-  let gitCloneName = ''
-  let gitVersionText = ''
-  let gitCloneOutput = ''
-  let gitCloneInProgress = false
-  let showShareCollectionModal = false
-  let shareCollectionFormat = 'zip'
-  let shareCollectionResult: main.CollectionExportResult | undefined
-  let shareCollectionUnsupportedTypes: string[] = []
-  let showGenerateDocsModal = false
-  let renameCollectionTarget: main.Collection | undefined
-  let renameCollectionDraft = ''
-  let cloneCollectionTarget: main.Collection | undefined
-  let cloneCollectionNameDraft = ''
-  let cloneCollectionFolderDraft = ''
-  let cloneCollectionLocationDraft = ''
-  let cloneCollectionFolderEditing = false
-  let newFolderTarget: main.Collection | undefined
-  let newFolderParentPath = ''
-  let newFolderNameDraft = ''
-  let newFolderDirectoryDraft = ''
-  let newFolderDirectoryEditing = false
-  let newFolderShowFilesystemName = false
-  let renameFolderTarget: { collection: main.Collection; folder: main.FolderConfig } | undefined
-  let renameFolderNameDraft = ''
-  let renameFolderDirectoryDraft = ''
-  let renameFolderDirectoryEditing = false
-  let renameFolderShowFilesystemName = false
-  let cloneFolderTarget: { collection: main.Collection; folder: main.FolderConfig } | undefined
-  let cloneFolderNameDraft = ''
-  let cloneFolderDirectoryDraft = ''
-  let cloneFolderDirectoryEditing = false
-  let cloneFolderShowFilesystemName = false
-  let itemInfoTarget: CollectionItemInfoTarget | undefined
-  let cloneRequestTarget: { collection: main.Collection; request: main.RequestItem } | undefined
-  let cloneRequestNameDraft = ''
-  let cloneRequestFilenameDraft = ''
-  let cloneRequestFilenameEditing = false
-  let cloneRequestShowFilesystemName = false
-  let renameRequestTarget: { collection: main.Collection; request: main.RequestItem } | undefined
-  let renameRequestNameDraft = ''
-  let renameRequestFilenameDraft = ''
-  let renameRequestFilenameEditing = false
-  let renameRequestShowFilesystemName = false
-  let deleteRequestTarget: { collection: main.Collection; request: main.RequestItem } | undefined
-  let deleteFolderTarget: { collection: main.Collection; folder: main.FolderConfig } | undefined
-  let removeCollectionTarget: main.Collection | undefined
-  let generateDocsDeselectedEnvIds: string[] = []
-  let generateDocsResult: main.GenerateCollectionDocsResult | undefined
-  let generateDocsSelectAllInput: HTMLInputElement | undefined
-  let generateDocsEnvironments: main.Environment[] = []
-  let generateDocsSelectedEnvIds: string[] = []
-  let generateDocsSelectedCount = 0
-  let generateDocsFolderCount = 0
-  let generateDocsRequestCount = 0
-  let gitCloneProgress: GitCloneProgress[] = []
-  let gitNotFoundMessage = ''
-  let gitCandidates: main.GitCollectionCandidate[] = []
-  let selectedGitCollectionPaths: string[] = []
-  let openCollectionPath = '/Users/mou/Documents/bruno/Sample API Collection'
-  let grpcMethods: main.GRPCMethodInfo[] = []
-  let grpcMethodsRequestId = ''
-  let grpcMethodMessage = ''
-  let revealedVariableTooltips: Record<string, boolean> = {}
-  let copiedVariableTooltips: Record<string, boolean> = {}
-  let copiedVariableTooltipTimers: Record<string, ReturnType<typeof window.setTimeout>> = {}
-  let activeVariableTooltip = ''
-  let editingVariableTooltip = ''
-  let variableTooltipDraft = ''
-  let urlInputScrollLeft = 0
-  let bodyTextScrollLeft = 0
-  let bodyTextScrollTop = 0
-  let processEnvTooltipKey = ''
-	  let processEnvTooltipValues: Record<string, string> = {}
-	  let promptDialog: PromptDialogState | null = null
-	  let oauth2AuthorizationRequest: OAuth2AuthorizationBrowserRequest | null = null
-	  let oauth2CallbackURLInput = ''
-	  let oauth2CallbackMessage = ''
-	  let oauth2FrameKey = 0
-	  let creatingResponseExample = false
-  let createResponseExampleName = ''
-  let createResponseExampleDescription = ''
-  let createResponseExampleInput: HTMLInputElement | null = null
-  let editingResponseExampleID = ''
-  let responseExampleNameDraft = ''
-  let deletingResponseExampleID = ''
-  let editingResponseExampleDetailsID = ''
-  let generatingResponseExampleID = ''
-  let responseExampleCodeLanguage = 'curl'
-  let responseExampleGeneratedCode = ''
-  let requestCodeTarget: RequestCodeTarget | undefined
-  let requestCodeLanguage = 'curl'
-  let requestGeneratedCode = ''
-  let generatedGrpcurlCommand = ''
-  let responseExampleDrafts: Record<string, main.ResponseExample> = {}
-  let globalSearchOpen = false
-  let globalSearchQuery = ''
-  let globalSearchIndex = 0
-  let globalSearchInput: HTMLInputElement | null = null
-  let notificationsOpen = false
-  let notificationTab: NotificationTab = 'all'
-  let selectedNotificationID = ''
-  let pinnedUnreadNotificationIDs: Set<string> | null = null
-  let timelineActiveFilter: TimelineKind = 'all'
-  let expandedTimelineEntryID = ''
-  let supportOpen = false
-  let goldenEditionOpen = false
-  let goldenPricingOption: GoldenEditionPricingOption = 'individuals'
-  let devToolsOpen = false
-  let devToolsTab: DevToolsTab = 'console'
-  let devToolsSnapshot: main.DevToolsSnapshot | null = null
-  let devToolsPerformanceView = 'cumulative'
-  let devToolsDrawerHeight = 320
-  let devToolsDetailsPanelWidth = 400
-  let devToolsNetworkFilters: Record<string, boolean> = {
+  let requestPreferencesSaveQueue = $state(Promise.resolve())
+  let recordingKeybindingAction = $state('')
+  let keybindingDraft = $state('')
+  let keybindingError = $state('')
+  let cookieSearch = $state('')
+  let cookieForm = $state<CookieForm>(emptyCookieForm())
+  let rawCookieHeader = $state('session=abc123; Path=/; HttpOnly')
+  let rawCookieURL = $state('http://127.0.0.1/')
+  const selectedCollectionId = $derived(workspaceStore.selectedCollectionId)
+  let selectedFolderPath = $state('')
+  let folderSettingsTab = $state<FolderSettingsTab>('headers')
+  let folderSettingDrafts = $state<Record<string, types.FolderConfig>>({})
+  let folderSettingsSaveQueue = $state(Promise.resolve())
+  let gitRemoteURL = $state('')
+  let gitRemoteCollectionId = $state('')
+  let gitCloneURL = $state('')
+  let gitCloneRoot = $state('')
+  let gitCloneName = $state('')
+  let gitVersionText = $state('')
+  let gitCloneOutput = $state('')
+  let gitCloneInProgress = $state(false)
+  let showShareCollectionModal = $state(false)
+  let shareCollectionFormat = $state('zip')
+  let shareCollectionResult: types.CollectionExportResult | undefined
+  let showGenerateDocsModal = $state(false)
+  let renameCollectionTarget = $state<types.Collection | undefined>()
+  let renameCollectionDraft = $state('')
+  let cloneCollectionTarget = $state<types.Collection | undefined>()
+  let cloneCollectionNameDraft = $state('')
+  let cloneCollectionFolderDraft = $state('')
+  let cloneCollectionLocationDraft = $state('')
+  let cloneCollectionFolderEditing = $state(false)
+  let newFolderTarget = $state<types.Collection | undefined>()
+  let newFolderParentPath = $state('')
+  let newFolderNameDraft = $state('')
+  let newFolderDirectoryDraft = $state('')
+  let newFolderDirectoryEditing = $state(false)
+  let newFolderShowFilesystemName = $state(false)
+  let renameFolderTarget = $state<{ collection: types.Collection; folder: types.FolderConfig } | undefined>()
+  let renameFolderNameDraft = $state('')
+  let renameFolderDirectoryDraft = $state('')
+  let renameFolderDirectoryEditing = $state(false)
+  let renameFolderShowFilesystemName = $state(false)
+  let cloneFolderTarget = $state<{ collection: types.Collection; folder: types.FolderConfig } | undefined>()
+  let cloneFolderNameDraft = $state('')
+  let cloneFolderDirectoryDraft = $state('')
+  let cloneFolderDirectoryEditing = $state(false)
+  let cloneFolderShowFilesystemName = $state(false)
+  let itemInfoTarget = $state<CollectionItemInfoTarget | undefined>()
+  let cloneRequestTarget = $state<{ collection: types.Collection; request: types.RequestItem } | undefined>()
+  let cloneRequestNameDraft = $state('')
+  let cloneRequestFilenameDraft = $state('')
+  let cloneRequestFilenameEditing = $state(false)
+  let cloneRequestShowFilesystemName = $state(false)
+  let renameRequestTarget = $state<{ collection: types.Collection; request: types.RequestItem } | undefined>()
+  let renameRequestNameDraft = $state('')
+  let renameRequestFilenameDraft = $state('')
+  let renameRequestFilenameEditing = $state(false)
+  let renameRequestShowFilesystemName = $state(false)
+  let deleteRequestTarget = $state<{ collection: types.Collection; request: types.RequestItem } | undefined>()
+  let deleteFolderTarget = $state<{ collection: types.Collection; folder: types.FolderConfig } | undefined>()
+  let removeCollectionTarget = $state<types.Collection | undefined>()
+  let generateDocsDeselectedEnvIds = $state<string[]>([])
+  let generateDocsResult: types.GenerateCollectionDocsResult | undefined
+  let generateDocsSelectAllInput = $state<HTMLInputElement | undefined>()
+  let gitCloneProgress = $state<GitCloneProgress[]>([])
+  let gitNotFoundMessage = $state('')
+	let gitWorkbenchSnapshot = $state<gitworkbench.CollectionGitSnapshot | undefined>()
+	let gitWorkbenchCollectionID = $state('')
+	let gitWorkbenchLoading = $state(false)
+	let gitWorkbenchBusy = $state('')
+	let gitWorkbenchStatus = $state('')
+	let gitWorkbenchError = $state('')
+	let gitWorkbenchSelectedPaths = $state<string[]>([])
+	let gitWorkbenchDiff = $state<gitworkbench.CollectionGitDiff | undefined>()
+	let gitWorkbenchBranch = $state('')
+	let gitWorkbenchNewBranch = $state('')
+	let gitWorkbenchCheckoutNewBranch = $state(true)
+	let gitWorkbenchCommitMessage = $state('')
+	let gitWorkbenchRemoteName = $state('origin')
+	let gitWorkbenchRemoteURL = $state('')
+	let gitWorkbenchRemoteBranch = $state('')
+	let gitWorkbenchSetUpstream = $state(false)
+	let gitWorkbenchHeading = $state<HTMLHeadingElement | null>(null)
+  let gitCandidates = $state<types.GitCollectionCandidate[]>([])
+  let selectedGitCollectionPaths = $state<string[]>([])
+  let openCollectionPath = $state('/Users/mou/Documents/LiteAPI/Sample API Collection')
+  let grpcMethods = $state<types.GRPCMethodInfo[]>([])
+  let grpcMethodsRequestId = $state('')
+  let grpcMethodMessage = $state('')
+
+  let copiedVariableTooltipTimers = $state<Record<string, ReturnType<typeof window.setTimeout>>>({})
+
+  let urlInputScrollLeft = $state(0)
+  let bodyTextScrollLeft = $state(0)
+  let bodyTextScrollTop = $state(0)
+  let processEnvTooltipKey = $state('')
+	  let processEnvTooltipValues = $state<Record<string, string>>({})
+  // US-034. processEnvTooltipValues is rebuilt as an object, so its identity
+  // changes even when the contents do not. A signature over the contents is
+  // what keeps the tooltip memo from missing on every render while still
+  // invalidating when a value genuinely changes.
+  const processEnvTooltipSignature = $derived(Object.keys(processEnvTooltipValues)
+    .sort()
+    .map((name) => `${name}=${processEnvTooltipValues[name]}`)
+    .join('|'))
+	  let promptDialog = $state<PromptDialogState | null>(null)
+	  let oauth2AuthorizationRequest = $state<OAuth2AuthorizationBrowserRequest | null>(null)
+	  let oauth2CallbackURLInput = $state('')
+	  let oauth2CallbackMessage = $state('')
+	  let oauth2FrameKey = $state(0)
+	  let creatingResponseExample = $state(false)
+  let createResponseExampleName = $state('')
+  let createResponseExampleDescription = $state('')
+  let createResponseExampleInput = $state<HTMLInputElement | null>(null)
+  let editingResponseExampleID = $state('')
+  let responseExampleNameDraft = $state('')
+  let deletingResponseExampleID = $state('')
+  let editingResponseExampleDetailsID = $state('')
+  let generatingResponseExampleID = $state('')
+  let responseExampleCodeLanguage = $state('curl')
+  let responseExampleGeneratedCode = $state('')
+  let requestCodeTarget = $state<RequestCodeTarget | undefined>()
+  let requestCodeLanguage = $state('curl')
+  let requestGeneratedCode = $state('')
+  let generatedGrpcurlCommand = $state('')
+  let responseExampleDrafts = $state<Record<string, types.ResponseExample>>({})
+  let globalSearchOpen = $state(false)
+  let globalSearchQuery = $state('')
+  let globalSearchIndex = $state(0)
+  let globalSearchInput = $state<HTMLInputElement | null>(null)
+  let notificationsOpen = $state(false)
+  let notificationTab = $state<NotificationTab>('all')
+  let selectedNotificationID = $state('')
+  let pinnedUnreadNotificationIDs = $state<Set<string> | null>(null)
+  let devToolsOpen = $state(false)
+  let devToolsTab = $state<DevToolsTab>('console')
+  let devToolsSnapshot = $state<types.DevToolsSnapshot | null>(null)
+  let devToolsPerformanceView = $state('cumulative')
+  let devToolsDrawerHeight = $state(320)
+  let devToolsDetailsPanelWidth = $state(400)
+  let devToolsNetworkFilters = $state<Record<string, boolean>>({
     GET: true,
     POST: true,
     PUT: true,
@@ -523,23 +823,23 @@
     PATCH: true,
     HEAD: true,
     OPTIONS: true
-  }
-  let devToolsNetworkSortKey: DevToolsNetworkSortKey | '' = ''
-  let devToolsNetworkSortDirection: DevToolsNetworkSortDirection = ''
-  let selectedDevToolsNetworkLogID = ''
-  let devToolsNetworkDetailTab: DevToolsNetworkDetailTab = 'request'
-  let devToolsNetworkColumnWidths = [80, 70, 180, 300, 110, 100, 80]
-  let devToolsNetworkResizingColumn = -1
-  let devToolsNetworkPreferencesKey = ''
-  let terminalSessions: main.TerminalSession[] = []
-  let terminalActiveSessionId = ''
-  let terminalOutput = ''
-  let terminalInput = ''
-  let terminalError = ''
-  let terminalBusy = false
+  })
+  let devToolsNetworkSortKey = $state<DevToolsNetworkSortKey | ''>('')
+  let devToolsNetworkSortDirection = $state<DevToolsNetworkSortDirection>('')
+  let selectedDevToolsNetworkLogID = $state('')
+  let devToolsNetworkDetailTab = $state<DevToolsNetworkDetailTab>('request')
+  let devToolsNetworkColumnWidths = $state([80, 70, 180, 300, 110, 100, 80])
+  let devToolsNetworkResizingColumn = $state(-1)
+  let devToolsNetworkPreferencesKey = $state('')
+  let terminalSessions = $state<types.TerminalSession[]>([])
+  let terminalActiveSessionId = $state('')
+  let terminalOutput = $state('')
+  let terminalInput = $state('')
+  let terminalError = $state('')
+  let terminalBusy = $state(false)
   let terminalPollTimer: number | undefined
-  let revealCollectionMessage = ''
-  let importContent = '{\n  "info": { "name": "Imported API" },\n  "item": [\n    {\n      "name": "Postman Echo",\n      "request": {\n        "method": "GET",\n        "url": "https://httpbin.org/get",\n        "header": []\n      }\n    }\n  ]\n}'
+  let revealCollectionMessage = $state('')
+	  let importContent = $state('')
 
   const requestTabs: { id: RequestPaneTab; label: string }[] = [
     { id: 'params', label: 'Params' },
@@ -563,6 +863,7 @@
     { id: 'timeline', label: 'Timeline' },
     { id: 'console', label: 'Console' },
     { id: 'tests', label: 'Tests' },
+    { id: 'visualizer', label: 'Visualizer' },
     { id: 'examples', label: 'Examples' }
   ]
 
@@ -597,6 +898,8 @@
     { id: 'vars', label: 'Vars' },
     { id: 'auth', label: 'Auth' },
     { id: 'presets', label: 'Presets' },
+    { id: 'mock', label: 'Mock Server' },
+    { id: 'docs', label: 'Docs' },
     { id: 'proxy', label: 'Proxy' },
     { id: 'clientCert', label: 'Client Certificates' },
     { id: 'protobuf', label: 'Protobuf' },
@@ -625,50 +928,12 @@
   const oauth2TokenSources = ['access_token', 'id_token']
   const oauth1SignatureMethods = ['HMAC-SHA1', 'HMAC-SHA256', 'HMAC-SHA512', 'RSA-SHA1', 'RSA-SHA256', 'RSA-SHA512', 'PLAINTEXT']
   const oauth1Placements = ['header', 'query', 'body']
-  const invalidCollectionFolderCharacters = /[<>:"/\\|?*\x00-\x1F]/g
-  const reservedCollectionFolderNames = /^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])$/i
-  const collectionFolderFirstCharacter = /^[^\s\-<>:"/\\|?*\x00-\x1F]/
-  const collectionFolderMiddleCharacters = /^[^<>:"/\\|?*\x00-\x1F]*$/
-  const collectionFolderLastCharacter = /[^.\s<>:"/\\|?*\x00-\x1F]$/
-
-  function sanitizeCollectionFolderName(name: string) {
-    return name
-      .replace(invalidCollectionFolderCharacters, '-')
-      .replace(/^[\s-]+/, '')
-      .replace(/[.\s]+$/, '')
-  }
-
-  function collectionFolderNameIsValid(name: string) {
-    if (!name || name.length > 255) return false
-    if (reservedCollectionFolderNames.test(name)) return false
-    return collectionFolderFirstCharacter.test(name) && collectionFolderMiddleCharacters.test(name) && collectionFolderLastCharacter.test(name)
-  }
-
   function cloneCollectionDefaultLocation() {
-    const preferred = state?.preferences?.general?.defaultLocation || state?.preferences?.defaultCollectionPath || ''
+    const preferred = appState?.preferences?.general?.defaultLocation || appState?.preferences?.defaultCollectionPath || ''
     return preferred || activeWorkspace?.path || ''
   }
 
-  function oauth2AuthWithDefaults(auth: main.OAuth2Auth | undefined, updates: Partial<main.OAuth2Auth> = {}) {
-    const merged = { ...(auth ?? {}), ...updates } as main.OAuth2Auth
-    return {
-      ...merged,
-      grantType: merged.grantType || 'client_credentials',
-      credentialsPlacement: merged.credentialsPlacement || 'basic_auth_header',
-      tokenSource: merged.tokenSource || 'access_token',
-      tokenPlacement: merged.tokenPlacement || 'header',
-      tokenHeaderPrefix: merged.tokenHeaderPrefix || 'Bearer',
-      tokenQueryKey: merged.tokenQueryKey || 'access_token'
-    } as main.OAuth2Auth
-  }
 
-  function authWithOAuth2Defaults(auth: main.AuthConfig | undefined, updates: Partial<main.AuthConfig> = {}) {
-    const next = { ...(auth ?? {}), ...updates } as main.AuthConfig
-    if (next.mode === 'oauth2' || updates.oauth2 !== undefined) {
-      next.oauth2 = oauth2AuthWithDefaults(auth?.oauth2, updates.oauth2)
-    }
-    return next
-  }
 
   const grpcMethodTypes = ['', 'unary', 'client-streaming', 'server-streaming', 'bidi-streaming']
   const wsMessageTypes = ['json', 'xml', 'text', 'binary']
@@ -694,390 +959,609 @@
     { id: 'nord', name: 'Nord', mode: 'dark', preview: { background: '#2e3440', sidebar: '#242933', accent: '#88c0d0' } },
     { id: 'vscode-dark', name: 'VS Code Dark', mode: 'dark', preview: { background: '#1e1e1e', sidebar: '#252526', accent: '#3794ff' } }
   ]
-  const supportLinks = [
-    { label: 'Documentation', url: 'https://docs.usebruno.com', glyph: 'Book' },
-    { label: 'Report Issues', url: 'https://github.com/usebruno/bruno/issues', glyph: 'Megaphone' },
-    { label: 'Discord', url: 'https://discord.com/invite/KgcZUncpjq', glyph: 'Chat' },
-    { label: 'GitHub', url: 'https://github.com/usebruno/bruno', glyph: 'Git' },
-    { label: 'Twitter', url: 'https://twitter.com/use_bruno', glyph: 'X' }
-  ]
-  const goldenEditionIndividuals = [
-    'Inbuilt Bru File Explorer',
-    'Visual Git (Like Gitlens for Vscode)',
-    'GRPC, Websocket, SocketIO, MQTT',
-    'Load Data from File for Collection Run',
-    'Developer Tools',
-    'OpenAPI Designer',
-    'Performance/Load Testing',
-    'Inbuilt Terminal',
-    'Custom Themes'
-  ]
-  const goldenEditionOrganizations = [
-    'Centralized License Management',
-    'Integration with Secret Managers',
-    'Private Collection Registry',
-    'Request Forms',
-    'Priority Support'
-	  ]
-	  const keyBindingSeparator = '+bind+'
-	  const zoomDefaultPercentage = 100
-	  const openAPISyncCheckIntervals = [5, 15, 30, 60]
+	  const zoomDefaultPercentage = ZOOM_DEFAULT_PERCENTAGE
+	  const openAPISyncCheckIntervals = [...OPENAPI_SYNC_CHECK_INTERVALS]
 	  const collectionWatchPollMs = 2_000
 	  const openAPISyncInitialPollMs = 10_000
 	  const openAPISyncGlobalPollMs = 5 * 60_000
-	  const zoomMinPercentage = 50
-  const zoomMaxPercentage = 150
+	  const zoomMinPercentage = ZOOM_MIN_PERCENTAGE
+  const zoomMaxPercentage = ZOOM_MAX_PERCENTAGE
   const zoomStepPercentage = 10
-  const defaultCodeFont = 'default'
-  const defaultCodeFontSize = 13
-  const defaultCodeFontFamily = '"SFMono-Regular", Consolas, "Liberation Mono", monospace'
+  const defaultCodeFont = DEFAULT_CODE_FONT
+  const defaultCodeFontSize = DEFAULT_CODE_FONT_SIZE
+  const defaultCodeFontFamily = DEFAULT_CODE_FONT_FAMILY
   const zoomPercentages = Array.from(
     { length: (zoomMaxPercentage - zoomMinPercentage) / zoomStepPercentage + 1 },
     (_, index) => zoomMinPercentage + index * zoomStepPercentage
   )
-  const keyBindingSections: KeyBindingSection[] = [
-    {
-      heading: 'Tabs',
-      bindings: {
-        closeTab: { mac: 'command+bind+w', windows: 'ctrl+bind+w', name: 'Close Tab' },
-        closeAllTabs: { mac: 'command+bind+shift+bind+w', windows: 'ctrl+bind+shift+bind+w', name: 'Close All Tabs' },
-        save: { mac: 'command+bind+s', windows: 'ctrl+bind+s', name: 'Save' },
-        saveAllTabs: { mac: 'command+bind+shift+bind+s', windows: 'ctrl+bind+shift+bind+s', name: 'Save All Tabs' },
-        reopenLastClosedTab: { mac: 'command+bind+shift+bind+t', windows: 'ctrl+bind+shift+bind+t', name: 'Reopen Last Closed Tab' },
-        switchToTabAtPosition: {
-          mac: 'command+bind+1+bind+command+bind+8',
-          windows: 'ctrl+bind+1+bind+ctrl+bind+8',
-          name: 'Switch to Tab at Position',
-          readOnly: true,
-          displayValue: { mac: 'command+bind+1 - command+bind+8', windows: 'ctrl+bind+1 - ctrl+bind+8' }
-        },
-        switchToLastTab: { mac: 'command+bind+9', windows: 'ctrl+bind+9', name: 'Switch to Last Tab' },
-        switchToPreviousTab: { mac: 'shift+bind+command+bind+[', windows: 'shift+bind+ctrl+bind+[', name: 'Switch to Previous Tab' },
-        switchToNextTab: { mac: 'shift+bind+command+bind+]', windows: 'shift+bind+ctrl+bind+]', name: 'Switch to Next Tab' },
-        moveTabLeft: { mac: 'command+bind+[', windows: 'ctrl+bind+[', name: 'Move Tab Left' },
-        moveTabRight: { mac: 'command+bind+]', windows: 'ctrl+bind+]', name: 'Move Tab Right' },
-        switchToTab1: { mac: 'command+bind+1', windows: 'ctrl+bind+1', name: 'Switch to Tab at Position', readOnly: true, hidden: true },
-        switchToTab2: { mac: 'command+bind+2', windows: 'ctrl+bind+2', name: 'Switch to Tab at Position', readOnly: true, hidden: true },
-        switchToTab3: { mac: 'command+bind+3', windows: 'ctrl+bind+3', name: 'Switch to Tab at Position', readOnly: true, hidden: true },
-        switchToTab4: { mac: 'command+bind+4', windows: 'ctrl+bind+4', name: 'Switch to Tab at Position', readOnly: true, hidden: true },
-        switchToTab5: { mac: 'command+bind+5', windows: 'ctrl+bind+5', name: 'Switch to Tab at Position', readOnly: true, hidden: true },
-        switchToTab6: { mac: 'command+bind+6', windows: 'ctrl+bind+6', name: 'Switch to Tab at Position', readOnly: true, hidden: true },
-        switchToTab7: { mac: 'command+bind+7', windows: 'ctrl+bind+7', name: 'Switch to Tab at Position', readOnly: true, hidden: true },
-        switchToTab8: { mac: 'command+bind+8', windows: 'ctrl+bind+8', name: 'Switch to Tab at Position', readOnly: true, hidden: true }
-      }
-    },
-    {
-      heading: 'Sidebar',
-      bindings: {
-        sidebarSearch: { mac: 'command+bind+f', windows: 'ctrl+bind+f', name: 'Search Sidebar' },
-        copyItem: { mac: 'command+bind+c', windows: 'ctrl+bind+c', name: 'Copy Item' },
-        pasteItem: { mac: 'command+bind+v', windows: 'ctrl+bind+v', name: 'Paste Item' },
-        cloneItem: { mac: 'command+bind+d', windows: 'ctrl+bind+d', name: 'Clone Item' },
-        renameItem: { mac: 'command+bind+r', windows: 'ctrl+bind+r', name: 'Rename Item' },
-        collapseSidebar: { mac: 'command+bind+\\', windows: 'ctrl+bind+\\', name: 'Collapse Sidebar' }
-      }
-    },
-    {
-      heading: 'Requests',
-      bindings: {
-        sendRequest: { mac: 'command+bind+enter', windows: 'ctrl+bind+enter', name: 'Send Request' },
-        changeLayout: { mac: 'command+bind+j', windows: 'ctrl+bind+j', name: 'Change Orientation' }
-      }
-    },
-    {
-      heading: 'Collections & Environment',
-      bindings: {
-        importCollection: { mac: 'command+bind+o', windows: 'ctrl+bind+o', name: 'Import Collection' },
-        editEnvironment: { mac: 'command+bind+e', windows: 'ctrl+bind+e', name: 'Edit Environment' },
-        newRequest: { mac: 'command+bind+n', windows: 'ctrl+bind+n', name: 'New Request' }
-      }
-    },
-    { heading: 'Search', bindings: { globalSearch: { mac: 'command+bind+k', windows: 'ctrl+bind+k', name: 'Global Search' } } },
-    {
-      heading: 'View',
-      bindings: {
-        zoomIn: { mac: 'command+bind+=', windows: 'ctrl+bind+=', name: 'Zoom In' },
-        zoomOut: { mac: 'command+bind+-', windows: 'ctrl+bind+-', name: 'Zoom Out' },
-        resetZoom: { mac: 'command+bind+0', windows: 'ctrl+bind+0', name: 'Reset Zoom' }
-      }
-    },
-    { heading: 'Developer Tool', bindings: { openTerminal: { mac: 'command+bind+t', windows: 'ctrl+bind+t', name: 'Open in Terminal' } } },
-    {
-      heading: 'Others',
-      bindings: {
-        openPreferences: { mac: 'command+bind+,', windows: 'ctrl+bind+,', name: 'Open Preferences' },
-        closeBruno: { mac: 'command+bind+q', windows: 'ctrl+bind+shift+bind+q', name: 'Close Bruno' }
-      }
-    }
-  ]
 	  const promptTokenPattern = /\{\{\?([^{}\s](?:[^{}]*?[^{}\s])?)\}\}/g
-	  const promptVariableTextPattern = /^\?([^{}\s](?:[^{}]*?[^{}\s])?)$/
 	  const invalidVariableWarning = 'Invalid variable name! Variables must only contain alpha-numeric characters, "-", "_", "."'
 
-  function normalizePresetRequestType(value: string | undefined) {
-    if (value === 'ws') return 'websocket'
-    if (value === 'http' || value === 'graphql' || value === 'grpc' || value === 'websocket') return value
-    return ''
-  }
-
-  function normalizedResponsePaneOrientation(value: string | undefined): ResponsePaneOrientation {
-    return value === 'vertical' ? 'vertical' : 'horizontal'
-  }
-
-  function normalizedZoomPercentage(value: number | undefined) {
-    const numeric = Number.isFinite(value) ? Number(value) : zoomDefaultPercentage
-    return Math.min(Math.max(numeric || zoomDefaultPercentage, zoomMinPercentage), zoomMaxPercentage)
-  }
-
-  function normalizedCodeFont(value: string | undefined) {
-    const trimmed = value?.trim()
-    return trimmed || defaultCodeFont
-  }
-
-  function normalizedCodeFontSize(value: number | undefined) {
-    if (value === undefined || value === null || !Number.isFinite(Number(value)) || Number(value) === 0) {
-      return defaultCodeFontSize
+  const activeWorkspace = $derived(workspaceStore.activeWorkspace)
+  const activeTab = $derived(workspaceStore.activeTab)
+  $effect(() => {
+  if (activeTab?.id && activeTab.id !== hydratedActiveTabID) {
+      hydratedActiveTabID = activeTab.id
+      if (requestTabs.some((tab) => tab.id === activeTab.requestPaneTab)) requestPaneTab = activeTab.requestPaneTab as RequestPaneTab
+      if (activeTab.kind === 'response-example') {
+        responseTab = 'examples'
+      } else if (responseTabs.some((tab) => tab.id === activeTab.responseTab)) {
+        responseTab = activeTab.responseTab as ResponseTab
+      }
     }
-    return Math.min(Math.max(Number(value), 1), 32)
-  }
-
-  function normalizedAutoSaveInterval(value: number | undefined) {
-    if (value === undefined || value === null || !Number.isFinite(Number(value)) || Number(value) <= 0) {
-      return 1000
-    }
-    return Math.max(Math.round(Number(value)), 500)
-  }
-
-  function normalizedRequestTimeout(value: number | undefined) {
-    if (value === undefined || value === null || !Number.isFinite(Number(value)) || Number(value) < 0) {
-      return 0
-    }
-    return Math.round(Number(value))
-  }
-
-  function customCaFileName(filePath: string | undefined) {
-    const trimmed = filePath?.trim() ?? ''
-    if (!trimmed) return ''
-    const parts = trimmed.split(/[\\/]/)
-    return parts[parts.length - 1] || trimmed
-  }
-
-  function codeFontFamilyFor(value: string) {
-    const font = normalizedCodeFont(value)
-    if (font === defaultCodeFont) return defaultCodeFontFamily
-    const escaped = font.replace(/["\\]/g, '\\$&')
-    return `"${escaped}", ${defaultCodeFontFamily}`
-  }
-
-  $: activeWorkspace = state?.workspaces?.find((workspace) => workspace.id === state?.activeWorkspaceId) ?? state?.workspaces?.[0]
-  $: activeTab = state?.openTabs?.find((tab) => tab.id === state?.activeTabId)
-  $: if (activeTab?.id && activeTab.id !== hydratedActiveTabID) {
-    hydratedActiveTabID = activeTab.id
-    if (requestTabs.some((tab) => tab.id === activeTab.requestPaneTab)) requestPaneTab = activeTab.requestPaneTab as RequestPaneTab
-    if (activeTab.kind === 'response-example') {
-      responseTab = 'examples'
-    } else if (responseTabs.some((tab) => tab.id === activeTab.responseTab)) {
-      responseTab = activeTab.responseTab as ResponseTab
-    }
-  }
-  $: selectedCollection = activeWorkspace?.collections?.find((collection) => collection.id === selectedCollectionId)
-  $: activeCollection = selectedCollection ?? activeWorkspace?.collections?.find((collection) => collection.id === activeTab?.collectionId) ?? activeWorkspace?.collections?.[0]
-  $: activeRequest = activeCollection?.items?.find((item) => item.id === activeTab?.itemId) ?? activeCollection?.items?.[0]
-  $: shareCollectionUnsupportedTypes = collectionShareUnsupportedTypes(activeCollection)
-  $: if ((activeCollection?.id ?? '') !== openAPISyncCollectionId) {
-    openAPISyncCollectionId = activeCollection?.id ?? ''
-    const config = activeCollection?.openapi?.[0]
-    openAPISyncSourceURL = config?.sourceUrl ?? ''
-    openAPISyncGroupBy = config?.groupBy || 'tag'
-    openAPISyncContent = ''
-    openAPISyncPreserveValues = true
-	    openAPISyncEndpointDecisions = {}
-		    openAPISyncResult = undefined
-		    openAPILocalDriftResult = undefined
-		    openAPISyncSettingsOpen = false
-		    openAPISpecViewerOpen = false
-		    openAPISpecViewerResult = undefined
-		    openAPISpecDiffOpen = false
-		    openAPISpecDiffResult = undefined
-		    openAPISpecDiffActiveChangeIndex = 0
-		  }
-  $: openAPISpecDiffChangeLineIndexes = (openAPISpecDiffResult?.lines ?? []).reduce<number[]>((indexes, line, index) => {
+  })
+  const selectedCollection = $derived(workspaceStore.selectedCollection)
+  const activeCollection = $derived(workspaceStore.activeCollection)
+	$effect(() => {
+  if (activeView === 'git' && activeCollection?.id && gitWorkbenchCollectionID !== activeCollection.id && !gitWorkbenchLoading) {
+  		gitWorkbenchSnapshot = undefined
+  		gitWorkbenchSelectedPaths = []
+  		gitWorkbenchDiff = undefined
+  		gitWorkbenchRemoteURL = ''
+  		void refreshGitWorkbench()
+  	}
+	})
+  const activeRequest = $derived(workspaceStore.activeRequest)
+  const shareCollectionUnsupportedTypes = $derived(collectionShareUnsupportedTypes(activeCollection))
+  $effect(() => {
+  if ((activeCollection?.id ?? '') !== openAPISyncCollectionId) {
+      openAPISyncCollectionId = activeCollection?.id ?? ''
+      const config = activeCollection?.openapi?.[0]
+      openAPISyncSourceURL = config?.sourceUrl ?? ''
+      openAPISyncGroupBy = config?.groupBy || 'tag'
+      openAPISyncContent = ''
+      openAPISyncPreserveValues = true
+  	    openAPISyncEndpointDecisions = {}
+  		    openAPISyncResult = undefined
+  		    openAPILocalDriftResult = undefined
+  		    openAPISyncSettingsOpen = false
+  		    openAPISpecViewerOpen = false
+  		    openAPISpecViewerResult = undefined
+  		    openAPISpecDiffOpen = false
+  		    openAPISpecDiffResult = undefined
+  		    openAPISpecDiffActiveChangeIndex = 0
+  		  }
+  })
+  const openAPISpecDiffChangeLineIndexes = $derived((openAPISpecDiffResult?.lines ?? []).reduce<number[]>((indexes, line, index) => {
     if ((line.kind ?? 'same') !== 'same') indexes.push(index)
     return indexes
-  }, [])
-  $: openAPISpecDiffChangeCount = openAPISpecDiffChangeLineIndexes.length
-  $: if (openAPISpecDiffChangeCount === 0 && openAPISpecDiffActiveChangeIndex !== 0) {
-    openAPISpecDiffActiveChangeIndex = 0
-  } else if (openAPISpecDiffChangeCount > 0 && openAPISpecDiffActiveChangeIndex >= openAPISpecDiffChangeCount) {
-    openAPISpecDiffActiveChangeIndex = openAPISpecDiffChangeCount - 1
+  }, []))
+  const openAPISpecDiffChangeCount = $derived(openAPISpecDiffChangeLineIndexes.length)
+  $effect(() => {
+  if (openAPISpecDiffChangeCount === 0 && openAPISpecDiffActiveChangeIndex !== 0) {
+      openAPISpecDiffActiveChangeIndex = 0
+    } else if (openAPISpecDiffChangeCount > 0 && openAPISpecDiffActiveChangeIndex >= openAPISpecDiffChangeCount) {
+      openAPISpecDiffActiveChangeIndex = openAPISpecDiffChangeCount - 1
+    }
+  })
+  const generateDocsEnvironments = $derived(activeCollection?.environments ?? [])
+  // THE self-referential statement the story flags as non-mechanical. It reads
+  // and writes the same variable, so it cannot be a $derived — a derivation
+  // cannot depend on itself — and the variable is genuinely mutated elsewhere
+  // (the Generate Docs dialog toggles it), so it stays $state with a pruning
+  // effect.
+  //
+  // The length guard is essential. filter returns a NEW array every pass, so an
+  // unguarded assignment would invalidate this effect on its own write and loop
+  // forever. Legacy `$:` got away with it because Svelte compared the reference
+  // and stopped; an effect writing $state has no such stop.
+  $effect(() => {
+    const pruned = generateDocsDeselectedEnvIds.filter((id) =>
+      generateDocsEnvironments.some((env) => env.id === id)
+    )
+    if (pruned.length !== generateDocsDeselectedEnvIds.length) {
+      generateDocsDeselectedEnvIds = pruned
+    }
+  })
+  const generateDocsSelectedEnvIds = $derived(generateDocsEnvironments.filter((env) => !generateDocsDeselectedEnvIds.includes(env.id)).map((env) => env.id))
+  const generateDocsSelectedCount = $derived(generateDocsSelectedEnvIds.length)
+  const generateDocsFolderCount = $derived(activeCollection?.folders?.length ?? 0)
+  const generateDocsRequestCount = $derived((activeCollection?.items ?? []).filter(collectionDocsRequestIsExportable).length)
+  $effect(() => {
+  if (generateDocsSelectAllInput) generateDocsSelectAllInput.indeterminate = generateDocsSelectedCount > 0 && generateDocsSelectedCount < generateDocsEnvironments.length
+  })
+  const runnerConfigItems = $derived(runnerSelectableItems(activeCollection))
+  const runnerSelectedCount = $derived(runnerSelectedCountOf(runnerSelectedItemIds, runnerConfigItems))
+  $effect(() => {
+  if ((activeCollection?.id ?? '') !== runnerConfigCollectionId) {
+      runnerConfigCollectionId = activeCollection?.id ?? ''
+      runnerSelectedItemIds = runnerConfigItems.map((item) => item.id)
+      runnerDelayMs = 0
+      runnerBailOnFailure = false
+      runnerIterations = 1
+      runnerDataFile = ''
+    }
+  })
+  const responsePaneOrientation = $derived(normalizedResponsePaneOrientation(appState?.preferences?.layout?.responsePaneOrientation))
+  const appZoomPercentage = $derived(normalizedZoomPercentage(appState?.preferences?.display?.zoomPercentage))
+  const codeFont = $derived(normalizedCodeFont(appState?.preferences?.font?.codeFont))
+  const codeFontSize = $derived(normalizedCodeFontSize(appState?.preferences?.font?.codeFontSize ?? appState?.preferences?.codeFontSize))
+  const activeResponseTabs = $derived(
+    (activeRequest?.type === 'grpc'
+      ? responseTabs
+      : responseTabs.filter((tab) => tab.id !== 'metadata' && tab.id !== 'trailers')
+    )
+      // US-058. Shown only when a script set a visualizer. A tab that is always
+      // there and always empty teaches people to ignore it.
+      .filter((tab) => tab.id !== 'visualizer' || Boolean(activeRequest?.response?.visualizer))
+  )
+
+  // Fetched from the backend rather than assembled here so the CSP and the
+  // escaping stay under Go's tests; the frontend supplies only the sandbox.
+  // Mirrors VisualizerSandbox in visualizer.go, which a Go test pins. Declared
+  // once here so a change has a single place to happen.
+  const visualizerSandboxAttribute = 'allow-scripts'
+  let visualizerDocument = $state('')
+
+  // US-073 — mock server controls. Port 0 means "let the OS choose", which is
+  // the default because a fixed port collides with whatever else is running and
+  // fails at bind time with an error the user then has to diagnose.
+  let mockServerStatus = $state<localserver.MockServerStatus | undefined>()
+  let mockServerPort = $state(0)
+
+  // US-074 — docs preview. Same shape and the same reasoning as the mock
+  // controls: loopback only, port 0 lets the OS choose.
+  let docsServerStatus = $state<localserver.DocsServerStatus | undefined>()
+  let docsServerPort = $state(0)
+
+  async function refreshDocsServerStatus(collectionID: string | undefined) {
+    if (!collectionID) {
+      docsServerStatus = undefined
+      return
+    }
+    try {
+      docsServerStatus = await DocsServerStatusFor(collectionID)
+    } catch (err) {
+      error = String(err)
+    }
   }
-  $: generateDocsEnvironments = activeCollection?.environments ?? []
-  $: generateDocsDeselectedEnvIds = generateDocsDeselectedEnvIds.filter((id) => generateDocsEnvironments.some((env) => env.id === id))
-  $: generateDocsSelectedEnvIds = generateDocsEnvironments.filter((env) => !generateDocsDeselectedEnvIds.includes(env.id)).map((env) => env.id)
-  $: generateDocsSelectedCount = generateDocsSelectedEnvIds.length
-  $: generateDocsFolderCount = activeCollection?.folders?.length ?? 0
-  $: generateDocsRequestCount = (activeCollection?.items ?? []).filter(collectionDocsRequestIsExportable).length
-  $: if (generateDocsSelectAllInput) generateDocsSelectAllInput.indeterminate = generateDocsSelectedCount > 0 && generateDocsSelectedCount < generateDocsEnvironments.length
-  $: runnerConfigItems = runnerSelectableItems(activeCollection)
-  $: runnerSelectedCount = runnerSelectedItemIds.filter((id) => runnerConfigItems.some((item) => item.id === id)).length
-  $: if ((activeCollection?.id ?? '') !== runnerConfigCollectionId) {
-    runnerConfigCollectionId = activeCollection?.id ?? ''
-    runnerSelectedItemIds = runnerConfigItems.map((item) => item.id)
-    runnerDelayMs = 0
+
+  async function startDocsServer(collectionID: string) {
+    await runAction('start docs preview', async () => {
+      docsServerStatus = await StartDocsServer(
+        collectionID,
+        Math.max(0, Math.floor(Number(docsServerPort) || 0)),
+        { environmentIds: [] } as types.GenerateCollectionDocsOptions
+      )
+    })
   }
-  $: responsePaneOrientation = normalizedResponsePaneOrientation(state?.preferences?.layout?.responsePaneOrientation)
-  $: appZoomPercentage = normalizedZoomPercentage(state?.preferences?.display?.zoomPercentage)
-  $: codeFont = normalizedCodeFont(state?.preferences?.font?.codeFont)
-  $: codeFontSize = normalizedCodeFontSize(state?.preferences?.font?.codeFontSize ?? state?.preferences?.codeFontSize)
-  $: activeResponseTabs = activeRequest?.type === 'grpc' ? responseTabs : responseTabs.filter((tab) => tab.id !== 'metadata' && tab.id !== 'trailers')
-  $: if (activeRequest?.type !== 'grpc' && (responseTab === 'metadata' || responseTab === 'trailers')) responseTab = 'headers'
-  $: if (activeCollection && selectedFolderPath && !(activeCollection.folders ?? []).some((folder) => folder.path === selectedFolderPath)) {
-    selectedFolderPath = ''
+
+  async function stopDocsServer(collectionID: string) {
+    await runAction('stop docs preview', async () => {
+      docsServerStatus = await StopDocsServer(collectionID)
+    })
   }
-  $: activeFolder = activeCollection?.folders?.find((folder) => folder.path === selectedFolderPath) ?? activeCollection?.folders?.[0]
-  $: editableFolder = activeFolder ? folderSettingDrafts[activeFolder.path] ?? activeFolder : undefined
-  $: selectedEnvironment = activeCollection?.environments?.find((env) => env.id === selectedEnvironmentId) ?? activeCollection?.environments?.[0]
-  $: activeGlobalEnvironment = activeWorkspace?.globalEnvironments?.find((env) => env.id === activeWorkspace?.activeGlobalEnvironmentId)
-  $: selectedGlobalEnvironment = activeGlobalEnvironment ?? activeWorkspace?.globalEnvironments?.[0]
-  $: selectedDotEnvFile = dotEnvFiles.find((file) => dotEnvFileKey(file) === selectedDotEnvKey)
-  $: globalEnvironmentVariableQuery = normalizedSearch(globalEnvironmentVariableSearch)
-  $: environmentVariableQuery = normalizedSearch(environmentVariableSearch)
-  $: visibleGlobalEnvironmentRows = visibleEnvironmentVariables(selectedGlobalEnvironment?.variables, globalEnvironmentVariableTab, globalEnvironmentVariableQuery)
-  $: visibleEnvironmentRows = visibleEnvironmentVariables(selectedEnvironment?.variables, environmentVariableTab, environmentVariableQuery)
-  $: dotEnvRows = parseDotEnvRows(dotEnvContent)
-  $: doneFeatures = state?.featureLedger?.filter((feature) => feature.status === 'done').length ?? 0
-  $: partialFeatures = state?.featureLedger?.filter((feature) => feature.status === 'partial').length ?? 0
-  $: totalFeatures = state?.featureLedger?.length ?? 0
-  $: responseBody = activeRequest?.response?.body ?? ''
-  $: formattedResponse = formatResponse(responseBody, activeRequest?.response?.headers ?? {})
-  $: displayedResponse = responseForView(activeRequest?.response, responseView, formattedResponse)
-  $: websocketResponseEvents = parseWebSocketResponseEvents(activeRequest?.response)
-  $: websocketConnected = activeRequest?.type === 'websocket' && responseHeaderValue(activeRequest.response, 'x-websocket-connected') === 'true'
-  $: websocketEventCount = responseHeaderValue(activeRequest?.response, 'x-websocket-events')
-  $: grpcStreamEvents = parseGrpcStreamEvents(activeRequest?.response)
-  $: grpcStreamConnected = activeRequest?.type === 'grpc' && responseHeaderValue(activeRequest.response, 'x-grpc-stream-connected') === 'true'
-  $: grpcStreamEnded = activeRequest?.type === 'grpc' && responseHeaderValue(activeRequest.response, 'x-grpc-stream-ended') === 'true'
-  $: grpcStreamEventCount = responseHeaderValue(activeRequest?.response, 'x-grpc-stream-events')
-  $: grpcStreamingRequest = activeRequest?.type === 'grpc' && ['client-streaming', 'server-streaming', 'bidi-streaming'].includes(activeRequest.grpcMethodType ?? '')
-  $: grpcClientStreamingRequest = activeRequest?.type === 'grpc' && ['client-streaming', 'bidi-streaming'].includes(activeRequest.grpcMethodType ?? '')
-  $: activeScriptLogs = responseScriptLogs(activeRequest?.response)
-  $: activeTimelineEntries = sortedTimelineEntries(activeRequest?.timeline ?? [])
-  $: timelineFilterCounts = timelineCounts(activeTimelineEntries)
-  $: visibleTimelineFilters = timelineVisibleFilters(timelineFilterCounts)
-  $: if (timelineActiveFilter !== 'all' && !visibleTimelineFilters.some((filter) => filter.id === timelineActiveFilter)) timelineActiveFilter = 'all'
-  $: filteredTimelineEntries = timelineFilteredEntries(activeTimelineEntries, timelineActiveFilter)
-  $: devToolsConsoleRows = devToolsConsoleLogs(activeWorkspace)
-  $: rawDevToolsNetworkRows = state?.networkLog ?? []
-  $: if (state && devToolsNetworkPreferencesKeyFor(state.preferences?.devTools?.network) !== devToolsNetworkPreferencesKey) {
-    applyDevToolsNetworkPreferences(state.preferences?.devTools?.network)
+
+  $effect(() => {
+  void refreshDocsServerStatus(collectionTab === 'docs' ? activeCollection?.id : undefined)
+  })
+
+  async function refreshMockServerStatus(collectionID: string | undefined) {
+    if (!collectionID) {
+      mockServerStatus = undefined
+      return
+    }
+    try {
+      mockServerStatus = await MockServerStatusFor(collectionID)
+    } catch (err) {
+      error = String(err)
+    }
   }
-  $: devToolsNetworkMethodCounts = Object.fromEntries(devToolsNetworkMethods.map((method) => [method, rawDevToolsNetworkRows.filter((row) => normalizedNetworkMethod(row) === method).length])) as Record<string, number>
-  $: devToolsNetworkActiveFilterCount = devToolsNetworkMethods.filter((method) => devToolsNetworkFilters[method]).length
-  $: devToolsNetworkRows = sortedDevToolsNetworkRows(filteredDevToolsNetworkRows(rawDevToolsNetworkRows, devToolsNetworkFilters), devToolsNetworkSortKey, devToolsNetworkSortDirection)
-  $: devToolsNetworkSortLabels = Object.fromEntries(devToolsNetworkSortKeys.map((key) => [key, devToolsNetworkSortLabel(key, devToolsNetworkSortKey, devToolsNetworkSortDirection)])) as Record<DevToolsNetworkSortKey, string>
-  $: devToolsNetworkAriaSort = Object.fromEntries(devToolsNetworkSortKeys.map((key) => [key, devToolsNetworkSortAriaValue(key, devToolsNetworkSortKey, devToolsNetworkSortDirection)])) as Record<DevToolsNetworkSortKey, 'ascending' | 'descending' | 'none'>
-  $: devToolsNetworkTableWidth = devToolsNetworkColumnWidths.reduce((total, width) => total + width, 0)
-  $: selectedDevToolsNetworkRow = devToolsNetworkRows.find((row) => row.id === selectedDevToolsNetworkLogID) ?? devToolsNetworkRows[0]
-  $: activeTerminalSession = terminalSessions.find((session) => session.id === terminalActiveSessionId)
-  $: devToolsPerformanceProcesses = devToolsSnapshot?.processes ?? []
-  $: if (devToolsPerformanceView !== 'cumulative' && !devToolsPerformanceProcesses.some((process) => String(process.pid) === devToolsPerformanceView)) devToolsPerformanceView = 'cumulative'
-  $: selectedDevToolsPerformanceProcess = devToolsPerformanceProcesses.find((process) => String(process.pid) === devToolsPerformanceView)
-  $: displayedDevToolsCPUPercent = selectedDevToolsPerformanceProcess?.cpuPercent ?? devToolsSnapshot?.cpuPercent
-  $: displayedDevToolsMemoryBytes = selectedDevToolsPerformanceProcess?.memoryBytes ?? devToolsSnapshot?.memoryBytes
-  $: displayedDevToolsUptimeSeconds = selectedDevToolsPerformanceProcess?.uptimeSeconds ?? devToolsSnapshot?.uptimeSeconds
-  $: displayedDevToolsPID = selectedDevToolsPerformanceProcess?.pid ?? devToolsSnapshot?.pid
-  $: if (devToolsNetworkRows.length > 0 && (!selectedDevToolsNetworkLogID || !devToolsNetworkRows.some((row) => row.id === selectedDevToolsNetworkLogID))) {
-    selectedDevToolsNetworkLogID = devToolsNetworkRows[0].id
-    devToolsNetworkDetailTab = 'request'
+
+  async function startMockServer(collectionID: string) {
+    await runAction('start mock server', async () => {
+      mockServerStatus = await StartMockServer(collectionID, Math.max(0, Math.floor(Number(mockServerPort) || 0)))
+    })
   }
-  $: if (devToolsNetworkRows.length === 0 && selectedDevToolsNetworkLogID) selectedDevToolsNetworkLogID = ''
-  $: requestVariableNames = activeRequest ? variableNamesForRequest(activeRequest) : []
-  $: requestProcessEnvNames = requestVariableNames.filter((name) => name.startsWith('process.env.'))
-  $: requestVariableTooltips = activeWorkspace && activeCollection && activeRequest
-    ? variableTooltipsForRequest(activeWorkspace, activeCollection, activeRequest, selectedEnvironmentId, processEnvTooltipValues)
-    : []
-  $: searchQuery = normalizedSearch(requestSearch)
-  $: globalSearchResults = buildGlobalSearchResults(activeWorkspace, globalSearchQuery)
-  $: visibleNotifications = notificationsForDisplay(state?.notifications ?? [])
-  $: unreadNotificationCount = visibleNotifications.filter((notification) => !notification.read).length
-  $: listedNotifications = notificationTab === 'unread'
+
+  async function stopMockServer(collectionID: string) {
+    await runAction('stop mock server', async () => {
+      mockServerStatus = await StopMockServer(collectionID)
+    })
+  }
+
+  // Applies collection edits to a running mock without rebinding, so the port
+  // every open client is pointed at survives saving an example.
+  async function refreshMockServerRoutes(collectionID: string) {
+    await runAction('refresh mock server', async () => {
+      mockServerStatus = await RefreshMockServer(collectionID)
+    })
+  }
+
+  $effect(() => {
+  void refreshMockServerStatus(collectionTab === 'mock' ? activeCollection?.id : undefined)
+  })
+
+  // US-032. The network log is virtualised: only the rows near the viewport are
+  // put in the DOM. Spacer rows above and below carry the height of everything
+  // skipped, so the scrollbar stays exactly as long as the full list — see
+  // lib/virtualList.ts for why that invariant is the load-bearing one.
+  //
+  // The row height is measured from the DOM rather than hard-coded, because it
+  // follows the app's font-size and density settings. Until it is measured the
+  // fallback keeps the window sane rather than dividing by zero.
+  const devToolsNetworkRowFallbackHeight = 28
+  let devToolsNetworkScrollTop = 0
+  let devToolsNetworkViewportHeight = 0
+  let devToolsNetworkMeasuredRowHeight = 0
+
+  const devToolsNetworkRowHeight = $derived(devToolsNetworkMeasuredRowHeight || devToolsNetworkRowFallbackHeight)
+
+  function measureDevToolsNetworkViewport(node: HTMLElement) {
+    const update = () => {
+      devToolsNetworkViewportHeight = node.clientHeight
+      // Measured from a real rendered row so density and font-size changes are
+      // picked up; a hard-coded height would drift from the stylesheet.
+      const row = node.querySelector<HTMLElement>('tbody tr[data-network-row]')
+      if (row && row.offsetHeight > 0) devToolsNetworkMeasuredRowHeight = row.offsetHeight
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(node)
+    return {
+      destroy() {
+        observer.disconnect()
+      }
+    }
+  }
+
+  // US-049 — history surface appState. The filter is applied SERVER-SIDE through
+  // HistoryQuery rather than by pulling the whole log and filtering here: each
+  // entry carries its headers, so a client-side filter would move hundreds of
+  // kilobytes across the binding on every keystroke to render a screenful.
+  let historyEntries = $state<history.HistoryEntry[]>([])
+  let historyQuery = $state('')
+  let historyOnlyFailures = $state(false)
+  let historyMethodFilter = $state('')
+  let historySaveTargetID = $state('')
+  let historySearchTimer: number | undefined
+
+  async function refreshHistory() {
+    try {
+      historyEntries = await ListHistory({
+        text: historyQuery,
+        method: historyMethodFilter,
+        onlyFailures: historyOnlyFailures
+      } as history.HistoryQuery)
+    } catch (err) {
+      error = String(err)
+    }
+  }
+
+  // Debounced so typing does not issue one binding call per character.
+  function scheduleHistorySearch() {
+    if (historySearchTimer !== undefined) window.clearTimeout(historySearchTimer)
+    historySearchTimer = window.setTimeout(() => {
+      historySearchTimer = undefined
+      void refreshHistory()
+    }, 150)
+  }
+
+  // The original request may have been renamed, moved or deleted since the
+  // send, so this is checked against live appState rather than assumed.
+  function historyEntryStillExists(entry: history.HistoryEntry) {
+    return historyEntryExists(appState, entry.collectionId, entry.itemId)
+  }
+
+  async function openHistoryEntryInTab(entry: history.HistoryEntry) {
+    // Narrowed locally: historyEntryStillExists already proves both are set,
+    // but that guarantee does not cross the function boundary for the checker.
+    const collectionId = entry.collectionId
+    const itemId = entry.itemId
+    if (!collectionId || !itemId || !historyEntryStillExists(entry)) return
+    await runAction('open history request', async () => {
+      workspaceStore.appState = await OpenRequestTab(collectionId, itemId)
+      activeView = 'request'
+    })
+  }
+
+  async function saveHistoryEntryToCollection(entry: history.HistoryEntry) {
+    if (!historySaveTargetID) return
+    await runAction('save history request', async () => {
+      workspaceStore.appState = await CreateRequestFromHistory(historySaveTargetID, entry.id)
+    })
+  }
+
+  async function clearHistory() {
+    await runAction('clear history', async () => {
+      await ClearHistory()
+      await refreshHistory()
+    })
+  }
+
+  const historyCollections = $derived((appState?.workspaces ?? []).flatMap((workspace) =>
+    (workspace.collections ?? []).map((collection) => ({ id: collection.id, name: collection.name }))
+  ))
+  $effect(() => {
+  if (!historySaveTargetID && historyCollections.length > 0) historySaveTargetID = historyCollections[0].id
+  })
+  $effect(() => {
+  void loadVisualizerDocument(activeCollection?.id, activeRequest?.id, activeRequest?.response?.visualizer)
+  })
+
+  async function loadVisualizerDocument(collectionID: string | undefined, itemID: string | undefined, payload: types.VisualizerPayload | undefined) {
+    if (!collectionID || !itemID || !payload) {
+      visualizerDocument = ''
+      return
+    }
+    try {
+      visualizerDocument = await VisualizerDocument(collectionID, itemID)
+    } catch {
+      visualizerDocument = ''
+    }
+  }
+  $effect(() => {
+  if (activeRequest?.type !== 'grpc' && (responseTab === 'metadata' || responseTab === 'trailers')) responseTab = 'headers'
+  })
+  $effect(() => {
+  if (activeCollection && selectedFolderPath && !(activeCollection.folders ?? []).some((folder) => folder.path === selectedFolderPath)) {
+      selectedFolderPath = ''
+    }
+  })
+  const activeFolder = $derived(activeCollection?.folders?.find((folder) => folder.path === selectedFolderPath) ?? activeCollection?.folders?.[0])
+  const editableFolder = $derived(activeFolder ? folderSettingDrafts[activeFolder.path] ?? activeFolder : undefined)
+  const selectedEnvironment = $derived(workspaceStore.selectedEnvironment)
+  const activeGlobalEnvironment = $derived(workspaceStore.activeGlobalEnvironment)
+  const selectedGlobalEnvironment = $derived(activeGlobalEnvironment ?? activeWorkspace?.globalEnvironments?.[0])
+  const selectedDotEnvFile = $derived(dotEnvFiles.find((file) => dotEnvFileKey(file) === selectedDotEnvKey))
+  const globalEnvironmentVariableQuery = $derived(normalizedSearch(globalEnvironmentVariableSearch))
+  const environmentVariableQuery = $derived(normalizedSearch(environmentVariableSearch))
+  const visibleGlobalEnvironmentRows = $derived(visibleEnvironmentVariables(selectedGlobalEnvironment?.variables, globalEnvironmentVariableTab, globalEnvironmentVariableQuery))
+  const visibleEnvironmentRows = $derived(visibleEnvironmentVariables(selectedEnvironment?.variables, environmentVariableTab, environmentVariableQuery))
+  const dotEnvRows = $derived(parseDotEnvRows(dotEnvContent))
+  const doneFeatures = $derived(appState?.featureLedger?.filter((feature) => feature.status === 'done').length ?? 0)
+  const partialFeatures = $derived(appState?.featureLedger?.filter((feature) => feature.status === 'partial').length ?? 0)
+  const totalFeatures = $derived(appState?.featureLedger?.length ?? 0)
+  const websocketConnected = $derived(activeRequest?.type === 'websocket' && responseHeaderValue(activeRequest.response, 'x-websocket-connected') === 'true')
+  const websocketEventCount = $derived(responseHeaderValue(activeRequest?.response, 'x-websocket-events'))
+  const grpcStreamConnected = $derived(activeRequest?.type === 'grpc' && responseHeaderValue(activeRequest.response, 'x-grpc-stream-connected') === 'true')
+  const grpcStreamEnded = $derived(activeRequest?.type === 'grpc' && responseHeaderValue(activeRequest.response, 'x-grpc-stream-ended') === 'true')
+  const grpcStreamEventCount = $derived(responseHeaderValue(activeRequest?.response, 'x-grpc-stream-events'))
+  const grpcStreamingRequest = $derived(activeRequest?.type === 'grpc' && ['client-streaming', 'server-streaming', 'bidi-streaming'].includes(activeRequest.grpcMethodType ?? ''))
+  const grpcClientStreamingRequest = $derived(activeRequest?.type === 'grpc' && ['client-streaming', 'bidi-streaming'].includes(activeRequest.grpcMethodType ?? ''))
+  const httpTransportInFlight = $derived(Boolean(
+    activeHTTPTransport
+      && activeHTTPTransport.collectionId === activeCollection?.id
+      && activeHTTPTransport.requestId === activeRequest?.id
+  ))
+  const hasActiveHTTPTransport = $derived(Boolean(activeHTTPTransport))
+  const backgroundHTTPTransport = $derived(activeHTTPTransport && !httpTransportInFlight
+    ? {
+      requestName: requestNameForTransport(activeHTTPTransport),
+      pending: httpCancellationRequested
+    }
+    : undefined)
+  const runnerCancelledCount = $derived(runnerCancellationCount(appState?.runner))
+  const runnerCompletedCancelled = $derived(runnerCancelledCount > 0 || lastCollectionRunCancelled)
+  const requestCommand = $derived(buildRequestCommandState(
+    activeRequest,
+    activeCollection,
+    selectedEnvironment?.name,
+    busy,
+    websocketConnected,
+    grpcStreamConnected,
+    appState?.preferences,
+    httpTransportInFlight,
+    httpTransportInFlight && httpCancellationRequested,
+    backgroundHTTPTransport,
+    activeWorkspace?.scratchCollectionId
+  ))
+  const activeScriptLogs = $derived(responseScriptLogs(activeRequest?.response))
+  const activeTimelineEntries = $derived(sortedTimelineEntries(activeRequest?.timeline ?? []))
+  // US-021/US-022. Both operands are named inside the statement so this really
+  // does re-run — a `$:` that referenced only a helper function would track
+  // nothing and go stale, which is the ResponseInspector bug US-004 found.
+  const activeLiveSessionLog = $derived(
+    activeCollection && activeRequest
+      ? liveSessionLogs[liveSessionKey(activeCollection.id, activeRequest.id)]
+      : undefined
+  )
+  const devToolsConsoleRows = $derived(devToolsConsoleLogs(activeWorkspace))
+  const rawDevToolsNetworkRows = $derived(appState?.networkLog ?? [])
+  $effect(() => {
+  if (appState && devToolsNetworkPreferencesKeyFor(appState.preferences?.devTools?.network) !== devToolsNetworkPreferencesKey) {
+      applyDevToolsNetworkPreferences(appState.preferences?.devTools?.network)
+    }
+  })
+  const devToolsNetworkMethodCounts = $derived(Object.fromEntries(devToolsNetworkMethods.map((method) => [method, rawDevToolsNetworkRows.filter((row) => normalizedNetworkMethod(row) === method).length])) as Record<string, number>)
+  const devToolsNetworkActiveFilterCount = $derived(devToolsNetworkMethods.filter((method) => devToolsNetworkFilters[method]).length)
+  const devToolsNetworkRows = $derived(sortedDevToolsNetworkRows(filteredDevToolsNetworkRows(rawDevToolsNetworkRows, devToolsNetworkFilters), devToolsNetworkSortKey, devToolsNetworkSortDirection))
+  // US-032. Moved below devToolsNetworkRows during the US-029 runes migration.
+  // Legacy `$:` statements were topologically sorted by the compiler, so their
+  // order in the file did not matter. $derived is a const and obeys the
+  // temporal dead zone, so a derivation must now appear after everything it
+  // reads — this pair used to sit a couple of hundred lines above its input.
+  const devToolsNetworkWindow = $derived(computeWindow({
+    total: devToolsNetworkRows.length,
+    rowHeight: devToolsNetworkRowHeight,
+    viewportHeight: devToolsNetworkViewportHeight,
+    scrollTop: devToolsNetworkScrollTop
+  }))
+  const devToolsNetworkVisibleRows = $derived(devToolsNetworkRows.slice(
+    devToolsNetworkWindow.startIndex,
+    devToolsNetworkWindow.endIndex
+  ))
+  const devToolsNetworkSortLabels = $derived(Object.fromEntries(devToolsNetworkSortKeys.map((key) => [key, devToolsNetworkSortLabel(key, devToolsNetworkSortKey, devToolsNetworkSortDirection)])) as Record<DevToolsNetworkSortKey, string>)
+  const devToolsNetworkAriaSort = $derived(Object.fromEntries(devToolsNetworkSortKeys.map((key) => [key, devToolsNetworkSortAriaValue(key, devToolsNetworkSortKey, devToolsNetworkSortDirection)])) as Record<DevToolsNetworkSortKey, 'ascending' | 'descending' | 'none'>)
+  const devToolsNetworkTableWidth = $derived(devToolsNetworkColumnWidths.reduce((total, width) => total + width, 0))
+  const selectedDevToolsNetworkRow = $derived(devToolsNetworkRows.find((row) => row.id === selectedDevToolsNetworkLogID) ?? devToolsNetworkRows[0])
+  const activeTerminalSession = $derived(terminalSessions.find((session) => session.id === terminalActiveSessionId))
+  const devToolsPerformanceProcesses = $derived(devToolsSnapshot?.processes ?? [])
+  $effect(() => {
+  if (devToolsPerformanceView !== 'cumulative' && !devToolsPerformanceProcesses.some((process) => String(process.pid) === devToolsPerformanceView)) devToolsPerformanceView = 'cumulative'
+  })
+  const selectedDevToolsPerformanceProcess = $derived(devToolsPerformanceProcesses.find((process) => String(process.pid) === devToolsPerformanceView))
+  const displayedDevToolsCPUPercent = $derived(selectedDevToolsPerformanceProcess?.cpuPercent ?? devToolsSnapshot?.cpuPercent)
+  const displayedDevToolsMemoryBytes = $derived(selectedDevToolsPerformanceProcess?.memoryBytes ?? devToolsSnapshot?.memoryBytes)
+  const displayedDevToolsUptimeSeconds = $derived(selectedDevToolsPerformanceProcess?.uptimeSeconds ?? devToolsSnapshot?.uptimeSeconds)
+  const displayedDevToolsPID = $derived(selectedDevToolsPerformanceProcess?.pid ?? devToolsSnapshot?.pid)
+  $effect(() => {
+  if (devToolsNetworkRows.length > 0 && (!selectedDevToolsNetworkLogID || !devToolsNetworkRows.some((row) => row.id === selectedDevToolsNetworkLogID))) {
+      selectedDevToolsNetworkLogID = devToolsNetworkRows[0].id
+      devToolsNetworkDetailTab = 'request'
+    }
+  })
+  $effect(() => {
+  if (devToolsNetworkRows.length === 0 && selectedDevToolsNetworkLogID) selectedDevToolsNetworkLogID = ''
+  })
+  const requestVariableNames = $derived(activeRequest ? variableNamesForRequest(activeRequest) : [])
+  const requestProcessEnvNames = $derived(requestVariableNames.filter((name) => name.startsWith('process.env.')))
+  // US-034. This statement re-ran whenever ANY of its dependencies was
+  // invalidated, and it walks every variable scope to resolve each name. Keyed
+  // on the request id, the revision, the environment and the process-env
+  // signature — every input the resolution actually reads. Leaving one out
+  // would return tooltips resolved against the previous environment, which
+  // renders perfectly and is simply wrong.
+  let tooltipMemo: Memo<string, VariableTooltipInfo[]> = null
+  const requestVariableTooltips = $derived((() => {
+    if (!activeWorkspace || !activeCollection || !activeRequest) return []
+    const workspace = activeWorkspace
+    const collection = activeCollection
+    const request = activeRequest
+    const key = `${request.id}:${appState?.revision ?? 0}:${selectedEnvironmentId}:${processEnvTooltipSignature}`
+    const result = memoized(tooltipMemo, key, () =>
+      variableTooltipsForRequest(workspace, collection, request, selectedEnvironmentId, processEnvTooltipValues)
+    )
+    tooltipMemo = result.memo
+    return result.value
+  })())
+  const searchQuery = $derived(normalizedSearch(requestSearch))
+  const globalSearchResults = $derived(buildGlobalSearchResults(activeWorkspace, globalSearchQuery))
+  const visibleNotifications = $derived(notificationsForDisplay(appState?.notifications ?? []))
+  const unreadNotificationCount = $derived(visibleNotifications.filter((notification) => !notification.read).length)
+  const listedNotifications = $derived(notificationTab === 'unread'
     ? pinnedUnreadNotificationIDs
       ? visibleNotifications.filter((notification) => pinnedUnreadNotificationIDs?.has(notification.id))
       : visibleNotifications.filter((notification) => !notification.read)
-    : visibleNotifications
-  $: selectedNotification = listedNotifications.find((notification) => notification.id === selectedNotificationID) ?? listedNotifications[0]
-  $: visibleSidebarCollections = sidebarCollections(activeWorkspace, searchQuery)
-  $: sidebarSearchCount = sidebarRequestCount(activeWorkspace, searchQuery)
-  $: cookieSearchQuery = normalizedSearch(cookieSearch)
-  $: visibleCookieGroups = cookieGroups(state?.cookies ?? [], cookieSearchQuery)
-  $: selectedThemeMode = normalizedThemeMode(state?.preferences?.theme)
-  $: displayedThemeMode = selectedThemeMode === 'system' ? systemThemeMode : selectedThemeMode
-  $: selectedThemeVariant = displayedThemeMode === 'dark'
-    ? normalizedThemeVariant(state?.preferences?.themeVariantDark, darkThemeVariants)
-    : normalizedThemeVariant(state?.preferences?.themeVariantLight, lightThemeVariants)
-  $: applyThemeToDocument(displayedThemeMode, selectedThemeVariant)
-  $: applyZoomToDocument(appZoomPercentage)
-  $: applyCodeFontToDocument(codeFont, codeFontSize)
-  $: if (globalSearchIndex >= globalSearchResults.length) {
-    globalSearchIndex = Math.max(0, globalSearchResults.length - 1)
-  }
-  $: {
-    const presetKey = activeCollection ? `${activeCollection.id}:${activeCollection.presets?.requestType ?? ''}` : ''
-    if (presetKey !== lastPresetKey) {
-      lastPresetKey = presetKey
-      requestType = normalizePresetRequestType(activeCollection?.presets?.requestType) || 'http'
+    : visibleNotifications)
+  const selectedNotification = $derived(listedNotifications.find((notification) => notification.id === selectedNotificationID) ?? listedNotifications[0])
+  const visibleSidebarCollections = $derived(sidebarCollections(activeWorkspace, searchQuery))
+  const sidebarSearchCount = $derived(sidebarRequestCount(activeWorkspace, searchQuery))
+  const cookieSearchQuery = $derived(normalizedSearch(cookieSearch))
+  const visibleCookieGroups = $derived(cookieGroups(appState?.cookies ?? [], cookieSearchQuery))
+  const selectedThemeMode = $derived(normalizedThemeMode(appState?.preferences?.theme))
+  const displayedThemeMode = $derived(selectedThemeMode === 'system' ? systemThemeMode : selectedThemeMode)
+  const selectedThemeVariant = $derived(displayedThemeMode === 'dark'
+    ? normalizedThemeVariant(appState?.preferences?.themeVariantDark, darkThemeVariants)
+    : normalizedThemeVariant(appState?.preferences?.themeVariantLight, lightThemeVariants))
+  $effect(() => {
+  applyThemeToDocument(displayedThemeMode, selectedThemeVariant)
+  })
+  $effect(() => {
+  applyZoomToDocument(appZoomPercentage)
+  })
+  $effect(() => {
+  applyCodeFontToDocument(codeFont, codeFontSize)
+  })
+  $effect(() => {
+  if (globalSearchIndex >= globalSearchResults.length) {
+      globalSearchIndex = Math.max(0, globalSearchResults.length - 1)
     }
-  }
-  $: visibleCookieCount = visibleCookieGroups.reduce((total, group) => total + group.cookies.length, 0)
-  $: if ((activeCollection?.id ?? '') !== gitRemoteCollectionId) {
-    gitRemoteCollectionId = activeCollection?.id ?? ''
-    gitRemoteURL = activeCollection?.remote ?? ''
-  }
-  $: if (activeWorkspace?.path && !gitCloneRoot) gitCloneRoot = activeWorkspace.path
-  $: if ((activeRequest?.id ?? '') !== grpcMethodsRequestId) {
-    grpcMethodsRequestId = activeRequest?.id ?? ''
-    grpcMethods = []
-    grpcMethodMessage = ''
-  }
-  $: {
-    const nextDotEnvContextKey = activeView === 'environments' && activeWorkspace ? `${activeWorkspace.id}:${activeCollection?.id ?? ''}` : ''
-    if (nextDotEnvContextKey && nextDotEnvContextKey !== dotEnvContextKey) {
-      stopDotEnvRefresh()
-      dotEnvContextKey = nextDotEnvContextKey
-      void loadDotEnvFiles()
-      dotEnvRefreshTimer = window.setInterval(() => {
-        void loadDotEnvFiles()
-      }, 2000)
-    } else if (!nextDotEnvContextKey && dotEnvContextKey) {
-      dotEnvContextKey = ''
-      stopDotEnvRefresh()
-    }
-  }
-  $: {
-    const nextProcessEnvTooltipKey = activeCollection && requestProcessEnvNames.length > 0
-      ? `${activeCollection.id}:${[...requestProcessEnvNames].sort().join('|')}`
-      : ''
-    if (nextProcessEnvTooltipKey !== processEnvTooltipKey) {
-      processEnvTooltipKey = nextProcessEnvTooltipKey
-      if (activeCollection && requestProcessEnvNames.length > 0) {
-        void loadProcessEnvTooltipValues(activeCollection.id, requestProcessEnvNames, nextProcessEnvTooltipKey)
-      } else {
-        processEnvTooltipValues = {}
+  })
+  $effect(() => {
+  {
+      const presetKey = activeCollection ? `${activeCollection.id}:${activeCollection.presets?.requestType ?? ''}` : ''
+      if (presetKey !== lastPresetKey) {
+        lastPresetKey = presetKey
+        requestType = normalizePresetRequestType(activeCollection?.presets?.requestType) || 'http'
       }
     }
-  }
-  $: {
-    if (devToolsOpen && devToolsTab === 'terminal') {
-      startTerminalPolling()
-    } else {
-      stopTerminalPolling()
+  })
+  const visibleCookieCount = $derived(visibleCookieGroups.reduce((total, group) => total + group.cookies.length, 0))
+  $effect(() => {
+  if ((activeCollection?.id ?? '') !== gitRemoteCollectionId) {
+      gitRemoteCollectionId = activeCollection?.id ?? ''
+      gitRemoteURL = activeCollection?.remote ?? ''
     }
-  }
+  })
+  $effect(() => {
+  if (activeWorkspace?.path && !gitCloneRoot) gitCloneRoot = activeWorkspace.path
+  })
+  $effect(() => {
+  if ((activeRequest?.id ?? '') !== grpcMethodsRequestId) {
+      grpcMethodsRequestId = activeRequest?.id ?? ''
+      grpcMethods = []
+      grpcMethodMessage = ''
+    }
+  })
+  $effect(() => {
+  {
+      const nextDotEnvContextKey = activeView === 'environments' && activeWorkspace ? `${activeWorkspace.id}:${activeCollection?.id ?? ''}` : ''
+      if (nextDotEnvContextKey && nextDotEnvContextKey !== dotEnvContextKey) {
+        stopDotEnvRefresh()
+        dotEnvContextKey = nextDotEnvContextKey
+        void loadDotEnvFiles()
+        dotEnvRefreshTimer = window.setInterval(() => {
+          void loadDotEnvFiles()
+        }, 2000)
+      } else if (!nextDotEnvContextKey && dotEnvContextKey) {
+        dotEnvContextKey = ''
+        stopDotEnvRefresh()
+      }
+    }
+  })
+  $effect(() => {
+  {
+      const nextProcessEnvTooltipKey = activeCollection && requestProcessEnvNames.length > 0
+        ? `${activeCollection.id}:${[...requestProcessEnvNames].sort().join('|')}`
+        : ''
+      if (nextProcessEnvTooltipKey !== processEnvTooltipKey) {
+        processEnvTooltipKey = nextProcessEnvTooltipKey
+        if (activeCollection && requestProcessEnvNames.length > 0) {
+          void loadProcessEnvTooltipValues(activeCollection.id, requestProcessEnvNames, nextProcessEnvTooltipKey)
+        } else {
+          processEnvTooltipValues = {}
+        }
+      }
+    }
+  })
+  $effect(() => {
+  {
+      if (devToolsOpen && devToolsTab === 'terminal') {
+        startTerminalPolling()
+      } else {
+        stopTerminalPolling()
+      }
+    }
+  })
 
 	  let stopGitCloneProgress: (() => void) | undefined
 	  let stopOAuth2Authorize: (() => void) | undefined
+	  let stopNativeMenuCommands: (() => void) | undefined
 
 	  onMount(() => {
+	    compactWorkbenchMedia = window.matchMedia('(max-width: 960px)')
+	    const updateCompactWorkbench = () => {
+	      compactWorkbench = compactWorkbenchMedia?.matches ?? false
+	      if (compactWorkbench) sidebarCollapsed = true
+	    }
+	    updateCompactWorkbench()
+	    compactWorkbenchMedia.addEventListener('change', updateCompactWorkbench)
+	    removeCompactWorkbenchListener = () => compactWorkbenchMedia?.removeEventListener('change', updateCompactWorkbench)
+    // US-012 wanted a force-flush on window blur, and the Go side has had
+    // FlushPendingWrites all along — but the Wails binding for it was never
+    // regenerated, so the frontend half was silently missing. Persistence is
+    // now deferred behind a 250 ms debounce, so without this a user who
+    // switches away (or whose machine sleeps) within that window loses the
+    // last edit. visibilitychange covers the sleep/hide case that blur misses.
+    const flushPendingWrites = () => {
+      // Drain the in-memory patch queue before asking Go to write: otherwise
+      // the write lands without the character typed in the last 120 ms.
+      void flushPendingRequestPatch().then(() => FlushPendingWrites()).catch(() => {
+        // A failed background write is surfaced to the user by the Go side's
+        // notification path on the next mutation; there is nothing useful to
+        // do from a blur handler, and throwing here would be unhandled.
+      })
+    }
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushPendingWrites()
+    }
+    window.addEventListener('blur', flushPendingWrites)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    removeFlushOnBlurListeners = () => {
+      window.removeEventListener('blur', flushPendingWrites)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
 	    stopGitCloneProgress = EventsOn('git:clone:progress', (event: GitCloneProgress) => {
 	      gitCloneProgress = [...gitCloneProgress, event].slice(-24)
 	    })
@@ -1087,6 +1571,25 @@
 	      oauth2CallbackMessage = ''
 	      oauth2FrameKey += 1
 	    })
+	    const applyLiveSessionEvent = (push: LiveSessionPush) => {
+      const key = liveSessionKey(push.collectionId, push.itemId)
+      const current = liveSessionLogs[key] ?? emptyLiveSessionLog()
+      const next = applyLiveSessionPush(current, push)
+      // Reassign the map, not just the entry: Svelte's legacy reactivity
+      // tracks assignment to `liveSessionLogs`, and mutating a value inside it
+      // would leave the inspector showing a stale log.
+      if (next !== current) liveSessionLogs = { ...liveSessionLogs, [key]: next }
+    }
+    stopWebSocketEvents = EventsOn('ws:event', (push: LiveSessionPush) => applyLiveSessionEvent(push))
+    stopGrpcEvents = EventsOn('grpc:event', (push: LiveSessionPush) => applyLiveSessionEvent(push))
+    stopNativeMenuCommands = EventsOn('liteapi:menu-command', (command: string) => {
+	      void handleNativeMenuCommand(command)
+	    })
+	    OnFileDrop((_x, _y, paths) => {
+	      if (activeView === 'import' && importSourceMode === 'files' && paths.length > 0) {
+	        void previewImportPaths(paths)
+	      }
+	    }, true)
 	    systemThemeQuery = window.matchMedia('(prefers-color-scheme: dark)')
     const updateSystemTheme = () => {
       systemThemeMode = systemThemeQuery?.matches ? 'dark' : 'light'
@@ -1103,8 +1606,14 @@
 	    stopTerminalPolling()
 	    stopCollectionWatchPolling()
 	    stopOpenAPISyncPolling()
+	    removeCompactWorkbenchListener?.()
+	    removeFlushOnBlurListeners?.()
 	    stopGitCloneProgress?.()
+	    stopWebSocketEvents?.()
+	    stopGrpcEvents?.()
 	    stopOAuth2Authorize?.()
+	    stopNativeMenuCommands?.()
+	    OnFileDropOff()
 	    removeSystemThemeListener?.()
     clearAutoSaveTimer()
     for (const timer of Object.values(copiedVariableTooltipTimers)) {
@@ -1112,12 +1621,8 @@
     }
   })
 
-  function normalizedThemeMode(value: string | undefined): ThemeMode {
-    return value === 'light' || value === 'dark' || value === 'system' ? value : 'system'
-  }
-
   function normalizedThemeVariant(value: string | undefined, variants: ThemeVariant[]) {
-    return variants.some((variant) => variant.id === value) ? value ?? variants[0].id : variants[0].id
+    return normalizedThemeVariantOf(value, variants)
   }
 
   function applyThemeToDocument(mode: 'light' | 'dark', variant: string) {
@@ -1143,91 +1648,32 @@
     document.documentElement.style.setProperty('--code-font-size', `${normalizedSize}px`)
   }
 
-  function currentKeyBindingOS(): KeyBindingOS {
-    if (typeof navigator !== 'undefined' && navigator.platform.toLowerCase().includes('mac')) return 'mac'
-    return 'windows'
+  function keybindingsAreEnabled(preferences: types.Preferences | undefined) {
+    return keybindingsEnabledFor(preferences?.keybindingsEnabled)
   }
 
-  function keybindingsAreEnabled(preferences: main.Preferences | undefined) {
-    return preferences?.keybindingsEnabled !== false
-  }
-
-  function keyBindingDefaultsByAction() {
-    const defaults: Record<string, KeyBindingDefinition> = {}
-    for (const section of keyBindingSections) {
-      for (const [action, binding] of Object.entries(section.bindings)) {
-        defaults[action] = binding
-      }
-    }
-    return defaults
-  }
+  // US-057. The preset sits between the defaults and the user's overrides, and
+  // the order is the point: a shortcut somebody deliberately set must not be
+  // silently replaced by switching preset.
+  const activeKeyBindingPreset = $derived(normalizeKeyBindingPreset(appState?.preferences?.keyBindingPreset) as KeyBindingPresetID)
+  const presetKeyBindings = $derived(effectiveKeyBindings(keyBindingSections, keyBindingPresets[activeKeyBindingPreset]))
 
   function mergedKeyBinding(action: string): KeyBindingDefinition | undefined {
-    const defaults = keyBindingDefaultsByAction()
-    const base = defaults[action]
-    if (!base) return undefined
-    const override = state?.preferences?.keyBindings?.[action] as main.KeyBinding | undefined
-    return {
-      ...base,
-      ...(override ?? {}),
-      name: override?.name || base.name
-    }
+    const override = appState?.preferences?.keyBindings?.[action] as types.KeyBinding | undefined
+    return mergeKeyBinding(presetKeyBindings[action], override)
   }
 
   function keyBindingValue(action: string, os: KeyBindingOS = currentKeyBindingOS()) {
-    const binding = mergedKeyBinding(action)
-    return (binding?.[os] as string | undefined) || ''
+    return keyBindingValueFor(mergedKeyBinding(action), os)
   }
 
   function keyBindingDisplayValue(action: string, os: KeyBindingOS = currentKeyBindingOS()) {
-    const binding = mergedKeyBinding(action)
-    const display = binding?.displayValue?.[os]
-    return display || keyBindingValue(action, os)
+    return keyBindingDisplayValueFor(mergedKeyBinding(action), os)
   }
 
-  function keyBindingParts(value: string) {
-    return value.split(keyBindingSeparator).map((part) => part.trim()).filter(Boolean)
-  }
 
-  function isKeyBindingModifier(value: string) {
-    return value === 'ctrl' || value === 'command' || value === 'alt' || value === 'shift'
-  }
 
-  function keyBindingSignature(value: string) {
-    const order = ['ctrl', 'command', 'alt', 'shift']
-    const parts = keyBindingParts(value.toLowerCase())
-    const modifiers = parts.filter(isKeyBindingModifier).sort((left, right) => order.indexOf(left) - order.indexOf(right))
-    const keys = parts.filter((part) => !isKeyBindingModifier(part))
-    return [...modifiers, ...keys].join(keyBindingSeparator)
-  }
 
-  function normalizeEventKey(event: KeyboardEvent) {
-    if (event.key === ' ') return 'space'
-    if (event.key === 'Escape') return 'esc'
-    if (event.key === 'Enter') return 'enter'
-    if (event.key === 'Backspace') return 'backspace'
-    if (event.key === 'Tab') return 'tab'
-    if (event.key === 'Delete') return 'delete'
-    if (event.key === 'Control') return 'ctrl'
-    if (event.key === 'Meta') return 'command'
-    if (event.key === 'Alt') return 'alt'
-    if (event.key === 'Shift') return 'shift'
-    if (event.code?.startsWith('Key')) return event.code.slice(3).toLowerCase()
-    if (event.code?.startsWith('Digit')) return event.code.slice(5)
-    if (event.key.length === 1) return event.key.toLowerCase()
-    return event.key.toLowerCase()
-  }
-
-  function keyBindingComboFromEvent(event: KeyboardEvent) {
-    const parts: string[] = []
-    if (event.ctrlKey) parts.push('ctrl')
-    if (event.metaKey) parts.push('command')
-    if (event.altKey) parts.push('alt')
-    if (event.shiftKey) parts.push('shift')
-    const key = normalizeEventKey(event)
-    if (key && !isKeyBindingModifier(key)) parts.push(key)
-    return parts.join(keyBindingSeparator)
-  }
 
   function keyBindingEventMatches(event: KeyboardEvent, action: string) {
     const combo = keyBindingComboFromEvent(event)
@@ -1236,78 +1682,36 @@
     return keyBindingSignature(combo) === keyBindingSignature(value)
   }
 
-  function formatKeyBindingToken(token: string) {
-    const os = currentKeyBindingOS()
-    const labels: Record<string, string> = os === 'mac'
-      ? { command: 'Cmd', ctrl: 'Ctrl', alt: 'Opt', shift: 'Shift', enter: 'Enter', esc: 'Esc', space: 'Space', arrowup: 'Up', arrowdown: 'Down', arrowleft: 'Left', arrowright: 'Right' }
-      : { command: 'Win', ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift', enter: 'Enter', esc: 'Esc', space: 'Space', arrowup: 'Up', arrowdown: 'Down', arrowleft: 'Left', arrowright: 'Right' }
-    return labels[token] || token.toUpperCase()
-  }
-
   function formatKeyBinding(value: string) {
-    if (!value) return ''
-    return value
-      .split(/\s+-\s+/)
-      .map((part) => keyBindingParts(part).map(formatKeyBindingToken).join(' + '))
-      .join(' - ')
+    return formatKeyBindingFor(value, currentKeyBindingOS())
   }
 
   function keyBindingIsCustomized(action: string) {
-    return Boolean(state?.preferences?.keyBindings?.[action])
+    return Boolean(appState?.preferences?.keyBindings?.[action])
   }
 
   function keyBindingCanEdit(action: string) {
-    const binding = mergedKeyBinding(action)
-    return Boolean(binding && !binding.readOnly)
+    return canEditKeyBinding(mergedKeyBinding(action))
   }
 
-  function visibleKeyBindingEntries(section: KeyBindingSection) {
-    return Object.entries(section.bindings).filter(([, binding]) => !binding.hidden)
-  }
-
+  // Delegates to the module, supplying the resolved bindings and the current
+  // OS. The merge with the user's overrides depends on app state, which is why
+  // that half stays here and only the rule lives in lib/keybindings.
   function validateKeyBinding(action: string, combo: string) {
-    const parts = keyBindingParts(combo)
-    const nonModifiers = parts.filter((part) => !isKeyBindingModifier(part))
-    if (parts.length < 2 || parts.length > 4 || nonModifiers.length !== 1) {
-      return 'Use one key plus at least one modifier.'
-    }
-    if (!parts.some(isKeyBindingModifier)) {
-      return 'Use at least one modifier.'
-    }
-    const signature = keyBindingSignature(combo)
-    const os = currentKeyBindingOS()
+    const resolved: Record<string, KeyBindingDefinition> = {}
     for (const section of keyBindingSections) {
       for (const otherAction of Object.keys(section.bindings)) {
-        if (otherAction === action) continue
-        const other = keyBindingValue(otherAction, os)
-        if (other && keyBindingSignature(other) === signature) {
-          return 'This shortcut is already in use.'
-        }
+        const merged = mergedKeyBinding(otherAction)
+        if (merged) resolved[otherAction] = merged
       }
     }
-    return ''
+    return validateKeyBindingRule(action, combo, resolved, currentKeyBindingOS())
   }
 
   function stopDotEnvRefresh() {
     if (dotEnvRefreshTimer === undefined) return
     window.clearInterval(dotEnvRefreshTimer)
     dotEnvRefreshTimer = undefined
-  }
-
-  function visibleEnvironmentVariables(vars: main.Variable[] | undefined, tab: EnvironmentVariableTab, query: string): IndexedVariable[] {
-    return (vars ?? [])
-      .map((variable, index) => ({ variable, index }))
-      .filter(({ variable }) => (tab === 'secrets' ? Boolean(variable.secret) : !variable.secret))
-      .filter(({ variable }) => environmentVariableMatches(variable, query))
-  }
-
-  function environmentVariableMatches(variable: main.Variable, query: string) {
-    if (!query) return true
-    return [variable.name, variable.value, variable.type, variable.dataType].some((value) => searchHit(value, query))
-  }
-
-  function environmentVariableAddLabel(tab: EnvironmentVariableTab) {
-    return tab === 'secrets' ? 'Add secret' : 'Add variable'
   }
 
   async function loadProcessEnvTooltipValues(collectionId: string, names: string[], key: string) {
@@ -1323,366 +1727,46 @@
     }
   }
 
-  function variableTooltipsForRequest(workspace: main.Workspace, collection: main.Collection, request: main.RequestItem, environmentId: string, processEnvValues: Record<string, string>): VariableTooltipInfo[] {
+  function variableTooltipsForRequest(workspace: types.Workspace, collection: types.Collection, request: types.RequestItem, environmentId: string, processEnvValues: Record<string, string>): VariableTooltipInfo[] {
     return variableNamesForRequest(request).map((name) => resolveVariableTooltip(name, workspace, collection, request, environmentId, processEnvValues))
   }
 
-  function urlVariableSegments(value: string, infos: VariableTooltipInfo[], pathParams?: main.KeyValue[]): URLVariableSegment[] {
-    const segments: URLVariableSegment[] = []
-    const infoByName = new Map(infos.map((info) => [info.name, info]))
-    const tokenPattern = pathParams
-      ? /\{\{([^{}]+?)\}\}|\/:([^/?&=]+)/g
-      : /\{\{([^{}]+?)\}\}/g
-    let cursor = 0
-    let match: RegExpExecArray | null
-    while ((match = tokenPattern.exec(value)) !== null) {
-      if (match.index > cursor) {
-        segments.push({ key: `text:${cursor}`, text: value.slice(cursor, match.index), variable: false, prompt: false })
-      }
-      if (match[2] !== undefined) {
-        const name = match[2]
-        segments.push({
-          key: `path:${match.index}:${name}`,
-          text: match[0],
-          variable: true,
-          prompt: false,
-          path: true,
-          name,
-          info: pathParamTooltipInfo(name, pathParams ?? [])
-        })
-        cursor = match.index + match[0].length
-        continue
-      }
-      const rawName = match[1] ?? ''
-      const name = rawName.trim()
-      if (promptVariableTextPattern.test(rawName)) {
-        segments.push({
-          key: `prompt:${match.index}:${rawName}`,
-          text: match[0],
-          variable: false,
-          prompt: true,
-          name: rawName.slice(1)
-        })
-        cursor = match.index + match[0].length
-        continue
-      }
-      segments.push({
-        key: `var:${match.index}:${name}`,
-        text: match[0],
-        variable: true,
-        prompt: false,
-        name,
-        info: infoByName.get(name) ?? fallbackVariableTooltipInfo(name)
-      })
-      cursor = match.index + match[0].length
-    }
-    if (cursor < value.length) {
-      segments.push({ key: `text:${cursor}`, text: value.slice(cursor), variable: false, prompt: false })
-    }
-    return segments
-  }
 
   function isValidURLVariableSegment(segment: URLVariableSegment) {
     return segment.variable && segment.info.found && segment.info.validName
   }
 
-  function fallbackVariableTooltipInfo(name: string): VariableTooltipInfo {
-    const validName = isValidVariableName(name)
-    return {
-      name,
-      scope: 'Request',
-      rawValue: '',
-      resolvedValue: '',
-      secret: false,
-      readOnly: !validName,
-      found: false,
-      editable: validName,
-      validName,
-      source: validName ? 'missing' : 'invalid',
-      index: -1
-    }
-  }
 
-  function pathParamTooltipInfo(name: string, pathParams: main.KeyValue[]): VariableTooltipInfo {
-    const validName = isValidVariableName(name)
-    const index = pathParams.findIndex((param) => param.name === name)
-    const row = index >= 0 ? pathParams[index] : undefined
-    const rawValue = String(row?.value ?? '')
-    return {
-      name,
-      scope: 'Path Param',
-      rawValue,
-      resolvedValue: rawValue,
-      secret: false,
-      readOnly: !validName,
-      found: Boolean(row && row.enabled !== false && rawValue.trim() !== ''),
-      editable: validName && Boolean(row),
-      validName,
-      source: validName ? 'path' : 'invalid',
-      index
-    }
-  }
 
-  function pathParamNamesFromURL(rawURL: string) {
-    if (!rawURL) return []
-    let pathSource = rawURL
-    try {
-      const url = new URL(rawURL.startsWith('http://') || rawURL.startsWith('https://') ? rawURL : `http://${rawURL}`)
-      pathSource = url.pathname
-    } catch {
-      pathSource = rawURL.split(/[?#]/, 1)[0] ?? rawURL
-    }
-    const names: string[] = []
-    const seen = new Set<string>()
-    const add = (name: string) => {
-      if (!name || seen.has(name)) return
-      seen.add(name)
-      names.push(name)
-    }
-    for (const segment of pathSource.split('/')) {
-      if (segment.startsWith(':')) {
-        add(segment.slice(1))
-        continue
-      }
-      if (!/^[A-Za-z0-9_.-]+\([^)]*\)$/.test(segment)) continue
-      const regex = /[:]([a-zA-Z_]\w*)/g
-      let match: RegExpExecArray | null
-      while ((match = regex.exec(segment)) !== null) {
-        add((match[1] ?? '').replace(/[')"`]+$/, '').replace(/^[('"`]+/, ''))
-      }
-    }
-    return names
-  }
 
-  function syncPathParamsForURL(rawURL: string, currentRows: main.KeyValue[] = []) {
-    return pathParamNamesFromURL(rawURL).map((name) => {
-      const existing = currentRows.find((row) => row.name === name)
-      return existing ?? ({ name, value: '', enabled: true, secret: false, description: '' } as main.KeyValue)
-    })
-  }
 
-  function queryParamsForURL(rawURL: string, currentRows: main.KeyValue[] = []) {
-    const query = rawURL.split('#')[0]?.split('?').slice(1).join('?') ?? ''
-    const disabledRows = currentRows.filter((row) => row.enabled === false).map((row) => ({ ...row }))
-    if (!query) return disabledRows
-    const rows: main.KeyValue[] = []
-    const decode = (value: string) => {
-      try {
-        return decodeURIComponent(value.replace(/\+/g, ' '))
-      } catch {
-        return value
-      }
-    }
-    for (const pair of query.split('&')) {
-      if (!pair) continue
-      const [rawName, ...rawValueParts] = pair.split('=')
-      const name = decode(rawName ?? '')
-      const value = decode(rawValueParts.join('='))
-      const existing = currentRows.find((row) => row.enabled !== false && row.name === name)
-      rows.push({ ...(existing ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue)), name, value, enabled: true } as main.KeyValue)
-    }
-    return [...rows, ...disabledRows]
-  }
 
-  function variableNamesForRequest(request: main.RequestItem) {
-    const names = new Set<string>()
-    const scan = (value: unknown) => collectVariableNames(value, names)
-    const scanRows = (rows: main.KeyValue[] | undefined) => {
-      for (const row of rows ?? []) {
-        if (row.enabled === false) continue
-        scan(row.name)
-        scan(row.value)
-      }
-    }
-    scan(request.url)
-    scanRows(request.params)
-    scanRows(request.pathParams)
-    scanRows(request.headers)
-    scanBodyVariables(request.body, scan, scanRows)
-    return Array.from(names)
-  }
 
-  function collectVariableNames(value: unknown, names: Set<string>) {
-    if (value === null || value === undefined) return
-    const pattern = /\{\{\s*([^{}]+?)\s*\}\}/g
-    const text = String(value)
-    let match: RegExpExecArray | null
-    while ((match = pattern.exec(text)) !== null) {
-      const name = match[1]?.trim()
-      if (!name || name.startsWith('?')) continue
-      names.add(name)
-    }
-  }
 
-  function scanBodyVariables(body: main.RequestBody | undefined, scan: (value: unknown) => void, scanRows: (rows: main.KeyValue[] | undefined) => void) {
-    if (!body) return
-    scan(body.json)
-    scan(body.xml)
-    scan(body.text)
-    scan(body.graphqlQuery)
-    scan(body.graphqlVariables)
-    scanRows(body.formUrlEncoded)
-	    for (const part of body.multipart ?? []) {
-	      if (part.enabled === false) continue
-	      scan(part.name)
-	      scan(part.value)
-	      scan(part.filePath)
-	      scan(part.contentType)
-	    }
-	    scan(body.filePath)
-	    scan(body.fileContentType)
-	    for (const file of fileBodyRows(body)) {
-	      scan(file.filePath)
-	      scan(file.contentType)
-	    }
-	  }
 
-  function resolveVariableTooltip(name: string, workspace: main.Workspace, collection: main.Collection, request: main.RequestItem, environmentId: string, processEnvValues: Record<string, string>): VariableTooltipInfo {
-    const validName = isValidVariableName(name)
-    if (!validName) {
-      return {
-        name,
-        scope: 'Request',
-        rawValue: '',
-        resolvedValue: '',
-        secret: false,
-        readOnly: true,
-        found: false,
-        editable: false,
-        validName: false,
-        source: 'invalid',
-        index: -1
-      }
-    }
 
-    if (name.startsWith('process.env.')) {
-      const loaded = Object.prototype.hasOwnProperty.call(processEnvValues, name)
-      return {
-        name,
-        scope: 'Process Env',
-        rawValue: '',
-        resolvedValue: loaded ? processEnvValues[name] : 'Loading...',
-        secret: false,
-        readOnly: true,
-        found: true,
-        editable: false,
-        validName,
-        source: 'process',
-        index: -1
-      }
-    }
 
-    const match = findTooltipVariable(name, workspace, collection, request, environmentId)
-    if (!match) {
-      return {
-        name,
-        scope: 'Request',
-        rawValue: '',
-        resolvedValue: '',
-        secret: false,
-        readOnly: false,
-        found: false,
-        editable: true,
-        validName,
-        source: 'missing',
-        index: -1
-      }
-    }
-    const readOnly = match.source === 'folder' || match.source === 'runtime'
-    const rawValue = String(match.variable.value ?? '')
-    const resolution = resolveTooltipValue(rawValue, workspace, collection, request, environmentId, processEnvValues, new Set([name]))
-    return {
-      name,
-      scope: match.scope,
-      rawValue,
-      resolvedValue: resolution.value,
-      secret: Boolean(match.variable.secret) || resolution.containsSecret,
-      readOnly,
-      found: true,
-      editable: !readOnly,
-      validName,
-      source: match.source,
-      index: match.index,
-      environmentId: match.environmentId,
-      globalEnvironmentId: match.globalEnvironmentId
-    }
-  }
 
-  function findTooltipVariable(name: string, workspace: main.Workspace, collection: main.Collection, request: main.RequestItem, environmentId: string) {
-    let found: { variable: main.Variable; scope: string; source: VariableTooltipSource; index: number; environmentId?: string; globalEnvironmentId?: string } | undefined
-    const consider = (variables: main.Variable[] | undefined, scope: string, source: VariableTooltipSource, sourceId = '') => {
-      for (const [index, variable] of (variables ?? []).entries()) {
-        if (variable.enabled === false || variable.name !== name) continue
-        found = {
-          variable,
-          scope,
-          source,
-          index,
-          environmentId: source === 'environment' ? sourceId : undefined,
-          globalEnvironmentId: source === 'global' ? sourceId : undefined
-        }
-      }
-    }
-    const activeGlobal = workspace.globalEnvironments?.find((env) => env.id === workspace.activeGlobalEnvironmentId)
-    consider(activeGlobal?.variables, 'Global', 'global', activeGlobal?.id)
-    consider(collection.variables, 'Collection', 'collection')
-    const environment = collection.environments?.find((env) => env.id === environmentId)
-    consider(environment?.variables, 'Environment', 'environment', environment?.id)
-    for (const folder of folderChainForRequest(collection, request)) {
-      consider(folder.variables, 'Folder', 'folder', folder.path)
-    }
-    consider(request.vars?.req, 'Request', 'request')
-    consider(collection.runtimeVariables, 'Runtime', 'runtime')
-    return found
-  }
-
-  function isValidVariableName(name: string) {
-    return /^[\w.-]+$/.test(name)
-  }
-
-  function resolveTooltipValue(value: string, workspace: main.Workspace, collection: main.Collection, request: main.RequestItem, environmentId: string, processEnvValues: Record<string, string>, seen: Set<string>): TooltipResolution {
-    let containsSecret = false
-    const resolvedValue = value.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (_match, rawName: string) => {
-      const name = rawName.trim()
-      if (!name || name.startsWith('?') || seen.has(name)) return ''
-      if (name.startsWith('process.env.')) return processEnvValues[name] ?? ''
-      const match = findTooltipVariable(name, workspace, collection, request, environmentId)
-      if (!match) return ''
-      containsSecret = containsSecret || Boolean(match.variable.secret)
-      seen.add(name)
-      const resolved = resolveTooltipValue(String(match.variable.value ?? ''), workspace, collection, request, environmentId, processEnvValues, seen)
-      seen.delete(name)
-      containsSecret = containsSecret || resolved.containsSecret
-      return resolved.value
-    })
-    return { value: resolvedValue, containsSecret }
-  }
-
-  function displayTooltipValue(info: VariableTooltipInfo, revealed: boolean) {
-    if (!info.found && info.source !== 'path') return 'Not defined'
-    if (info.secret && !revealed) return '********'
-    return info.resolvedValue
-  }
 
   function toggleTooltipSecret(name: string) {
-    revealedVariableTooltips = { ...revealedVariableTooltips, [name]: !revealedVariableTooltips[name] }
+    variableTooltips.toggleRevealed(name)
   }
 
   async function copyVariableTooltipValue(info: VariableTooltipInfo) {
     const latestInfo = info.source === 'path'
       ? pathParamTooltipInfo(info.name, activeRequest?.pathParams ?? [])
       : requestVariableTooltips.find((candidate) => candidate.name === info.name) ?? info
-    if (!latestInfo.found || !latestInfo.validName || copiedVariableTooltips[latestInfo.name]) return
+    if (!latestInfo.found || !latestInfo.validName || variableTooltips.isCopied(latestInfo.name)) return
     try {
       await navigator.clipboard.writeText(latestInfo.resolvedValue ?? '')
       if (copiedVariableTooltipTimers[latestInfo.name]) {
         window.clearTimeout(copiedVariableTooltipTimers[latestInfo.name])
       }
-      copiedVariableTooltips = { ...copiedVariableTooltips, [latestInfo.name]: true }
+      variableTooltips.markCopied(latestInfo.name, true)
       copiedVariableTooltipTimers = {
         ...copiedVariableTooltipTimers,
         [latestInfo.name]: window.setTimeout(() => {
-          copiedVariableTooltips = { ...copiedVariableTooltips, [latestInfo.name]: false }
+          variableTooltips.markCopied(latestInfo.name, false)
           const { [latestInfo.name]: _removed, ...remaining } = copiedVariableTooltipTimers
           copiedVariableTooltipTimers = remaining
         }, 1200)
@@ -1693,7 +1777,7 @@
   }
 
   function toggleActiveVariableTooltip(name: string) {
-    activeVariableTooltip = activeVariableTooltip === name ? '' : name
+    variableTooltips.toggleActive(name)
   }
 
   function handleInlineVariableTokenKey(event: KeyboardEvent, name: string) {
@@ -1702,15 +1786,27 @@
       toggleActiveVariableTooltip(name)
     } else if (event.key === 'Escape') {
       event.preventDefault()
-      activeVariableTooltip = ''
+      variableTooltips.close()
     }
   }
 
   function closeVariableTooltipOnOutside(event: MouseEvent) {
     const target = event.target as HTMLElement | null
     if (!target) return
+    if (!target.closest('.request-actions')) closeRequestActionMenus()
     if (target.closest('.variable-chip-wrapper, .url-variable-token-wrapper, .inline-variable-token-wrapper, .CodeMirror-brunoVarInfo, .variable-tooltip')) return
-    activeVariableTooltip = ''
+    variableTooltips.close()
+  }
+
+  function closeRequestActionMenus() {
+    document.querySelectorAll<HTMLDetailsElement>('details.request-actions[open]').forEach((menu) => {
+      menu.open = false
+    })
+    // Clearing the record as well, rather than trusting the toggle event to
+    // propagate back through bind:open. The record is what the {#if} reads, so
+    // a menu whose buttons stayed mounted after closing would quietly undo the
+    // saving this change exists for.
+    openRequestMenus = {}
   }
 
   function patchURLField(event: Event) {
@@ -1727,7 +1823,7 @@
     const textarea = event.currentTarget as HTMLTextAreaElement
     bodyTextScrollLeft = textarea.scrollLeft
     bodyTextScrollTop = textarea.scrollTop
-    updateBody({ [field]: textarea.value } as Partial<main.RequestBody>)
+    updateBody({ [field]: textarea.value } as Partial<types.RequestBody>)
   }
 
   function syncBodyTextScroll(event: Event) {
@@ -1738,15 +1834,11 @@
 
   function beginVariableTooltipEdit(info: VariableTooltipInfo) {
     if (!info.editable) return
-    activeVariableTooltip = info.name
-    editingVariableTooltip = info.name
-    variableTooltipDraft = info.found ? info.rawValue : ''
-    copiedVariableTooltips = { ...copiedVariableTooltips, [info.name]: false }
+    variableTooltips.beginEdit(info.name, info.rawValue, info.found, info.editable)
   }
 
   function cancelVariableTooltipEdit() {
-    editingVariableTooltip = ''
-    variableTooltipDraft = ''
+    variableTooltips.cancelEdit()
   }
 
   function handleVariableTooltipEditorKey(event: KeyboardEvent, info: VariableTooltipInfo) {
@@ -1766,7 +1858,7 @@
     void saveVariableTooltipEdit(info, (event.currentTarget as HTMLTextAreaElement).value)
   }
 
-  async function saveVariableTooltipEdit(info: VariableTooltipInfo, nextValue = variableTooltipDraft) {
+  async function saveVariableTooltipEdit(info: VariableTooltipInfo, nextValue = variableTooltips.draft) {
     if (!activeWorkspace || !activeCollection || !activeRequest || !info.editable) return
     const value = nextValue
     await runAction('save variable', async () => {
@@ -1775,24 +1867,24 @@
         if (!environment || info.index < 0) throw new Error(`Global variable ${info.name} was not found`)
         const vars = [...(environment.variables ?? [])]
         vars[info.index] = { ...vars[info.index], value }
-        state = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, environment.id, vars)
+        workspaceStore.appState = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, environment.id, vars)
       } else if (info.source === 'collection') {
         if (info.index < 0) throw new Error(`Collection variable ${info.name} was not found`)
         const vars = [...(activeCollection.variables ?? [])]
         vars[info.index] = { ...vars[info.index], value }
-        state = await UpdateCollectionVariables(activeCollection.id, vars)
+        workspaceStore.appState = await UpdateCollectionVariables(activeCollection.id, vars)
       } else if (info.source === 'environment') {
         const environment = activeCollection.environments?.find((candidate) => candidate.id === info.environmentId)
         if (!environment || info.index < 0) throw new Error(`Environment variable ${info.name} was not found`)
         const vars = [...(environment.variables ?? [])]
         vars[info.index] = { ...vars[info.index], value }
-        state = await UpdateEnvironmentVariables(activeCollection.id, environment.id, vars)
+        workspaceStore.appState = await UpdateEnvironmentVariables(activeCollection.id, environment.id, vars)
       } else if (info.source === 'path') {
         if (info.index < 0) throw new Error(`Path parameter ${info.name} was not found`)
         const pathParams = [...(activeRequest.pathParams ?? [])]
         pathParams[info.index] = { ...pathParams[info.index], value, enabled: true }
-        state = await UpdateRequest(activeCollection.id, activeRequest.id, { pathParams } as unknown as main.RequestPatch)
-        state = await SaveRequest(activeCollection.id, activeRequest.id)
+        workspaceStore.appState = await UpdateRequest(activeCollection.id, activeRequest.id, { pathParams } as unknown as types.RequestPatch)
+        workspaceStore.appState = await SaveRequest(activeCollection.id, activeRequest.id)
       } else if (info.source === 'request' || info.source === 'missing') {
         const req = [...(activeRequest.vars?.req ?? [])]
         if (info.source === 'request' && info.index >= 0) {
@@ -1802,28 +1894,70 @@
         }
         const collectionId = activeCollection.id
         const requestId = activeRequest.id
-        state = await UpdateRequest(collectionId, requestId, { vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as main.RequestPatch)
-        state = await SaveRequest(collectionId, requestId)
+        workspaceStore.appState = await UpdateRequest(collectionId, requestId, { vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as types.RequestPatch)
+        workspaceStore.appState = await SaveRequest(collectionId, requestId)
       }
-      editingVariableTooltip = ''
-      variableTooltipDraft = ''
-      activeVariableTooltip = info.name
+      variableTooltips.cancelEdit()
+      variableTooltips.cancelEdit()
+      variableTooltips.toggleActive(info.name)
     })
   }
 
   async function load() {
     loading = true
+    loadingStatus = 'Opening workspace'
     await runAction('load', async () => {
-      state = await GetState()
+      workspaceStore.appState = await GetState()
+	    workbenchStorageScope = await GetWebStorageScope()
+	    restoreWorkbenchLayout()
+      loadingStatus = 'Checking recovery'
+      recoveryEntries = (await ListRecoveryEntries()) ?? []
+      loadingStatus = 'Measuring local cache'
       await refreshFileCacheSize()
-      applyDevToolsShellPreferences(state.preferences?.devTools)
+      loadingStatus = 'Preparing workbench'
+      applyDevToolsShellPreferences(appState?.preferences?.devTools)
       if (devToolsOpen) await refreshDevToolsSnapshot()
-      selectedEnvironmentId = activeCollection?.environments?.[0]?.id ?? ''
+      workspaceStore.selectedEnvironmentId = activeCollection?.environments?.[0]?.id ?? ''
     })
     loading = false
   }
 
+  async function refreshRecoveryEntries() {
+    recoveryEntries = (await ListRecoveryEntries()) ?? []
+  }
+
+  function recoveryExpiryLabel(entry: recovery.Entry) {
+    const value = new Date(entry.expiresAt)
+    return Number.isNaN(value.getTime()) ? 'expiry unavailable' : `expires ${value.toLocaleString()}`
+  }
+
+  async function restoreRecoveryEntry(entry: recovery.Entry) {
+    if (recoveryBusyEntryID) return
+    recoveryBusyEntryID = entry.id
+    let restored = false
+    await runAction('restore recovery entry', async () => {
+      workspaceStore.appState = await RestoreRecoveryEntry(entry.id)
+      restored = true
+      await refreshRecoveryEntries()
+    })
+    if (!restored) await refreshRecoveryEntries().catch(() => undefined)
+    recoveryBusyEntryID = ''
+  }
+
+  async function discardRecoveryEntry(entry: recovery.Entry) {
+    if (recoveryBusyEntryID) return
+    recoveryBusyEntryID = entry.id
+    await runAction('discard recovery entry', async () => {
+      const discarded = await DiscardRecoveryEntry(entry.id)
+      if (!discarded) throw new Error('Recovery entry was not removed')
+      await refreshRecoveryEntries()
+    })
+    recoveryBusyEntryID = ''
+  }
+
   async function runAction(label: string, action: () => Promise<void>) {
+    const actionID = ++nextActionID
+    activeActions.set(actionID, label)
     busy = label
     error = ''
     try {
@@ -1831,124 +1965,13 @@
     } catch (err) {
       error = err instanceof Error ? err.message : String(err)
     } finally {
-      busy = ''
+      activeActions.delete(actionID)
+      busy = Array.from(activeActions.values()).at(-1) ?? ''
     }
   }
 
-  function collectPromptNames(collection: main.Collection, request: main.RequestItem, environmentId: string) {
-    const prompts = new Set<string>()
-    const scanText = (value: unknown) => {
-      if (value === null || value === undefined) return
-      promptTokenPattern.lastIndex = 0
-      let match: RegExpExecArray | null
-      const text = String(value)
-      while ((match = promptTokenPattern.exec(text)) !== null) {
-        const name = match[1]?.trim()
-        if (name) prompts.add(name)
-      }
-    }
-    const scanObject = (value: unknown) => {
-      if (value === null || value === undefined) return
-      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-        scanText(value)
-        return
-      }
-      if (Array.isArray(value)) {
-        value.forEach(scanObject)
-        return
-      }
-      if (typeof value === 'object') {
-        Object.values(value as Record<string, unknown>).forEach(scanObject)
-      }
-    }
-    const scanKeyValues = (rows: main.KeyValue[] | undefined) => {
-      for (const row of rows ?? []) {
-        if (row.enabled === false) continue
-        scanText(row.name)
-        scanText(row.value)
-      }
-    }
-    const scanVariables = (rows: main.Variable[] | undefined) => {
-      for (const variable of rows ?? []) {
-        if (variable.enabled === false) continue
-        scanText(variable.name)
-        scanText(variable.value)
-      }
-    }
 
-    scanText(request.url)
-    scanText(request.method)
-    scanText(request.protoPath)
-    scanKeyValues(request.params)
-    scanKeyValues(request.pathParams)
-    scanKeyValues(request.headers)
-    scanVariables(request.vars?.req)
-    scanBodyPrompts(request.body, scanText, scanKeyValues)
-    for (const message of request.grpcMessages ?? []) {
-      scanText(message.name)
-      scanText(message.content)
-    }
-    for (const message of request.wsMessages ?? []) {
-      if (message.selected === false) continue
-      scanText(message.name)
-      scanText(message.content)
-    }
-    scanObject(request.auth)
 
-    scanVariables(activeGlobalEnvironment?.variables)
-    scanKeyValues(collection.headers)
-    scanVariables(collection.variables)
-    scanObject(collection.auth)
-
-    for (const folder of folderChainForRequest(collection, request)) {
-      scanKeyValues(folder.headers)
-      scanVariables(folder.variables)
-      scanObject(folder.auth)
-    }
-
-    const environment = collection.environments?.find((candidate) => candidate.id === environmentId)
-    scanVariables(environment?.variables)
-    return Array.from(prompts)
-  }
-
-  function scanBodyPrompts(body: main.RequestBody | undefined, scanText: (value: unknown) => void, scanKeyValues: (rows: main.KeyValue[] | undefined) => void) {
-    if (!body) return
-    if (body.mode === 'json') {
-      scanText(body.json)
-    } else if (body.mode === 'xml') {
-      scanText(body.xml)
-    } else if (body.mode === 'graphql') {
-      scanText(body.graphqlQuery)
-      scanText(body.graphqlVariables)
-    } else if (body.mode === 'text' || body.mode === 'sparql') {
-      scanText(body.text)
-    } else if (body.mode === 'formUrlEncoded') {
-      scanKeyValues(body.formUrlEncoded)
-    } else if (body.mode === 'multipartForm') {
-      for (const part of body.multipart ?? []) {
-        if (part.enabled === false) continue
-	        scanText(part.name)
-	        scanText(part.value)
-	        scanText(part.filePath)
-	        scanText(part.contentType)
-	      }
-	    } else if (body.mode === 'file') {
-	      scanText(body.filePath)
-	      scanText(body.fileContentType)
-	      for (const file of fileBodyRows(body)) {
-	        scanText(file.filePath)
-	        scanText(file.contentType)
-	      }
-	    }
-  }
-
-  function folderChainForRequest(collection: main.Collection, request: main.RequestItem) {
-    const folderPath = request.folderPath ?? ''
-    if (!folderPath) return []
-    return [...(collection.folders ?? [])]
-      .filter((folder) => folder.path === folderPath || folderPath.startsWith(`${folder.path}/`))
-      .sort((left, right) => left.path.length - right.path.length)
-  }
 
   function promptForVariables(prompts: string[]) {
     return new Promise<Record<string, string> | null>((resolve) => {
@@ -1986,15 +2009,15 @@
   async function createCollection() {
     if (!activeWorkspace) return
     await runAction('create collection', async () => {
-      state = await CreateCollection(activeWorkspace.id, collectionName, 'yml')
+      workspaceStore.appState = await CreateCollection(activeWorkspace.id, collectionName, 'yml')
     })
   }
 
   async function createRequest() {
     if (!activeCollection) return
     await runAction('create request', async () => {
-      state = await CreateRequest(activeCollection.id, requestType, requestName)
-      selectedCollectionId = activeCollection.id
+      workspaceStore.appState = await CreateRequest(activeCollection.id, requestType, requestName)
+      workspaceStore.selectedCollectionId = activeCollection.id
       activeView = 'request'
     })
   }
@@ -2002,30 +2025,26 @@
   async function saveRequest() {
     if (!activeCollection || !activeRequest) return
     await runAction('save request', async () => {
-      state = await SaveRequest(activeCollection.id, activeRequest.id)
+      workspaceStore.appState = await SaveRequest(activeCollection.id, activeRequest.id)
     })
   }
 
   async function saveAllOpenTabs() {
     await runAction('save all tabs', async () => {
-      state = await SaveAllTabs(activeTab?.collectionId ?? activeCollection?.id ?? '')
+      workspaceStore.appState = await SaveAllTabs(activeTab?.collectionId ?? activeCollection?.id ?? '')
     })
   }
 
   async function saveResponseExample() {
     if (!activeCollection || !activeRequest?.response) return
     await runAction('save response example', async () => {
-      state = await SaveResponseExample(activeCollection.id, activeRequest.id, '')
+      workspaceStore.appState = await SaveResponseExample(activeCollection.id, activeRequest.id, '')
       responseTab = 'examples'
     })
   }
 
   function suggestedResponseExampleName() {
-    const existing = new Set((activeRequest?.examples ?? []).map((example) => example.name).filter(Boolean))
-    if (!existing.has('example')) return 'example'
-    let index = 1
-    while (existing.has(`example (${index})`)) index += 1
-    return `example (${index})`
+    return suggestedResponseExampleNameOf((activeRequest?.examples ?? []).map((example) => example.name))
   }
 
   async function beginCreateResponseExample() {
@@ -2051,42 +2070,46 @@
     const name = createResponseExampleName.trim()
     if (!name) return
     await runAction('create response example', async () => {
-      state = await CreateResponseExample(activeCollection.id, activeRequest.id, name, createResponseExampleDescription.trim())
+      workspaceStore.appState = await CreateResponseExample(activeCollection.id, activeRequest.id, name, createResponseExampleDescription.trim())
       responseTab = 'examples'
       cancelCreateResponseExample()
     })
   }
 
-  function responseExampleIdentifier(example: main.ResponseExample) {
-    return example.id || example.name
+  function responseExampleForTab(tab: types.OpenTab | undefined) {
+    return findResponseExampleForTab(tab, activeWorkspace?.collections)
   }
 
-  function responseExampleForTab(tab: main.OpenTab | undefined) {
-    if (!tab || tab.kind !== 'response-example') return undefined
-    const collection = activeWorkspace?.collections?.find((candidate) => candidate.id === tab.collectionId)
-    const item = collection?.items?.find((candidate) => candidate.id === tab.itemId)
-    const target = tab.exampleId || tab.exampleName || ''
-    return item?.examples?.find((example) => responseExampleIdentifier(example) === target || example.name === target)
+  function tabLabel(tab: types.OpenTab) {
+    return tabLabelFor(tab, activeWorkspace?.collections)
   }
 
-  function tabLabel(tab: main.OpenTab) {
-    const collection = activeWorkspace?.collections?.find((candidate) => candidate.id === tab.collectionId)
-    const item = collection?.items?.find((candidate) => candidate.id === tab.itemId)
-    if (tab.kind === 'response-example') {
-      return responseExampleForTab(tab)?.name || tab.exampleName || 'Example'
-    }
-    return item?.name ?? (tab.transient ? 'Scratch request' : 'Request')
+  function tabMethod(tab: types.OpenTab) {
+    return tabMethodFor(tab, activeWorkspace?.collections)
   }
 
-  function collectionIsScratch(collection: main.Collection | undefined) {
-    return Boolean(collection?.scratch || (collection && activeWorkspace?.scratchCollectionId === collection.id))
+  let collapsedSidebarCollections = $state<Record<string, boolean>>({})
+  let collapsedSidebarFolders = $state<Record<string, boolean>>({})
+
+  function toggleSidebarCollection(collectionId: string) {
+    collapsedSidebarCollections = { ...collapsedSidebarCollections, [collectionId]: !collapsedSidebarCollections[collectionId] }
   }
 
-  function requestIsTransient(collection: main.Collection | undefined, item: main.RequestItem | undefined) {
-    return Boolean(item?.transient || collectionIsScratch(collection))
+  function toggleSidebarFolder(collectionId: string, folder: string) {
+    const key = sidebarFolderKey(collectionId, folder)
+    collapsedSidebarFolders = { ...collapsedSidebarFolders, [key]: !collapsedSidebarFolders[key] }
   }
 
-  function beginRenameResponseExample(example: main.ResponseExample) {
+  function requestIsTransient(collection: types.Collection | undefined, item: types.RequestItem | undefined) {
+    return isRequestTransient(collection, item, activeWorkspace?.scratchCollectionId)
+  }
+
+  function collectionIsScratch(collection: types.Collection | undefined) {
+    return isScratchCollection(collection, activeWorkspace?.scratchCollectionId)
+  }
+
+
+  function beginRenameResponseExample(example: types.ResponseExample) {
     editingResponseExampleID = responseExampleIdentifier(example)
     responseExampleNameDraft = example.name
     deletingResponseExampleID = ''
@@ -2097,37 +2120,37 @@
     responseExampleNameDraft = ''
   }
 
-  async function renameResponseExample(example: main.ResponseExample) {
+  async function renameResponseExample(example: types.ResponseExample) {
     if (!activeCollection || !activeRequest) return
     const name = responseExampleNameDraft.trim()
     if (!name) return
     await runAction('rename response example', async () => {
-      state = await RenameResponseExample(activeCollection.id, activeRequest.id, responseExampleIdentifier(example), name)
+      workspaceStore.appState = await RenameResponseExample(activeCollection.id, activeRequest.id, responseExampleIdentifier(example), name)
       editingResponseExampleID = ''
       responseExampleNameDraft = ''
       responseTab = 'examples'
     })
   }
 
-  async function cloneResponseExample(example: main.ResponseExample) {
+  async function cloneResponseExample(example: types.ResponseExample) {
     if (!activeCollection || !activeRequest) return
     await runAction('clone response example', async () => {
-      state = await CloneResponseExample(activeCollection.id, activeRequest.id, responseExampleIdentifier(example))
+      workspaceStore.appState = await CloneResponseExample(activeCollection.id, activeRequest.id, responseExampleIdentifier(example))
       responseTab = 'examples'
       deletingResponseExampleID = ''
     })
   }
 
-  function requestDeleteResponseExample(example: main.ResponseExample) {
+  function requestDeleteResponseExample(example: types.ResponseExample) {
     deletingResponseExampleID = responseExampleIdentifier(example)
     editingResponseExampleID = ''
   }
 
-  async function deleteResponseExample(example: main.ResponseExample) {
+  async function deleteResponseExample(example: types.ResponseExample) {
     if (!activeCollection || !activeRequest) return
     const id = responseExampleIdentifier(example)
     await runAction('delete response example', async () => {
-      state = await DeleteResponseExample(activeCollection.id, activeRequest.id, id)
+      workspaceStore.appState = await DeleteResponseExample(activeCollection.id, activeRequest.id, id)
       deletingResponseExampleID = ''
       if (editingResponseExampleDetailsID === id) editingResponseExampleDetailsID = ''
       const { [id]: _deleted, ...remainingDrafts } = responseExampleDrafts
@@ -2136,193 +2159,125 @@
     })
   }
 
-  function cloneResponseExampleDraft(example: main.ResponseExample) {
-    return JSON.parse(JSON.stringify(example)) as main.ResponseExample
+  function cloneResponseExampleDraft(example: types.ResponseExample) {
+    return JSON.parse(JSON.stringify(example)) as types.ResponseExample
   }
 
-  function responseExampleDraft(example: main.ResponseExample) {
+  function responseExampleDraft(example: types.ResponseExample) {
     return responseExampleDrafts[responseExampleIdentifier(example)] ?? example
   }
 
-  function beginEditResponseExampleDetails(example: main.ResponseExample) {
+  function beginEditResponseExampleDetails(example: types.ResponseExample) {
     const id = responseExampleIdentifier(example)
     editingResponseExampleDetailsID = id
     responseExampleDrafts = { ...responseExampleDrafts, [id]: cloneResponseExampleDraft(example) }
     deletingResponseExampleID = ''
   }
 
-  function cancelEditResponseExampleDetails(example: main.ResponseExample) {
+  function cancelEditResponseExampleDetails(example: types.ResponseExample) {
     const id = responseExampleIdentifier(example)
     if (editingResponseExampleDetailsID === id) editingResponseExampleDetailsID = ''
     const { [id]: _removed, ...remainingDrafts } = responseExampleDrafts
     responseExampleDrafts = remainingDrafts
   }
 
-  function updateResponseExampleDraft(example: main.ResponseExample, updater: (draft: main.ResponseExample) => main.ResponseExample) {
+  function updateResponseExampleDraft(example: types.ResponseExample, updater: (draft: types.ResponseExample) => types.ResponseExample) {
     const id = responseExampleIdentifier(example)
     const draft = cloneResponseExampleDraft(responseExampleDrafts[id] ?? example)
     responseExampleDrafts = { ...responseExampleDrafts, [id]: updater(draft) }
   }
 
-  function updateResponseExampleDescription(example: main.ResponseExample, value: string) {
+  function updateResponseExampleDescription(example: types.ResponseExample, value: string) {
     updateResponseExampleDraft(example, (draft) => {
       draft.description = value
       return draft
     })
   }
 
-  function prettifyJSON(value: string) {
-    try {
-      return JSON.stringify(JSON.parse(value), null, 2)
-    } catch {
-      return value
-    }
-  }
 
-  function responseExampleBodyTypeForContentType(contentType = '') {
-    const normalized = contentType.toLowerCase()
-    if (normalized.includes('application/json')) return 'json'
-    if (normalized.includes('text/xml') || normalized.includes('application/xml')) return 'xml'
-    if (normalized.includes('text/html')) return 'html'
-    return 'text'
-  }
-
-  function updateResponseExampleResponseField(example: main.ResponseExample, field: keyof main.ResponseExamplePayload, value: string | number) {
+  function updateResponseExampleResponseField(example: types.ResponseExample, field: keyof types.ResponseExamplePayload, value: string | number) {
     updateResponseExampleDraft(example, (draft) => {
-      const response = { ...(draft.response ?? {}) } as main.ResponseExamplePayload
-      if (field === 'status') {
-        response.status = Number.parseInt(String(value), 10) || 0
-      } else if (field === 'size') {
-        response.size = Number.parseInt(String(value), 10) || 0
-      } else {
-        response[field] = value as never
-      }
-      draft.response = response
+      draft.response = applyResponseExampleResponseField(draft.response, field, value)
       return draft
     })
   }
 
-  function updateResponseExampleRequestField(example: main.ResponseExample, field: keyof main.ResponseExampleRequest, value: string) {
+  function updateResponseExampleRequestField(example: types.ResponseExample, field: keyof types.ResponseExampleRequest, value: string) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
-      if (field === 'method') {
-        request.method = value.toUpperCase()
-      } else {
-        request[field] = value as never
-      }
-      if (field === 'url') {
-        request.params = queryParamsForURL(value, request.params ?? [])
-      }
-      if (field === 'bodyMode' && value === 'formUrlEncoded') {
-        request.formUrlEncoded = request.formUrlEncoded ?? []
-      }
-      if (field === 'bodyMode' && value === 'multipartForm') {
-        request.multipartForm = request.multipartForm ?? []
-      }
-      if (field === 'bodyMode' && value === 'file') {
-        request.file = request.file ?? []
-      }
-      draft.request = request
+      draft.request = applyResponseExampleRequestField(draft.request, field, value)
       return draft
     })
   }
 
-  function prettifyResponseExampleRequestBody(example: main.ResponseExample) {
+  function prettifyResponseExampleRequestBody(example: types.ResponseExample) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.body = prettifyJSON(request.body ?? '')
       draft.request = request
       return draft
     })
   }
 
-  function prettifyResponseExampleResponseBody(example: main.ResponseExample) {
+  function prettifyResponseExampleResponseBody(example: types.ResponseExample) {
     updateResponseExampleDraft(example, (draft) => {
-      const response = { ...(draft.response ?? {}) } as main.ResponseExamplePayload
+      const response = { ...(draft.response ?? {}) } as types.ResponseExamplePayload
       response.body = prettifyJSON(response.body ?? '')
       draft.response = response
       return draft
     })
   }
 
-  function movedRows<T>(rows: T[] | undefined, index: number, direction: -1 | 1) {
-    const next = [...(rows ?? [])]
-    const target = index + direction
-    if (index < 0 || target < 0 || index >= next.length || target >= next.length) return next
-    const [row] = next.splice(index, 1)
-    next.splice(target, 0, row)
-    return next
-  }
-
-  function reorderedRows<T>(rows: T[] | undefined, from: number, to: number) {
-    const next = [...(rows ?? [])]
-    if (from < 0 || to < 0 || from >= next.length || to >= next.length || from === to) return next
-    const [row] = next.splice(from, 1)
-    next.splice(Math.min(to, next.length), 0, row)
-    return next
-  }
-
-  function normalizeBulkKeyValueRows(rows: Array<{ name: string; value: string; enabled: boolean; secret?: boolean; description?: string }>) {
-    return rows.map((row) => ({
-      name: row.name,
-      value: row.value,
-      enabled: row.enabled,
-      secret: row.secret ?? false,
-      description: row.description ?? ''
-    }) as main.KeyValue)
-  }
-
-  function addResponseExampleRequestParam(example: main.ResponseExample) {
+  function addResponseExampleRequestParam(example: types.ResponseExample) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
-      request.params = [...(request.params ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue]
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
+      request.params = [...(request.params ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue]
       draft.request = request
       return draft
     })
   }
 
-  function updateResponseExampleRequestParam(example: main.ResponseExample, index: number, field: keyof main.KeyValue, value: string | boolean) {
+  function updateResponseExampleRequestParam(example: types.ResponseExample, index: number, field: keyof types.KeyValue, value: string | boolean) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.params ?? [])]
-      const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue)
-      rows[index] = { ...current, [field]: value } as main.KeyValue
+      const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue)
+      rows[index] = { ...current, [field]: value } as types.KeyValue
       request.params = rows
       draft.request = request
       return draft
     })
   }
 
-  function replaceResponseExampleRequestParams(example: main.ResponseExample, rows: Array<{ name: string; value: string; enabled: boolean; secret?: boolean; description?: string }>) {
+  function replaceResponseExampleRequestParams(example: types.ResponseExample, rows: Array<{ name: string; value: string; enabled: boolean; secret?: boolean; description?: string }>) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.params = normalizeBulkKeyValueRows(rows)
       draft.request = request
       return draft
     })
   }
 
-  function moveResponseExampleRequestParam(example: main.ResponseExample, index: number, direction: -1 | 1) {
+  function moveResponseExampleRequestParam(example: types.ResponseExample, index: number, direction: -1 | 1) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.params = movedRows(request.params, index, direction)
       draft.request = request
       return draft
     })
   }
 
-  function reorderResponseExampleRequestParam(example: main.ResponseExample, from: number, to: number) {
+  function reorderResponseExampleRequestParam(example: types.ResponseExample, from: number, to: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.params = reorderedRows(request.params, from, to)
       draft.request = request
       return draft
     })
   }
 
-  function removeResponseExampleRequestParam(example: main.ResponseExample, index: number) {
+  function removeResponseExampleRequestParam(example: types.ResponseExample, index: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.params ?? [])]
       rows.splice(index, 1)
       request.params = rows
@@ -2331,48 +2286,48 @@
     })
   }
 
-  function addResponseExampleRequestFormRow(example: main.ResponseExample) {
+  function addResponseExampleRequestFormRow(example: types.ResponseExample) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
-      request.formUrlEncoded = [...(request.formUrlEncoded ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue]
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
+      request.formUrlEncoded = [...(request.formUrlEncoded ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue]
       draft.request = request
       return draft
     })
   }
 
-  function updateResponseExampleRequestFormRow(example: main.ResponseExample, index: number, field: keyof main.KeyValue, value: string | boolean) {
+  function updateResponseExampleRequestFormRow(example: types.ResponseExample, index: number, field: keyof types.KeyValue, value: string | boolean) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.formUrlEncoded ?? [])]
-      const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue)
-      rows[index] = { ...current, [field]: value } as main.KeyValue
+      const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue)
+      rows[index] = { ...current, [field]: value } as types.KeyValue
       request.formUrlEncoded = rows
       draft.request = request
       return draft
     })
   }
 
-  function moveResponseExampleRequestFormRow(example: main.ResponseExample, index: number, direction: -1 | 1) {
+  function moveResponseExampleRequestFormRow(example: types.ResponseExample, index: number, direction: -1 | 1) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.formUrlEncoded = movedRows(request.formUrlEncoded, index, direction)
       draft.request = request
       return draft
     })
   }
 
-  function reorderResponseExampleRequestFormRow(example: main.ResponseExample, from: number, to: number) {
+  function reorderResponseExampleRequestFormRow(example: types.ResponseExample, from: number, to: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.formUrlEncoded = reorderedRows(request.formUrlEncoded, from, to)
       draft.request = request
       return draft
     })
   }
 
-  function removeResponseExampleRequestFormRow(example: main.ResponseExample, index: number) {
+  function removeResponseExampleRequestFormRow(example: types.ResponseExample, index: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.formUrlEncoded ?? [])]
       rows.splice(index, 1)
       request.formUrlEncoded = rows
@@ -2381,48 +2336,48 @@
     })
   }
 
-  function addResponseExampleRequestMultipartRow(example: main.ResponseExample) {
+  function addResponseExampleRequestMultipartRow(example: types.ResponseExample) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
-      request.multipartForm = [...(request.multipartForm ?? []), { name: '', value: '', filePath: '', contentType: '', enabled: true } as main.FormPart]
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
+      request.multipartForm = [...(request.multipartForm ?? []), { name: '', value: '', filePath: '', contentType: '', enabled: true } as types.FormPart]
       draft.request = request
       return draft
     })
   }
 
-  function updateResponseExampleRequestMultipartRow(example: main.ResponseExample, index: number, field: keyof main.FormPart, value: string | boolean) {
+  function updateResponseExampleRequestMultipartRow(example: types.ResponseExample, index: number, field: keyof types.FormPart, value: string | boolean) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.multipartForm ?? [])]
-      const current = rows[index] ?? ({ name: '', value: '', filePath: '', contentType: '', enabled: true } as main.FormPart)
-      rows[index] = { ...current, [field]: value } as main.FormPart
+      const current = rows[index] ?? ({ name: '', value: '', filePath: '', contentType: '', enabled: true } as types.FormPart)
+      rows[index] = { ...current, [field]: value } as types.FormPart
       request.multipartForm = rows
       draft.request = request
       return draft
     })
   }
 
-  function moveResponseExampleRequestMultipartRow(example: main.ResponseExample, index: number, direction: -1 | 1) {
+  function moveResponseExampleRequestMultipartRow(example: types.ResponseExample, index: number, direction: -1 | 1) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.multipartForm = movedRows(request.multipartForm, index, direction)
       draft.request = request
       return draft
     })
   }
 
-  function reorderResponseExampleRequestMultipartRow(example: main.ResponseExample, from: number, to: number) {
+  function reorderResponseExampleRequestMultipartRow(example: types.ResponseExample, from: number, to: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.multipartForm = reorderedRows(request.multipartForm, from, to)
       draft.request = request
       return draft
     })
   }
 
-  function removeResponseExampleRequestMultipartRow(example: main.ResponseExample, index: number) {
+  function removeResponseExampleRequestMultipartRow(example: types.ResponseExample, index: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.multipartForm ?? [])]
       rows.splice(index, 1)
       request.multipartForm = rows
@@ -2431,121 +2386,100 @@
     })
   }
 
-  function addResponseExampleRequestFileRow(example: main.ResponseExample) {
+  function addResponseExampleRequestFileRow(example: types.ResponseExample) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.file ?? [])]
-      rows.push({ filePath: '', contentType: '', selected: rows.length === 0 } as main.FileBodyEntry)
+      rows.push({ filePath: '', contentType: '', selected: rows.length === 0 } as types.FileBodyEntry)
       request.file = rows
       draft.request = request
       return draft
     })
   }
 
-  function updateResponseExampleRequestFileRow(example: main.ResponseExample, index: number, field: keyof main.FileBodyEntry, value: string | boolean) {
+  function updateResponseExampleRequestFileRow(example: types.ResponseExample, index: number, field: keyof types.FileBodyEntry, value: string | boolean) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
-      const rows = [...(request.file ?? [])]
-      const current = rows[index] ?? ({ filePath: '', contentType: '', selected: rows.length === 0 } as main.FileBodyEntry)
-      rows[index] = { ...current, [field]: value } as main.FileBodyEntry
-      if (field === 'filePath') {
-        rows[index].contentType = contentTypeForFilePath(String(value))
-      }
-      if (field === 'selected' && value === true) {
-        for (let i = 0; i < rows.length; i += 1) {
-          rows[i].selected = i === index
-        }
-      }
-      request.file = rows
-      draft.request = request
+      draft.request = applyResponseExampleFileRow(draft.request, index, field, value)
       return draft
     })
   }
 
-  function moveResponseExampleRequestFileRow(example: main.ResponseExample, index: number, direction: -1 | 1) {
+  function moveResponseExampleRequestFileRow(example: types.ResponseExample, index: number, direction: -1 | 1) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.file = movedRows(request.file, index, direction)
       draft.request = request
       return draft
     })
   }
 
-  function reorderResponseExampleRequestFileRow(example: main.ResponseExample, from: number, to: number) {
+  function reorderResponseExampleRequestFileRow(example: types.ResponseExample, from: number, to: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.file = reorderedRows(request.file, from, to)
       draft.request = request
       return draft
     })
   }
 
-  function removeResponseExampleRequestFileRow(example: main.ResponseExample, index: number) {
+  function removeResponseExampleRequestFileRow(example: types.ResponseExample, index: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
-      const rows = [...(request.file ?? [])]
-      const removedSelected = rows[index]?.selected
-      rows.splice(index, 1)
-      if (rows.length > 0 && (removedSelected || !rows.some((row) => row.selected))) {
-        rows[0].selected = true
-      }
-      request.file = rows
+      draft.request = removeResponseExampleFileRow(draft.request, index)
+      return draft
+    })
+  }
+
+  function addResponseExampleRequestHeader(example: types.ResponseExample) {
+    updateResponseExampleDraft(example, (draft) => {
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
+      request.headers = [...(request.headers ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue]
       draft.request = request
       return draft
     })
   }
 
-  function addResponseExampleRequestHeader(example: main.ResponseExample) {
+  function updateResponseExampleRequestHeader(example: types.ResponseExample, index: number, field: keyof types.KeyValue, value: string | boolean) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
-      request.headers = [...(request.headers ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue]
-      draft.request = request
-      return draft
-    })
-  }
-
-  function updateResponseExampleRequestHeader(example: main.ResponseExample, index: number, field: keyof main.KeyValue, value: string | boolean) {
-    updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.headers ?? [])]
-      const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue)
-      rows[index] = { ...current, [field]: value } as main.KeyValue
+      const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue)
+      rows[index] = { ...current, [field]: value } as types.KeyValue
       request.headers = rows
       draft.request = request
       return draft
     })
   }
 
-  function replaceResponseExampleRequestHeaders(example: main.ResponseExample, rows: Array<{ name: string; value: string; enabled: boolean; secret?: boolean; description?: string }>) {
+  function replaceResponseExampleRequestHeaders(example: types.ResponseExample, rows: Array<{ name: string; value: string; enabled: boolean; secret?: boolean; description?: string }>) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.headers = normalizeBulkKeyValueRows(rows)
       draft.request = request
       return draft
     })
   }
 
-  function moveResponseExampleRequestHeader(example: main.ResponseExample, index: number, direction: -1 | 1) {
+  function moveResponseExampleRequestHeader(example: types.ResponseExample, index: number, direction: -1 | 1) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.headers = movedRows(request.headers, index, direction)
       draft.request = request
       return draft
     })
   }
 
-  function reorderResponseExampleRequestHeader(example: main.ResponseExample, from: number, to: number) {
+  function reorderResponseExampleRequestHeader(example: types.ResponseExample, from: number, to: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       request.headers = reorderedRows(request.headers, from, to)
       draft.request = request
       return draft
     })
   }
 
-  function removeResponseExampleRequestHeader(example: main.ResponseExample, index: number) {
+  function removeResponseExampleRequestHeader(example: types.ResponseExample, index: number) {
     updateResponseExampleDraft(example, (draft) => {
-      const request = { ...(draft.request ?? {}) } as main.ResponseExampleRequest
+      const request = { ...(draft.request ?? {}) } as types.ResponseExampleRequest
       const rows = [...(request.headers ?? [])]
       rows.splice(index, 1)
       request.headers = rows
@@ -2554,53 +2488,44 @@
     })
   }
 
-  function addResponseExampleHeader(example: main.ResponseExample) {
+  function addResponseExampleHeader(example: types.ResponseExample) {
     updateResponseExampleDraft(example, (draft) => {
-      draft.response.headers = [...(draft.response.headers ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue]
+      draft.response.headers = [...(draft.response.headers ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue]
       return draft
     })
   }
 
-  function updateResponseExampleHeader(example: main.ResponseExample, index: number, field: keyof main.KeyValue, value: string | boolean) {
+  function updateResponseExampleHeader(example: types.ResponseExample, index: number, field: keyof types.KeyValue, value: string | boolean) {
     updateResponseExampleDraft(example, (draft) => {
-      const rows = [...(draft.response.headers ?? [])]
-      const oldContentTypeHeader = rows.find((row) => row.name?.toLowerCase() === 'content-type')
-      const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue)
-      rows[index] = { ...current, [field]: value } as main.KeyValue
-      const contentTypeHeader = rows.find((row) => row.name?.toLowerCase() === 'content-type')
-      if (contentTypeHeader && oldContentTypeHeader && contentTypeHeader.value !== oldContentTypeHeader.value) {
-        const nextBodyType = responseExampleBodyTypeForContentType(contentTypeHeader.value ?? '')
-        if (nextBodyType !== (draft.response.bodyType || 'text')) {
-          draft.response.bodyType = nextBodyType
-        }
-      }
-      draft.response.headers = rows
+      const result = applyResponseExampleHeader(draft.response.headers, draft.response.bodyType, index, field, value)
+      draft.response.headers = result.headers
+      if (result.bodyType !== undefined) draft.response.bodyType = result.bodyType
       return draft
     })
   }
 
-  function replaceResponseExampleHeaders(example: main.ResponseExample, rows: Array<{ name: string; value: string; enabled: boolean; secret?: boolean; description?: string }>) {
+  function replaceResponseExampleHeaders(example: types.ResponseExample, rows: Array<{ name: string; value: string; enabled: boolean; secret?: boolean; description?: string }>) {
     updateResponseExampleDraft(example, (draft) => {
       draft.response.headers = normalizeBulkKeyValueRows(rows)
       return draft
     })
   }
 
-  function moveResponseExampleHeader(example: main.ResponseExample, index: number, direction: -1 | 1) {
+  function moveResponseExampleHeader(example: types.ResponseExample, index: number, direction: -1 | 1) {
     updateResponseExampleDraft(example, (draft) => {
       draft.response.headers = movedRows(draft.response.headers, index, direction)
       return draft
     })
   }
 
-  function reorderResponseExampleHeader(example: main.ResponseExample, from: number, to: number) {
+  function reorderResponseExampleHeader(example: types.ResponseExample, from: number, to: number) {
     updateResponseExampleDraft(example, (draft) => {
       draft.response.headers = reorderedRows(draft.response.headers, from, to)
       return draft
     })
   }
 
-  function removeResponseExampleHeader(example: main.ResponseExample, index: number) {
+  function removeResponseExampleHeader(example: types.ResponseExample, index: number) {
     updateResponseExampleDraft(example, (draft) => {
       const rows = [...(draft.response.headers ?? [])]
       rows.splice(index, 1)
@@ -2609,13 +2534,13 @@
     })
   }
 
-  async function saveResponseExampleDetails(example: main.ResponseExample) {
+  async function saveResponseExampleDetails(example: types.ResponseExample) {
     if (!activeCollection || !activeRequest) return
     const id = responseExampleIdentifier(example)
     const draft = responseExampleDrafts[id]
     if (!draft) return
     await runAction('update response example', async () => {
-      state = await UpdateResponseExample(activeCollection.id, activeRequest.id, id, draft)
+      workspaceStore.appState = await UpdateResponseExample(activeCollection.id, activeRequest.id, id, draft)
       editingResponseExampleDetailsID = ''
       const { [id]: _saved, ...remainingDrafts } = responseExampleDrafts
       responseExampleDrafts = remainingDrafts
@@ -2623,7 +2548,7 @@
     })
   }
 
-  async function loadResponseExampleCode(example: main.ResponseExample, language = responseExampleCodeLanguage) {
+  async function loadResponseExampleCode(example: types.ResponseExample, language = responseExampleCodeLanguage) {
     if (!activeCollection || !activeRequest) return
     await runAction('generate response example code', async () => {
       responseExampleGeneratedCode = await GenerateResponseExampleCode(
@@ -2635,14 +2560,14 @@
     })
   }
 
-  async function beginGenerateResponseExampleCode(example: main.ResponseExample) {
+  async function beginGenerateResponseExampleCode(example: types.ResponseExample) {
     generatingResponseExampleID = responseExampleIdentifier(example)
     responseExampleCodeLanguage = 'curl'
     responseExampleGeneratedCode = ''
     await loadResponseExampleCode(example, responseExampleCodeLanguage)
   }
 
-  async function changeResponseExampleCodeLanguage(example: main.ResponseExample, language: string) {
+  async function changeResponseExampleCodeLanguage(example: types.ResponseExample, language: string) {
     responseExampleCodeLanguage = language
     await loadResponseExampleCode(example, language)
   }
@@ -2656,11 +2581,11 @@
     await copyText(responseExampleGeneratedCode)
   }
 
-  function requestSupportsGenerateCode(item: main.RequestItem | undefined) {
+  function requestSupportsGenerateCode(item: types.RequestItem | undefined) {
     return item?.type === 'http' || item?.type === 'graphql'
   }
 
-  function requestCodeEnvironmentId(collection: main.Collection) {
+  function requestCodeEnvironmentId(collection: types.Collection) {
     if (collection.id === activeCollection?.id) return selectedEnvironmentId
     return collection.environments?.[0]?.id ?? ''
   }
@@ -2672,7 +2597,12 @@
     })
   }
 
-  async function beginGenerateRequestCode(collection: main.Collection, item: main.RequestItem) {
+  let codeGenerationTargets = $state<{ id: string; label: string }[]>([
+    { id: 'curl', label: 'cURL' },
+    { id: 'fetch', label: 'JavaScript (fetch)' }
+  ])
+
+  async function beginGenerateRequestCode(collection: types.Collection, item: types.RequestItem) {
     if (!requestSupportsGenerateCode(item)) return
     if (!item.url?.trim()) {
       error = 'URL is required'
@@ -2682,6 +2612,17 @@
       collectionId: collection.id,
       itemId: item.id,
       environmentId: requestCodeEnvironmentId(collection)
+    }
+    // Loaded lazily on first open rather than at startup: the list is static
+    // for the process, and fetching it eagerly would add a binding call to
+    // every launch for a dialog most sessions never open.
+    if (codeGenerationTargets.length <= 2) {
+      try {
+        codeGenerationTargets = await CodeGenerationTargets()
+      } catch {
+        // The hard-coded curl/fetch pair remains usable, so a failure here
+        // narrows the menu rather than breaking the dialog.
+      }
     }
     requestCodeTarget = target
     requestCodeLanguage = 'curl'
@@ -2724,8 +2665,8 @@
     const requestForPrompts = {
       ...activeRequest,
       grpcMessages: message ? [message] : []
-    } as main.RequestItem
-    const promptNames = collectPromptNames(activeCollection, requestForPrompts, selectedEnvironmentId)
+    } as types.RequestItem
+    const promptNames = collectPromptNames(activeCollection, requestForPrompts, selectedEnvironmentId, activeGlobalEnvironment)
     return promptNames.length > 0 ? await promptForVariables(promptNames) : {}
   }
 
@@ -2734,7 +2675,7 @@
     const promptValues = await promptValuesForGrpcStreamMessage(null)
     if (promptValues === null) return
     await runAction('start gRPC stream', async () => {
-      state = Object.keys(promptValues).length > 0
+      workspaceStore.appState = Object.keys(promptValues).length > 0
         ? await ConnectGRPCStreamWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, promptValues)
         : await ConnectGRPCStream(activeCollection.id, activeRequest.id, selectedEnvironmentId)
       activeView = 'request'
@@ -2745,7 +2686,7 @@
   async function endActiveGrpcStream() {
     if (!activeCollection || !activeRequest) return
     await runAction('end gRPC stream', async () => {
-      state = await EndGRPCStream(activeCollection.id, activeRequest.id)
+      workspaceStore.appState = await EndGRPCStream(activeCollection.id, activeRequest.id)
       activeView = 'request'
       responseTab = 'response'
     })
@@ -2754,7 +2695,7 @@
   async function cancelActiveGrpcStream() {
     if (!activeCollection || !activeRequest) return
     await runAction('cancel gRPC stream', async () => {
-      state = await CancelGRPCStream(activeCollection.id, activeRequest.id)
+      workspaceStore.appState = await CancelGRPCStream(activeCollection.id, activeRequest.id)
       activeView = 'request'
       responseTab = 'response'
     })
@@ -2767,15 +2708,15 @@
     await runAction('send gRPC stream message', async () => {
       const hasPromptValues = Object.keys(promptValues).length > 0
       try {
-        state = hasPromptValues
+        workspaceStore.appState = hasPromptValues
           ? await SendGRPCStreamMessageWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, index, promptValues)
           : await SendGRPCStreamMessage(activeCollection.id, activeRequest.id, selectedEnvironmentId, index)
       } catch (err) {
         if (!String(err).includes('gRPC stream is not connected')) throw err
-        state = hasPromptValues
+        workspaceStore.appState = hasPromptValues
           ? await ConnectGRPCStreamWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, promptValues)
           : await ConnectGRPCStream(activeCollection.id, activeRequest.id, selectedEnvironmentId)
-        state = hasPromptValues
+        workspaceStore.appState = hasPromptValues
           ? await SendGRPCStreamMessageWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, index, promptValues)
           : await SendGRPCStreamMessage(activeCollection.id, activeRequest.id, selectedEnvironmentId, index)
       }
@@ -2784,7 +2725,7 @@
     })
   }
 
-  function selectedWSMessageIndex(request: main.RequestItem) {
+  function selectedWSMessageIndex(request: types.RequestItem) {
     const messages = request.wsMessages ?? []
     if (messages.length === 0) return 0
     const selected = messages.findIndex((message) => message.selected)
@@ -2796,18 +2737,30 @@
     const messages = (activeRequest.wsMessages ?? []).map((message, messageIndex) => ({
       ...message,
       selected: messageIndex === index
-    })) as main.WSMessage[]
-    const requestForPrompts = { ...activeRequest, wsMessages: messages } as main.RequestItem
-    const promptNames = collectPromptNames(activeCollection, requestForPrompts, selectedEnvironmentId)
+    })) as types.WSMessage[]
+    const requestForPrompts = { ...activeRequest, wsMessages: messages } as types.RequestItem
+    const promptNames = collectPromptNames(activeCollection, requestForPrompts, selectedEnvironmentId, activeGlobalEnvironment)
     return promptNames.length > 0 ? await promptForVariables(promptNames) : {}
+  }
+
+  // US-021/US-022. A new session restarts the backend's event indices at zero,
+  // so the previous session's accumulated log has to go with it. Keeping it
+  // would leave the log non-contiguous for the whole of the new session and
+  // permanently fall back to the response body's trailing window.
+  function resetLiveSessionLog(collectionId: string, itemId: string) {
+    const key = liveSessionKey(collectionId, itemId)
+    if (!(key in liveSessionLogs)) return
+    const { [key]: _discarded, ...rest } = liveSessionLogs
+    liveSessionLogs = rest
   }
 
   async function connectActiveWebSocket() {
     if (!activeCollection || !activeRequest) return
     const promptValues = await promptValuesForWebSocketMessage(selectedWSMessageIndex(activeRequest))
     if (promptValues === null) return
+    resetLiveSessionLog(activeCollection.id, activeRequest.id)
     await runAction('connect WebSocket', async () => {
-      state = Object.keys(promptValues).length > 0
+      workspaceStore.appState = Object.keys(promptValues).length > 0
         ? await ConnectWebSocketWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, promptValues)
         : await ConnectWebSocket(activeCollection.id, activeRequest.id, selectedEnvironmentId)
       activeView = 'request'
@@ -2818,7 +2771,7 @@
   async function disconnectActiveWebSocket() {
     if (!activeCollection || !activeRequest) return
     await runAction('disconnect WebSocket', async () => {
-      state = await DisconnectWebSocket(activeCollection.id, activeRequest.id)
+      workspaceStore.appState = await DisconnectWebSocket(activeCollection.id, activeRequest.id)
       activeView = 'request'
       responseTab = 'response'
     })
@@ -2831,15 +2784,15 @@
     await runAction('send WebSocket message', async () => {
       const hasPromptValues = Object.keys(promptValues).length > 0
       try {
-        state = hasPromptValues
+        workspaceStore.appState = hasPromptValues
           ? await SendWebSocketMessageWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, index, promptValues)
           : await SendWebSocketMessage(activeCollection.id, activeRequest.id, selectedEnvironmentId, index)
       } catch (err) {
         if (!String(err).includes('WebSocket is not connected')) throw err
-        state = hasPromptValues
+        workspaceStore.appState = hasPromptValues
           ? await ConnectWebSocketWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, promptValues)
           : await ConnectWebSocket(activeCollection.id, activeRequest.id, selectedEnvironmentId)
-        state = hasPromptValues
+        workspaceStore.appState = hasPromptValues
           ? await SendWebSocketMessageWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, index, promptValues)
           : await SendWebSocketMessage(activeCollection.id, activeRequest.id, selectedEnvironmentId, index)
       }
@@ -2854,24 +2807,81 @@
       await sendWSMessage(selectedWSMessageIndex(activeRequest))
       return
     }
-    const promptNames = collectPromptNames(activeCollection, activeRequest, selectedEnvironmentId)
+    const collection = activeCollection
+    const request = activeRequest
+    const environmentId = selectedEnvironmentId
+    const tabId = activeTab?.id
+    const cancellableTransport = request.type === 'http' || request.type === 'graphql'
+    if (cancellableTransport && (busy !== '' || activeHTTPTransport)) return
+    const promptNames = collectPromptNames(collection, request, environmentId, activeGlobalEnvironment)
     const promptValues = promptNames.length > 0 ? await promptForVariables(promptNames) : null
     if (promptNames.length > 0 && promptValues === null) return
+    if (cancellableTransport && activeHTTPTransport) return
+    const collectionId = collection.id
+    const requestId = request.id
+    // US-035: drain any patch still inside the debounce window, so Send uses
+    // what the user actually typed rather than the last flushed value.
+    await flushPendingRequestPatch()
     await runAction('send request', async () => {
-      state = promptValues
-        ? await SendRequestWithPromptValues(activeCollection.id, activeRequest.id, selectedEnvironmentId, promptValues)
-        : await SendRequest(activeCollection.id, activeRequest.id, selectedEnvironmentId)
-      activeView = 'request'
-      responseTab = 'response'
+      if (cancellableTransport) {
+        activeHTTPTransport = { collectionId, requestId }
+        httpCancellationRequested = false
+      }
+      try {
+        workspaceStore.appState = promptValues
+          ? await SendRequestWithPromptValues(collectionId, requestId, environmentId, promptValues)
+          : await SendRequest(collectionId, requestId, environmentId)
+        if (appState?.activeTabId === tabId) {
+          activeView = 'request'
+          responseTab = 'response'
+        }
+      } finally {
+        if (activeHTTPTransport?.collectionId === collectionId && activeHTTPTransport.requestId === requestId) {
+          activeHTTPTransport = undefined
+          httpCancellationRequested = false
+        }
+      }
     })
   }
 
-  function runnerItemIsRunnable(item: main.RequestItem) {
-    return !item.type || item.type === 'http' || item.type === 'graphql' || item.type === 'grpc'
+  async function cancelActiveRequest() {
+    if (httpTransportInFlight) {
+      await cancelHTTPTransport()
+      return
+    }
+    if (activeHTTPTransport) {
+      await cancelHTTPTransport()
+      return
+    }
+    if (activeCollectionRun) {
+      await cancelCollectionRun()
+      return
+    }
+    if (activeRequest?.type === 'websocket' && websocketConnected) {
+      await disconnectActiveWebSocket()
+      return
+    }
+    if (activeRequest?.type === 'grpc' && grpcStreamConnected) {
+      await cancelActiveGrpcStream()
+      return
+    }
   }
 
-  function runnerSelectableItems(collection: main.Collection | undefined) {
-    return (collection?.items ?? []).filter(runnerItemIsRunnable)
+  async function cancelHTTPTransport() {
+    const target = activeHTTPTransport
+    if (!target || httpCancellationRequested) return
+    httpCancellationRequested = true
+    try {
+      const accepted = await CancelRequest(target.collectionId, target.requestId)
+      if (!accepted && activeHTTPTransport?.collectionId === target.collectionId && activeHTTPTransport.requestId === target.requestId) {
+        httpCancellationRequested = false
+      }
+    } catch (err) {
+      if (activeHTTPTransport?.collectionId === target.collectionId && activeHTTPTransport.requestId === target.requestId) {
+        httpCancellationRequested = false
+      }
+      error = err instanceof Error ? err.message : String(err)
+    }
   }
 
   function runnerItemSelected(itemId: string) {
@@ -2879,53 +2889,82 @@
   }
 
   function setRunnerItemSelected(itemId: string, selected: boolean) {
-    if (selected) {
-      const ids = new Set(runnerSelectedItemIds)
-      ids.add(itemId)
-      runnerSelectedItemIds = runnerConfigItems.filter((item) => ids.has(item.id)).map((item) => item.id)
-    } else {
-      runnerSelectedItemIds = runnerSelectedItemIds.filter((id) => id !== itemId)
-    }
+    runnerSelectedItemIds = setRunnerSelection(runnerSelectedItemIds, runnerConfigItems, itemId, selected)
   }
 
   function toggleRunnerSelectAll() {
-    if (runnerSelectedCount === runnerConfigItems.length) {
-      runnerSelectedItemIds = []
-    } else {
-      runnerSelectedItemIds = runnerConfigItems.map((item) => item.id)
-    }
+    runnerSelectedItemIds = toggleRunnerSelectAllOf(runnerSelectedCount, runnerConfigItems)
   }
 
   function resetRunnerConfiguration() {
     runnerSelectedItemIds = runnerConfigItems.map((item) => item.id)
     runnerDelayMs = 0
+    runnerBailOnFailure = false
+    runnerIterations = 1
+    runnerDataFile = ''
   }
 
-  function normalizedRunnerDelayMs(value: number) {
-    const delay = Math.floor(Number(value) || 0)
-    if (delay < 0) return 0
-    if (delay > 600000) return 600000
-    return delay
+  async function chooseRunnerDataFile() {
+    // A cancelled dialog returns an empty path, which must leave the current
+    // selection alone rather than silently clearing it.
+    const chosen = await SelectRunnerDataFile()
+    if (chosen) runnerDataFile = chosen
   }
 
   async function runCollection() {
-    if (!activeCollection) return
+    if (!activeCollection || activeCollectionRun || busy !== '') return
+    const collection = activeCollection
     const selectedItemIds = runnerSelectedItemIds.filter((id) => runnerConfigItems.some((item) => item.id === id))
     if (selectedItemIds.length === 0) return
+    const environmentId = selectedEnvironmentId
+    const viewAtStart = activeView
     await runAction('run collection', async () => {
-      state = await RunCollectionWithOptions(activeCollection.id, selectedEnvironmentId, {
-        selectedItemIds,
-        delayMs: normalizedRunnerDelayMs(runnerDelayMs)
-      } as main.RunnerOptions)
-      activeView = 'runner'
+      let completedRunState: types.AppState | undefined
+      activeCollectionRun = { collectionId: collection.id, collectionName: collection.name || 'collection' }
+      collectionRunCancellationRequested = false
+      lastCollectionRunCancelled = false
+      try {
+        completedRunState = await RunCollectionWithOptions(collection.id, environmentId, {
+          selectedItemIds,
+          delayMs: normalizedRunnerDelayMs(runnerDelayMs),
+          bailOnFailure: runnerBailOnFailure,
+          iterations: normalizedRunnerIterations(runnerIterations),
+          dataFile: runnerDataFile
+        } as types.RunnerOptions)
+        workspaceStore.appState = completedRunState
+        if (activeView === viewAtStart && activeCollection?.id === collection.id) activeView = 'runner'
+      } finally {
+        if (activeCollectionRun?.collectionId === collection.id) {
+          lastCollectionRunCancelled = collectionRunCancellationRequested || runnerCancellationCount(completedRunState?.runner) > 0
+          activeCollectionRun = undefined
+          collectionRunCancellationRequested = false
+        }
+      }
     })
+  }
+
+  async function cancelCollectionRun() {
+    const target = activeCollectionRun
+    if (!target || collectionRunCancellationRequested) return
+    collectionRunCancellationRequested = true
+    try {
+      const accepted = await CancelCollectionRun(target.collectionId)
+      if (!accepted && activeCollectionRun?.collectionId === target.collectionId) {
+        collectionRunCancellationRequested = false
+      }
+    } catch (err) {
+      if (activeCollectionRun?.collectionId === target.collectionId) {
+        collectionRunCancellationRequested = false
+      }
+      error = err instanceof Error ? err.message : String(err)
+    }
   }
 
   async function createEnvironment() {
     if (!activeCollection) return
     await runAction('create environment', async () => {
-      state = await CreateEnvironment(activeCollection.id, environmentName)
-      selectedEnvironmentId = activeCollection?.environments?.at(-1)?.id ?? selectedEnvironmentId
+      workspaceStore.appState = await CreateEnvironment(activeCollection.id, environmentName)
+      workspaceStore.selectedEnvironmentId = activeCollection?.environments?.at(-1)?.id ?? selectedEnvironmentId
       environmentVariableTab = 'variables'
       activeView = 'environments'
     })
@@ -2934,7 +2973,7 @@
   async function createGlobalEnvironment() {
     if (!activeWorkspace) return
     await runAction('create global environment', async () => {
-      state = await CreateGlobalEnvironment(activeWorkspace.id, globalEnvironmentName)
+      workspaceStore.appState = await CreateGlobalEnvironment(activeWorkspace.id, globalEnvironmentName)
       globalEnvironmentVariableTab = 'variables'
       activeView = 'environments'
     })
@@ -2942,34 +2981,126 @@
 
   async function setActiveGlobalEnvironment(environmentId: string) {
     if (!activeWorkspace) return
-    state = await SetActiveGlobalEnvironment(activeWorkspace.id, environmentId)
+    workspaceStore.appState = await SetActiveGlobalEnvironment(activeWorkspace.id, environmentId)
+  }
+
+  async function setActiveWorkspace(workspaceId: string) {
+    if (!appState || !workspaceId || workspaceId === appState.activeWorkspaceId) return
+    await runAction('switch workspace', async () => {
+      const nextState = await SetActiveWorkspace(workspaceId)
+      const workspace = nextState.workspaces?.find((candidate) => candidate.id === workspaceId)
+      workspaceStore.appState = nextState
+      workspaceStore.selectedCollectionId = workspace?.collections?.[0]?.id ?? ''
+      workspaceStore.selectedEnvironmentId = workspace?.collections?.[0]?.environments?.[0]?.id ?? ''
+    })
+  }
+
+  function nativeWindowErrorMessage(prefix: string, err: unknown) {
+    const detail = err instanceof Error ? err.message : String(err)
+    return detail && detail !== '[object Object]' ? `${prefix}: ${detail}` : prefix
+  }
+
+  async function openNativeNewWindow() {
+    if (nativeWindowBusy) return
+    nativeWindowBusy = true
+    nativeWindowError = ''
+    try {
+      await OpenNewWindow()
+    } catch (err) {
+      nativeWindowError = nativeWindowErrorMessage('Couldn’t open a new window', err)
+    } finally {
+      nativeWindowBusy = false
+    }
+  }
+
+  async function showWorkspaceWindowPicker() {
+    if (workspaceWindowPickerBusy) return
+    workspaceWindowPickerOpen = true
+    workspaceWindowPickerBusy = true
+    workspaceWindowPickerBusyAction = 'loading'
+    workspaceWindowPickerError = ''
+    workspaceWindowTargets = []
+    try {
+      workspaceWindowTargets = await ListWorkspaceWindowTargets()
+    } catch (err) {
+      workspaceWindowPickerError = nativeWindowErrorMessage('Couldn’t load available workspaces', err)
+    } finally {
+      workspaceWindowPickerBusy = false
+      workspaceWindowPickerBusyAction = ''
+    }
+  }
+
+  function closeWorkspaceWindowPicker() {
+    workspaceWindowPickerOpen = false
+    workspaceWindowPickerError = ''
+  }
+
+  async function openSelectedWorkspaceInNewWindow(target: core.WorkspaceWindowTarget) {
+    if (workspaceWindowPickerBusy || target.id === appState?.activeWorkspaceId) return
+    workspaceWindowPickerBusy = true
+    workspaceWindowPickerBusyAction = 'opening'
+    workspaceWindowPickerError = ''
+    try {
+      await OpenWorkspaceInNewWindow(target.id)
+      workspaceWindowPickerOpen = false
+    } catch (err) {
+      workspaceWindowPickerError = nativeWindowErrorMessage(`Couldn’t open ${target.name || 'the workspace'}`, err)
+    } finally {
+      workspaceWindowPickerBusy = false
+      workspaceWindowPickerBusyAction = ''
+    }
+  }
+
+  async function createWorkspaceForNewWindow(name: string) {
+    const trimmedName = name.trim()
+    if (!trimmedName || workspaceWindowPickerBusy) return
+    if (workspaceWindowTargets.some((target) => target.name.trim().toLocaleLowerCase() === trimmedName.toLocaleLowerCase())) {
+      workspaceWindowPickerError = `A workspace named “${trimmedName}” already exists.`
+      return
+    }
+
+    const existingTargetIds = new Set(workspaceWindowTargets.map((target) => target.id))
+    let workspaceCreated = false
+    workspaceWindowPickerBusy = true
+    workspaceWindowPickerBusyAction = 'creating'
+    workspaceWindowPickerError = ''
+    try {
+      await CreateWorkspace(trimmedName)
+      workspaceCreated = true
+      const refreshedTargets = await ListWorkspaceWindowTargets()
+      workspaceWindowTargets = refreshedTargets
+      const newlyRegistered = refreshedTargets.filter((target) => !existingTargetIds.has(target.id))
+      const normalizedName = trimmedName.toLocaleLowerCase()
+      const createdTarget = newlyRegistered.find((target) => target.name.trim().toLocaleLowerCase() === normalizedName)
+        ?? (newlyRegistered.length === 1 ? newlyRegistered[0] : undefined)
+        ?? refreshedTargets.find((target) => target.id !== appState?.activeWorkspaceId && target.name.trim().toLocaleLowerCase() === normalizedName)
+      if (!createdTarget) {
+        workspaceWindowPickerError = 'The workspace was created, but it isn’t available in the window list yet. Close and reopen the picker to refresh.'
+        return
+      }
+      return createdTarget
+    } catch (err) {
+      workspaceWindowPickerError = nativeWindowErrorMessage(
+        workspaceCreated ? 'The workspace was created, but the window list couldn’t be refreshed' : 'Couldn’t create the workspace',
+        err
+      )
+    } finally {
+      workspaceWindowPickerBusy = false
+      workspaceWindowPickerBusyAction = ''
+    }
   }
 
   async function updateGlobalEnvironmentMetadata(field: 'name' | 'color', value: string) {
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     const name = field === 'name' ? value : selectedGlobalEnvironment.name
     const color = field === 'color' ? value : selectedGlobalEnvironment.color
-    state = await UpdateGlobalEnvironment(activeWorkspace.id, selectedGlobalEnvironment.id, name, color)
+    workspaceStore.appState = await UpdateGlobalEnvironment(activeWorkspace.id, selectedGlobalEnvironment.id, name, color)
   }
 
-  function dotEnvFileKey(file: Pick<main.DotEnvFile, 'scope' | 'name'>) {
+  function dotEnvFileKey(file: Pick<types.DotEnvFile, 'scope' | 'name'>) {
     return `${file.scope}:${file.name}`
   }
 
-  function parseDotEnvRows(content: string): DotEnvRow[] {
-    return content.split('\n').flatMap((line, lineIndex) => {
-      const trimmed = line.trim()
-      if (!trimmed || trimmed.startsWith('#')) return []
-      const exported = trimmed.startsWith('export ') ? trimmed.slice(7).trimStart() : trimmed
-      const equalIndex = exported.indexOf('=')
-      if (equalIndex <= 0) return []
-      return [{
-        lineIndex,
-        name: exported.slice(0, equalIndex).trim(),
-        value: exported.slice(equalIndex + 1).trim()
-      }]
-    })
-  }
 
   function setDotEnvLine(lineIndex: number, name: string, value: string) {
     const lines = dotEnvContent.split('\n')
@@ -2995,7 +3126,7 @@
     dotEnvDirty = true
   }
 
-  function selectDotEnvFile(file: main.DotEnvFile) {
+  function selectDotEnvFile(file: types.DotEnvFile) {
     selectedDotEnvKey = dotEnvFileKey(file)
     dotEnvScope = file.scope
     dotEnvName = file.name
@@ -3061,27 +3192,194 @@
   async function exportCollection() {
     if (!activeCollection) return
     await runAction('export collection', async () => {
-      const result = await ExportCollectionWithOptions(activeCollection.id, { format: 'yaml' } as main.CollectionExportOptions)
+      const result = await ExportCollectionWithOptions(activeCollection.id, { format: 'yaml' } as types.CollectionExportOptions)
       exportText = result.content ?? ''
       activeView = 'import'
     })
   }
 
-  async function importCollection() {
-    if (!activeWorkspace) return
-    await runAction('import collection', async () => {
-      state = await ImportCollection(activeWorkspace.id, {
-        kind: importKind,
-        name: importName,
-        content: importContent,
-        groupBy: importGroupBy,
-        sourceUrl: importSourceURL,
-        openapiSync: importOpenAPISync
-      } as main.ImportPayload)
-    })
+  function importDecisionFor(row: core.CollectionImportPreviewRow): ImportDecision {
+    return importDecisions[row.candidateId] ?? defaultImportDecision(row)
   }
 
-	  function openAPISyncOptions(): main.OpenAPISyncOptions {
+  function updateImportDecision(candidateID: string, update: Partial<ImportDecision>) {
+    const row = importPreview?.rows?.find((entry) => entry.candidateId === candidateID)
+    if (!row) return
+    importDecisions = { ...importDecisions, [candidateID]: { ...importDecisionFor(row), ...update } }
+  }
+
+	  $effect(() => {
+  if (activeView === 'import' && !importDestinationWorkspaceID && activeWorkspace) importDestinationWorkspaceID = activeWorkspace.id
+	  })
+
+	  function selectImportSourceMode(mode: ImportSourceMode) {
+	    importSourceMode = mode
+	    importSources = []
+	    importPreview = undefined
+	    importDecisions = {}
+	    importExpanded = {}
+	    clearImportAttemptResults()
+	  }
+
+	  function clearImportAttemptResults() {
+	    importApplyResult = undefined
+	    importStatus = ''
+	  }
+
+	  async function previewImportSources(sources: core.CollectionImportSource[], focusFirst = false, resetDecisions = false) {
+	    if (!importDestinationWorkspaceID || sources.length === 0) return
+	    const priorDecisions = importDecisions
+	    importSources = []
+	    importPreview = undefined
+	    importDecisions = {}
+	    importExpanded = {}
+	    clearImportAttemptResults()
+	    let previewSucceeded = false
+	    await runAction('preview import', async () => {
+	      const preview = await PreviewCollectionImport({ workspaceId: importDestinationWorkspaceID, destinationRoot: importDestinationRoot, sources } as core.CollectionImportPreviewRequest)
+      importSources = sources
+      importPreview = preview
+      const next: Record<string, ImportDecision> = {}
+      for (const row of preview.rows ?? []) {
+	        const source = sources.find((entry) => entry.id === row.sourceId)
+	        const kindOverride = source?.kindOverride ?? ''
+	        const prior = resetDecisions ? undefined : priorDecisions[row.candidateId]
+	        next[row.candidateId] = reconcileImportDecision(prior, row, kindOverride)
+      }
+      importDecisions = next
+      importStatus = `${(preview.rows ?? []).length} source${(preview.rows ?? []).length === 1 ? '' : 's'} previewed`
+	      previewSucceeded = true
+      if (focusFirst) await tick().then(() => document.querySelector<HTMLElement>('[data-import-preview-row]')?.focus())
+    })
+	    if (!previewSucceeded) importStatus = 'Import preview could not be prepared. Check the source and try again.'
+  }
+
+  async function previewImportPaths(paths: string[], focusFirst = true) {
+    const sources = paths.map((path, index) => ({ id: `path-${Date.now()}-${index}`, path } as core.CollectionImportSource))
+    await previewImportSources(sources, focusFirst)
+  }
+
+  async function chooseImportFiles() {
+    const returnFocus = document.activeElement as HTMLElement | null
+    let result: core.CollectionImportPickerResult | undefined
+    await runAction('choose import files', async () => { result = await ChooseCollectionImportFiles() })
+    if (!result) {
+      importStatus = 'File picker could not be opened. Try again.'
+      returnFocus?.focus({ preventScroll: true })
+      return
+    }
+    if (result.cancelled) {
+      importStatus = 'File selection cancelled'
+      returnFocus?.focus({ preventScroll: true })
+      return
+    }
+    await previewImportPaths(result.paths ?? [])
+  }
+
+  async function chooseImportFolder() {
+    const returnFocus = document.activeElement as HTMLElement | null
+    let result: core.CollectionImportPickerResult | undefined
+    await runAction('choose import folder', async () => { result = await ChooseCollectionImportFolder() })
+    if (!result) {
+      importStatus = 'Folder picker could not be opened. Try again.'
+      returnFocus?.focus({ preventScroll: true })
+      return
+    }
+    if (result.cancelled) {
+      importStatus = 'Folder selection cancelled'
+      returnFocus?.focus({ preventScroll: true })
+      return
+    }
+    await previewImportPaths(result.paths ?? [])
+  }
+
+  async function previewURLImport() {
+    if (!importURL.trim()) return
+    await previewImportSources([{ id: `url-${Date.now()}`, url: importURL.trim() } as core.CollectionImportSource], true)
+  }
+
+  async function previewPasteImport() {
+    if (!importContent.trim()) return
+    await previewImportSources([{ id: `paste-${Date.now()}`, name: importPasteName.trim() || 'Pasted import', content: importContent } as core.CollectionImportSource], true)
+  }
+
+  async function updateImportOverride(row: core.CollectionImportPreviewRow, kindOverride: string) {
+    const source = importSources.find((entry) => entry.id === row.sourceId)
+    if (!source) return
+    const nextSources = importSources.map((entry) => entry.id === row.sourceId ? { ...entry, kindOverride } as core.CollectionImportSource : entry)
+    await previewImportSources(nextSources, false, true)
+  }
+
+  function selectedImportIDs(row: core.CollectionImportPreviewRow, kind: 'environments' | 'folders' | 'requests') {
+    return importDecisionFor(row)[kind]
+  }
+
+  function toggleImportChild(row: core.CollectionImportPreviewRow, kind: 'environments' | 'folders' | 'requests', id: string, checked: boolean) {
+    const next = toggleImportChildID(selectedImportIDs(row, kind), id, checked)
+    updateImportDecision(row.candidateId, { [kind]: next } as Partial<ImportDecision>)
+  }
+
+  function importSelectionFor(row: core.CollectionImportPreviewRow): core.CollectionImportSelection {
+    return importSelectionOf(row, importDecisionFor(row)) as core.CollectionImportSelection
+  }
+
+  // Keep both dependencies visible to Svelte: changes to a row checkbox must
+  // immediately update the footer count and the selections passed to Apply.
+  const importReadyRows = $derived(selectedImportRows(importPreview?.rows ?? [], importDecisions))
+
+  function requestPlannedImport() {
+    if (importApplyInFlight || !importDestinationWorkspaceID || importReadyRows.length === 0) return
+    if (hasReplaceImportSelection(importPreview?.rows ?? [], importDecisions)) {
+      importReplaceConfirmationReturnFocus = importApplyButton ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
+      importReplaceConfirmationOpen = true
+      void tick().then(() => importReplaceConfirmationCancelButton?.focus({ preventScroll: true }))
+      return
+    }
+    void applyPlannedImport()
+  }
+
+  async function cancelImportReplaceConfirmation() {
+    if (!importReplaceConfirmationOpen) return
+    const returnFocus = importReplaceConfirmationReturnFocus
+    importReplaceConfirmationOpen = false
+    importReplaceConfirmationReturnFocus = null
+    await tick()
+    if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true })
+  }
+
+  async function confirmImportReplace() {
+    if (!importReplaceConfirmationOpen || importApplyInFlight) return
+    const returnFocus = importReplaceConfirmationReturnFocus
+    importReplaceConfirmationOpen = false
+    importReplaceConfirmationReturnFocus = null
+    await tick()
+    if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true })
+    await applyPlannedImport()
+  }
+
+
+	  async function applyPlannedImport() {
+	    if (importApplyInFlight || !importDestinationWorkspaceID || importReadyRows.length === 0) return
+	  importApplyInFlight = true
+	  clearImportAttemptResults()
+	  let applySucceeded = false
+    try {
+      await runAction('apply import', async () => {
+	        const result = await ApplyCollectionImport({ workspaceId: importDestinationWorkspaceID, destinationRoot: importDestinationRoot, sources: importSources, selections: importReadyRows.map(importSelectionFor), translatePostmanScripts: importTranslatePostmanScripts } as core.CollectionImportApplyRequest)
+        importApplyResult = result
+	        workspaceStore.appState = result.state
+        const completed = new Set([...(result.applied ?? []), ...(result.skipped ?? [])].map((row) => row.candidateId))
+	        importDecisions = Object.fromEntries(Object.entries(importDecisions).map(([id, decision]) => [id, completed.has(id) ? { ...decision, selected: false } : decision]))
+        importStatus = `${result.applied?.length ?? 0} imported, ${result.skipped?.length ?? 0} skipped, ${result.errors?.length ?? 0} errors`
+	        applySucceeded = true
+      })
+    } finally {
+	    importApplyInFlight = false
+    }
+	  if (!applySucceeded) importStatus = 'Import could not be applied. Review the current preview and try again.'
+  }
+
+	  function openAPISyncOptions(): types.OpenAPISyncOptions {
 	    return {
 	      sourceUrl: openAPISyncSourceURL,
       content: openAPISyncContent,
@@ -3089,25 +3387,7 @@
       preserveValues: openAPISyncPreserveValues,
       removeDeleted: false,
       endpointDecisions: openAPISyncEndpointDecisions
-	    } as main.OpenAPISyncOptions
-	  }
-
-	  function openAPISyncConfigFor(collection: main.Collection | undefined) {
-	    return collection?.openapi?.[0]
-	  }
-
-	  function openAPISyncIntervalMinutes(config: main.OpenAPISyncConfig | undefined) {
-	    const minutes = Number(config?.autoCheckInterval || 5)
-	    return Number.isFinite(minutes) && minutes > 0 ? minutes : 5
-	  }
-
-	  function openAPISyncAutoCheckEnabled(config: main.OpenAPISyncConfig | undefined) {
-	    return Boolean(config?.sourceUrl && config.autoCheck !== false)
-	  }
-
-	  function normalizedOpenAPISyncSettingsInterval(value: number | undefined) {
-	    const minutes = Number(value || 5)
-	    return openAPISyncCheckIntervals.includes(minutes) ? minutes : 5
+	    } as types.OpenAPISyncOptions
 	  }
 
 	  function openOpenAPISyncSettings() {
@@ -3130,14 +3410,14 @@
 	    const sourceUrl = openAPISyncSettingsSourceURL.trim()
 	    const groupBy = existing?.groupBy || openAPISyncGroupBy || 'tag'
 	    await runAction('save OpenAPI sync settings', async () => {
-	      state = await UpdateOpenAPISyncConfig(collectionId, {
+	      workspaceStore.appState = await UpdateOpenAPISyncConfig(collectionId, {
 	        sourceUrl,
 	        groupBy,
 	        lastSyncDate: existing?.lastSyncDate,
 	        specHash: existing?.specHash,
 	        autoCheck: openAPISyncSettingsAutoCheck,
 	        autoCheckInterval: openAPISyncSettingsInterval
-	      } as main.OpenAPISyncConfig)
+	      } as types.OpenAPISyncConfig)
 	      openAPISyncSourceURL = sourceUrl
 	      openAPISyncGroupBy = groupBy
 	      openAPISyncSettingsOpen = false
@@ -3180,12 +3460,12 @@
 	  }
 
 	  async function refreshChangedCollectionsQuietly() {
-	    if (!state || collectionWatchRefreshInFlight) return
+	    if (!appState || collectionWatchRefreshInFlight) return
 	    collectionWatchRefreshInFlight = true
 	    try {
 	      const result = await RefreshChangedCollections()
 	      if (result.changed) {
-	        state = result.state
+	        workspaceStore.appState = result.state
 	      }
 	    } catch {
 	      // Collection files can be briefly unreadable while external editors are writing them.
@@ -3228,58 +3508,17 @@
 	    }
 	  }
 
-	  function formatOpenAPISyncCheckedAt(value: string | undefined) {
-	    if (!value) return ''
-	    const date = new Date(value)
-	    if (Number.isNaN(date.getTime())) return value
-	    return date.toLocaleTimeString()
-	  }
-
-		  function openAPISyncAutoCheckStatusLine(collection: main.Collection | undefined) {
-		    const config = openAPISyncConfigFor(collection)
-		    if (!config?.sourceUrl) return ''
-		    const cadence = openAPISyncAutoCheckEnabled(config)
-		      ? `Auto Check for Updates: Every ${openAPISyncIntervalMinutes(config)} min`
-	      : 'Auto Check for Updates: Disabled'
-	    if (!collection) return cadence
-	    if (!openAPISyncAutoCheckEnabled(config)) return cadence
-	    const errorMessage = openAPISyncUpdateErrors[collection.id]
-	    if (errorMessage) return `${cadence} · Last check failed`
-	    const status = openAPISyncUpdateStatus[collection.id]
-	    if (!status?.checkedAt) return cadence
-	    const checkedAt = formatOpenAPISyncCheckedAt(status.checkedAt)
-	    const updateState = status.hasUpdates ? 'Updates found' : 'No updates'
-		    return `${cadence} · ${updateState}${checkedAt ? ` ${checkedAt}` : ''}`
+		  function openAPISyncAutoCheckStatusLine(collection: types.Collection | undefined) {
+		    return openAPISyncAutoCheckStatusLineOf({
+		      config: openAPISyncConfigFor(collection),
+		      hasCollection: Boolean(collection),
+		      errorMessage: collection ? openAPISyncUpdateErrors[collection.id] : undefined,
+		      status: collection ? openAPISyncUpdateStatus[collection.id] : undefined
+		    })
 		  }
 
-	  function formattedOpenAPISpecContent(content: string | undefined) {
-	    const value = content ?? ''
-	    if (value.trimStart().startsWith('{')) {
-	      try {
-	        return JSON.stringify(JSON.parse(value), null, 2)
-	      } catch {
-	        return value
-	      }
-	    }
-	    return value
-	  }
-
-		  function defaultOpenAPISyncDecision(change: main.OpenAPISyncEndpointChange) {
-		    return change.defaultDecision || 'accept-incoming'
-		  }
-
-  function reconcileOpenAPISyncEndpointDecisions(result: main.OpenAPISyncResult | undefined) {
-    const changes = result?.changes ?? []
-    if (changes.length === 0) {
-      openAPISyncEndpointDecisions = {}
-      return
-    }
-    const next: Record<string, string> = {}
-    for (const change of changes) {
-      const existing = openAPISyncEndpointDecisions[change.id]
-      next[change.id] = existing === 'accept-incoming' || existing === 'keep-mine' ? existing : defaultOpenAPISyncDecision(change)
-    }
-    openAPISyncEndpointDecisions = next
+  function reconcileOpenAPISyncEndpointDecisions(result: types.OpenAPISyncResult | undefined) {
+    openAPISyncEndpointDecisions = reconcileEndpointDecisions(result?.changes, openAPISyncEndpointDecisions)
   }
 
   function setOpenAPISyncEndpointDecision(id: string, decision: string) {
@@ -3287,22 +3526,11 @@
   }
 
   function setOpenAPISyncAllEndpointDecisions(decision: string) {
-    const changes = openAPISyncResult?.changes ?? []
-    const next: Record<string, string> = {}
-    for (const change of changes) {
-      next[change.id] = decision
-    }
-    openAPISyncEndpointDecisions = next
+    openAPISyncEndpointDecisions = allEndpointDecisions(openAPISyncResult?.changes, decision)
   }
 
   function openAPILocalDriftIDs(changeType: string) {
-    return (openAPILocalDriftResult?.changes ?? []).filter((change) => change.change === changeType).map((change) => change.id)
-  }
-
-  function openAPILocalDriftLabel(changeType: string) {
-    if (changeType === 'missing') return 'deleted'
-    if (changeType === 'local-only') return 'added'
-    return changeType
+    return openAPILocalDriftIDsOf(openAPILocalDriftResult, changeType)
   }
 
   async function checkOpenAPILocalDrift() {
@@ -3317,11 +3545,11 @@
     if (resetIds.length + restoreIds.length + deleteIds.length === 0) return
     const collectionId = activeCollection.id
     await runAction('apply OpenAPI collection changes', async () => {
-      state = await ApplyOpenAPILocalDrift(collectionId, {
+      workspaceStore.appState = await ApplyOpenAPILocalDrift(collectionId, {
         resetIds,
         restoreIds,
         deleteIds
-      } as main.OpenAPILocalDriftOptions)
+      } as types.OpenAPILocalDriftOptions)
       openAPILocalDriftResult = await CheckOpenAPILocalDrift(collectionId)
     })
   }
@@ -3345,7 +3573,7 @@
   async function connectOpenAPISync() {
     if (!activeCollection) return
     await runAction('connect OpenAPI sync', async () => {
-      state = await ConnectOpenAPISync(activeCollection.id, openAPISyncOptions())
+      workspaceStore.appState = await ConnectOpenAPISync(activeCollection.id, openAPISyncOptions())
       openAPISyncResult = await CheckOpenAPISync(activeCollection.id, openAPISyncOptions())
       reconcileOpenAPISyncEndpointDecisions(openAPISyncResult)
       openAPILocalDriftResult = undefined
@@ -3363,7 +3591,7 @@
 	  async function applyOpenAPISync() {
 	    if (!activeCollection) return
 	    await runAction('apply OpenAPI sync', async () => {
-	      state = await ApplyOpenAPISync(activeCollection.id, openAPISyncOptions())
+	      workspaceStore.appState = await ApplyOpenAPISync(activeCollection.id, openAPISyncOptions())
 	      openAPISyncResult = await CheckOpenAPISync(activeCollection.id, openAPISyncOptions())
       reconcileOpenAPISyncEndpointDecisions(openAPISyncResult)
 	      openAPILocalDriftResult = undefined
@@ -3403,11 +3631,6 @@
 		    openAPISpecDiffActiveChangeIndex = 0
 		  }
 
-		  function openAPISyncSpecDiffSummary(result: main.OpenAPISyncSpecDiffResult | undefined) {
-		    if (!result) return ''
-		    return `${result.added ?? 0} added · ${result.updated ?? 0} updated · ${result.removed ?? 0} removed · ${result.unchanged ?? 0} unchanged`
-		  }
-
 		  async function scrollOpenAPISpecDiffChangeIntoView() {
 		    await tick()
 		    const lineIndex = openAPISpecDiffChangeLineIndexes[openAPISpecDiffActiveChangeIndex]
@@ -3421,11 +3644,11 @@
 		    void scrollOpenAPISpecDiffChangeIntoView()
 		  }
 
-		  function openAPISpecDiffLineIsActive(lineIndex: number, line: main.OpenAPISyncSpecDiffLine) {
+		  function openAPISpecDiffLineIsActive(lineIndex: number, line: types.OpenAPISyncSpecDiffLine) {
 		    return (line.kind ?? 'same') !== 'same' && openAPISpecDiffChangeLineIndexes[openAPISpecDiffActiveChangeIndex] === lineIndex
 		  }
 
-		  async function openOpenAPILocalDriftRequest(change: main.OpenAPISyncEndpointChange) {
+		  async function openOpenAPILocalDriftRequest(change: types.OpenAPISyncEndpointChange) {
 		    if (!activeCollection || !change.itemId) return
 		    await openRequestTab(activeCollection.id, change.itemId)
 		  }
@@ -3433,7 +3656,7 @@
 		  async function disconnectOpenAPISync() {
 		    if (!activeCollection) return
 		    await runAction('disconnect OpenAPI sync', async () => {
-		      state = await DisconnectOpenAPISync(activeCollection.id)
+		      workspaceStore.appState = await DisconnectOpenAPISync(activeCollection.id)
 	      openAPISyncResult = undefined
 	      openAPISyncSourceURL = ''
 	      openAPISyncContent = ''
@@ -3451,8 +3674,8 @@
   async function openCollection() {
     if (!activeWorkspace) return
     await runAction('open collection', async () => {
-      state = await OpenCollection(activeWorkspace.id, openCollectionPath)
-      selectedCollectionId = state.workspaces?.find((workspace) => workspace.id === activeWorkspace.id)?.collections?.at(-1)?.id ?? selectedCollectionId
+      workspaceStore.appState = await OpenCollection(activeWorkspace.id, openCollectionPath)
+      workspaceStore.selectedCollectionId = appState?.workspaces?.find((workspace) => workspace.id === activeWorkspace.id)?.collections?.at(-1)?.id ?? selectedCollectionId
       activeView = 'request'
     })
   }
@@ -3460,66 +3683,54 @@
   async function refreshCollection() {
     if (!activeCollection) return
     await runAction('refresh collection', async () => {
-      state = await RefreshCollection(activeCollection.id)
+      workspaceStore.appState = await RefreshCollection(activeCollection.id)
     })
   }
 
   async function resetDemoData() {
     await runAction('reset demo data', async () => {
-      state = await ResetDemoData()
-      selectedEnvironmentId = activeCollection?.environments?.[0]?.id ?? ''
+      workspaceStore.appState = await ResetDemoData()
+      workspaceStore.selectedEnvironmentId = activeCollection?.environments?.[0]?.id ?? ''
       activeView = 'request'
     })
   }
 
   async function deleteCookie(cookieId: string) {
     await runAction('delete cookie', async () => {
-      state = await DeleteCookie(cookieId)
+      workspaceStore.appState = await DeleteCookie(cookieId)
       if (cookieForm.id === cookieId) cookieForm = emptyCookieForm()
     })
   }
 
   async function clearCookies() {
     await runAction('clear cookies', async () => {
-      state = await ClearCookies()
+      workspaceStore.appState = await ClearCookies()
       cookieForm = emptyCookieForm()
     })
   }
 
   async function clearDomainCookies(domain: string) {
     await runAction('clear domain cookies', async () => {
-      state = await ClearDomainCookies(domain)
+      workspaceStore.appState = await ClearDomainCookies(domain)
       if (cookieForm.domain.toLowerCase() === domain.toLowerCase()) cookieForm = emptyCookieForm()
     })
   }
 
   async function saveCookieForm() {
     await runAction('save cookie', async () => {
-      state = await SaveCookie(cookieForm as unknown as main.CookieInput)
+      workspaceStore.appState = await SaveCookie(cookieForm as unknown as types.CookieInput)
       cookieForm = emptyCookieForm()
     })
   }
 
   async function importRawCookie() {
     await runAction('import cookie', async () => {
-      state = await AddCookieFromHeader(rawCookieHeader, rawCookieURL)
+      workspaceStore.appState = await AddCookieFromHeader(rawCookieHeader, rawCookieURL)
     })
   }
 
-  function editCookie(cookie: main.CookieEntry) {
-    cookieForm = {
-      id: cookie.id,
-      name: cookie.name,
-      value: cookie.value,
-      domain: cookie.domain,
-      path: cookie.path || '/',
-      expires: cookie.session ? '' : cookieExpiresInput(cookie),
-      session: cookie.session,
-      secure: cookie.secure,
-      httpOnly: cookie.httpOnly,
-      sameSite: cookie.sameSite || '',
-      hostOnly: cookie.hostOnly
-    }
+  function editCookie(cookie: types.CookieEntry) {
+    cookieForm = cookieFormFor(cookie)
   }
 
   function resetCookieForm() {
@@ -3530,40 +3741,62 @@
     requestPaneTab = tabId
     if (!activeTab) return
     await runAction('update tab pane', async () => {
-      state = await UpdateOpenTabPanes(activeTab.id, tabId, responseTab)
+      const result = await UpdateOpenTabPanesNarrow(activeTab.id, tabId, responseTab)
+      await applyNarrow((current, held) => applyTabsMutation(current, held, result))
     })
+  }
+
+  function requestTabKeydown(event: KeyboardEvent) {
+    const tabs = requestTabs
+    const index = tabs.findIndex((tab) => tab.id === requestPaneTab)
+    if (index < 0) return
+    let next = index
+    if (event.key === 'ArrowRight') next = (index + 1) % tabs.length
+    else if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = tabs.length - 1
+    else return
+    event.preventDefault()
+    void selectRequestPaneTab(tabs[next].id)
+    void tick().then(() => document.querySelector<HTMLButtonElement>(`[data-request-tab="${tabs[next].id}"]`)?.focus())
   }
 
   async function selectResponsePaneTab(tabId: ResponseTab) {
     responseTab = tabId
     if (!activeTab) return
     await runAction('update tab pane', async () => {
-      state = await UpdateOpenTabPanes(activeTab.id, requestPaneTab, tabId)
+      const result = await UpdateOpenTabPanesNarrow(activeTab.id, requestPaneTab, tabId)
+      await applyNarrow((current, held) => applyTabsMutation(current, held, result))
     })
   }
 
   async function setActiveTab(tabId: string) {
+    await flushPendingRequestPatch()
     await runAction('switch tab', async () => {
-      state = await SetActiveTab(tabId)
-      const nextTab = state.openTabs?.find((tab) => tab.id === tabId)
-      selectedCollectionId = nextTab?.collectionId ?? selectedCollectionId
+      const result = await SetActiveTabNarrow(tabId)
+      await applyNarrow((current, held) => applyTabsMutation(current, held, result))
+      // Read the tab out of the mutation result rather than back out of appState:
+      // it is the authoritative list the backend just produced, and it is
+      // correct even on the path where applyNarrow had to refetch.
+      const nextTab = result.openTabs?.find((tab) => tab.id === tabId)
+      workspaceStore.selectedCollectionId = nextTab?.collectionId ?? selectedCollectionId
       activeView = 'request'
       if (nextTab?.kind === 'response-example') responseTab = 'examples'
     })
   }
 
   function activeOpenTabIndex() {
-    return state?.openTabs?.findIndex((tab) => tab.id === state?.activeTabId) ?? -1
+    return appState?.openTabs?.findIndex((tab) => tab.id === appState?.activeTabId) ?? -1
   }
 
   async function switchToOpenTabAt(index: number) {
-    const tab = state?.openTabs?.[index]
+    const tab = appState?.openTabs?.[index]
     if (!tab) return
     await setActiveTab(tab.id)
   }
 
   async function switchToRelativeOpenTab(offset: number) {
-    const tabs = state?.openTabs ?? []
+    const tabs = appState?.openTabs ?? []
     if (tabs.length === 0) return
     const activeIndex = activeOpenTabIndex()
     const currentIndex = activeIndex >= 0 ? activeIndex : 0
@@ -3571,32 +3804,155 @@
     await setActiveTab(tabs[nextIndex].id)
   }
 
-  async function closeActiveTab() {
-    if (!activeTab) return
-    const tabID = activeTab.id
+  function lifecycleRequests(): LifecycleRequest[] {
+    const requests: LifecycleRequest[] = []
+    for (const workspace of appState?.workspaces ?? []) {
+      for (const collection of workspace.collections ?? []) {
+        for (const request of collection.items ?? []) {
+          requests.push({
+            collectionId: collection.id,
+            id: request.id,
+            name: request.name,
+            draft: request.draft,
+            transient: request.transient
+          })
+        }
+      }
+    }
+    return requests
+  }
+
+  function lifecycleTabsFor(action: TabLifecycleAction, targetTabID = ''): LifecycleOpenTab[] {
+    if (action === 'close-active') {
+      const target = targetTabID ? (appState?.openTabs ?? []).find((tab) => tab.id === targetTabID) : activeTab
+      return target ? [target] : []
+    }
+    return appState?.openTabs ?? []
+  }
+
+  function beginTabLifecycleAction(action: TabLifecycleAction, targetTabID = '') {
+    if (tabLifecycleDialog || tabLifecycleDecisionBusy) return
+    const tabs = lifecycleTabsFor(action, targetTabID)
+    const plan = planUnsavedClose(tabs, lifecycleRequests())
+    if (!plan.requiresConfirmation) {
+      void completeTabLifecycleAction(action, tabs.map((tab) => tab.id))
+      return
+    }
+    tabLifecycleDialog = {
+      action,
+      affected: plan.affected,
+      targetTabIDs: tabs.map((tab) => tab.id),
+      returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null
+    }
+    void tick().then(() => tabLifecycleCancelButton?.focus({ preventScroll: true }))
+  }
+
+  async function dismissTabLifecycleDialog() {
+    const returnFocus = tabLifecycleDialog?.returnFocus
+    tabLifecycleDialog = null
+    tabLifecycleDecisionBusy = false
+    await tick()
+    if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true })
+  }
+
+  function refreshLifecycleDialogAffected(dialog: TabLifecycleDialog) {
+    const originalTargets = new Set(dialog.affected.map((request) => `${request.collectionId}\u0000${request.requestId}`))
+    const plan = planUnsavedClose(lifecycleTabsFor(dialog.action, dialog.targetTabIDs[0] ?? ''), lifecycleRequests())
+    tabLifecycleDialog = {
+      ...dialog,
+      affected: plan.affected.filter((request) => originalTargets.has(`${request.collectionId}\u0000${request.requestId}`))
+    }
+  }
+
+  async function discardAndCompleteTabLifecycle() {
+    const dialog = tabLifecycleDialog
+    if (!dialog || tabLifecycleDecisionBusy) return
+    tabLifecycleDecisionBusy = true
+    let discarded = false
+    await runAction('discard changes', async () => {
+      for (const request of dialog.affected) {
+        workspaceStore.appState = await DiscardRequestDraft(request.collectionId, request.requestId)
+      }
+      discarded = true
+    })
+    if (!discarded) {
+      refreshLifecycleDialogAffected(dialog)
+      tabLifecycleDecisionBusy = false
+      return
+    }
+    tabLifecycleDialog = null
+    tabLifecycleDecisionBusy = false
+    await completeTabLifecycleAction(dialog.action, dialog.targetTabIDs)
+  }
+
+  async function saveAndCompleteTabLifecycle() {
+    const dialog = tabLifecycleDialog
+    if (!dialog || tabLifecycleDecisionBusy) return
+    tabLifecycleDecisionBusy = true
+    let saved = false
+    await runAction('save and close', async () => {
+      for (const request of dialog.affected) {
+        workspaceStore.appState = await SaveRequest(request.collectionId, request.requestId)
+      }
+      saved = true
+    })
+    if (!saved) {
+      refreshLifecycleDialogAffected(dialog)
+      tabLifecycleDecisionBusy = false
+      return
+    }
+    tabLifecycleDialog = null
+    tabLifecycleDecisionBusy = false
+    await completeTabLifecycleAction(dialog.action, dialog.targetTabIDs)
+  }
+
+
+  async function completeTabLifecycleAction(action: TabLifecycleAction, targetTabIDs: string[] = []) {
+    if (action === 'close-active') {
+      await closeActiveTabDirect(targetTabIDs[0])
+      return
+    }
+    if (action === 'close-all') {
+      await closeAllOpenTabsDirect()
+      return
+    }
+    closeApplicationDirect()
+  }
+
+  async function closeActiveTabDirect(targetTabID = activeTab?.id) {
+    const tabID = targetTabID
+    if (!tabID || !(appState?.openTabs ?? []).some((tab) => tab.id === tabID)) return
     await runAction('close tab', async () => {
       const nextState = await CloseTab(tabID)
-      state = nextState
+      workspaceStore.appState = nextState
       const nextTab = nextState.openTabs?.find((tab) => tab.id === nextState.activeTabId)
-      selectedCollectionId = nextTab?.collectionId ?? selectedCollectionId
+      workspaceStore.selectedCollectionId = nextTab?.collectionId ?? selectedCollectionId
       activeView = 'request'
       if (nextTab?.kind === 'response-example') responseTab = 'examples'
     })
   }
 
-  async function closeAllOpenTabs() {
+  function closeActiveTab() {
+    beginTabLifecycleAction('close-active')
+  }
+
+  async function closeAllOpenTabsDirect() {
     await runAction('close all tabs', async () => {
-      state = await CloseAllTabs()
+      workspaceStore.appState = await CloseAllTabs()
       activeView = 'request'
     })
+  }
+
+  function closeAllOpenTabs() {
+    beginTabLifecycleAction('close-all')
   }
 
   async function reopenLastClosedTab() {
     await runAction('reopen last closed tab', async () => {
       const nextState = await ReopenLastClosedTab(activeTab?.collectionId ?? '')
-      state = nextState
+      workspaceStore.appState = nextState
       const nextTab = nextState.openTabs?.find((tab) => tab.id === nextState.activeTabId)
-      selectedCollectionId = nextTab?.collectionId ?? selectedCollectionId
+      workspaceStore.selectedCollectionId = nextTab?.collectionId ?? selectedCollectionId
       activeView = 'request'
       if (nextTab?.kind === 'response-example') responseTab = 'examples'
     })
@@ -3606,19 +3962,20 @@
     if (!activeTab) return
     const tabID = activeTab.id
     await runAction('move tab', async () => {
-      state = await MoveOpenTab(tabID, offset)
+      const result = await MoveOpenTabNarrow(tabID, offset)
+      await applyNarrow((current, held) => applyTabsMutation(current, held, result))
     })
   }
 
   async function openRequestTab(collectionId: string, itemId: string) {
     await runAction('open request', async () => {
-      state = await OpenRequestTab(collectionId, itemId)
-      selectedCollectionId = collectionId
+      workspaceStore.appState = await OpenRequestTab(collectionId, itemId)
+      workspaceStore.selectedCollectionId = collectionId
       activeView = 'request'
     })
   }
 
-  function responseExampleIsActive(collectionId: string, itemId: string, example: main.ResponseExample) {
+  function responseExampleIsActive(collectionId: string, itemId: string, example: types.ResponseExample) {
     if (!activeTab || activeTab.kind !== 'response-example') return false
     const target = activeTab.exampleId || activeTab.exampleName || ''
     return activeTab.collectionId === collectionId
@@ -3626,16 +3983,16 @@
       && (target === responseExampleIdentifier(example) || target === example.name || activeTab.exampleName === example.name)
   }
 
-  async function openResponseExampleTabFor(collectionId: string, itemId: string, example: main.ResponseExample) {
+  async function openResponseExampleTabFor(collectionId: string, itemId: string, example: types.ResponseExample) {
     await runAction('open response example', async () => {
-      state = await OpenResponseExampleTab(collectionId, itemId, responseExampleIdentifier(example))
-      selectedCollectionId = collectionId
+      workspaceStore.appState = await OpenResponseExampleTab(collectionId, itemId, responseExampleIdentifier(example))
+      workspaceStore.selectedCollectionId = collectionId
       activeView = 'request'
       responseTab = 'examples'
     })
   }
 
-  async function openResponseExampleTab(example: main.ResponseExample) {
+  async function openResponseExampleTab(example: types.ResponseExample) {
     if (!activeCollection || !activeRequest) return
     await openResponseExampleTabFor(activeCollection.id, activeRequest.id, example)
   }
@@ -3643,36 +4000,36 @@
   async function connectGitRemote() {
     if (!activeCollection) return
     await runAction('connect git remote', async () => {
-      state = await ConnectCollectionGitRemote(activeCollection.id, gitRemoteURL)
-      selectedCollectionId = activeCollection.id
+      workspaceStore.appState = await ConnectCollectionGitRemote(activeCollection.id, gitRemoteURL)
+      workspaceStore.selectedCollectionId = activeCollection.id
     })
   }
 
   async function disconnectGitRemote(collectionId = activeCollection?.id ?? '') {
     if (!collectionId) return
     await runAction('remove git remote', async () => {
-      state = await DisconnectCollectionGitRemote(collectionId)
-      if (selectedCollectionId === collectionId) selectedCollectionId = ''
+      workspaceStore.appState = await DisconnectCollectionGitRemote(collectionId)
+      if (selectedCollectionId === collectionId) workspaceStore.selectedCollectionId = ''
     })
   }
 
   function selectCollection(collectionId: string) {
-    selectedCollectionId = collectionId
+    workspaceStore.selectedCollectionId = collectionId
     activeView = 'collection'
   }
 
-  function selectFolderSettings(collection: main.Collection, folderPath: string) {
-    selectedCollectionId = collection.id
+  function selectFolderSettings(collection: types.Collection, folderPath: string) {
+    workspaceStore.selectedCollectionId = collection.id
     selectedFolderPath = collection.folders?.find((folder) => folder.path === folderPath || folder.displayPath === folderPath)?.path ?? folderPath
     collectionTab = 'folders'
     activeView = 'collection'
   }
 
-  function collectionDocsRequestIsExportable(item: main.RequestItem) {
+  function collectionDocsRequestIsExportable(item: types.RequestItem) {
     return !item.type || item.type === 'http' || item.type === 'graphql' || item.type === 'websocket' || item.type === 'grpc'
   }
 
-  function collectionShareUnsupportedTypes(collection: main.Collection | undefined) {
+  function collectionShareUnsupportedTypes(collection: types.Collection | undefined) {
     const labels: string[] = []
     for (const item of collection?.items ?? []) {
       const label = item.type === 'grpc' ? 'gRPC' : item.type === 'websocket' ? 'WebSocket' : ''
@@ -3728,8 +4085,8 @@
     if (!renameCollectionTarget || renameCollectionDraft === '') return
     const collectionID = renameCollectionTarget.id
     await runAction('rename collection', async () => {
-      state = await RenameCollection(collectionID, renameCollectionDraft)
-      selectedCollectionId = collectionID
+      workspaceStore.appState = await RenameCollection(collectionID, renameCollectionDraft)
+      workspaceStore.selectedCollectionId = collectionID
       renameCollectionTarget = undefined
       renameCollectionDraft = ''
     })
@@ -3776,8 +4133,8 @@
       const cloned = nextState.workspaces
         .flatMap((workspace) => workspace.collections ?? [])
         .find((collection) => !previousIDs.has(collection.id))
-      state = nextState
-      selectedCollectionId = cloned?.id ?? sourceID
+      workspaceStore.appState = nextState
+      workspaceStore.selectedCollectionId = cloned?.id ?? sourceID
       selectedFolderPath = ''
       cancelCloneCollectionModal()
     })
@@ -3785,7 +4142,7 @@
 
   function openNewFolderModal(parentPath = '', collection = activeCollection) {
     if (!collection || collection.notFoundLocally) return
-    selectedCollectionId = collection.id
+    workspaceStore.selectedCollectionId = collection.id
     newFolderTarget = collection
     newFolderParentPath = parentPath
     newFolderNameDraft = ''
@@ -3811,7 +4168,7 @@
   }
 
   function newFolderDirectoryIsReservedRoot() {
-    return newFolderParentPath === '' && newFolderDirectoryDraft.trim().toLowerCase().includes('environments')
+    return isReservedRootDirectory(newFolderParentPath, newFolderDirectoryDraft)
   }
 
   function newFolderDirectoryNameIsValid() {
@@ -3823,38 +4180,17 @@
     return [newFolderParentPath, directoryName].filter(Boolean).join('/')
   }
 
-  function slashPathBase(value: string | undefined) {
-    const parts = (value ?? '').replaceAll('\\', '/').split('/').filter(Boolean)
-    return parts.at(-1) ?? ''
-  }
-
-  function slashPathParent(value: string | undefined) {
-    const parts = (value ?? '').split('/').filter(Boolean)
-    parts.pop()
-    return parts.join('/')
-  }
-
-  function joinSlashPath(parent: string, child: string) {
-    return [parent, child].filter(Boolean).join('/')
-  }
-
-  function slashPathHasPrefix(value: string | undefined, prefix: string | undefined) {
-    const normalizedValue = (value ?? '').split('/').filter(Boolean).join('/')
-    const normalizedPrefix = (prefix ?? '').split('/').filter(Boolean).join('/')
-    return normalizedValue !== '' && normalizedPrefix !== '' && (normalizedValue === normalizedPrefix || normalizedValue.startsWith(`${normalizedPrefix}/`))
-  }
-
-  function collectionRequestExtension(collection: main.Collection) {
+  function collectionRequestExtension(collection: types.Collection) {
     return collection.format === 'yml' || collection.format === 'yaml' ? '.yml' : '.bru'
   }
 
-  function requestInfoFilename(collection: main.Collection, request: main.RequestItem) {
+  function requestInfoFilename(collection: types.Collection, request: types.RequestItem) {
     const fileName = slashPathBase(request.filePath)
     if (fileName) return fileName
     return `${sanitizeCollectionFolderName(request.name || 'Request')}${collectionRequestExtension(collection)}`
   }
 
-  function folderInfoFilename(folder: main.FolderConfig) {
+  function folderInfoFilename(folder: types.FolderConfig) {
     return slashPathBase(folder.path) || folder.name || slashPathBase(folder.displayPath) || 'folder'
   }
 
@@ -3872,15 +4208,15 @@
     return requestInfoFilename(target.collection, target.request)
   }
 
-  function openFolderInfoModal(collection: main.Collection, folderPath: string) {
+  function openFolderInfoModal(collection: types.Collection, folderPath: string) {
     const folder = collection.folders?.find((candidate) => candidate.path === folderPath || candidate.displayPath === folderPath)
     if (!folder) return
-    selectedCollectionId = collection.id
+    workspaceStore.selectedCollectionId = collection.id
     itemInfoTarget = { kind: 'folder', collection, folder }
   }
 
-  function openRequestInfoModal(collection: main.Collection, request: main.RequestItem) {
-    selectedCollectionId = collection.id
+  function openRequestInfoModal(collection: types.Collection, request: types.RequestItem) {
+    workspaceStore.selectedCollectionId = collection.id
     itemInfoTarget = { kind: 'request', collection, request }
   }
 
@@ -3898,8 +4234,8 @@
         .flatMap((workspace) => workspace.collections ?? [])
         .find((collection) => collection.id === collectionID)
       const createdFolder = (nextCollection?.folders ?? []).find((folder) => folder.path === expectedPath)
-      state = nextState
-      selectedCollectionId = collectionID
+      workspaceStore.appState = nextState
+      workspaceStore.selectedCollectionId = collectionID
       selectedFolderPath = createdFolder?.path ?? expectedPath
       collectionTab = 'folders'
       activeView = 'collection'
@@ -3907,11 +4243,11 @@
     })
   }
 
-  function openRenameFolderModal(collection: main.Collection, folderPath: string) {
+  function openRenameFolderModal(collection: types.Collection, folderPath: string) {
     if (collection.notFoundLocally) return
     const folder = collection.folders?.find((candidate) => candidate.path === folderPath || candidate.displayPath === folderPath)
     if (!folder) return
-    selectedCollectionId = collection.id
+    workspaceStore.selectedCollectionId = collection.id
     renameFolderTarget = { collection, folder }
     renameFolderNameDraft = folder.name || slashPathBase(folder.displayPath || folder.path)
     renameFolderDirectoryDraft = sanitizeCollectionFolderName(slashPathBase(folder.path))
@@ -3935,12 +4271,11 @@
   }
 
   function renameFolderDirectoryIsReserved() {
-    const value = renameFolderDirectoryDraft.trim().toLowerCase()
-    return value === 'collection' || value === 'folder'
+    return isReservedMetadataName(renameFolderDirectoryDraft)
   }
 
   function renameFolderDirectoryNameIsValid() {
-    return collectionFolderNameIsValid(renameFolderDirectoryDraft) && !renameFolderDirectoryIsReserved()
+    return filesystemNameIsValid(renameFolderDirectoryDraft)
   }
 
   function renamedFolderExpectedDisplayPath() {
@@ -3960,8 +4295,8 @@
         .flatMap((workspace) => workspace.collections ?? [])
         .find((collection) => collection.id === collectionID)
       const renamedFolder = (nextCollection?.folders ?? []).find((folder) => folder.displayPath === expectedDisplayPath)
-      state = nextState
-      selectedCollectionId = collectionID
+      workspaceStore.appState = nextState
+      workspaceStore.selectedCollectionId = collectionID
       selectedFolderPath = renamedFolder?.path ?? sourcePath
       collectionTab = 'folders'
       activeView = 'collection'
@@ -3969,13 +4304,13 @@
     })
   }
 
-  function openCloneFolderModal(collection: main.Collection, folderPath: string) {
+  function openCloneFolderModal(collection: types.Collection, folderPath: string) {
     if (collection.notFoundLocally) return
     const folder = collection.folders?.find((candidate) => candidate.path === folderPath || candidate.displayPath === folderPath)
     if (!folder) return
     const sourceName = folder.name || slashPathBase(folder.displayPath || folder.path)
     const cloneName = `${sourceName} copy`
-    selectedCollectionId = collection.id
+    workspaceStore.selectedCollectionId = collection.id
     cloneFolderTarget = { collection, folder }
     cloneFolderNameDraft = cloneName
     cloneFolderDirectoryDraft = `${sanitizeCollectionFolderName(sourceName)} copy`
@@ -3999,12 +4334,11 @@
   }
 
   function cloneFolderDirectoryIsReserved() {
-    const value = cloneFolderDirectoryDraft.trim().toLowerCase()
-    return value === 'collection' || value === 'folder'
+    return isReservedMetadataName(cloneFolderDirectoryDraft)
   }
 
   function cloneFolderDirectoryNameIsValid() {
-    return collectionFolderNameIsValid(cloneFolderDirectoryDraft) && !cloneFolderDirectoryIsReserved()
+    return filesystemNameIsValid(cloneFolderDirectoryDraft)
   }
 
   async function confirmCloneFolder() {
@@ -4013,16 +4347,16 @@
     const sourcePath = cloneFolderTarget.folder.path
     await runAction('clone folder', async () => {
       const nextState = await CloneFolder(collectionID, sourcePath, cloneFolderNameDraft, cloneFolderDirectoryDraft)
-      state = nextState
-      selectedCollectionId = collectionID
+      workspaceStore.appState = nextState
+      workspaceStore.selectedCollectionId = collectionID
       cancelCloneFolderModal()
     })
   }
 
-  function openCloneRequestModal(collection: main.Collection, request: main.RequestItem) {
+  function openCloneRequestModal(collection: types.Collection, request: types.RequestItem) {
     if (collection.notFoundLocally) return
     const sourceName = request.name || 'Request'
-    selectedCollectionId = collection.id
+    workspaceStore.selectedCollectionId = collection.id
     cloneRequestTarget = { collection, request }
     cloneRequestNameDraft = `${sourceName} copy`
     cloneRequestFilenameDraft = `${sanitizeCollectionFolderName(sourceName)} copy`
@@ -4046,12 +4380,11 @@
   }
 
   function cloneRequestFilenameIsReserved() {
-    const value = cloneRequestFilenameDraft.trim().toLowerCase()
-    return value === 'collection' || value === 'folder'
+    return isReservedMetadataName(cloneRequestFilenameDraft)
   }
 
   function cloneRequestFilenameIsValid() {
-    return collectionFolderNameIsValid(cloneRequestFilenameDraft) && !cloneRequestFilenameIsReserved()
+    return filesystemNameIsValid(cloneRequestFilenameDraft)
   }
 
   async function confirmCloneRequest() {
@@ -4060,23 +4393,20 @@
     const requestID = cloneRequestTarget.request.id
     await runAction('clone request', async () => {
       const nextState = await CloneRequest(collectionID, requestID, cloneRequestNameDraft, cloneRequestFilenameDraft)
-      state = nextState
-      selectedCollectionId = collectionID
+      workspaceStore.appState = nextState
+      workspaceStore.selectedCollectionId = collectionID
       activeView = 'request'
       cancelCloneRequestModal()
     })
   }
 
-  function requestFilesystemBaseName(request: main.RequestItem) {
-    const filePath = request.filePath ?? ''
-    const fileName = slashPathBase(filePath)
-    const withoutExtension = fileName.replace(/\.(bru|ya?ml)$/i, '')
-    return sanitizeCollectionFolderName(withoutExtension || request.name || 'Request')
+  function requestFilesystemBaseName(request: types.RequestItem) {
+    return requestFilesystemBaseNameOf(request.filePath, request.name)
   }
 
-  function openRenameRequestModal(collection: main.Collection, request: main.RequestItem) {
+  function openRenameRequestModal(collection: types.Collection, request: types.RequestItem) {
     if (collection.notFoundLocally) return
-    selectedCollectionId = collection.id
+    workspaceStore.selectedCollectionId = collection.id
     renameRequestTarget = { collection, request }
     renameRequestNameDraft = request.name || 'Request'
     renameRequestFilenameDraft = requestFilesystemBaseName(request)
@@ -4100,12 +4430,11 @@
   }
 
   function renameRequestFilenameIsReserved() {
-    const value = renameRequestFilenameDraft.trim().toLowerCase()
-    return value === 'collection' || value === 'folder'
+    return isReservedMetadataName(renameRequestFilenameDraft)
   }
 
   function renameRequestFilenameIsValid() {
-    return collectionFolderNameIsValid(renameRequestFilenameDraft) && !renameRequestFilenameIsReserved()
+    return filesystemNameIsValid(renameRequestFilenameDraft)
   }
 
   async function confirmRenameRequest() {
@@ -4114,16 +4443,16 @@
     const requestID = renameRequestTarget.request.id
     await runAction('rename request', async () => {
       const nextState = await RenameRequest(collectionID, requestID, renameRequestNameDraft, renameRequestFilenameDraft)
-      state = nextState
-      selectedCollectionId = collectionID
+      workspaceStore.appState = nextState
+      workspaceStore.selectedCollectionId = collectionID
       activeView = 'request'
       cancelRenameRequestModal()
     })
   }
 
-  function openDeleteRequestModal(collection: main.Collection, request: main.RequestItem) {
+  function openDeleteRequestModal(collection: types.Collection, request: types.RequestItem) {
     if (collection.notFoundLocally) return
-    selectedCollectionId = collection.id
+    workspaceStore.selectedCollectionId = collection.id
     deleteRequestTarget = { collection, request }
   }
 
@@ -4136,19 +4465,24 @@
     const collectionID = deleteRequestTarget.collection.id
     const requestID = deleteRequestTarget.request.id
     await runAction('delete request', async () => {
-      const nextState = await DeleteRequest(collectionID, requestID)
-      state = nextState
-      selectedCollectionId = collectionID
+      if (requestDeletionAction(deleteRequestTarget!.request) === 'discard-draft') {
+        workspaceStore.appState = await DiscardRequestDraft(collectionID, requestID)
+      } else {
+        const result = await DeleteRequestRecoverable(collectionID, requestID)
+        workspaceStore.appState = result.state
+        await refreshRecoveryEntries()
+      }
+      workspaceStore.selectedCollectionId = collectionID
       activeView = 'request'
       cancelDeleteRequestModal()
     })
   }
 
-  function openDeleteFolderModal(collection: main.Collection, folderPath: string) {
+  function openDeleteFolderModal(collection: types.Collection, folderPath: string) {
     if (collection.notFoundLocally) return
     const folder = collection.folders?.find((candidate) => candidate.path === folderPath || candidate.displayPath === folderPath)
     if (!folder) return
-    selectedCollectionId = collection.id
+    workspaceStore.selectedCollectionId = collection.id
     deleteFolderTarget = { collection, folder }
   }
 
@@ -4161,12 +4495,14 @@
     const collectionID = deleteFolderTarget.collection.id
     const sourcePath = deleteFolderTarget.folder.path
     await runAction('delete folder', async () => {
-      const nextState = await DeleteFolder(collectionID, sourcePath)
+      const result = await DeleteFolderRecoverable(collectionID, sourcePath)
+      const nextState = result.state
       const nextCollection = nextState.workspaces
         .flatMap((workspace) => workspace.collections ?? [])
         .find((collection) => collection.id === collectionID)
-      state = nextState
-      selectedCollectionId = collectionID
+      workspaceStore.appState = nextState
+      await refreshRecoveryEntries()
+      workspaceStore.selectedCollectionId = collectionID
       if (slashPathHasPrefix(selectedFolderPath, sourcePath)) {
         selectedFolderPath = ''
       }
@@ -4189,8 +4525,10 @@
     if (!removeCollectionTarget) return
     const collectionID = removeCollectionTarget.id
     await runAction('remove collection', async () => {
-      state = await RemoveCollection(collectionID)
-      if (selectedCollectionId === collectionID) selectedCollectionId = ''
+      const result = await RemoveCollectionRecoverable(collectionID)
+      workspaceStore.appState = result.state
+      await refreshRecoveryEntries()
+      if (selectedCollectionId === collectionID) workspaceStore.selectedCollectionId = ''
       removeCollectionTarget = undefined
       activeView = 'collection'
     })
@@ -4230,7 +4568,7 @@
     return bytes
   }
 
-  function downloadCollectionExport(result: main.CollectionExportResult) {
+  function downloadCollectionExport(result: types.CollectionExportResult) {
     if (result.contentBase64) {
       downloadBlob(result.filename, new Blob([bytesFromBase64(result.contentBase64)], { type: result.mimeType || 'application/octet-stream' }))
     } else {
@@ -4243,7 +4581,7 @@
     await runAction('share collection', async () => {
       const result = await ExportCollectionWithOptions(activeCollection.id, {
         format: shareCollectionFormat
-      } as main.CollectionExportOptions)
+      } as types.CollectionExportOptions)
       shareCollectionResult = result
       if (result.content) exportText = result.content
       downloadCollectionExport(result)
@@ -4256,7 +4594,7 @@
     await runAction('generate documentation', async () => {
       const result = await GenerateCollectionDocs(activeCollection.id, {
         environmentIds: generateDocsSelectedEnvIds
-      } as main.GenerateCollectionDocsOptions)
+      } as types.GenerateCollectionDocsOptions)
       generateDocsResult = result
       exportText = result.html
       downloadTextFile(result.fileName, result.html, 'text/html')
@@ -4264,13 +4602,41 @@
     })
   }
 
-  async function copyText(value: string) {
-    if (!value) return
+  async function copyText(value: string): Promise<boolean> {
+    if (!value) return false
     try {
       await navigator.clipboard.writeText(value)
+      return true
     } catch {
-      error = 'Clipboard is unavailable'
+      return false
     }
+  }
+
+  async function saveActiveResponseTimeline() {
+    if (!activeCollection || !activeRequest) return
+    await runAction('save response timeline', async () => { await SaveResponseTimeline(activeCollection.id, activeRequest.id, '') })
+  }
+
+  async function saveActiveResponseBody() {
+    if (!activeCollection || !activeRequest) return
+    await runAction('save response body', async () => {
+      await SaveResponseBody(activeCollection.id, activeRequest.id, '')
+    })
+  }
+
+  function responseTabKeydown(event: KeyboardEvent) {
+    const tabs = activeResponseTabs
+    const index = tabs.findIndex((tab) => tab.id === responseTab)
+    if (index < 0) return
+    let next = index
+    if (event.key === 'ArrowRight') next = (index + 1) % tabs.length
+    else if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = tabs.length - 1
+    else return
+    event.preventDefault()
+    void selectResponsePaneTab(tabs[next].id)
+    void tick().then(() => document.querySelector<HTMLButtonElement>(`[data-response-tab="${tabs[next].id}"]`)?.focus())
   }
 
   async function checkGitVersion() {
@@ -4319,6 +4685,175 @@
     }
   }
 
+  function applyGitWorkbenchSnapshot(snapshot: gitworkbench.CollectionGitSnapshot) {
+		const previousBranch = gitWorkbenchSnapshot?.branch
+    gitWorkbenchSnapshot = snapshot
+		if (!snapshot.available) gitNotFoundMessage = 'Git is not installed or not on PATH.'
+    gitWorkbenchSelectedPaths = reconcileGitSelection(gitWorkbenchSelectedPaths, snapshot.files ?? [])
+    gitWorkbenchBranch = reconcileGitBranch(gitWorkbenchBranch, snapshot.branches, snapshot.branch)
+		gitWorkbenchRemoteBranch = reconcileGitRemoteBranch(gitWorkbenchRemoteBranch, previousBranch, snapshot.branch)
+    const remote = reconcileGitRemoteSelection(gitWorkbenchRemoteName, snapshot.remotes)
+    gitWorkbenchRemoteName = remote.name
+    gitWorkbenchRemoteURL = remote.url
+  }
+
+  function selectGitWorkbenchRemote(name: string) {
+    gitWorkbenchRemoteName = name
+    gitWorkbenchRemoteURL = (gitWorkbenchSnapshot?.remotes ?? []).find((remote) => remote.name === name)?.url ?? ''
+  }
+
+  async function refreshGitWorkbench(announce = true) {
+    const collection = activeCollection
+    if (!collection) {
+      gitWorkbenchSnapshot = undefined
+      gitWorkbenchCollectionID = ''
+      if (announce) gitWorkbenchStatus = 'Select a local collection to use Git.'
+      return
+    }
+    gitWorkbenchLoading = true
+    try {
+      const snapshot = await GetCollectionGitStatus(collection.id)
+      gitWorkbenchCollectionID = collection.id
+      applyGitWorkbenchSnapshot(snapshot)
+      if (announce) gitWorkbenchStatus = 'Git status refreshed.'
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      if (announce) {
+        gitWorkbenchError = message
+        gitWorkbenchStatus = 'Git status could not be refreshed.'
+      }
+      if (isGitMissingError(message)) gitNotFoundMessage = message
+    } finally {
+      gitWorkbenchLoading = false
+    }
+  }
+
+  async function openGitWorkbench() {
+    gitWorkbenchError = ''
+    gitWorkbenchStatus = ''
+    gitWorkbenchDiff = undefined
+    activeView = 'git'
+    await refreshGitWorkbench()
+    await tick()
+    gitWorkbenchHeading?.focus({ preventScroll: true })
+  }
+
+  async function runGitWorkbenchAction(label: string, action: () => Promise<gitworkbench.CollectionGitOperationResult>) {
+    if (!activeCollection) {
+      gitWorkbenchStatus = 'Select a local collection before using Git.'
+      return
+    }
+    gitWorkbenchBusy = label
+    gitWorkbenchError = ''
+    try {
+      const result = await action()
+      applyGitWorkbenchSnapshot(result.snapshot)
+      gitWorkbenchStatus = result.message || `${label} completed.`
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      gitWorkbenchError = message
+      gitWorkbenchStatus = `${label} did not complete.`
+      if (isGitMissingError(message)) gitNotFoundMessage = message
+      await refreshGitWorkbench(false)
+    } finally {
+      gitWorkbenchBusy = ''
+    }
+  }
+
+  function toggleGitWorkbenchPath(path: string, selected: boolean) {
+    gitWorkbenchSelectedPaths = selected
+      ? Array.from(new Set([...gitWorkbenchSelectedPaths, path]))
+      : gitWorkbenchSelectedPaths.filter((candidate) => candidate !== path)
+  }
+
+  async function initializeGitWorkbench() {
+    if (!activeCollection) return
+    await runGitWorkbenchAction('Initialize Git', () => InitializeCollectionGit(activeCollection!.id))
+  }
+
+  async function viewGitWorkbenchDiff(staged: boolean) {
+    if (!activeCollection || gitWorkbenchSelectedPaths.length !== 1) {
+      gitWorkbenchError = 'Select exactly one file to view its diff.'
+      return
+    }
+    gitWorkbenchBusy = staged ? 'View staged diff' : 'View unstaged diff'
+    gitWorkbenchError = ''
+    try {
+      gitWorkbenchDiff = await GetCollectionGitDiff(activeCollection.id, gitWorkbenchSelectedPaths[0], staged)
+      gitWorkbenchStatus = `${staged ? 'Staged' : 'Unstaged'} diff loaded for ${gitWorkbenchDiff.path}.`
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      gitWorkbenchError = message
+      gitWorkbenchStatus = 'Diff could not be loaded.'
+      if (isGitMissingError(message)) gitNotFoundMessage = message
+      await refreshGitWorkbench(false)
+    } finally {
+      gitWorkbenchBusy = ''
+    }
+  }
+
+  async function stageGitWorkbenchSelection() {
+    if (!activeCollection) return
+    await runGitWorkbenchAction('Stage selected', () => StageCollectionGitPaths(activeCollection!.id, gitWorkbenchSelectedPaths))
+  }
+
+  async function unstageGitWorkbenchSelection() {
+    if (!activeCollection) return
+    await runGitWorkbenchAction('Unstage selected', () => UnstageCollectionGitPaths(activeCollection!.id, gitWorkbenchSelectedPaths))
+  }
+
+  async function commitGitWorkbench() {
+    if (!activeCollection) return
+    if (!gitWorkbenchCommitMessage.trim()) {
+      gitWorkbenchError = 'Enter a commit message before committing staged changes.'
+      return
+    }
+    await runGitWorkbenchAction('Commit staged', () => CommitCollectionGit(activeCollection!.id, gitWorkbenchCommitMessage.trim()))
+    if (!gitWorkbenchError) gitWorkbenchCommitMessage = ''
+  }
+
+  async function createGitWorkbenchBranch() {
+    if (!activeCollection) return
+    if (!gitWorkbenchNewBranch.trim()) {
+      gitWorkbenchError = 'Enter a branch name.'
+      return
+    }
+    await runGitWorkbenchAction('Create branch', () => CreateCollectionGitBranch(activeCollection!.id, gitWorkbenchNewBranch.trim(), gitWorkbenchCheckoutNewBranch))
+    if (!gitWorkbenchError) gitWorkbenchNewBranch = ''
+  }
+
+  async function checkoutGitWorkbenchBranch() {
+    if (!activeCollection || !gitWorkbenchBranch) return
+    await runGitWorkbenchAction('Switch branch', () => CheckoutCollectionGitBranch(activeCollection!.id, gitWorkbenchBranch))
+  }
+
+  async function setGitWorkbenchRemote() {
+    if (!activeCollection || !gitWorkbenchRemoteName.trim() || !gitWorkbenchRemoteURL.trim()) {
+      gitWorkbenchError = 'Enter a remote name and credential-free remote URL.'
+      return
+    }
+    gitWorkbenchRemoteName = gitWorkbenchRemoteName.trim()
+    gitWorkbenchRemoteURL = gitWorkbenchRemoteURL.trim()
+    await runGitWorkbenchAction('Set remote', () => SetCollectionGitRemote(activeCollection!.id, gitWorkbenchRemoteName, gitWorkbenchRemoteURL))
+  }
+
+  async function fetchGitWorkbench() {
+    if (!activeCollection || !gitWorkbenchRemoteName.trim()) return
+    await runGitWorkbenchAction('Fetch', () => FetchCollectionGit(activeCollection!.id, gitWorkbenchRemoteName.trim()))
+  }
+
+  async function pullGitWorkbench() {
+    if (!activeCollection || !gitWorkbenchRemoteName.trim() || !gitWorkbenchRemoteBranch.trim()) return
+    await runGitWorkbenchAction('Pull fast-forward only', () => PullCollectionGit(activeCollection!.id, gitWorkbenchRemoteName.trim(), gitWorkbenchRemoteBranch.trim()))
+  }
+
+  async function pushGitWorkbench() {
+    if (!activeCollection || !gitWorkbenchRemoteName.trim() || !gitWorkbenchRemoteBranch.trim()) return
+    const setUpstream = gitWorkbenchSetUpstream
+    await runGitWorkbenchAction('Push', () => PushCollectionGit(activeCollection!.id, gitWorkbenchRemoteName.trim(), gitWorkbenchRemoteBranch.trim(), setUpstream))
+    if (!gitWorkbenchError && setUpstream) gitWorkbenchSetUpstream = false
+  }
+
   function isGitMissingError(message: string) {
     const normalized = message.toLowerCase()
     return normalized.includes('git is not installed') || normalized.includes('git --version failed') || normalized.includes('git --version timed out')
@@ -4327,8 +4862,8 @@
   async function openSelectedGitCollections() {
     if (!activeWorkspace) return
     await runAction('open git collections', async () => {
-      state = await OpenGitCollections(activeWorkspace.id, selectedGitCollectionPaths, gitCloneURL)
-      selectedCollectionId = state.workspaces
+      workspaceStore.appState = await OpenGitCollections(activeWorkspace.id, selectedGitCollectionPaths, gitCloneURL)
+      workspaceStore.selectedCollectionId = appState?.workspaces
         ?.find((workspace) => workspace.id === activeWorkspace.id)
         ?.collections?.find((collection) => selectedGitCollectionPaths.includes(collection.path))?.id ?? selectedCollectionId
       activeView = 'request'
@@ -4341,12 +4876,79 @@
       : selectedGitCollectionPaths.filter((candidatePath) => candidatePath !== path)
   }
 
-  async function patchRequest(patch: main.RequestPatch) {
+  // US-014. Applies a narrow mutator result, or refetches the whole AppState
+  // when the revision says we missed an update.
+  //
+  // `appState.revision` is read directly rather than through a `$:` derivation
+  // because a reactive statement does not run until Svelte's next update tick,
+  // so two mutations dispatched inside one tick would both compare against the
+  // same stale revision — making the second look like a gap and refetch for
+  // nothing.
+  async function applyNarrow(merge: (current: types.AppState, held: number) => MergeOutcome): Promise<void> {
+    if (!appState) {
+      // Nothing to patch onto. Only reachable before the boot fetch has landed.
+      workspaceStore.appState = await GetState()
+      return
+    }
+    const outcome = merge(appState, appState.revision ?? 0)
+    if (outcome.kind === 'applied') {
+      workspaceStore.appState = outcome.state
+      return
+    }
+    // Not silent. A refetch means something mutated appState behind our back, and
+    // while recovery is automatic, a run of these is a real signal that some
+    // mutator still needs migrating.
+    console.warn(`[US-014] refetching full appState: ${outcome.reason}`)
+    workspaceStore.appState = await GetState()
+  }
+
+  // US-035. The keystroke path. US-014 made each round trip 511x smaller
+  // (4,348,018 -> 8,515 bytes on the 500-request fixture); this stops most of
+  // them happening at all, by coalescing a burst of typing into one call.
+  //
+  // The backend call is deferred, but the UI is NOT: applyOptimisticPatch below
+  // updates local appState synchronously, so the input never lags behind the
+  // keyboard. The authoritative result overwrites it when the flush lands.
+  const requestPatchCoalescer = new PatchCoalescer<types.RequestPatch>(
+    async ({ collectionId, itemId }, patch) => {
+      const result = await UpdateRequestNarrow(collectionId, itemId, patch)
+      await applyNarrow((current, held) => applyRequestMutation(current, held, result))
+      // The authoritative result describes the request as of when this call was
+      // MADE. Anything typed while it was on the wire is queued but not in it,
+      // so applying the result alone rewinds the input and silently drops those
+      // characters — measured in the browser as 36 typed becoming
+      // "coalesed.example/abcefghij". Re-apply what is still queued on top.
+      const stillQueued = requestPatchCoalescer.pendingPatch
+      const queuedFor = requestPatchCoalescer.pendingTarget
+      if (stillQueued && queuedFor?.collectionId === collectionId && queuedFor.itemId === itemId) {
+        applyOptimisticPatch(collectionId, itemId, stillQueued)
+      }
+      scheduleRequestAutoSave(collectionId, itemId)
+    },
+  )
+
+  // Applies a patch to the local copy without touching the revision: no server
+  // mutation has happened yet, so claiming one would desynchronise US-014's gap
+  // detection and make the next real result look like a missed update.
+  function applyOptimisticPatch(collectionId: string, itemId: string, patch: types.RequestPatch) {
+    if (!appState) return
+    workspaceStore.appState = withOptimisticPatch(appState, collectionId, itemId, patch)
+  }
+
+  function patchRequest(patch: types.RequestPatch) {
     if (!activeCollection || !activeRequest) return
     const collectionId = activeCollection.id
     const requestId = activeRequest.id
-    state = await UpdateRequest(collectionId, requestId, patch)
-    scheduleRequestAutoSave(collectionId, requestId)
+    applyOptimisticPatch(collectionId, requestId, patch)
+    void requestPatchCoalescer.queue({ collectionId, itemId: requestId }, patch)
+  }
+
+  // Every path that reads server-side request appState has to drain the queue
+  // first and WAIT for it, or it races the edit the user just made. A
+  // fire-and-forget flush would be worse than none: it looks correct and loses
+  // the last keystroke exactly when the user is watching for it.
+  function flushPendingRequestPatch(): Promise<void> {
+    return requestPatchCoalescer.flush()
   }
 
   function patchRequestWithURL(url: string) {
@@ -4354,7 +4956,7 @@
     patchRequest({
       url,
       pathParams: syncPathParamsForURL(url, activeRequest.pathParams ?? [])
-    } as unknown as main.RequestPatch)
+    } as unknown as types.RequestPatch)
   }
 
   async function loadGrpcMethods() {
@@ -4369,14 +4971,14 @@
     if (!activeRequest || !path) return
     const method = grpcMethods.find((candidate) => candidate.path === path)
     const messages = [...(activeRequest.grpcMessages ?? [])]
-    const first = messages[0] ?? ({ name: 'message 1', content: '{}' } as main.GrpcMessage)
+    const first = messages[0] ?? ({ name: 'message 1', content: '{}' } as types.GrpcMessage)
     const content = method?.template || first.content || '{}'
-    messages[0] = { ...first, name: first.name || 'message 1', content } as main.GrpcMessage
+    messages[0] = { ...first, name: first.name || 'message 1', content } as types.GrpcMessage
     await patchRequest({
       method: path,
       grpcMethodType: method?.type ?? activeRequest.grpcMethodType,
       grpcMessages: messages
-    } as main.RequestPatch)
+    } as types.RequestPatch)
   }
 
   async function regenerateGrpcMessage(index: number) {
@@ -4386,109 +4988,79 @@
     await runAction('generate gRPC message', async () => {
       const content = await GenerateGRPCMessage(activeCollection.id, activeRequest.id, selectedEnvironmentId, methodPath)
       const rows = [...(activeRequest.grpcMessages ?? [])]
-      const current = rows[index] ?? ({ name: `message ${index + 1}`, content: '{}' } as main.GrpcMessage)
-      rows[index] = { ...current, name: current.name || `message ${index + 1}`, content } as main.GrpcMessage
-      await patchRequest({ grpcMessages: rows } as main.RequestPatch)
+      const current = rows[index] ?? ({ name: `message ${index + 1}`, content: '{}' } as types.GrpcMessage)
+      rows[index] = { ...current, name: current.name || `message ${index + 1}`, content } as types.GrpcMessage
+      await patchRequest({ grpcMessages: rows } as types.RequestPatch)
     })
   }
 
-  function patchField(field: keyof main.RequestPatch, value: unknown) {
-    patchRequest({ [field]: value } as unknown as main.RequestPatch)
+  function patchField(field: keyof types.RequestPatch, value: unknown) {
+    patchRequest({ [field]: value } as unknown as types.RequestPatch)
   }
 
-	  function updateBody(updates: Partial<main.RequestBody>) {
+	  function updateBody(updates: Partial<types.RequestBody>) {
 	    if (!activeRequest) return
-	    patchRequest({ body: { ...activeRequest.body, ...updates } } as main.RequestPatch)
+	    patchRequest({ body: { ...activeRequest.body, ...updates } } as types.RequestPatch)
 	  }
 
-	  function updateFormUrlEncodedRow(index: number, field: keyof main.KeyValue, value: string | boolean) {
+	  function updateFormUrlEncodedRow(index: number, field: keyof types.KeyValue, value: string | boolean) {
 	    if (!activeRequest) return
 	    const rows = [...(activeRequest.body.formUrlEncoded ?? [])]
-	    const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue)
-	    rows[index] = { ...current, [field]: value } as main.KeyValue
-	    updateBody({ formUrlEncoded: rows } as Partial<main.RequestBody>)
+	    const current = rows[index] ?? ({ name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue)
+	    rows[index] = { ...current, [field]: value } as types.KeyValue
+	    updateBody({ formUrlEncoded: rows } as Partial<types.RequestBody>)
 	  }
 
 	  function addFormUrlEncodedRow() {
 	    if (!activeRequest) return
-	    const rows = [...(activeRequest.body.formUrlEncoded ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as main.KeyValue]
-	    updateBody({ formUrlEncoded: rows } as Partial<main.RequestBody>)
+	    const rows = [...(activeRequest.body.formUrlEncoded ?? []), { name: '', value: '', enabled: true, secret: false, description: '' } as types.KeyValue]
+	    updateBody({ formUrlEncoded: rows } as Partial<types.RequestBody>)
 	  }
 
 	  function removeFormUrlEncodedRow(index: number) {
 	    if (!activeRequest) return
 	    const rows = [...(activeRequest.body.formUrlEncoded ?? [])]
 	    rows.splice(index, 1)
-	    updateBody({ formUrlEncoded: rows } as Partial<main.RequestBody>)
+	    updateBody({ formUrlEncoded: rows } as Partial<types.RequestBody>)
 	  }
 
-	  function updateMultipartRow(index: number, field: keyof main.FormPart, value: string | boolean) {
+	  function updateMultipartRow(index: number, field: keyof types.FormPart, value: string | boolean) {
 	    if (!activeRequest) return
 	    const rows = [...(activeRequest.body.multipart ?? [])]
-	    const current = rows[index] ?? ({ name: '', value: '', filePath: '', contentType: '', enabled: true } as main.FormPart)
-	    rows[index] = { ...current, [field]: value } as main.FormPart
-	    updateBody({ multipart: rows } as Partial<main.RequestBody>)
+	    const current = rows[index] ?? ({ name: '', value: '', filePath: '', contentType: '', enabled: true } as types.FormPart)
+	    rows[index] = { ...current, [field]: value } as types.FormPart
+	    updateBody({ multipart: rows } as Partial<types.RequestBody>)
 	  }
 
 	  function addMultipartRow() {
 	    if (!activeRequest) return
-	    const rows = [...(activeRequest.body.multipart ?? []), { name: '', value: '', filePath: '', contentType: '', enabled: true } as main.FormPart]
-	    updateBody({ multipart: rows } as Partial<main.RequestBody>)
+	    const rows = [...(activeRequest.body.multipart ?? []), { name: '', value: '', filePath: '', contentType: '', enabled: true } as types.FormPart]
+	    updateBody({ multipart: rows } as Partial<types.RequestBody>)
 	  }
 
 	  function removeMultipartRow(index: number) {
 	    if (!activeRequest) return
 	    const rows = [...(activeRequest.body.multipart ?? [])]
 	    rows.splice(index, 1)
-	    updateBody({ multipart: rows } as Partial<main.RequestBody>)
+	    updateBody({ multipart: rows } as Partial<types.RequestBody>)
 	  }
 
-	  function contentTypeForFilePath(filePath: string) {
-	    const ext = filePath.trim().toLowerCase().split('?')[0].split('#')[0].match(/\.([a-z0-9]+)$/)?.[1] ?? ''
-	    const types: Record<string, string> = {
-	      json: 'application/json',
-	      txt: 'text/plain; charset=utf-8',
-	      text: 'text/plain; charset=utf-8',
-	      xml: 'application/xml',
-	      csv: 'text/csv; charset=utf-8',
-	      html: 'text/html; charset=utf-8',
-	      htm: 'text/html; charset=utf-8',
-	      css: 'text/css; charset=utf-8',
-	      js: 'text/javascript; charset=utf-8',
-	      mjs: 'text/javascript; charset=utf-8',
-	      png: 'image/png',
-	      jpg: 'image/jpeg',
-	      jpeg: 'image/jpeg',
-	      gif: 'image/gif',
-	      svg: 'image/svg+xml',
-	      pdf: 'application/pdf',
-	      zip: 'application/zip'
-	    }
-	    return types[ext] ?? ''
-	  }
 
-	  function fileBodyRows(body: main.RequestBody | undefined) {
-	    const rows = (body?.files?.length ? body.files : body?.filePath || body?.fileContentType ? [{ filePath: body.filePath ?? '', contentType: body.fileContentType ?? '', selected: true } as main.FileBodyEntry] : []).map((row) => ({ ...row }))
-	    if (rows.length > 0 && !rows.some((row) => row.selected)) {
-	      rows[0].selected = true
-	    }
-	    return rows
-	  }
 
-	  function fileBodyUpdate(rows: main.FileBodyEntry[]) {
+	  function fileBodyUpdate(rows: types.FileBodyEntry[]) {
 	    const selected = rows.find((row) => row.selected) ?? rows[0]
 	    updateBody({
 	      files: rows,
 	      filePath: selected?.filePath ?? '',
 	      fileContentType: selected?.contentType ?? ''
-	    } as Partial<main.RequestBody>)
+	    } as Partial<types.RequestBody>)
 	  }
 
-	  function updateFileBodyRow(index: number, field: keyof main.FileBodyEntry, value: string | boolean) {
+	  function updateFileBodyRow(index: number, field: keyof types.FileBodyEntry, value: string | boolean) {
 	    if (!activeRequest) return
 	    const rows = fileBodyRows(activeRequest.body)
-	    const current = rows[index] ?? ({ filePath: '', contentType: '', selected: rows.length === 0 } as main.FileBodyEntry)
-	    rows[index] = { ...current, [field]: value } as main.FileBodyEntry
+	    const current = rows[index] ?? ({ filePath: '', contentType: '', selected: rows.length === 0 } as types.FileBodyEntry)
+	    rows[index] = { ...current, [field]: value } as types.FileBodyEntry
 	    if (field === 'filePath') {
 	      rows[index].contentType = contentTypeForFilePath(String(value))
 	    }
@@ -4503,7 +5075,7 @@
 	  function addFileBodyRow() {
 	    if (!activeRequest) return
 	    const rows = fileBodyRows(activeRequest.body)
-	    rows.push({ filePath: '', contentType: '', selected: rows.length === 0 } as main.FileBodyEntry)
+	    rows.push({ filePath: '', contentType: '', selected: rows.length === 0 } as types.FileBodyEntry)
 	    fileBodyUpdate(rows)
 	  }
 
@@ -4518,42 +5090,42 @@
 	    fileBodyUpdate(rows)
 	  }
 
-  function updateAuth(updates: Partial<main.AuthConfig>) {
+  function updateAuth(updates: Partial<types.AuthConfig>) {
     if (!activeRequest) return
-    patchRequest({ auth: authWithOAuth2Defaults(activeRequest.auth, updates) } as main.RequestPatch)
+    patchRequest({ auth: authWithOAuth2Defaults(activeRequest.auth, updates) } as types.RequestPatch)
   }
 
-  function updateAWSV4Auth(updates: Partial<main.AWSV4Auth>) {
+  function updateAWSV4Auth(updates: Partial<types.AWSV4Auth>) {
     if (!activeRequest) return
-    updateAuth({ awsv4: { ...(activeRequest.auth.awsv4 ?? {}), ...updates } as main.AWSV4Auth })
+    updateAuth({ awsv4: { ...(activeRequest.auth.awsv4 ?? {}), ...updates } as types.AWSV4Auth })
   }
 
-  function updateOAuth1Auth(updates: Partial<main.OAuth1Auth>) {
+  function updateOAuth1Auth(updates: Partial<types.OAuth1Auth>) {
     if (!activeRequest) return
-    updateAuth({ oauth1: { ...(activeRequest.auth.oauth1 ?? {}), ...updates } as main.OAuth1Auth })
+    updateAuth({ oauth1: { ...(activeRequest.auth.oauth1 ?? {}), ...updates } as types.OAuth1Auth })
   }
 
-  function updateOAuth2Auth(updates: Partial<main.OAuth2Auth>) {
+  function updateOAuth2Auth(updates: Partial<types.OAuth2Auth>) {
     if (!activeRequest) return
-    updateAuth({ oauth2: { ...(activeRequest.auth.oauth2 ?? {}), ...updates } as main.OAuth2Auth })
+    updateAuth({ oauth2: { ...(activeRequest.auth.oauth2 ?? {}), ...updates } as types.OAuth2Auth })
   }
 
-  function oauth2ParamList(auth: main.OAuth2Auth | undefined, bucket: OAuth2ParamBucket) {
-    return [...(((auth ?? {}) as Record<OAuth2ParamBucket, main.OAuth2AdditionalParam[] | undefined>)[bucket] ?? [])]
+  function oauth2ParamList(auth: types.OAuth2Auth | undefined, bucket: OAuth2ParamBucket) {
+    return [...(((auth ?? {}) as Record<OAuth2ParamBucket, types.OAuth2AdditionalParam[] | undefined>)[bucket] ?? [])]
   }
 
-  function updateOAuth2ParamList(auth: main.OAuth2Auth | undefined, bucket: OAuth2ParamBucket, index: number, sendIn: OAuth2ParamSendIn, field: OAuth2ParamField, value: string | boolean) {
+  function updateOAuth2ParamList(auth: types.OAuth2Auth | undefined, bucket: OAuth2ParamBucket, index: number, sendIn: OAuth2ParamSendIn, field: OAuth2ParamField, value: string | boolean) {
     const rows = oauth2ParamList(auth, bucket)
-    const current = rows[index] ?? ({ name: '', value: '', sendIn, enabled: true, secret: false, description: '' } as main.OAuth2AdditionalParam)
-    rows[index] = { ...current, sendIn: current.sendIn || sendIn, enabled: current.enabled ?? true, [field]: value } as main.OAuth2AdditionalParam
+    const current = rows[index] ?? ({ name: '', value: '', sendIn, enabled: true, secret: false, description: '' } as types.OAuth2AdditionalParam)
+    rows[index] = { ...current, sendIn: current.sendIn || sendIn, enabled: current.enabled ?? true, [field]: value } as types.OAuth2AdditionalParam
     return rows
   }
 
-  function addOAuth2ParamList(auth: main.OAuth2Auth | undefined, bucket: OAuth2ParamBucket, sendIn: OAuth2ParamSendIn) {
-    return [...oauth2ParamList(auth, bucket), { name: '', value: '', sendIn, enabled: true, secret: false, description: '' } as main.OAuth2AdditionalParam]
+  function addOAuth2ParamList(auth: types.OAuth2Auth | undefined, bucket: OAuth2ParamBucket, sendIn: OAuth2ParamSendIn) {
+    return [...oauth2ParamList(auth, bucket), { name: '', value: '', sendIn, enabled: true, secret: false, description: '' } as types.OAuth2AdditionalParam]
   }
 
-  function removeOAuth2ParamList(auth: main.OAuth2Auth | undefined, bucket: OAuth2ParamBucket, index: number) {
+  function removeOAuth2ParamList(auth: types.OAuth2Auth | undefined, bucket: OAuth2ParamBucket, index: number) {
     const rows = oauth2ParamList(auth, bucket)
     rows.splice(index, 1)
     return rows
@@ -4561,113 +5133,122 @@
 
   function updateRequestOAuth2AdditionalParam(bucket: OAuth2ParamBucket, sendIn: OAuth2ParamSendIn, index: number, field: OAuth2ParamField, value: string | boolean) {
     if (!activeRequest) return
-    updateOAuth2Auth({ [bucket]: updateOAuth2ParamList(activeRequest.auth.oauth2, bucket, index, sendIn, field, value) } as Partial<main.OAuth2Auth>)
+    updateOAuth2Auth({ [bucket]: updateOAuth2ParamList(activeRequest.auth.oauth2, bucket, index, sendIn, field, value) } as Partial<types.OAuth2Auth>)
   }
 
   function addRequestOAuth2AdditionalParam(bucket: OAuth2ParamBucket, sendIn: OAuth2ParamSendIn) {
     if (!activeRequest) return
-    updateOAuth2Auth({ [bucket]: addOAuth2ParamList(activeRequest.auth.oauth2, bucket, sendIn) } as Partial<main.OAuth2Auth>)
+    updateOAuth2Auth({ [bucket]: addOAuth2ParamList(activeRequest.auth.oauth2, bucket, sendIn) } as Partial<types.OAuth2Auth>)
   }
 
   function removeRequestOAuth2AdditionalParam(bucket: OAuth2ParamBucket, index: number) {
     if (!activeRequest) return
-    updateOAuth2Auth({ [bucket]: removeOAuth2ParamList(activeRequest.auth.oauth2, bucket, index) } as Partial<main.OAuth2Auth>)
+    updateOAuth2Auth({ [bucket]: removeOAuth2ParamList(activeRequest.auth.oauth2, bucket, index) } as Partial<types.OAuth2Auth>)
   }
 
-  function updateSettings(updates: Partial<main.RequestSettings>) {
+  function updateSettings(updates: Partial<types.RequestSettings>) {
     if (!activeRequest) return
-    patchRequest({ settings: { ...activeRequest.settings, ...updates } } as main.RequestPatch)
+    patchRequest({ settings: { ...activeRequest.settings, ...updates } } as types.RequestPatch)
   }
 
-  function updateKeyValue(kind: 'params' | 'pathParams' | 'headers', index: number, field: keyof main.KeyValue, value: string | boolean) {
+  function updateKeyValue(kind: 'params' | 'pathParams' | 'headers', index: number, field: keyof types.KeyValue, value: string | boolean) {
     if (!activeRequest) return
     const rows = [...(activeRequest[kind] ?? [])]
     rows[index] = { ...rows[index], [field]: value }
-    patchRequest({ [kind]: rows } as unknown as main.RequestPatch)
+    patchRequest({ [kind]: rows } as unknown as types.RequestPatch)
+  }
+
+  // US-056. Bulk edit replaces the whole list in one patch rather than
+  // diffing row by row: the text form has no stable row identity, so a
+  // per-row diff would have to guess which line replaced which row and would
+  // reorder or drop rows on any edit that changes their count.
+  function replaceKeyValues(kind: 'params' | 'pathParams' | 'headers', rows: types.KeyValue[]) {
+    if (!activeRequest) return
+    patchRequest({ [kind]: rows } as unknown as types.RequestPatch)
   }
 
   function addKeyValue(kind: 'params' | 'headers') {
     if (!activeRequest) return
     const rows = [...(activeRequest[kind] ?? []), { name: '', value: '', enabled: true, secret: false, description: '' }]
-    patchRequest({ [kind]: rows } as unknown as main.RequestPatch)
+    patchRequest({ [kind]: rows } as unknown as types.RequestPatch)
   }
 
   function removeKeyValue(kind: 'params' | 'headers', index: number) {
     if (!activeRequest) return
     const rows = [...(activeRequest[kind] ?? [])]
     rows.splice(index, 1)
-    patchRequest({ [kind]: rows } as unknown as main.RequestPatch)
+    patchRequest({ [kind]: rows } as unknown as types.RequestPatch)
   }
 
-  function updateGrpcMessage(index: number, field: keyof main.GrpcMessage, value: string) {
+  function updateGrpcMessage(index: number, field: keyof types.GrpcMessage, value: string) {
     if (!activeRequest) return
     const rows = [...(activeRequest.grpcMessages ?? [])]
-    const current = rows[index] ?? ({ name: '', content: '' } as main.GrpcMessage)
+    const current = rows[index] ?? ({ name: '', content: '' } as types.GrpcMessage)
     rows[index] = { ...current, [field]: value }
-    patchRequest({ grpcMessages: rows } as main.RequestPatch)
+    patchRequest({ grpcMessages: rows } as types.RequestPatch)
   }
 
   function addGrpcMessage() {
     if (!activeRequest) return
     const nextIndex = (activeRequest.grpcMessages?.length ?? 0) + 1
-    const rows = [...(activeRequest.grpcMessages ?? []), { name: `message ${nextIndex}`, content: '{}' } as main.GrpcMessage]
-    patchRequest({ grpcMessages: rows } as main.RequestPatch)
+    const rows = [...(activeRequest.grpcMessages ?? []), { name: `message ${nextIndex}`, content: '{}' } as types.GrpcMessage]
+    patchRequest({ grpcMessages: rows } as types.RequestPatch)
   }
 
   function removeGrpcMessage(index: number) {
     if (!activeRequest) return
     const rows = [...(activeRequest.grpcMessages ?? [])]
     rows.splice(index, 1)
-    patchRequest({ grpcMessages: rows } as main.RequestPatch)
+    patchRequest({ grpcMessages: rows } as types.RequestPatch)
   }
 
-  function updateWSMessage(index: number, field: keyof main.WSMessage, value: string | boolean) {
+  function updateWSMessage(index: number, field: keyof types.WSMessage, value: string | boolean) {
     if (!activeRequest) return
     const rows = [...(activeRequest.wsMessages ?? [])]
-    const current = rows[index] ?? ({ name: `message ${index + 1}`, type: 'text', content: '', selected: false } as main.WSMessage)
-    rows[index] = { ...current, [field]: value } as main.WSMessage
-    patchRequest({ wsMessages: rows } as main.RequestPatch)
+    const current = rows[index] ?? ({ name: `message ${index + 1}`, type: 'text', content: '', selected: false } as types.WSMessage)
+    rows[index] = { ...current, [field]: value } as types.WSMessage
+    patchRequest({ wsMessages: rows } as types.RequestPatch)
   }
 
   function addWSMessage() {
     if (!activeRequest) return
     const nextIndex = (activeRequest.wsMessages?.length ?? 0) + 1
-    const rows = [...(activeRequest.wsMessages ?? []), { name: `message ${nextIndex}`, type: 'json', content: '{}', selected: true } as main.WSMessage]
-    patchRequest({ wsMessages: rows } as main.RequestPatch)
+    const rows = [...(activeRequest.wsMessages ?? []), { name: `message ${nextIndex}`, type: 'json', content: '{}', selected: true } as types.WSMessage]
+    patchRequest({ wsMessages: rows } as types.RequestPatch)
   }
 
   function removeWSMessage(index: number) {
     if (!activeRequest) return
     const rows = [...(activeRequest.wsMessages ?? [])]
     rows.splice(index, 1)
-    patchRequest({ wsMessages: rows } as main.RequestPatch)
+    patchRequest({ wsMessages: rows } as types.RequestPatch)
   }
 
-  function updateAssertion(index: number, field: keyof main.Assertion, value: string | boolean) {
+  function updateAssertion(index: number, field: keyof types.Assertion, value: string | boolean) {
     if (!activeRequest) return
     const rows = [...(activeRequest.assertions ?? [])]
     rows[index] = { ...rows[index], [field]: value }
-    patchRequest({ assertions: rows } as main.RequestPatch)
+    patchRequest({ assertions: rows } as types.RequestPatch)
   }
 
   function addAssertion() {
     if (!activeRequest) return
     const rows = [...(activeRequest.assertions ?? []), { expression: 'res.status', operator: 'equals', value: '200', enabled: true, passed: false, message: '' }]
-    patchRequest({ assertions: rows } as main.RequestPatch)
+    patchRequest({ assertions: rows } as types.RequestPatch)
   }
 
   function removeAssertion(index: number) {
     if (!activeRequest) return
     const rows = [...(activeRequest.assertions ?? [])]
     rows.splice(index, 1)
-    patchRequest({ assertions: rows } as main.RequestPatch)
+    patchRequest({ assertions: rows } as types.RequestPatch)
   }
 
   function updateRequestVariable(index: number, field: 'name' | 'value' | 'enabled', value: string | boolean) {
     if (!activeRequest) return
     const req = [...(activeRequest.vars?.req ?? [])]
     req[index] = { ...req[index], [field]: value }
-    patchRequest({ vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as main.RequestPatch)
+    patchRequest({ vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as types.RequestPatch)
   }
 
   function addRequestVariable() {
@@ -4676,34 +5257,34 @@
       ...(activeRequest.vars?.req ?? []),
       { id: `req-var-${Date.now()}`, name: '', value: '', type: 'text', dataType: 'string', enabled: true, secret: false }
     ]
-    patchRequest({ vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as main.RequestPatch)
+    patchRequest({ vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as types.RequestPatch)
   }
 
   function removeRequestVariable(index: number) {
     if (!activeRequest) return
     const req = [...(activeRequest.vars?.req ?? [])]
     req.splice(index, 1)
-    patchRequest({ vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as main.RequestPatch)
+    patchRequest({ vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as types.RequestPatch)
   }
 
-  async function updateCollectionVariable(index: number, field: keyof main.Variable, value: string | boolean) {
+  async function updateCollectionVariable(index: number, field: keyof types.Variable, value: string | boolean) {
     if (!activeCollection) return
     const vars = [...(activeCollection.variables ?? [])]
     vars[index] = { ...vars[index], [field]: value }
-    state = await UpdateCollectionVariables(activeCollection.id, vars)
+    workspaceStore.appState = await UpdateCollectionVariables(activeCollection.id, vars)
   }
 
   async function addCollectionVariable() {
     if (!activeCollection) return
     const vars = [...(activeCollection.variables ?? []), { id: `ui-var-${Date.now()}`, name: '', value: '', type: 'text', dataType: 'string', enabled: true, secret: false }]
-    state = await UpdateCollectionVariables(activeCollection.id, vars)
+    workspaceStore.appState = await UpdateCollectionVariables(activeCollection.id, vars)
   }
 
-  async function updateEnvironmentVariable(index: number, field: keyof main.Variable, value: string | boolean) {
+  async function updateEnvironmentVariable(index: number, field: keyof types.Variable, value: string | boolean) {
     if (!activeCollection || !selectedEnvironment) return
     const vars = [...(selectedEnvironment.variables ?? [])]
     vars[index] = field === 'dataType' ? { ...vars[index], dataType: String(value), type: String(value) } : { ...vars[index], [field]: value }
-    state = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
+    workspaceStore.appState = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
   }
 
   async function addEnvironmentVariable() {
@@ -4712,21 +5293,21 @@
       ...(selectedEnvironment.variables ?? []),
       { id: `ui-env-var-${Date.now()}`, name: '', value: '', type: 'text', dataType: 'string', enabled: true, secret: environmentVariableTab === 'secrets' }
     ]
-    state = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
+    workspaceStore.appState = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
   }
 
   async function removeEnvironmentVariable(index: number) {
     if (!activeCollection || !selectedEnvironment) return
     const vars = [...(selectedEnvironment.variables ?? [])]
     vars.splice(index, 1)
-    state = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
+    workspaceStore.appState = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
   }
 
-  async function updateGlobalEnvironmentVariable(index: number, field: keyof main.Variable, value: string | boolean) {
+  async function updateGlobalEnvironmentVariable(index: number, field: keyof types.Variable, value: string | boolean) {
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     const vars = [...(selectedGlobalEnvironment.variables ?? [])]
     vars[index] = field === 'dataType' ? { ...vars[index], dataType: String(value), type: String(value) } : { ...vars[index], [field]: value }
-    state = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
+    workspaceStore.appState = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
   }
 
   async function addGlobalEnvironmentVariable() {
@@ -4735,20 +5316,20 @@
       ...(selectedGlobalEnvironment.variables ?? []),
       { id: `ui-global-env-var-${Date.now()}`, name: '', value: '', type: 'text', dataType: 'string', enabled: true, secret: globalEnvironmentVariableTab === 'secrets' }
     ]
-    state = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
+    workspaceStore.appState = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
   }
 
   async function removeGlobalEnvironmentVariable(index: number) {
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     const vars = [...(selectedGlobalEnvironment.variables ?? [])]
     vars.splice(index, 1)
-    state = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
+    workspaceStore.appState = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
   }
 
   async function deleteGlobalEnvironment() {
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     await runAction('delete global environment', async () => {
-      state = await DeleteGlobalEnvironment(activeWorkspace.id, selectedGlobalEnvironment.id)
+      workspaceStore.appState = await DeleteGlobalEnvironment(activeWorkspace.id, selectedGlobalEnvironment.id)
     })
   }
 
@@ -4756,7 +5337,7 @@
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     await runAction('copy global environment', async () => {
       const copyName = globalEnvironmentCopyName.trim()
-      state = copyName
+      workspaceStore.appState = copyName
         ? await CopyGlobalEnvironmentAs(activeWorkspace.id, selectedGlobalEnvironment.id, copyName)
         : await CopyGlobalEnvironment(activeWorkspace.id, selectedGlobalEnvironment.id)
       globalEnvironmentCopyName = ''
@@ -4801,7 +5382,7 @@
   async function importGlobalEnvironment() {
     if (!activeWorkspace || !globalEnvironmentPayload.trim()) return
     await runAction('import global environment', async () => {
-      state = await ImportGlobalEnvironment(activeWorkspace.id, globalEnvironmentPayload)
+      workspaceStore.appState = await ImportGlobalEnvironment(activeWorkspace.id, globalEnvironmentPayload)
     })
   }
 
@@ -4809,160 +5390,75 @@
     if (!activeCollection) return
     const headers = [...(activeCollection.headers ?? [])]
     headers[index] = { ...headers[index], [field]: value }
-    state = await UpdateCollectionHeaders(activeCollection.id, headers)
+    workspaceStore.appState = await UpdateCollectionHeaders(activeCollection.id, headers)
   }
 
   async function addCollectionHeader() {
     if (!activeCollection) return
     const headers = [...(activeCollection.headers ?? []), { name: '', value: '', enabled: true, secret: false, description: '' }]
-    state = await UpdateCollectionHeaders(activeCollection.id, headers)
+    workspaceStore.appState = await UpdateCollectionHeaders(activeCollection.id, headers)
   }
 
   async function removeCollectionHeader(index: number) {
     if (!activeCollection) return
     const headers = [...(activeCollection.headers ?? [])]
     headers.splice(index, 1)
-    state = await UpdateCollectionHeaders(activeCollection.id, headers)
+    workspaceStore.appState = await UpdateCollectionHeaders(activeCollection.id, headers)
   }
 
-  async function updateCollectionAuth(updates: Partial<main.AuthConfig>) {
+  async function updateCollectionAuth(updates: Partial<types.AuthConfig>) {
     if (!activeCollection) return
-    state = await UpdateCollectionAuth(activeCollection.id, authWithOAuth2Defaults(activeCollection.auth, updates))
+    workspaceStore.appState = await UpdateCollectionAuth(activeCollection.id, authWithOAuth2Defaults(activeCollection.auth, updates))
   }
 
-  function isProxyConfigUnset(proxy: main.ProxyConfig | undefined) {
-    if (!proxy) return true
-    return !proxy.inherit
-      && !proxy.disabled
-      && !proxy.protocol
-      && !proxy.hostname
-      && !proxy.port
-      && !proxy.bypassProxy
-      && !proxy.auth?.username
-      && !proxy.auth?.password
-      && !proxy.auth?.disabled
+
+  function normalizedCollectionProxy(overrides: Partial<types.ProxyConfig> = {}) {
+    const current = activeCollection?.proxy ?? ({} as types.ProxyConfig)
+    return collectionProxyWithDefaults(current, isProxyConfigUnset(current), overrides)
   }
 
-  function normalizedCollectionProxy(overrides: Partial<main.ProxyConfig> = {}) {
-    const current = activeCollection?.proxy ?? ({} as main.ProxyConfig)
-    const currentAuth = current.auth ?? ({} as main.ProxyAuthConfig)
-    const unset = isProxyConfigUnset(current)
-    return {
-      inherit: unset ? true : (current.inherit ?? true),
-      disabled: current.disabled ?? false,
-      protocol: current.protocol || 'http',
-      hostname: current.hostname || '',
-      port: current.port || '',
-      bypassProxy: current.bypassProxy || '',
-      ...overrides,
-      auth: {
-        username: currentAuth.username || '',
-        password: currentAuth.password || '',
-        disabled: currentAuth.disabled ?? false,
-        ...(overrides.auth ?? {})
-      }
-    } as main.ProxyConfig
-  }
 
-  function collectionProxyMode(proxy: main.ProxyConfig | undefined) {
-    if (isProxyConfigUnset(proxy)) return 'inherit'
-    if (proxy?.disabled) return 'off'
-    if (proxy?.inherit ?? true) return 'inherit'
-    return 'manual'
-  }
-
-  async function updateCollectionProxy(updates: Partial<main.ProxyConfig>) {
+  async function updateCollectionProxy(updates: Partial<types.ProxyConfig>) {
     if (!activeCollection) return
-    state = await UpdateCollectionProxy(activeCollection.id, normalizedCollectionProxy(updates))
+    workspaceStore.appState = await UpdateCollectionProxy(activeCollection.id, normalizedCollectionProxy(updates))
   }
 
   async function updateCollectionProxyMode(mode: string) {
-    if (mode === 'manual') {
-      await updateCollectionProxy({ inherit: false, disabled: false })
-    } else if (mode === 'off') {
-      await updateCollectionProxy({ inherit: false, disabled: true })
-    } else {
-      await updateCollectionProxy({ inherit: true, disabled: false })
-    }
+    await updateCollectionProxy(proxyModeOverrides(mode))
   }
 
-  function collectionSandboxMode(collection: main.Collection | undefined = activeCollection): JSSandboxMode {
+  function collectionSandboxMode(collection: types.Collection | undefined = activeCollection): JSSandboxMode {
     return collection?.securityConfig?.jsSandboxMode === 'developer' ? 'developer' : 'safe'
   }
 
   async function updateCollectionSandboxMode(mode: JSSandboxMode) {
     if (!activeCollection || collectionSandboxMode(activeCollection) === mode) return
-    state = await UpdateCollectionSecurityConfig(activeCollection.id, { jsSandboxMode: mode } as main.CollectionSecurityConfig)
+    workspaceStore.appState = await UpdateCollectionSecurityConfig(activeCollection.id, { jsSandboxMode: mode } as types.CollectionSecurityConfig)
   }
 
-  async function updateCollectionProxyAuth(updates: Partial<main.ProxyAuthConfig>) {
+  async function updateCollectionProxyAuth(updates: Partial<types.ProxyAuthConfig>) {
     if (!activeCollection) return
-    await updateCollectionProxy({ auth: { ...(activeCollection.proxy?.auth ?? {}), ...updates } as main.ProxyAuthConfig })
+    await updateCollectionProxy({ auth: { ...(activeCollection.proxy?.auth ?? {}), ...updates } as types.ProxyAuthConfig })
   }
 
-  function proxyConfigWithDefaults(config: main.ProxyConfig | undefined, overrides: Partial<main.ProxyConfig> = {}) {
-    const auth = config?.auth ?? ({} as main.ProxyAuthConfig)
-    return {
-      inherit: false,
-      disabled: false,
-      protocol: config?.protocol || 'http',
-      hostname: config?.hostname || '',
-      port: config?.port || '',
-      bypassProxy: config?.bypassProxy || '',
-      ...overrides,
-      auth: {
-        username: auth.username || '',
-        password: auth.password || '',
-        disabled: auth.disabled ?? false,
-        ...(overrides.auth ?? {})
-      }
-    } as main.ProxyConfig
+
+  function proxyPreferencesWithDefaults(overrides: Partial<types.ProxyPreferences> = {}) {
+    return proxyPreferencesWithDefaultsOf(
+      appState?.preferences?.proxy,
+      appState?.preferences?.proxyMode,
+      overrides
+    )
   }
 
-  function proxyPreferencesWithDefaults(overrides: Partial<main.ProxyPreferences> = {}) {
-    const current = state?.preferences?.proxy ?? ({} as main.ProxyPreferences)
-    const pac = { source: current.pac?.source || '', ...(overrides.pac ?? {}) }
-    const config = proxyConfigWithDefaults(current.config, overrides.config ?? {})
-    return {
-      disabled: current.disabled ?? false,
-      source: current.source || (state?.preferences?.proxyMode === 'pac' ? 'pac' : state?.preferences?.proxyMode === 'manual' ? 'manual' : 'inherit'),
-      ...overrides,
-      pac,
-      config
-    } as main.ProxyPreferences
-  }
-
-  function preferencesProxyMode(preferences: main.Preferences | undefined) {
-    const proxy = preferences?.proxy
-    if (proxy?.disabled) return 'off'
-    if (proxy?.source === 'pac') return 'pac'
-    if (proxy?.source === 'manual') return 'manual'
-    return 'inherit'
-  }
-
-  function proxyModeLabel(mode: string) {
-    if (mode === 'off') return 'Off'
-    if (mode === 'manual') return 'On'
-    if (mode === 'pac') return 'PAC'
-    return 'System Proxy'
-  }
-
-  function preferenceProxyModeValue(proxy: main.ProxyPreferences) {
-    if (proxy.disabled) return 'off'
-    if (proxy.source === 'manual') return 'manual'
-    if (proxy.source === 'pac') return 'pac'
-    return 'system'
-  }
-
-  async function updatePreferencesProxy(updates: Partial<main.ProxyPreferences>) {
-    if (!state) return
+  async function updatePreferencesProxy(updates: Partial<types.ProxyPreferences>) {
+    if (!appState) return
     const proxy = proxyPreferencesWithDefaults(updates)
     const preferences = {
-      ...state.preferences,
+      ...appState.preferences,
       proxy,
       proxyMode: preferenceProxyModeValue(proxy)
-    } as main.Preferences
-    state = await UpdatePreferences(preferences)
+    } as types.Preferences
+    workspaceStore.appState = await UpdatePreferences(preferences)
   }
 
   async function updatePreferencesProxyMode(mode: string) {
@@ -4977,22 +5473,22 @@
     }
   }
 
-  async function updatePreferencesProxyConfig(updates: Partial<main.ProxyConfig>) {
-    const current = state?.preferences?.proxy?.config
+  async function updatePreferencesProxyConfig(updates: Partial<types.ProxyConfig>) {
+    const current = appState?.preferences?.proxy?.config
     await updatePreferencesProxy({ config: proxyConfigWithDefaults(current, updates) })
   }
 
-  async function updatePreferencesProxyAuth(updates: Partial<main.ProxyAuthConfig>) {
-    const current = state?.preferences?.proxy?.config
-    await updatePreferencesProxyConfig({ auth: { ...(current?.auth ?? {}), ...updates } as main.ProxyAuthConfig })
+  async function updatePreferencesProxyAuth(updates: Partial<types.ProxyAuthConfig>) {
+    const current = appState?.preferences?.proxy?.config
+    await updatePreferencesProxyConfig({ auth: { ...(current?.auth ?? {}), ...updates } as types.ProxyAuthConfig })
   }
 
-  async function updateAppearancePreferences(updates: Partial<main.Preferences>) {
-    if (!state) return
-    state = await UpdatePreferences({
-      ...state.preferences,
+  async function updateAppearancePreferences(updates: Partial<types.Preferences>) {
+    if (!appState) return
+    workspaceStore.appState = await UpdatePreferences({
+      ...appState.preferences,
       ...updates
-    } as main.Preferences)
+    } as types.Preferences)
   }
 
   async function updateThemeMode(mode: ThemeMode) {
@@ -5008,14 +5504,14 @@
   }
 
   async function setResponsePaneOrientation(orientation: ResponsePaneOrientation) {
-    if (!state) return
-    state = await UpdatePreferences({
-      ...state.preferences,
+    if (!appState) return
+    workspaceStore.appState = await UpdatePreferences({
+      ...appState.preferences,
       layout: {
-        ...(state.preferences.layout ?? {}),
+        ...(appState.preferences.layout ?? {}),
         responsePaneOrientation: orientation
-      } as main.LayoutPreferences
-    } as main.Preferences)
+      } as types.LayoutPreferences
+    } as types.Preferences)
   }
 
   async function toggleResponsePaneOrientation() {
@@ -5023,14 +5519,14 @@
   }
 
   async function setZoomPercentage(percentage: number) {
-    if (!state) return
-    state = await UpdatePreferences({
-      ...state.preferences,
+    if (!appState) return
+    workspaceStore.appState = await UpdatePreferences({
+      ...appState.preferences,
       display: {
-        ...(state.preferences.display ?? {}),
+        ...(appState.preferences.display ?? {}),
         zoomPercentage: normalizedZoomPercentage(percentage)
-      } as main.DisplayPreferences
-    } as main.Preferences)
+      } as types.DisplayPreferences
+    } as types.Preferences)
   }
 
   async function incrementZoomPercentage(delta: number) {
@@ -5041,22 +5537,22 @@
     await setZoomPercentage(zoomDefaultPercentage)
   }
 
-  async function updateFontPreferences(updates: Partial<main.FontPreferences>) {
-    if (!state) return
+  async function updateFontPreferences(updates: Partial<types.FontPreferences>) {
+    if (!appState) return
     const nextFont = {
-      ...(state.preferences.font ?? {}),
+      ...(appState.preferences.font ?? {}),
       ...updates
-    } as main.FontPreferences
-    const nextSize = normalizedCodeFontSize(nextFont.codeFontSize ?? state.preferences.codeFontSize)
-    state = await UpdatePreferences({
-      ...state.preferences,
+    } as types.FontPreferences
+    const nextSize = normalizedCodeFontSize(nextFont.codeFontSize ?? appState.preferences.codeFontSize)
+    workspaceStore.appState = await UpdatePreferences({
+      ...appState.preferences,
       font: {
         ...nextFont,
         codeFont: normalizedCodeFont(nextFont.codeFont),
         codeFontSize: nextSize
-      } as main.FontPreferences,
+      } as types.FontPreferences,
       codeFontSize: nextSize
-    } as main.Preferences)
+    } as types.Preferences)
   }
 
   async function updateCodeFont(value: string) {
@@ -5067,67 +5563,67 @@
     await updateFontPreferences({ codeFontSize: normalizedCodeFontSize(value) })
   }
 
-  async function updateRequestPreferences(updates: Partial<main.RequestPreferences>) {
+  async function updateRequestPreferences(updates: Partial<types.RequestPreferences>) {
     requestPreferencesSaveQueue = requestPreferencesSaveQueue.catch(() => {}).then(async () => {
-      if (!state) return
-      const current = state.preferences.request ?? ({} as main.RequestPreferences)
+      if (!appState) return
+      const current = appState.preferences.request ?? ({} as types.RequestPreferences)
       const next = {
         sslVerification: updates.sslVerification ?? (current.sslVerification !== false),
         customCaCertificate: {
           enabled: current.customCaCertificate?.enabled ?? false,
           filePath: current.customCaCertificate?.filePath ?? '',
           ...(updates.customCaCertificate ?? {})
-        } as main.CustomCaCertificatePreferences,
+        } as types.CustomCaCertificatePreferences,
         keepDefaultCaCertificates: {
           enabled: current.keepDefaultCaCertificates?.enabled !== false,
           ...(updates.keepDefaultCaCertificates ?? {})
-        } as main.KeepDefaultCaCertificatesPreferences,
-        storeCookies: updates.storeCookies ?? current.storeCookies ?? state.preferences.storeCookies ?? true,
+        } as types.KeepDefaultCaCertificatesPreferences,
+        storeCookies: updates.storeCookies ?? current.storeCookies ?? appState.preferences.storeCookies ?? true,
         sendCookies: updates.sendCookies ?? current.sendCookies ?? true,
         timeout: normalizedRequestTimeout(updates.timeout ?? current.timeout)
-      } as main.RequestPreferences
-      state = await UpdatePreferences({
-        ...state.preferences,
+      } as types.RequestPreferences
+      workspaceStore.appState = await UpdatePreferences({
+        ...appState.preferences,
         request: next,
         storeCookies: next.storeCookies ?? true
-      } as main.Preferences)
+      } as types.Preferences)
     })
     await requestPreferencesSaveQueue
   }
 
   async function browseCustomCaCertificate() {
-    if (!state) return
+    if (!appState) return
     const filePath = await SelectCustomCaCertificate()
     if (!filePath) return
     await updateRequestPreferences({
       customCaCertificate: {
-        ...(state.preferences.request?.customCaCertificate ?? {}),
+        ...(appState.preferences.request?.customCaCertificate ?? {}),
         enabled: true,
         filePath
-      } as main.CustomCaCertificatePreferences
+      } as types.CustomCaCertificatePreferences
     })
   }
 
   async function clearCustomCaCertificate() {
     await updateRequestPreferences({
       customCaCertificate: {
-        ...(state?.preferences?.request?.customCaCertificate ?? {}),
+        ...(appState?.preferences?.request?.customCaCertificate ?? {}),
         filePath: ''
-      } as main.CustomCaCertificatePreferences
+      } as types.CustomCaCertificatePreferences
     })
   }
 
-  async function updateGeneralPreferences(updates: Partial<main.GeneralPreferences>) {
-    if (!state) return
+  async function updateGeneralPreferences(updates: Partial<types.GeneralPreferences>) {
+    if (!appState) return
     const next = {
-      ...(state.preferences.general ?? {}),
+      ...(appState.preferences.general ?? {}),
       ...updates
-    } as main.GeneralPreferences
-    state = await UpdatePreferences({
-      ...state.preferences,
+    } as types.GeneralPreferences
+    workspaceStore.appState = await UpdatePreferences({
+      ...appState.preferences,
       general: next,
       defaultCollectionPath: next.defaultLocation ?? ''
-    } as main.Preferences)
+    } as types.Preferences)
   }
 
   async function browseDefaultLocation() {
@@ -5140,18 +5636,18 @@
     await updateGeneralPreferences({ defaultLocation: '' })
   }
 
-  async function updateAutoSavePreferences(updates: Partial<main.AutoSavePreferences>) {
-    if (!state) return
-    const current = state.preferences.autoSave ?? ({} as main.AutoSavePreferences)
+  async function updateAutoSavePreferences(updates: Partial<types.AutoSavePreferences>) {
+    if (!appState) return
+    const current = appState.preferences.autoSave ?? ({} as types.AutoSavePreferences)
     const next = {
-      enabled: updates.enabled ?? current.enabled ?? state.preferences.autosave ?? false,
+      enabled: updates.enabled ?? current.enabled ?? appState.preferences.autosave ?? false,
       interval: normalizedAutoSaveInterval(updates.interval ?? current.interval)
-    } as main.AutoSavePreferences
-    state = await UpdatePreferences({
-      ...state.preferences,
+    } as types.AutoSavePreferences
+    workspaceStore.appState = await UpdatePreferences({
+      ...appState.preferences,
       autoSave: next,
       autosave: next.enabled
-    } as main.Preferences)
+    } as types.Preferences)
     if (!next.enabled) {
       clearAutoSaveTimer()
     } else if (activeCollection && activeRequest?.draft) {
@@ -5160,21 +5656,21 @@
   }
 
   async function updateSSLSessionCache(enabled: boolean) {
-    if (!state) return
-    state = await UpdatePreferences({
-      ...state.preferences,
+    if (!appState) return
+    workspaceStore.appState = await UpdatePreferences({
+      ...appState.preferences,
       cache: {
-        ...(state.preferences.cache ?? {}),
-        sslSession: { enabled } as main.SSLSessionCachePreferences
-      } as main.CachePreferences
-    } as main.Preferences)
+        ...(appState.preferences.cache ?? {}),
+        sslSession: { enabled } as types.SSLSessionCachePreferences
+      } as types.CachePreferences
+    } as types.Preferences)
     if (!enabled) {
-      state = await ClearSSLSessionCache()
+      workspaceStore.appState = await ClearSSLSessionCache()
     }
   }
 
   async function clearSSLSessionCache() {
-    state = await ClearSSLSessionCache()
+    workspaceStore.appState = await ClearSSLSessionCache()
   }
 
   async function refreshFileCacheSize() {
@@ -5186,14 +5682,14 @@
   }
 
   async function updateFileCache(enabled: boolean) {
-    if (!state) return
-    state = await UpdatePreferences({
-      ...state.preferences,
+    if (!appState) return
+    workspaceStore.appState = await UpdatePreferences({
+      ...appState.preferences,
       cache: {
-        ...(state.preferences.cache ?? {}),
-        file: { enabled } as main.FileCachePreferences
-      } as main.CachePreferences
-    } as main.Preferences)
+        ...(appState.preferences.cache ?? {}),
+        file: { enabled } as types.FileCachePreferences
+      } as types.CachePreferences
+    } as types.Preferences)
     await refreshFileCacheSize()
   }
 
@@ -5202,11 +5698,11 @@
   }
 
   function autoSaveIsEnabled() {
-    return state?.preferences?.autoSave?.enabled ?? state?.preferences?.autosave ?? false
+    return appState?.preferences?.autoSave?.enabled ?? appState?.preferences?.autosave ?? false
   }
 
   function autoSaveDelay() {
-    return normalizedAutoSaveInterval(state?.preferences?.autoSave?.interval)
+    return normalizedAutoSaveInterval(appState?.preferences?.autoSave?.interval)
   }
 
   function clearAutoSaveTimer() {
@@ -5228,14 +5724,14 @@
       clearAutoSaveTimer()
       if (!target) return
       try {
-        state = await SaveRequest(target.collectionId, target.requestId)
+        workspaceStore.appState = await SaveRequest(target.collectionId, target.requestId)
       } catch (err) {
         error = err instanceof Error ? err.message : String(err)
       }
     }, autoSaveDelay())
   }
 
-  function closeApplication() {
+  function closeApplicationDirect() {
     try {
       Quit()
     } catch {
@@ -5243,8 +5739,211 @@
     }
   }
 
+  function closeApplication() {
+    beginTabLifecycleAction('quit')
+  }
+
   function toggleSidebarCollapse() {
     sidebarCollapsed = !sidebarCollapsed
+  }
+
+  function persistWorkbenchLayout() {
+    writeWorkbenchLayout(workbenchStorageScope, { sidebarWidth, responseSplit })
+  }
+
+  function restoreWorkbenchLayout() {
+    const restored = readWorkbenchLayout(workbenchStorageScope, { sidebarWidth, responseSplit })
+    sidebarWidth = restored.sidebarWidth
+    responseSplit = restored.responseSplit
+  }
+
+  function startSidebarResize(event: MouseEvent) {
+    event.preventDefault()
+    const startX = event.clientX
+    const startWidth = sidebarWidth
+    const move = (next: MouseEvent) => { sidebarWidth = clampSidebarWidth(startWidth + next.clientX - startX) }
+    const finish = () => { persistWorkbenchLayout(); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', finish) }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', finish)
+  }
+
+  function startResponseSplitResize(event: MouseEvent) {
+    event.preventDefault()
+    const workbench = (event.currentTarget as HTMLElement).closest('.request-workbench')
+    const bounds = workbench?.getBoundingClientRect()
+    if (!bounds) return
+    // Compact CSS always stacks the panes, regardless of the persisted wide-layout preference.
+    const isVertical = compactWorkbench || responsePaneOrientation === 'vertical'
+    const move = (next: MouseEvent) => {
+      responseSplit = splitFractionAt(bounds, next, isVertical, responseSplit)
+    }
+    const finish = () => { persistWorkbenchLayout(); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', finish) }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', finish)
+  }
+
+  function openCreationFlow(invoker: HTMLElement | null = document.activeElement instanceof HTMLElement ? document.activeElement : null) {
+    creationReturnFocus = invoker
+    creationOpen = true
+    void tick().then(() => document.querySelector<HTMLInputElement>('[data-new-request-name]')?.focus())
+  }
+
+  async function closeCreationFlow() {
+    creationOpen = false
+    await tick()
+    if (creationReturnFocus?.isConnected) creationReturnFocus.focus({ preventScroll: true })
+    creationReturnFocus = null
+  }
+
+
+
+  async function submitCreationFlow() {
+    if (!requestName.trim()) requestName = 'Untitled request'
+    await createRequest()
+    await closeCreationFlow()
+  }
+
+  async function openKeyboardShortcuts() {
+    activeView = 'preferences'
+    await tick()
+    const disclosure = document.querySelector<HTMLDetailsElement>('details.keybindings-disclosure')
+    if (!disclosure) return
+    disclosure.open = true
+    disclosure.scrollIntoView({ block: 'start' })
+    disclosure.querySelector<HTMLElement>('summary')?.focus({ preventScroll: true })
+  }
+
+  async function runWorkbenchCommand(command: WorkbenchCommandID, invoker: HTMLElement | null = null) {
+    switch (command) {
+      case 'new-request':
+        openCreationFlow(invoker)
+        return
+      case 'new-http':
+      case 'new-graphql':
+      case 'new-grpc':
+      case 'new-websocket':
+        requestType = command.replace('new-', '')
+        requestName = 'New Request'
+        openCreationFlow(invoker)
+        return
+      case 'new-folder':
+        if (activeCollection && !activeCollection.notFoundLocally) openNewFolderModal('', activeCollection)
+        return
+      case 'new-collection':
+        await createCollection()
+        return
+      case 'send-request':
+        await sendRequest()
+        return
+      case 'save-request':
+        await saveRequest()
+        return
+      case 'open-workspace':
+        await showWorkspaceWindowPicker()
+        return
+      case 'workspace-search':
+        openGlobalSearch()
+        return
+      case 'command-palette':
+        openCommandPalette(invoker)
+        return
+      case 'toggle-sidebar':
+        toggleSidebarCollapse()
+        return
+      case 'open-request':
+        activeView = 'request'
+        return
+      case 'open-collection-settings':
+        activeView = 'collection'
+        return
+		case 'open-git-workbench':
+			await openGitWorkbench()
+			return
+      case 'open-environments':
+        activeView = 'environments'
+        return
+      case 'import':
+        activeView = 'import'
+        return
+      case 'open-network':
+        activeView = 'network'
+        return
+      case 'open-cookies':
+        activeView = 'cookies'
+        return
+      case 'open-history':
+        activeView = 'history'
+        await refreshHistory()
+        return
+      case 'toggle-devtools':
+        if (devToolsOpen) await closeDevTools()
+        else await openDevTools()
+        return
+      case 'open-capabilities':
+        activeView = 'features'
+        return
+      case 'open-runner':
+        activeView = 'runner'
+        return
+      case 'open-preferences':
+        activeView = 'preferences'
+        return
+      case 'open-keyboard-shortcuts':
+        await openKeyboardShortcuts()
+        return
+      case 'change-orientation':
+        await toggleResponsePaneOrientation()
+        return
+      case 'open-notifications':
+        await openNotifications()
+        return
+      case 'cancel-run':
+        await cancelCollectionRun()
+    }
+  }
+
+  const commandPaletteActions = commandPaletteCommandIDs.map((id) => ({ id, ...workbenchCommandMetadata(id) }))
+  const commandPaletteActionsByID = Object.fromEntries(commandPaletteActions.map((action) => [action.id, action])) as Record<string, typeof commandPaletteActions[number]>
+
+  // US-055. Ranked rather than a bare substring filter. `includes` cannot tell
+  // an exact title from an incidental containment, so typing "send request"
+  // left the ordering to however the command list happened to be declared —
+  // and the first row is what Enter runs.
+  const visibleCommandPaletteActions = $derived(filterCommands(
+    commandPaletteActions.map((action) => ({ id: action.id, title: action.label, section: 'Commands', shortcut: action.shortcut })),
+    commandPaletteQuery
+  ).map((match) => commandPaletteActionsByID[match.command.id]))
+  $effect(() => {
+  if (commandPaletteActiveIndex >= visibleCommandPaletteActions.length) commandPaletteActiveIndex = Math.max(0, visibleCommandPaletteActions.length - 1)
+  })
+
+  function openCommandPalette(invoker: HTMLElement | null = document.activeElement instanceof HTMLElement ? document.activeElement : null) {
+    commandPaletteReturnFocus = invoker
+    commandPaletteOpen = true
+    commandPaletteQuery = ''
+    commandPaletteActiveIndex = 0
+    void tick().then(() => commandPaletteInput?.focus())
+  }
+
+  async function closeCommandPalette() {
+    commandPaletteOpen = false
+    commandPaletteQuery = ''
+    await tick()
+    if (commandPaletteReturnFocus?.isConnected) commandPaletteReturnFocus.focus({ preventScroll: true })
+    commandPaletteReturnFocus = null
+  }
+
+  function runCommandPaletteAction(action: typeof commandPaletteActions[number]) {
+    const returnFocus = commandPaletteReturnFocus
+    commandPaletteOpen = false
+    commandPaletteQuery = ''
+    commandPaletteReturnFocus = null
+    void runWorkbenchCommand(action.id, returnFocus)
+  }
+
+
+  async function updateKeyBindingPreset(preset: string) {
+    await updateAppearancePreferences({ keyBindingPreset: normalizeKeyBindingPreset(preset) })
   }
 
   async function updateKeybindingsEnabled(enabled: boolean) {
@@ -5252,24 +5951,24 @@
   }
 
   async function updateKeyBinding(action: string, combo: string) {
-    if (!state) return
+    if (!appState) return
     const os = currentKeyBindingOS()
     const binding = mergedKeyBinding(action)
     if (!binding) return
     const nextBindings = {
-      ...(state.preferences.keyBindings ?? {}),
+      ...(appState.preferences.keyBindings ?? {}),
       [action]: {
-        ...(state.preferences.keyBindings?.[action] ?? {}),
+        ...(appState.preferences.keyBindings?.[action] ?? {}),
         name: binding.name,
         [os]: keyBindingSignature(combo)
-      } as main.KeyBinding
+      } as types.KeyBinding
     }
     await updateAppearancePreferences({ keyBindings: nextBindings })
   }
 
   async function resetKeyBinding(action: string) {
-    if (!state) return
-    const nextBindings = { ...(state.preferences.keyBindings ?? {}) }
+    if (!appState) return
+    const nextBindings = { ...(appState.preferences.keyBindings ?? {}) }
     delete nextBindings[action]
     await updateAppearancePreferences({ keyBindings: nextBindings })
   }
@@ -5279,48 +5978,38 @@
   }
 
   function normalizedDevToolsTab(value: string | undefined): DevToolsTab {
-    return devToolsTabs.some((tab) => tab.id === value) ? (value as DevToolsTab) : 'console'
+    return normalizedTabID(value, devToolsTabs, 'console')
   }
 
-  function normalizedDevToolsDetailsPanelWidth(value: number | undefined) {
-    const width = Math.round(Number(value) || 400)
-    return Math.max(280, Math.min(800, width))
-  }
-
-  function normalizedDevToolsDrawerHeight(value: number | undefined) {
-    const height = Math.round(Number(value) || 320)
-    return Math.max(220, Math.min(720, height))
-  }
-
-  function applyDevToolsShellPreferences(preferences: main.DevToolsPreferences | undefined) {
+  function applyDevToolsShellPreferences(preferences: types.DevToolsPreferences | undefined) {
     devToolsOpen = preferences?.open ?? false
     devToolsTab = normalizedDevToolsTab(preferences?.activeTab)
     devToolsDrawerHeight = normalizedDevToolsDrawerHeight(preferences?.drawerHeight)
     devToolsDetailsPanelWidth = normalizedDevToolsDetailsPanelWidth(preferences?.detailsPanelWidth)
   }
 
-  async function updateDevToolsShellPreferences(updates: Partial<main.DevToolsPreferences>) {
+  async function updateDevToolsShellPreferences(updates: Partial<types.DevToolsPreferences>) {
     const next = {
-      ...(state?.preferences?.devTools ?? {}),
+      ...(appState?.preferences?.devTools ?? {}),
       ...updates,
-      activeTab: normalizedDevToolsTab(updates.activeTab ?? state?.preferences?.devTools?.activeTab ?? devToolsTab),
-      drawerHeight: normalizedDevToolsDrawerHeight(updates.drawerHeight ?? state?.preferences?.devTools?.drawerHeight ?? devToolsDrawerHeight),
-      detailsPanelWidth: normalizedDevToolsDetailsPanelWidth(updates.detailsPanelWidth ?? state?.preferences?.devTools?.detailsPanelWidth ?? devToolsDetailsPanelWidth),
-      network: state?.preferences?.devTools?.network ?? devToolsNetworkPreferencePayload(devToolsNetworkSortKey, devToolsNetworkSortDirection, devToolsNetworkColumnWidths)
-    } as main.DevToolsPreferences
+      activeTab: normalizedDevToolsTab(updates.activeTab ?? appState?.preferences?.devTools?.activeTab ?? devToolsTab),
+      drawerHeight: normalizedDevToolsDrawerHeight(updates.drawerHeight ?? appState?.preferences?.devTools?.drawerHeight ?? devToolsDrawerHeight),
+      detailsPanelWidth: normalizedDevToolsDetailsPanelWidth(updates.detailsPanelWidth ?? appState?.preferences?.devTools?.detailsPanelWidth ?? devToolsDetailsPanelWidth),
+      network: appState?.preferences?.devTools?.network ?? devToolsNetworkPreferencePayload(devToolsNetworkSortKey, devToolsNetworkSortDirection, devToolsNetworkColumnWidths)
+    } as types.DevToolsPreferences
     devToolsOpen = next.open ?? false
     devToolsTab = normalizedDevToolsTab(next.activeTab)
     devToolsDrawerHeight = normalizedDevToolsDrawerHeight(next.drawerHeight)
     devToolsDetailsPanelWidth = normalizedDevToolsDetailsPanelWidth(next.detailsPanelWidth)
-    if (!state) return
-    state = await UpdatePreferences({
-      ...state.preferences,
+    if (!appState) return
+    workspaceStore.appState = await UpdatePreferences({
+      ...appState.preferences,
       devTools: next
-    } as main.Preferences)
+    } as types.Preferences)
   }
 
   async function recordKeyBinding(action: string, event: KeyboardEvent) {
-    if (!keyBindingCanEdit(action) || !keybindingsAreEnabled(state?.preferences)) return
+    if (!keyBindingCanEdit(action) || !keybindingsAreEnabled(appState?.preferences)) return
     event.preventDefault()
     event.stopPropagation()
     const combo = keyBindingComboFromEvent(event)
@@ -5334,7 +6023,7 @@
   }
 
   function beginRecordKeyBinding(action: string) {
-    if (!keyBindingCanEdit(action) || !keybindingsAreEnabled(state?.preferences)) return
+    if (!keyBindingCanEdit(action) || !keybindingsAreEnabled(appState?.preferences)) return
     recordingKeybindingAction = action
     keybindingDraft = keyBindingValue(action)
     keybindingError = ''
@@ -5347,7 +6036,7 @@
     keybindingError = ''
   }
 
-  async function updateCollectionClientCertificate(index: number, field: keyof main.ClientCertificateConfig, value: string) {
+  async function updateCollectionClientCertificate(index: number, field: keyof types.ClientCertificateConfig, value: string) {
     if (!activeCollection) return
     const rows = [...(activeCollection.clientCertificates ?? [])]
     rows[index] = { ...rows[index], [field]: value }
@@ -5359,48 +6048,48 @@
         rows[index].pfxFilePath = ''
       }
     }
-    state = await UpdateCollectionClientCertificates(activeCollection.id, rows)
+    workspaceStore.appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
   }
 
-  async function updateCollectionPresets(updates: Partial<main.CollectionPresets>) {
+  async function updateCollectionPresets(updates: Partial<types.CollectionPresets>) {
     if (!activeCollection) return
-    state = await UpdateCollectionPresets(activeCollection.id, { ...(activeCollection.presets ?? {}), ...updates } as main.CollectionPresets)
+    workspaceStore.appState = await UpdateCollectionPresets(activeCollection.id, { ...(activeCollection.presets ?? {}), ...updates } as types.CollectionPresets)
   }
 
-  async function updateCollectionProtobuf(protobuf: main.CollectionProtobufConfig) {
+  async function updateCollectionProtobuf(protobuf: types.CollectionProtobufConfig) {
     if (!activeCollection) return
-    state = await UpdateCollectionProtobuf(activeCollection.id, protobuf)
+    workspaceStore.appState = await UpdateCollectionProtobuf(activeCollection.id, protobuf)
   }
 
   function collectionProtobufConfig() {
-    return activeCollection?.protobuf ?? ({ protoFiles: [], importPaths: [] } as unknown as main.CollectionProtobufConfig)
+    return activeCollection?.protobuf ?? ({ protoFiles: [], importPaths: [] } as unknown as types.CollectionProtobufConfig)
   }
 
   function asCollectionProtobufConfig(value: unknown) {
-    return value as main.CollectionProtobufConfig
+    return value as types.CollectionProtobufConfig
   }
 
   async function addCollectionClientCertificate() {
     if (!activeCollection) return
     const rows = [
       ...(activeCollection.clientCertificates ?? []),
-      { domain: '', type: 'cert', certFilePath: '', keyFilePath: '', pfxFilePath: '', passphrase: '' } as main.ClientCertificateConfig
+      { domain: '', type: 'cert', certFilePath: '', keyFilePath: '', pfxFilePath: '', passphrase: '' } as types.ClientCertificateConfig
     ]
-    state = await UpdateCollectionClientCertificates(activeCollection.id, rows)
+    workspaceStore.appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
   }
 
   async function removeCollectionClientCertificate(index: number) {
     if (!activeCollection) return
     const rows = [...(activeCollection.clientCertificates ?? [])]
     rows.splice(index, 1)
-    state = await UpdateCollectionClientCertificates(activeCollection.id, rows)
+    workspaceStore.appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
   }
 
-  async function updateCollectionProtoFile(index: number, field: keyof main.CollectionProtoFile, value: string) {
+  async function updateCollectionProtoFile(index: number, field: keyof types.CollectionProtoFile, value: string) {
     if (!activeCollection) return
     const protobuf = collectionProtobufConfig()
     const rows = [...(protobuf.protoFiles ?? [])]
-    rows[index] = { ...(rows[index] ?? { path: '', type: 'file' }), [field]: value } as main.CollectionProtoFile
+    rows[index] = { ...(rows[index] ?? { path: '', type: 'file' }), [field]: value } as types.CollectionProtoFile
     await updateCollectionProtobuf(asCollectionProtobufConfig({ ...protobuf, protoFiles: rows }))
   }
 
@@ -5409,7 +6098,7 @@
     const protobuf = collectionProtobufConfig()
     await updateCollectionProtobuf(asCollectionProtobufConfig({
       ...protobuf,
-      protoFiles: [...(protobuf.protoFiles ?? []), { path: 'protos/service.proto', type: 'file', exists: false } as main.CollectionProtoFile]
+      protoFiles: [...(protobuf.protoFiles ?? []), { path: 'protos/service.proto', type: 'file', exists: false } as types.CollectionProtoFile]
     }))
   }
 
@@ -5421,11 +6110,11 @@
     await updateCollectionProtobuf(asCollectionProtobufConfig({ ...protobuf, protoFiles: rows }))
   }
 
-  async function updateCollectionProtoImportPath(index: number, field: keyof main.CollectionProtoImportPath, value: string | boolean) {
+  async function updateCollectionProtoImportPath(index: number, field: keyof types.CollectionProtoImportPath, value: string | boolean) {
     if (!activeCollection) return
     const protobuf = collectionProtobufConfig()
     const rows = [...(protobuf.importPaths ?? [])]
-    rows[index] = { ...(rows[index] ?? { path: '', enabled: true }), [field]: value } as main.CollectionProtoImportPath
+    rows[index] = { ...(rows[index] ?? { path: '', enabled: true }), [field]: value } as types.CollectionProtoImportPath
     await updateCollectionProtobuf(asCollectionProtobufConfig({ ...protobuf, importPaths: rows }))
   }
 
@@ -5434,7 +6123,7 @@
     const protobuf = collectionProtobufConfig()
     await updateCollectionProtobuf(asCollectionProtobufConfig({
       ...protobuf,
-      importPaths: [...(protobuf.importPaths ?? []), { path: 'protos', enabled: true, exists: false } as main.CollectionProtoImportPath]
+      importPaths: [...(protobuf.importPaths ?? []), { path: 'protos', enabled: true, exists: false } as types.CollectionProtoImportPath]
     }))
   }
 
@@ -5446,44 +6135,44 @@
     await updateCollectionProtobuf(asCollectionProtobufConfig({ ...protobuf, importPaths: rows }))
   }
 
-  async function updateCollectionAWSV4Auth(updates: Partial<main.AWSV4Auth>) {
+  async function updateCollectionAWSV4Auth(updates: Partial<types.AWSV4Auth>) {
     if (!activeCollection) return
-    await updateCollectionAuth({ awsv4: { ...(activeCollection.auth?.awsv4 ?? {}), ...updates } as main.AWSV4Auth })
+    await updateCollectionAuth({ awsv4: { ...(activeCollection.auth?.awsv4 ?? {}), ...updates } as types.AWSV4Auth })
   }
 
-  async function updateCollectionOAuth1Auth(updates: Partial<main.OAuth1Auth>) {
+  async function updateCollectionOAuth1Auth(updates: Partial<types.OAuth1Auth>) {
     if (!activeCollection) return
-    await updateCollectionAuth({ oauth1: { ...(activeCollection.auth?.oauth1 ?? {}), ...updates } as main.OAuth1Auth })
+    await updateCollectionAuth({ oauth1: { ...(activeCollection.auth?.oauth1 ?? {}), ...updates } as types.OAuth1Auth })
   }
 
-  async function updateCollectionOAuth2Auth(updates: Partial<main.OAuth2Auth>) {
+  async function updateCollectionOAuth2Auth(updates: Partial<types.OAuth2Auth>) {
     if (!activeCollection) return
-    await updateCollectionAuth({ oauth2: { ...(activeCollection.auth?.oauth2 ?? {}), ...updates } as main.OAuth2Auth })
+    await updateCollectionAuth({ oauth2: { ...(activeCollection.auth?.oauth2 ?? {}), ...updates } as types.OAuth2Auth })
   }
 
   async function updateCollectionOAuth2AdditionalParam(bucket: OAuth2ParamBucket, sendIn: OAuth2ParamSendIn, index: number, field: OAuth2ParamField, value: string | boolean) {
     if (!activeCollection) return
-    await updateCollectionOAuth2Auth({ [bucket]: updateOAuth2ParamList(activeCollection.auth?.oauth2, bucket, index, sendIn, field, value) } as Partial<main.OAuth2Auth>)
+    await updateCollectionOAuth2Auth({ [bucket]: updateOAuth2ParamList(activeCollection.auth?.oauth2, bucket, index, sendIn, field, value) } as Partial<types.OAuth2Auth>)
   }
 
   async function addCollectionOAuth2AdditionalParam(bucket: OAuth2ParamBucket, sendIn: OAuth2ParamSendIn) {
     if (!activeCollection) return
-    await updateCollectionOAuth2Auth({ [bucket]: addOAuth2ParamList(activeCollection.auth?.oauth2, bucket, sendIn) } as Partial<main.OAuth2Auth>)
+    await updateCollectionOAuth2Auth({ [bucket]: addOAuth2ParamList(activeCollection.auth?.oauth2, bucket, sendIn) } as Partial<types.OAuth2Auth>)
   }
 
   async function removeCollectionOAuth2AdditionalParam(bucket: OAuth2ParamBucket, index: number) {
     if (!activeCollection) return
-    await updateCollectionOAuth2Auth({ [bucket]: removeOAuth2ParamList(activeCollection.auth?.oauth2, bucket, index) } as Partial<main.OAuth2Auth>)
+    await updateCollectionOAuth2Auth({ [bucket]: removeOAuth2ParamList(activeCollection.auth?.oauth2, bucket, index) } as Partial<types.OAuth2Auth>)
   }
 
   async function updateCollectionDocs(value: string) {
     if (!activeCollection) return
-    state = await UpdateCollectionDocs(activeCollection.id, value)
+    workspaceStore.appState = await UpdateCollectionDocs(activeCollection.id, value)
   }
 
   async function updateCollectionScript(field: 'preScript' | 'postScript' | 'tests', value: string) {
     if (!activeCollection) return
-    state = await UpdateCollectionScripts(
+    workspaceStore.appState = await UpdateCollectionScripts(
       activeCollection.id,
       field === 'preScript' ? value : activeCollection.preScript,
       field === 'postScript' ? value : activeCollection.postScript,
@@ -5491,8 +6180,8 @@
     )
   }
 
-  function folderAuthWithDefaults(updates: Partial<main.AuthConfig> = {}) {
-    const current = editableFolder?.auth ?? activeFolder?.auth ?? ({} as main.AuthConfig)
+  function folderAuthWithDefaults(updates: Partial<types.AuthConfig> = {}) {
+    const current = editableFolder?.auth ?? activeFolder?.auth ?? ({} as types.AuthConfig)
     const base = {
       mode: current.mode || '',
       username: current.username || '',
@@ -5503,14 +6192,14 @@
       apiValue: current.apiValue || '',
       apiLocation: current.apiLocation || 'header',
       oauth2: oauth2AuthWithDefaults(current.oauth2),
-      oauth1: current.oauth1 ?? ({} as main.OAuth1Auth),
-      awsv4: current.awsv4 ?? ({} as main.AWSV4Auth),
+      oauth1: current.oauth1 ?? ({} as types.OAuth1Auth),
+      awsv4: current.awsv4 ?? ({} as types.AWSV4Auth),
       ...updates
-    } as main.AuthConfig
+    } as types.AuthConfig
     return authWithOAuth2Defaults(base, updates)
   }
 
-  async function saveFolderSettings(updates: Partial<main.FolderConfig>) {
+  async function saveFolderSettings(updates: Partial<types.FolderConfig>) {
     if (!activeCollection || !activeFolder) return
     const currentFolder = editableFolder ?? activeFolder
     const nextFolder = {
@@ -5524,13 +6213,13 @@
       tests: currentFolder.tests ?? '',
       docs: currentFolder.docs ?? '',
       ...updates
-    } as main.FolderConfig
+    } as types.FolderConfig
     const targetPath = currentFolder.path
     folderSettingDrafts = { ...folderSettingDrafts, [nextFolder.path]: nextFolder }
     folderSettingsSaveQueue = folderSettingsSaveQueue
       .catch(() => {})
       .then(async () => {
-        state = await UpdateFolderSettings(activeCollection.id, targetPath, nextFolder)
+        workspaceStore.appState = await UpdateFolderSettings(activeCollection.id, targetPath, nextFolder)
         selectedFolderPath = nextFolder.path
         folderSettingDrafts = { ...folderSettingDrafts, [nextFolder.path]: nextFolder }
       })
@@ -5559,12 +6248,12 @@
     await saveFolderSettings({ headers })
   }
 
-  async function updateFolderVariable(bucket: 'variables' | 'resVariables', index: number, field: keyof main.Variable, value: string | boolean) {
+  async function updateFolderVariable(bucket: 'variables' | 'resVariables', index: number, field: keyof types.Variable, value: string | boolean) {
     const folder = editableFolder ?? activeFolder
     if (!folder) return
     const vars = [...(bucket === 'variables' ? folder.variables ?? [] : folder.resVariables ?? [])]
     vars[index] = field === 'dataType' ? { ...vars[index], dataType: String(value), type: String(value) } : { ...vars[index], [field]: value }
-    await saveFolderSettings({ [bucket]: vars } as Partial<main.FolderConfig>)
+    await saveFolderSettings({ [bucket]: vars } as Partial<types.FolderConfig>)
   }
 
   async function addFolderVariable(bucket: 'variables' | 'resVariables') {
@@ -5572,7 +6261,7 @@
     if (!folder) return
     const vars = [...(bucket === 'variables' ? folder.variables ?? [] : folder.resVariables ?? [])]
     vars.push({ id: `ui-folder-var-${Date.now()}`, name: '', value: '', type: 'string', dataType: 'string', enabled: true, secret: false })
-    await saveFolderSettings({ [bucket]: vars } as Partial<main.FolderConfig>)
+    await saveFolderSettings({ [bucket]: vars } as Partial<types.FolderConfig>)
   }
 
   async function removeFolderVariable(bucket: 'variables' | 'resVariables', index: number) {
@@ -5580,23 +6269,23 @@
     if (!folder) return
     const vars = [...(bucket === 'variables' ? folder.variables ?? [] : folder.resVariables ?? [])]
     vars.splice(index, 1)
-    await saveFolderSettings({ [bucket]: vars } as Partial<main.FolderConfig>)
+    await saveFolderSettings({ [bucket]: vars } as Partial<types.FolderConfig>)
   }
 
-  async function updateFolderAuth(updates: Partial<main.AuthConfig>) {
+  async function updateFolderAuth(updates: Partial<types.AuthConfig>) {
     await saveFolderSettings({ auth: folderAuthWithDefaults(updates) })
   }
 
-  async function updateFolderAWSV4Auth(updates: Partial<main.AWSV4Auth>) {
-    await updateFolderAuth({ awsv4: { ...(editableFolder?.auth?.awsv4 ?? activeFolder?.auth?.awsv4 ?? {}), ...updates } as main.AWSV4Auth })
+  async function updateFolderAWSV4Auth(updates: Partial<types.AWSV4Auth>) {
+    await updateFolderAuth({ awsv4: { ...(editableFolder?.auth?.awsv4 ?? activeFolder?.auth?.awsv4 ?? {}), ...updates } as types.AWSV4Auth })
   }
 
-  async function updateFolderOAuth1Auth(updates: Partial<main.OAuth1Auth>) {
-    await updateFolderAuth({ oauth1: { ...(editableFolder?.auth?.oauth1 ?? activeFolder?.auth?.oauth1 ?? {}), ...updates } as main.OAuth1Auth })
+  async function updateFolderOAuth1Auth(updates: Partial<types.OAuth1Auth>) {
+    await updateFolderAuth({ oauth1: { ...(editableFolder?.auth?.oauth1 ?? activeFolder?.auth?.oauth1 ?? {}), ...updates } as types.OAuth1Auth })
   }
 
-  async function updateFolderOAuth2Auth(updates: Partial<main.OAuth2Auth>) {
-    await updateFolderAuth({ oauth2: { ...(editableFolder?.auth?.oauth2 ?? activeFolder?.auth?.oauth2 ?? {}), ...updates } as main.OAuth2Auth })
+  async function updateFolderOAuth2Auth(updates: Partial<types.OAuth2Auth>) {
+    await updateFolderAuth({ oauth2: { ...(editableFolder?.auth?.oauth2 ?? activeFolder?.auth?.oauth2 ?? {}), ...updates } as types.OAuth2Auth })
   }
 
   async function updateFolderScript(field: 'preScript' | 'postScript' | 'tests', value: string) {
@@ -5625,78 +6314,7 @@
     return body
   }
 
-  function responseForView(response: main.Response | undefined, view: 'pretty' | 'raw' | 'base64' | 'hex', pretty: string) {
-    if (!response) return ''
-    if (view === 'raw') return response.body ?? ''
-    if (view === 'base64') return response.bodyBase64 ?? ''
-    if (view === 'hex') return hexFromBase64(response.bodyBase64 ?? '')
-    return pretty
-  }
-
-  function parseWebSocketResponseEvents(response: main.Response | undefined): WebSocketResponseEvent[] {
-    if (response?.previewMode !== 'websocket' || !response.body) return []
-    try {
-      const parsed = JSON.parse(response.body)
-      if (!Array.isArray(parsed)) return []
-      return parsed
-        .filter((event): event is WebSocketResponseEvent => Boolean(event) && typeof event === 'object')
-        .map((event) => ({
-          direction: String(event.direction ?? ''),
-          name: String(event.name ?? ''),
-          type: String(event.type ?? ''),
-          data: event.data === undefined ? undefined : String(event.data),
-          dataBase64: event.dataBase64 === undefined ? undefined : String(event.dataBase64),
-          dataHex: event.dataHex === undefined ? undefined : String(event.dataHex),
-          error: event.error === undefined ? undefined : String(event.error),
-          at: event.at === undefined ? undefined : String(event.at)
-        }))
-    } catch {
-      return []
-    }
-  }
-
-  function parseGrpcStreamEvents(response: main.Response | undefined): GrpcStreamEvent[] {
-    if (response?.previewMode !== 'grpc-stream' || !response.body) return []
-    try {
-      const parsed = JSON.parse(response.body)
-      if (!Array.isArray(parsed)) return []
-      return parsed
-        .filter((event): event is GrpcStreamEvent => Boolean(event) && typeof event === 'object')
-        .map((event) => ({
-          direction: String(event.direction ?? ''),
-          name: String(event.name ?? ''),
-          type: String(event.type ?? ''),
-          data: event.data === undefined ? undefined : String(event.data),
-          error: event.error === undefined ? undefined : String(event.error),
-          at: event.at === undefined ? undefined : String(event.at)
-        }))
-    } catch {
-      return []
-    }
-  }
-
-  function websocketEventPayload(event: WebSocketResponseEvent) {
-    if (event.error) return event.error
-    if (event.data !== undefined) return event.data
-    if (event.dataHex) return event.dataHex
-    if (event.dataBase64) return event.dataBase64
-    return ''
-  }
-
-  function websocketEventTime(event: WebSocketResponseEvent) {
-    if (!event.at) return ''
-    const value = new Date(event.at)
-    if (Number.isNaN(value.getTime())) return event.at
-    return value.toLocaleTimeString()
-  }
-
-  function websocketEventDirection(event: WebSocketResponseEvent) {
-    const direction = (event.direction || 'system').toLowerCase()
-    if (direction === 'sent' || direction === 'received') return direction
-    return 'system'
-  }
-
-  function responseHeaderValue(response: main.Response | undefined, name: string) {
+  function responseHeaderValue(response: types.Response | undefined, name: string) {
     const headers = response?.headers ?? {}
     const exact = headers[name]
     if (exact !== undefined) return String(exact)
@@ -5704,161 +6322,50 @@
     return match ? String(match[1]) : ''
   }
 
-  function responseScriptLogs(response: main.Response | undefined): ScriptLog[] {
-    return ((response as unknown as { scriptLogs?: ScriptLog[] })?.scriptLogs ?? [])
-  }
 
-  function timelineTimestamp(entry: main.TimelineItem) {
+  function timelineTimestamp(entry: types.TimelineItem) {
     if (!entry.at) return 0
     const value = new Date(entry.at)
     return Number.isNaN(value.getTime()) ? 0 : value.getTime()
   }
 
-  function sortedTimelineEntries(entries: main.TimelineItem[]) {
+  function sortedTimelineEntries(entries: types.TimelineItem[]) {
     return [...entries].sort((left, right) => timelineTimestamp(right) - timelineTimestamp(left))
   }
 
-  function timelineFilterKind(entry: main.TimelineItem): Exclude<TimelineKind, 'all'> {
-    if (entry.kind === 'oauth2' || entry.source === 'oauth2.0') return 'oauth'
-    if (entry.phase === 'post-response' || entry.phase === 'tests') return 'post'
-    if (entry.kind === 'scripted-request' || entry.kind === 'script' || entry.source === 'sendRequest' || entry.source === 'runRequest') return 'pre'
-    return 'main'
-  }
 
-  function timelineBadgeKind(entry: main.TimelineItem): Exclude<TimelineKind, 'all'> {
-    if (entry.kind === 'oauth2' || entry.source === 'oauth2.0') return 'oauth'
-    if (entry.source === 'runRequest') return 'post'
-    if (entry.source === 'sendRequest' || entry.kind === 'scripted-request' || entry.kind === 'script') return 'pre'
-    return 'main'
-  }
-
-  function timelineCounts(entries: main.TimelineItem[]) {
-    const counts: Record<TimelineKind, number> = { all: entries.length, main: 0, pre: 0, post: 0, oauth: 0 }
-    for (const entry of entries) counts[timelineFilterKind(entry)] += 1
-    return counts
-  }
-
-  function timelineVisibleFilters(counts: Record<TimelineKind, number>) {
-    if (counts.pre === 0 && counts.post === 0 && counts.oauth === 0) return [{ id: 'all' as TimelineKind, label: 'All' }]
-    const filters: { id: TimelineKind; label: string }[] = [
-      { id: 'all', label: 'All' },
-      { id: 'main', label: 'Request' }
-    ]
-    if (counts.pre > 0) filters.push({ id: 'pre', label: 'Pre-Request' })
-    if (counts.post > 0) filters.push({ id: 'post', label: 'Post-Response' })
-    if (counts.oauth > 0) filters.push({ id: 'oauth', label: 'OAuth' })
-    return filters
-  }
-
-  function timelineFilteredEntries(entries: main.TimelineItem[], filter: TimelineKind) {
-    if (filter === 'all') return entries
-    return entries.filter((entry) => timelineFilterKind(entry) === filter)
-  }
-
-  function timelineBadgeLabel(entry: main.TimelineItem) {
-    if (entry.source === 'grpc') return entry.eventType || 'grpc'
-    const kind = timelineBadgeKind(entry)
-    if (kind === 'main') return 'request'
-    if (kind === 'oauth') return 'oauth2.0'
-    if (entry.source === 'runRequest' || kind === 'post') return 'runRequest'
-    return 'sendRequest'
-  }
-
-  function timelineStatusLabel(entry: main.TimelineItem) {
-    if (entry.status) return String(entry.status)
-    if (entry.statusText) return entry.statusText
-    if (entry.error) return 'Error'
-    return '-'
-  }
-
-  function timelineMethod(entry: main.TimelineItem) {
-    return (entry.method || entry.message?.split(/\s+/)[0] || '').toUpperCase() || '-'
-  }
-
-  function timelineURL(entry: main.TimelineItem) {
-    if (entry.source === 'grpc' && entry.eventType) return grpcTimelineTitle(entry)
-    if (entry.url) return entry.url
-    const match = entry.message?.match(/https?:\/\/\S+/)
-    return match?.[0]?.replace(/\s*->.*$/, '') ?? entry.message ?? '-'
-  }
-
-  function grpcTimelineTitle(entry: main.TimelineItem) {
-    if (entry.eventType === 'request') return 'Request started'
-    if (entry.eventType === 'message') return entry.eventName ? `Message: ${entry.eventName}` : 'Message'
-    if (entry.eventType === 'response') return entry.eventName ? `Response Message #${entry.eventName.replace(/^response\s+/i, '')}` : 'Response Message'
-    if (entry.eventType === 'metadata') return 'Response metadata'
-    if (entry.eventType === 'status') return 'Status and trailers'
-    if (entry.eventType === 'end') return 'Stream ended'
-    if (entry.eventType === 'cancel') return 'Stream cancelled'
-    if (entry.eventType === 'error') return 'Stream error'
-    return entry.message || 'gRPC event'
-  }
-
-  function timelineTime(entry: main.TimelineItem) {
-    const timestamp = timelineTimestamp(entry)
-    if (!timestamp) return '-'
-    return new Date(timestamp).toLocaleTimeString()
-  }
-
-  function toggleTimelineEntry(entry: main.TimelineItem) {
-    expandedTimelineEntryID = expandedTimelineEntryID === entry.id ? '' : entry.id
-  }
-
-  function devToolsConsoleLogs(workspace: main.Workspace | undefined): DevToolsConsoleLog[] {
-    const rows: DevToolsConsoleLog[] = []
-    for (const collection of workspace?.collections ?? []) {
-      for (const item of collection.items ?? []) {
-        for (const log of responseScriptLogs(item.response)) {
-          rows.push({
-            ...log,
-            collectionName: collection.name,
-            requestName: item.name,
-            source: [collection.name, item.folderPath, item.name].filter(Boolean).join(' / ')
-          })
-        }
-      }
-    }
-    return rows
-  }
-
-  function normalizedNetworkMethod(row: main.NetworkLog) {
-    return (row.method || 'GET').toUpperCase()
-  }
 
   function normalizedDevToolsNetworkSortKey(value: string | undefined): DevToolsNetworkSortKey | '' {
-    return devToolsNetworkSortKeys.includes(value as DevToolsNetworkSortKey) ? (value as DevToolsNetworkSortKey) : ''
+    return normalizedDevToolsNetworkSortKeyOf(value, devToolsNetworkSortKeys)
   }
 
   function normalizedDevToolsNetworkSortDirection(value: string | undefined): DevToolsNetworkSortDirection {
-    return value === 'asc' || value === 'desc' ? value : ''
+    return normalizedDevToolsNetworkSortDirectionOf(value)
   }
 
   function defaultDevToolsNetworkColumnWidths() {
-    return [80, 70, 180, 300, 110, 100, 80]
+    return [...DEFAULT_NETWORK_COLUMN_WIDTHS]
   }
 
   function normalizedDevToolsNetworkColumnWidths(widths: number[] | undefined) {
-    const defaults = defaultDevToolsNetworkColumnWidths()
-    if (!widths || widths.length !== defaults.length) return defaults
-    return widths.map((width) => Math.max(60, Math.round(Number(width) || 0)))
+    return normalizedNetworkColumnWidths(widths)
   }
 
   function devToolsNetworkPreferencePayload(sortKey: DevToolsNetworkSortKey | '', sortDirection: DevToolsNetworkSortDirection, columnWidths: number[]) {
-    const normalizedSortKey = normalizedDevToolsNetworkSortKey(sortKey)
-    const normalizedDirection = normalizedSortKey ? normalizedDevToolsNetworkSortDirection(sortDirection) : ''
+    const sort = networkSortPreference(sortKey, sortDirection, devToolsNetworkSortKeys)
     return {
-      sortKey: normalizedDirection ? normalizedSortKey : '',
-      sortDirection: normalizedDirection,
+      sortKey: sort.key,
+      sortDirection: sort.direction,
       columnWidths: normalizedDevToolsNetworkColumnWidths(columnWidths)
     }
   }
 
-  function devToolsNetworkPreferencesKeyFor(preferences: main.DevToolsNetworkPreferences | undefined) {
+  function devToolsNetworkPreferencesKeyFor(preferences: types.DevToolsNetworkPreferences | undefined) {
     const payload = devToolsNetworkPreferencePayload(normalizedDevToolsNetworkSortKey(preferences?.sortKey), normalizedDevToolsNetworkSortDirection(preferences?.sortDirection), preferences?.columnWidths ?? defaultDevToolsNetworkColumnWidths())
     return JSON.stringify(payload)
   }
 
-  function applyDevToolsNetworkPreferences(preferences: main.DevToolsNetworkPreferences | undefined) {
+  function applyDevToolsNetworkPreferences(preferences: types.DevToolsNetworkPreferences | undefined) {
     const payload = devToolsNetworkPreferencePayload(normalizedDevToolsNetworkSortKey(preferences?.sortKey), normalizedDevToolsNetworkSortDirection(preferences?.sortDirection), preferences?.columnWidths ?? defaultDevToolsNetworkColumnWidths())
     devToolsNetworkSortKey = payload.sortKey
     devToolsNetworkSortDirection = payload.sortDirection
@@ -5866,77 +6373,34 @@
     devToolsNetworkPreferencesKey = JSON.stringify(payload)
   }
 
-  async function updateDevToolsNetworkPreferences(updates: Partial<main.DevToolsNetworkPreferences>) {
+  async function updateDevToolsNetworkPreferences(updates: Partial<types.DevToolsNetworkPreferences>) {
     const payload = devToolsNetworkPreferencePayload(normalizedDevToolsNetworkSortKey(updates.sortKey ?? devToolsNetworkSortKey), normalizedDevToolsNetworkSortDirection(updates.sortDirection ?? devToolsNetworkSortDirection), updates.columnWidths ?? devToolsNetworkColumnWidths)
     devToolsNetworkSortKey = payload.sortKey
     devToolsNetworkSortDirection = payload.sortDirection
     devToolsNetworkColumnWidths = payload.columnWidths
     devToolsNetworkPreferencesKey = JSON.stringify(payload)
-    if (!state) return
-    state = await UpdatePreferences({
-      ...state.preferences,
+    if (!appState) return
+    workspaceStore.appState = await UpdatePreferences({
+      ...appState.preferences,
       devTools: {
-        ...(state.preferences.devTools ?? {}),
+        ...(appState.preferences.devTools ?? {}),
         network: payload
       }
-    } as main.Preferences)
+    } as types.Preferences)
   }
 
-  function filteredDevToolsNetworkRows(rows: main.NetworkLog[], filters: Record<string, boolean>) {
+  function filteredDevToolsNetworkRows(rows: types.NetworkLog[], filters: Record<string, boolean>) {
     return rows.filter((row) => filters[normalizedNetworkMethod(row)] === true)
   }
 
-  function sortedDevToolsNetworkRows(rows: main.NetworkLog[], key: DevToolsNetworkSortKey | '', direction: DevToolsNetworkSortDirection) {
-    if (!key || !direction) return rows
-    const multiplier = direction === 'asc' ? 1 : -1
-    return [...rows].sort((left, right) => {
-      const leftValue = devToolsNetworkSortValue(left, key)
-      const rightValue = devToolsNetworkSortValue(right, key)
-      if (typeof leftValue === 'number' && typeof rightValue === 'number') {
-        return (leftValue - rightValue) * multiplier
-      }
-      return String(leftValue).localeCompare(String(rightValue)) * multiplier
-    })
-  }
 
-  function devToolsNetworkSortValue(row: main.NetworkLog, key: DevToolsNetworkSortKey) {
-    if (key === 'method') return normalizedNetworkMethod(row)
-    if (key === 'status') return row.status ?? 0
-    if (key === 'domain') return devToolsNetworkDomain(row)
-    if (key === 'path') return devToolsNetworkPath(row)
-    if (key === 'time') return networkLogTimestamp(row)
-    if (key === 'duration') return row.durationMs ?? 0
-    return row.size ?? 0
-  }
 
   function cycleDevToolsNetworkSort(key: DevToolsNetworkSortKey) {
-    let nextKey: DevToolsNetworkSortKey | '' = key
-    let nextDirection: DevToolsNetworkSortDirection = 'asc'
-    if (devToolsNetworkSortKey !== key) {
-      nextKey = key
-      nextDirection = 'asc'
-    } else if (devToolsNetworkSortDirection === 'asc') {
-      nextKey = key
-      nextDirection = 'desc'
-    } else if (devToolsNetworkSortDirection === 'desc') {
-      nextKey = ''
-      nextDirection = ''
-    } else {
-      nextKey = key
-      nextDirection = 'asc'
-    }
-    void updateDevToolsNetworkPreferences({ sortKey: nextKey, sortDirection: nextDirection })
+    const next = nextNetworkSort(devToolsNetworkSortKey, devToolsNetworkSortDirection, key)
+    void updateDevToolsNetworkPreferences({ sortKey: next.key, sortDirection: next.direction })
   }
 
-  function devToolsNetworkSortLabel(key: DevToolsNetworkSortKey, activeKey: DevToolsNetworkSortKey | '', direction: DevToolsNetworkSortDirection) {
-    if (activeKey !== key || !direction) return ''
-    return direction === 'asc' ? 'ascending' : 'descending'
-  }
 
-  function devToolsNetworkSortAriaValue(key: DevToolsNetworkSortKey, activeKey: DevToolsNetworkSortKey | '', direction: DevToolsNetworkSortDirection): 'ascending' | 'descending' | 'none' {
-    if (activeKey !== key || !direction) return 'none'
-    return direction === 'asc' ? 'ascending' : 'descending'
-  }
 
   function setDevToolsNetworkFilter(method: string, enabled: boolean) {
     devToolsNetworkFilters = { ...devToolsNetworkFilters, [method]: enabled }
@@ -5954,11 +6418,7 @@
     let latestWidths = startWidths
     devToolsNetworkResizingColumn = index
     const handleMove = (moveEvent: MouseEvent) => {
-      const delta = moveEvent.clientX - startX
-      const clampedDelta = Math.max(-(startWidths[index] - 60), Math.min(startWidths[index + 1] - 60, delta))
-      latestWidths = [...startWidths]
-      latestWidths[index] = startWidths[index] + clampedDelta
-      latestWidths[index + 1] = startWidths[index + 1] - clampedDelta
+      latestWidths = resizeAdjacentColumns(startWidths, index, moveEvent.clientX - startX)
       devToolsNetworkColumnWidths = latestWidths
     }
     const cleanup = () => {
@@ -5981,7 +6441,7 @@
     const startWidth = devToolsDetailsPanelWidth
     let latestWidth = startWidth
     const handleMove = (moveEvent: MouseEvent) => {
-      latestWidth = normalizedDevToolsDetailsPanelWidth(startWidth - (moveEvent.clientX - startX))
+      latestWidth = sizeFromTrailingEdgeDrag(startWidth, moveEvent.clientX - startX, normalizedDevToolsDetailsPanelWidth)
       devToolsDetailsPanelWidth = latestWidth
     }
     const cleanup = () => {
@@ -6003,7 +6463,7 @@
     const startHeight = devToolsDrawerHeight
     let latestHeight = startHeight
     const handleMove = (moveEvent: MouseEvent) => {
-      latestHeight = normalizedDevToolsDrawerHeight(startHeight - (moveEvent.clientY - startY))
+      latestHeight = sizeFromTrailingEdgeDrag(startHeight, moveEvent.clientY - startY, normalizedDevToolsDrawerHeight)
       devToolsDrawerHeight = latestHeight
     }
     const cleanup = () => {
@@ -6018,7 +6478,7 @@
     window.addEventListener('mouseup', handleUp)
   }
 
-  function selectDevToolsNetworkRow(row: main.NetworkLog) {
+  function selectDevToolsNetworkRow(row: types.NetworkLog) {
     selectedDevToolsNetworkLogID = row.id
     devToolsNetworkDetailTab = 'request'
   }
@@ -6120,7 +6580,7 @@
     })
   }
 
-  async function openFolderInTerminal(collection: main.Collection, folderPath: string) {
+  async function openFolderInTerminal(collection: types.Collection, folderPath: string) {
     if (!collection || collection.notFoundLocally) return
     await runAction('open folder terminal', async () => {
       const cwd = await ResolveCollectionFolderPath(collection.id, folderPath)
@@ -6145,7 +6605,7 @@
     })
   }
 
-  async function revealFolderInFolder(collection: main.Collection, folderPath: string) {
+  async function revealFolderInFolder(collection: types.Collection, folderPath: string) {
     if (!collection || collection.notFoundLocally) return
     await runAction('reveal folder', async () => {
       await RevealCollectionFolderInFolder(collection.id, folderPath)
@@ -6153,7 +6613,7 @@
     })
   }
 
-  async function revealRequestInFolder(collection: main.Collection, item: main.RequestItem) {
+  async function revealRequestInFolder(collection: types.Collection, item: types.RequestItem) {
     if (!collection || collection.notFoundLocally) return
     await runAction('reveal request', async () => {
       await RevealRequestInFolder(collection.id, item.id)
@@ -6200,13 +6660,13 @@
     }
   }
 
-  function terminalSessionLabel(session: main.TerminalSession) {
+  function terminalSessionLabel(session: types.TerminalSession) {
     const parts = (session.cwd || '').split(/[\\/]/).filter(Boolean)
     const leaf = parts[parts.length - 1]
     return leaf || 'Terminal'
   }
 
-  function terminalSessionStatus(session: main.TerminalSession) {
+  function terminalSessionStatus(session: types.TerminalSession) {
     if (session.exited) return `Exited ${session.exitCode}`
     return session.pid ? `PID ${session.pid}` : 'Starting'
   }
@@ -6221,36 +6681,15 @@
       .trimStart()
   }
 
-  function devToolsNetworkDomain(row: main.NetworkLog) {
-    try {
-      const parsed = new URL(row.url)
-      return parsed.host || row.url || '-'
-    } catch {
-      return row.url || '-'
-    }
-  }
 
-  function devToolsNetworkPath(row: main.NetworkLog) {
-    try {
-      const parsed = new URL(row.url)
-      return `${parsed.pathname || '/'}${parsed.search}`
-    } catch {
-      return row.url || '-'
-    }
-  }
 
-  function networkLogTime(row: main.NetworkLog) {
+  function networkLogTime(row: types.NetworkLog) {
     if (!row.at) return '-'
     const value = new Date(row.at)
     if (Number.isNaN(value.getTime())) return '-'
     return value.toLocaleTimeString()
   }
 
-  function networkLogTimestamp(row: main.NetworkLog) {
-    if (!row.at) return 0
-    const value = new Date(row.at)
-    return Number.isNaN(value.getTime()) ? 0 : value.getTime()
-  }
 
   function statusDisplay(status: number | undefined) {
     return status ? String(status) : '-'
@@ -6268,7 +6707,7 @@
     return value?.trim() ? value : ''
   }
 
-  function networkLogLines(row: main.NetworkLog | undefined) {
+  function networkLogLines(row: types.NetworkLog | undefined) {
     if (!row) return []
     return [
       `Started: ${networkLogTime(row)}`,
@@ -6278,17 +6717,20 @@
     ].filter(Boolean)
   }
 
-  function formatRuntimeBytes(value: number | undefined) {
-    if (!value) return '0 B'
-    const units = ['B', 'KB', 'MB', 'GB']
-    let amount = value
-    let unitIndex = 0
-    while (amount >= 1024 && unitIndex < units.length - 1) {
-      amount /= 1024
-      unitIndex += 1
+
+
+  function requestNameForTransport(target: { collectionId: string; requestId: string }) {
+    for (const workspace of appState?.workspaces ?? []) {
+      const collection = workspace.collections?.find((candidate) => candidate.id === target.collectionId)
+      const request = collection?.items?.find((candidate) => candidate.id === target.requestId)
+      if (request) return request.name?.trim() || 'request'
     }
-    const precision = amount >= 10 || unitIndex === 0 ? 0 : 1
-    return `${amount.toFixed(precision)} ${units[unitIndex]}`
+    return 'request'
+  }
+
+  function runnerCancellationCount(snapshot: types.RunnerSnapshot | undefined) {
+    const count = snapshot?.cancelled
+    return typeof count === 'number' && Number.isFinite(count) && count > 0 ? count : 0
   }
 
   function formatCPUPercent(value: number | undefined) {
@@ -6327,162 +6769,118 @@
     return 'todo'
   }
 
-  function groupedItems(collection: main.Collection, query = '') {
-    const groups: { folder: string; items: main.RequestItem[] }[] = []
-    const indexByFolder = new Map<string, number>()
-    const addGroup = (folder: string) => {
-      let index = indexByFolder.get(folder)
-      if (index === undefined) {
-        index = groups.length
-        indexByFolder.set(folder, index)
-        groups.push({ folder, items: [] })
+  // US-034. Called from the template inside {#each visibleSidebarCollections},
+  // so it rebuilt every collection's folder grouping on EVERY render —
+  // including renders caused by something with no bearing on it at all.
+  //
+  // Keyed on collection id + revision + query. The revision is the one value
+  // the backend bumps on every mutation, so it is what guarantees the key
+  // changes whenever anything the grouping reads has changed. Keying on the
+  // collection object alone would go stale on an in-place edit; keying on its
+  // item count would miss a rename.
+  // US-031: sidebar row windowing.
+  //
+  // The tree markup stays nested (collection -> folder -> request) because
+  // flattening it would mean rewriting ~200 lines of headers, drag targets and
+  // menus. Only the innermost request loop is windowed, using each group's
+  // offset in a FLAT row coordinate so the arithmetic matches what the user
+  // actually scrolls past.
+  //
+  // Rows outside the window are replaced by two spacer divs, so the scrollbar
+  // stays the size it would be if everything were rendered. Getting that wrong
+  // is visible immediately: the scrollbar jumps as you scroll.
+  let sidebarScrollTop = $state(0)
+  let sidebarViewportHeight = $state(0)
+  let sidebarRowHeight = $state(28)
+
+  function measureSidebarViewport(node: HTMLElement) {
+    const sync = () => {
+      sidebarScrollTop = node.scrollTop
+      sidebarViewportHeight = node.clientHeight
+      const row = node.querySelector<HTMLElement>('.request-row-shell')
+      // A row measures 0 before layout; keeping the previous value avoids a
+      // divide-by-zero window that would render nothing.
+      if (row && row.offsetHeight > 0) sidebarRowHeight = row.offsetHeight
+    }
+    sync()
+    node.addEventListener('scroll', sync, { passive: true })
+    const observer = new ResizeObserver(sync)
+    observer.observe(node)
+    return {
+      destroy() {
+        node.removeEventListener('scroll', sync)
+        observer.disconnect()
       }
-      return index
     }
-    for (const folder of filteredFolders(collection, query)) {
-      addGroup(folder.displayPath || folder.path)
-    }
-    for (const item of filteredItems(collection, query)) {
-      const folder = item.folderPath || ''
-      const index = addGroup(folder)
-      groups[index].items.push(item)
-    }
-    return groups
   }
 
-  function filteredFolders(collection: main.Collection, query = '') {
-    const folders = collection.folders ?? []
-    if (!query.trim()) return folders
-    return folders.filter((folder) => folderMatches(folder, query))
+  /**
+   * The flat row index of a group's first request.
+   *
+   * The walk lives in lib/virtualList beside the window arithmetic it feeds,
+   * where it is tested — including the rule that a collection whose directory
+   * is missing contributes only its header.
+   */
+  function sidebarGroupOffset(targetCollectionId: string, targetFolder: string): number {
+    return sidebarGroupOffsetOf(
+      {
+        collections: visibleSidebarCollections,
+        groupsFor: (id) => {
+          const collection = visibleSidebarCollections.find((candidate) => candidate.id === id)
+          return collection ? groupedItems(collection, searchQuery) : []
+        },
+        collapsedCollections: collapsedSidebarCollections,
+        collapsedFolders: collapsedSidebarFolders,
+        searchQuery,
+        folderKey: sidebarFolderKey
+      },
+      targetCollectionId,
+      targetFolder
+    )
   }
 
-  function sidebarCollections(workspace: main.Workspace | undefined, query: string) {
+  /** Which of a group's items fall inside the viewport, plus the padding. */
+  // The offset and the viewport metrics are reactive; the arithmetic is not,
+  // and lives in lib/virtualList beside computeWindow.
+  function sidebarItemWindow(collectionId: string, folder: string, count: number) {
+    return sidebarGroupWindow(
+      count,
+      sidebarGroupOffset(collectionId, folder),
+      sidebarRowHeight,
+      sidebarViewportHeight,
+      sidebarScrollTop
+    )
+  }
+
+  // US-031: which per-row disclosure menus are open, keyed collection:item.
+  // Only an open menu renders its buttons; see the note at the <details>.
+  let openRequestMenus = $state<Record<string, boolean>>({})
+
+  const groupedItemsMemo = new KeyedMemo<{ folder: string; items: types.RequestItem[] }[]>()
+
+  function groupedItems(collection: types.Collection, query = '') {
+    const revision = appState?.revision ?? 0
+    return groupedItemsMemo.get(`${collection.id}:${revision}:${query}`, () => computeGroupedItems(collection, query))
+  }
+
+
+
+  function sidebarCollections(workspace: types.Workspace | undefined, query: string) {
     const collections = workspace?.collections ?? []
     if (!query) return collections
     return collections.filter((collection) => collectionMatches(collection, query) || filteredFolders(collection, query).length > 0 || filteredItems(collection, query).length > 0)
   }
 
-  function sidebarRequestCount(workspace: main.Workspace | undefined, query: string) {
+  function sidebarRequestCount(workspace: types.Workspace | undefined, query: string) {
     return (workspace?.collections ?? []).reduce((total, collection) => total + filteredItems(collection, query).length, 0)
   }
 
-  function buildGlobalSearchResults(workspace: main.Workspace | undefined, query: string): GlobalSearchResult[] {
-    const collections = workspace?.collections ?? []
-    const normalized = normalizeGlobalSearchQuery(query)
-    const documentationResult: GlobalSearchResult = {
-      id: 'documentation:bruno',
-      type: 'documentation',
-      collectionId: '',
-      name: 'Bruno Documentation',
-      subtitle: 'Browse the official Bruno documentation',
-      meta: 'documentation',
-      rank: 0
-    }
-    if (!normalized) {
-      const collectionResults = collections
-        .map((collection) => ({
-          id: `collection:${collection.id}`,
-          type: 'collection' as const,
-          collectionId: collection.id,
-          name: collection.name,
-          subtitle: collection.path || `${collection.items?.length ?? 0} requests`,
-          meta: collection.format || 'collection',
-          rank: 1
-        }))
-        .sort(sortGlobalSearchResults)
-      return [documentationResult, ...collectionResults]
-    }
-    if (!isValidGlobalSearchQuery(normalized)) return []
-    const terms = normalized.split(/[\s/]+/).filter(Boolean)
-    const enablePathMatch = normalized.includes('/')
-    const results: GlobalSearchResult[] = []
-    if (globalSearchTermsMatch([documentationResult.name, documentationResult.subtitle, 'docs', 'https://docs.usebruno.com/'], terms)) {
-      results.push(documentationResult)
-    }
 
-    for (const collection of collections) {
-      if (globalSearchTermsMatch([collection.name, collection.path, collection.format], terms)) {
-        results.push({
-          id: `collection:${collection.id}`,
-          type: 'collection',
-          collectionId: collection.id,
-          name: collection.name,
-          subtitle: collection.path || `${collection.items?.length ?? 0} requests`,
-          meta: collection.format || 'collection',
-          rank: 0
-        })
-      }
 
-      const folders = new Set((collection.items ?? []).map((item) => item.folderPath).filter(Boolean))
-      for (const folder of folders) {
-        const folderPath = `${collection.name}/${folder}`
-        if (globalSearchTermsMatch([folder, enablePathMatch ? folderPath : ''], terms)) {
-          results.push({
-            id: `folder:${collection.id}:${folder}`,
-            type: 'folder',
-            collectionId: collection.id,
-            name: folder,
-            subtitle: collection.name,
-            meta: 'folder',
-            rank: 1
-          })
-        }
-      }
 
-      for (const item of collection.items ?? []) {
-        const itemPath = globalSearchItemPath(collection, item)
-        const nameMatch = globalSearchTermsMatch([item.name], terms)
-        const urlMatch = globalSearchTermsMatch([item.url], terms)
-        const pathMatch = enablePathMatch && globalSearchTermsMatch([itemPath], terms)
-        const methodMatch = globalSearchTermsMatch([item.method, item.type], terms)
-        if (nameMatch || urlMatch || pathMatch || methodMatch) {
-          results.push({
-            id: `request:${collection.id}:${item.id}`,
-            type: 'request',
-            collectionId: collection.id,
-            itemId: item.id,
-            name: item.name,
-            subtitle: item.folderPath ? `${collection.name} / ${item.folderPath}` : collection.name,
-            meta: item.method || item.type || 'request',
-            rank: nameMatch ? 2 : urlMatch ? 3 : 4
-          })
-        }
-      }
-    }
 
-    return results.sort(sortGlobalSearchResults)
-  }
 
-  function filteredItems(collection: main.Collection, query: string) {
-    const items = collection.items ?? []
-    if (!query || collectionMatches(collection, query)) return items
-    return items.filter((item) => requestMatches(collection, item, query))
-  }
 
-  function normalizedSearch(value: string) {
-    return value.trim().toLowerCase()
-  }
-
-  function normalizeGlobalSearchQuery(value: string) {
-    return value.trim().replace(/\/+/g, '/').toLowerCase()
-  }
-
-  function isValidGlobalSearchQuery(value: string) {
-    return Boolean(value && value !== '/' && !(value.length === 1 && !/[a-z0-9]/i.test(value)))
-  }
-
-  function globalSearchTermsMatch(values: unknown[], terms: string[]) {
-    const haystack = values.map((value) => String(value ?? '').toLowerCase()).join(' ')
-    return terms.every((term) => haystack.includes(term))
-  }
-
-  function globalSearchItemPath(collection: main.Collection, item: main.RequestItem) {
-    return [collection.name, item.folderPath, item.name].filter(Boolean).join('/')
-  }
-
-  function sortGlobalSearchResults(a: GlobalSearchResult, b: GlobalSearchResult) {
-    return a.rank - b.rank || a.type.localeCompare(b.type) || a.name.localeCompare(b.name)
-  }
 
   function openGlobalSearch() {
     globalSearchOpen = true
@@ -6499,16 +6897,14 @@
 
   async function selectGlobalSearchResult(result: GlobalSearchResult) {
     closeGlobalSearch()
-    if (result.type === 'documentation') {
-      openExternalLink('https://docs.usebruno.com/')
-    } else if (result.type === 'request' && result.itemId) {
+    if (result.type === 'request' && result.itemId) {
       await openRequestTab(result.collectionId, result.itemId)
     } else if (result.type === 'folder') {
-      selectedCollectionId = result.collectionId
+      workspaceStore.selectedCollectionId = result.collectionId
       requestSearch = result.name
       activeView = 'request'
     } else {
-      selectedCollectionId = result.collectionId
+      workspaceStore.selectedCollectionId = result.collectionId
       activeView = 'collection'
     }
   }
@@ -6530,121 +6926,23 @@
     }
   }
 
-  function collectionMatches(collection: main.Collection, query: string) {
-    return [collection.name, collection.format, collection.path].some((value) => searchHit(value, query))
-  }
 
-  function folderMatches(folder: main.FolderConfig, query: string) {
-    return [folder.displayPath, folder.path, folder.name].some((value) => searchHit(value, query))
-  }
 
-  function requestMatches(collection: main.Collection, item: main.RequestItem, query: string) {
-    const exampleValues = (item.examples ?? []).flatMap((example) => [example.name, example.description, example.request?.url])
-    return [collection.name, item.folderPath, item.name, item.method, item.type, item.url, ...exampleValues].some((value) => searchHit(value, query))
-  }
 
-  function searchHit(value: unknown, query: string) {
-    return String(value ?? '').toLowerCase().includes(query)
-  }
 
-  function emptyCookieForm(): CookieForm {
-    return {
-      id: '',
-      name: '',
-      value: '',
-      domain: '',
-      path: '/',
-      expires: '',
-      session: true,
-      secure: false,
-      httpOnly: false,
-      sameSite: '',
-      hostOnly: true
-    }
-  }
 
-  function cookieGroups(cookies: main.CookieEntry[], query: string) {
-    const groups = new Map<string, main.CookieEntry[]>()
-    for (const cookie of cookies ?? []) {
-      if (query && !cookieMatches(cookie, query)) continue
-      const domain = cookie.domain || '(no domain)'
-      groups.set(domain, [...(groups.get(domain) ?? []), cookie])
-    }
-    return Array.from(groups.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([domain, groupCookies]) => ({
-        domain,
-        cookies: groupCookies.sort((a, b) => (a.path || '/').localeCompare(b.path || '/') || a.name.localeCompare(b.name)),
-        header: cookieHeaderPreview(groupCookies)
-      }))
-  }
 
-  function cookieMatches(cookie: main.CookieEntry, query: string) {
-    return [cookie.name, cookie.value, cookie.domain, cookie.path, cookie.sameSite, cookieFlags(cookie)].some((value) => searchHit(value, query))
-  }
 
-  function cookieHeaderPreview(cookies: main.CookieEntry[]) {
-    return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ')
-  }
 
-  function cookieFlags(cookie: main.CookieEntry) {
-    const flags = []
-    if (cookie.secure) flags.push('secure')
-    if (cookie.httpOnly) flags.push('httpOnly')
-    if (cookie.sameSite) flags.push(`sameSite=${cookie.sameSite}`)
-    if (cookie.hostOnly) flags.push('hostOnly')
-    return flags.join(', ') || 'none'
-  }
 
-  function cookieExpiresInput(cookie: main.CookieEntry) {
-    if (!cookie.expires) return ''
-    const value = new Date(cookie.expires)
-    return Number.isNaN(value.getTime()) || value.getFullYear() <= 1 ? '' : value.toISOString()
-  }
 
-  function cookieExpiry(cookie: main.CookieEntry) {
-    if (cookie.session) return 'session'
-    if (!cookie.expires) return 'session'
-    const value = new Date(cookie.expires)
-    if (Number.isNaN(value.getTime()) || value.getFullYear() <= 1) return 'session'
-    return value.toLocaleString()
-  }
 
-  function notificationsForDisplay(notifications: main.Notification[]) {
-    return [...notifications].sort((a, b) => notificationTime(b) - notificationTime(a))
-  }
 
-  function notificationTime(notification: main.Notification) {
-    const value = new Date(notification.at)
-    return Number.isNaN(value.getTime()) ? 0 : value.getTime()
-  }
 
-  function notificationTitle(notification: main.Notification | undefined) {
-    return notification?.title || notification?.message || 'Notification'
-  }
 
-  function notificationDescription(notification: main.Notification | undefined) {
-    return notification?.description || notification?.message || ''
-  }
 
-  function notificationType(notification: main.Notification | undefined) {
-    return notification?.type || notification?.level || 'Info'
-  }
 
-  function notificationDate(notification: main.Notification | undefined) {
-    if (!notification?.at) return ''
-    const value = new Date(notification.at)
-    if (Number.isNaN(value.getTime())) return ''
-    return value.toLocaleString()
-  }
 
-  function notificationLevelClass(notification: main.Notification | undefined) {
-    const level = (notification?.level || '').toLowerCase()
-    if (level === 'success') return 'success'
-    if (level === 'warning' || level === 'warn') return 'warning'
-    if (level === 'error' || level === 'danger') return 'danger'
-    return 'info'
-  }
 
   async function openNotifications() {
     notificationsOpen = true
@@ -6664,10 +6962,10 @@
     pinnedUnreadNotificationIDs = null
   }
 
-  async function selectNotification(notification: main.Notification) {
+  async function selectNotification(notification: types.Notification) {
     selectedNotificationID = notification.id
     if (!notification.read) {
-      state = await MarkNotificationRead(notification.id)
+      workspaceStore.appState = await MarkNotificationRead(notification.id)
     }
   }
 
@@ -6686,14 +6984,14 @@
 
   async function markAllNotificationsRead() {
     await runAction('mark notifications read', async () => {
-      state = await MarkAllNotificationsRead()
+      workspaceStore.appState = await MarkAllNotificationsRead()
       if (notificationTab === 'unread') pinnedUnreadNotificationIDs = null
     })
   }
 
   async function clearNotifications() {
     await runAction('clear notifications', async () => {
-      state = await ClearNotifications()
+      workspaceStore.appState = await ClearNotifications()
       selectedNotificationID = ''
       pinnedUnreadNotificationIDs = null
     })
@@ -6732,214 +7030,127 @@
 	    }
 	  }
 
-	  function responseStatusClass(status?: number) {
+  function responseStatusClass(status?: number) {
     if (!status) return 'muted'
     if (status < 300) return 'ok'
     if (status < 400) return 'warn'
     return 'bad'
   }
 
+  async function handleNativeMenuCommand(command: string) {
+    const resolved = resolveNativeMenuCommand(command, { activeView })
+    if (!resolved) return
+    if (resolved.kind === 'workbench') {
+      await runWorkbenchCommand(resolved.command)
+      return
+    }
+    switch (resolved.action) {
+      case 'open-native-new-window': await openNativeNewWindow(); return
+      case 'save-request': await saveRequest(); return
+      case 'save-all-tabs': await saveAllOpenTabs(); return
+      case 'close-active-tab': await closeActiveTab(); return
+      case 'reopen-last-closed-tab': await reopenLastClosedTab(); return
+      case 'cancel-active-request': await cancelActiveRequest(); return
+      case 'send-request': await sendRequest(); return
+      case 'run-collection': await runCollection(); return
+    }
+  }
+
   function shortcut(event: KeyboardEvent) {
-    if (!state || !keybindingsAreEnabled(state.preferences)) return
-    if (keyBindingEventMatches(event, 'globalSearch')) {
-      event.preventDefault()
-      openGlobalSearch()
+    const action = resolveShortcut(event, {
+      commandPaletteOpen,
+      // Getters, not values: the dispatcher runs on every keystroke including
+      // ordinary typing, and these two selectors only matter on Escape. Reading
+      // them eagerly would put two document-wide queries in the path of every
+      // character the user types.
+      get requestActionMenuOpen() { return Boolean(document.querySelector('details.request-actions[open]')) },
+      get modalOpen() { return Boolean(document.querySelector('[role="dialog"][aria-modal="true"]')) },
+      activeView,
+      canCancel: requestCommand.canCancel || hasActiveHTTPTransport || Boolean(activeCollectionRun),
+      keybindingsEnabled: Boolean(appState) && keybindingsAreEnabled(appState?.preferences),
+      matches: (candidate) => keyBindingEventMatches(event, candidate)
+    })
+    if (!action) return
+    event.preventDefault()
+    const tabNumber = shortcutTabNumber(action)
+    if (tabNumber !== undefined) {
+      void switchToOpenTabAt(tabNumber - 1)
       return
     }
-    if (keyBindingEventMatches(event, 'sidebarSearch')) {
-      event.preventDefault()
-      requestSearchInput?.focus()
-      requestSearchInput?.select()
-      return
-    }
-    if (keyBindingEventMatches(event, 'collapseSidebar')) {
-      event.preventDefault()
-      toggleSidebarCollapse()
-      return
-    }
-    if (keyBindingEventMatches(event, 'closeAllTabs')) {
-      event.preventDefault()
-      void closeAllOpenTabs()
-      return
-    }
-    if (keyBindingEventMatches(event, 'reopenLastClosedTab')) {
-      event.preventDefault()
-      void reopenLastClosedTab()
-      return
-    }
-    if (keyBindingEventMatches(event, 'closeTab')) {
-      event.preventDefault()
-      void closeActiveTab()
-      return
-    }
-    if (keyBindingEventMatches(event, 'switchToPreviousTab')) {
-      event.preventDefault()
-      void switchToRelativeOpenTab(-1)
-      return
-    }
-    if (keyBindingEventMatches(event, 'switchToNextTab')) {
-      event.preventDefault()
-      void switchToRelativeOpenTab(1)
-      return
-    }
-    if (keyBindingEventMatches(event, 'switchToLastTab')) {
-      event.preventDefault()
-      void switchToOpenTabAt((state.openTabs?.length ?? 0) - 1)
-      return
-    }
-    for (let index = 1; index <= 8; index += 1) {
-      if (keyBindingEventMatches(event, `switchToTab${index}`)) {
-        event.preventDefault()
-        void switchToOpenTabAt(index - 1)
+    switch (action) {
+      case 'closeCommandPalette': closeCommandPalette(); return
+      case 'closeRequestActionMenus': closeRequestActionMenus(); return
+      case 'focusURL':
+        requestURLInput?.focus()
+        requestURLInput?.select()
         return
-      }
-    }
-    if (keyBindingEventMatches(event, 'moveTabLeft')) {
-      event.preventDefault()
-      void moveActiveTab(-1)
-      return
-    }
-    if (keyBindingEventMatches(event, 'moveTabRight')) {
-      event.preventDefault()
-      void moveActiveTab(1)
-      return
-    }
-    if (keyBindingEventMatches(event, 'newRequest')) {
-      event.preventDefault()
-      createRequest()
-      return
-    }
-    if (keyBindingEventMatches(event, 'importCollection')) {
-      event.preventDefault()
-      activeView = 'import'
-      return
-    }
-    if (keyBindingEventMatches(event, 'editEnvironment')) {
-      event.preventDefault()
-      activeView = 'environments'
-      return
-    }
-    if (keyBindingEventMatches(event, 'openPreferences')) {
-      event.preventDefault()
-      activeView = 'preferences'
-      return
-    }
-    if (keyBindingEventMatches(event, 'openTerminal')) {
-      event.preventDefault()
-      void openDevTools('terminal')
-      return
-    }
-    if (keyBindingEventMatches(event, 'sendRequest')) {
-      event.preventDefault()
-      sendRequest()
-      return
-    }
-    if (keyBindingEventMatches(event, 'changeLayout')) {
-      event.preventDefault()
-      void toggleResponsePaneOrientation()
-      return
-    }
-    if (keyBindingEventMatches(event, 'zoomIn')) {
-      event.preventDefault()
-      void incrementZoomPercentage(zoomStepPercentage)
-      return
-    }
-    if (keyBindingEventMatches(event, 'zoomOut')) {
-      event.preventDefault()
-      void incrementZoomPercentage(-zoomStepPercentage)
-      return
-    }
-    if (keyBindingEventMatches(event, 'resetZoom')) {
-      event.preventDefault()
-      void resetZoomPercentage()
-      return
-    }
-    if (keyBindingEventMatches(event, 'closeBruno')) {
-      event.preventDefault()
-      closeApplication()
-      return
-    }
-    if (keyBindingEventMatches(event, 'save')) {
-      event.preventDefault()
-      saveRequest()
-      return
-    }
-    if (keyBindingEventMatches(event, 'saveAllTabs')) {
-      event.preventDefault()
-      void saveAllOpenTabs()
+      case 'cancelActiveRequest': void cancelActiveRequest(); return
+      case 'commandPalette': openCommandPalette(); return
+      case 'globalSearch': openGlobalSearch(); return
+      case 'sidebarSearch':
+        requestSearchInput?.focus()
+        requestSearchInput?.select()
+        return
+      case 'collapseSidebar': toggleSidebarCollapse(); return
+      case 'closeAllTabs': void closeAllOpenTabs(); return
+      case 'reopenLastClosedTab': void reopenLastClosedTab(); return
+      case 'closeTab': void closeActiveTab(); return
+      case 'switchToPreviousTab': void switchToRelativeOpenTab(-1); return
+      case 'switchToNextTab': void switchToRelativeOpenTab(1); return
+      case 'switchToLastTab': void switchToOpenTabAt((appState?.openTabs?.length ?? 0) - 1); return
+      case 'moveTabLeft': void moveActiveTab(-1); return
+      case 'moveTabRight': void moveActiveTab(1); return
+      case 'newRequest': createRequest(); return
+      case 'importCollection': activeView = 'import'; return
+      case 'editEnvironment': activeView = 'environments'; return
+      case 'openPreferences': activeView = 'preferences'; return
+      case 'openTerminal': void openDevTools('terminal'); return
+      case 'sendRequest': sendRequest(); return
+      case 'changeLayout': void toggleResponsePaneOrientation(); return
+      case 'zoomIn': void incrementZoomPercentage(zoomStepPercentage); return
+      case 'zoomOut': void incrementZoomPercentage(-zoomStepPercentage); return
+      case 'resetZoom': void resetZoomPercentage(); return
+      case 'closeBruno': closeApplication(); return
+      case 'save': saveRequest(); return
+      case 'saveAllTabs': void saveAllOpenTabs(); return
     }
   }
 
   load()
 </script>
 
-<svelte:window on:keydown={shortcut} on:click={closeVariableTooltipOnOutside} />
+<svelte:window onkeydown={shortcut} onclick={closeVariableTooltipOnOutside} />
 
 {#if loading}
   <main class="boot">
     <div class="loader"></div>
-    <p>Loading LiteAPI</p>
+    <p>{loadingStatus}</p>
   </main>
-{:else if state}
-  <main class="app-shell" class:sidebar-collapsed={sidebarCollapsed}>
-    <aside class="workspace-rail">
-      <div class="brand">
-        <div class="brand-mark">LA</div>
-        <div>
-          <h1>LiteAPI</h1>
-          <p>Bruno parity workbench</p>
-        </div>
-      </div>
+{:else if appState}
+  <main class="app-shell" class:sidebar-collapsed={sidebarCollapsed} style={`--sidebar-width: ${sidebarWidth}px;`} >
+    <aside class="workspace-rail" aria-label="Collections sidebar">
+      <SidebarHeader onNew={openCreationFlow} />
 
-      <section class="rail-section">
-        <span class="field-label">Workspace</span>
-        <select aria-label="Workspace" bind:value={state.activeWorkspaceId}>
-          {#each state.workspaces as workspace}
-            <option value={workspace.id}>{workspace.name}</option>
-          {/each}
-        </select>
-      </section>
+      <SidebarSearch bind:value={requestSearch} bind:input={requestSearchInput} matchCount={sidebarSearchCount} />
 
-      <section class="rail-section compact">
-        <div class="split">
-          <input aria-label="Collection name" bind:value={collectionName} />
-          <button class="icon-button" title="Create collection" on:click={createCollection}>+</button>
-        </div>
-        <div class="split">
-          <select aria-label="Request type" bind:value={requestType}>
-            <option value="http">HTTP</option>
-            <option value="graphql">GraphQL</option>
-            <option value="websocket">WebSocket</option>
-            <option value="grpc">gRPC</option>
-          </select>
-          <button class="icon-button" title="Create request" on:click={createRequest}>+</button>
-        </div>
-        <input aria-label="Request name" bind:value={requestName} />
-      </section>
-
-      <section class="rail-section search-section">
-        <span class="field-label">Search</span>
-        <button class="global-search-trigger" type="button" on:click={openGlobalSearch}>Global Search</button>
-        <div class="search-box">
-          <input aria-label="Search requests" placeholder="Find requests" bind:this={requestSearchInput} bind:value={requestSearch} />
-          {#if requestSearch}
-            <button class="icon-button ghost" title="Clear search" on:click={() => (requestSearch = '')}>x</button>
-          {/if}
-        </div>
-        {#if requestSearch.trim()}
-          <small>{sidebarSearchCount} matching requests</small>
-        {/if}
-      </section>
-
-      <section class="collections">
+      <section class="collections" use:measureSidebarViewport>
         {#if visibleSidebarCollections.length === 0}
           <div class="sidebar-empty">No matching requests</div>
         {/if}
-        {#each visibleSidebarCollections as collection}
+        {#each visibleSidebarCollections as collection (collection.id)}
           {@const groups = groupedItems(collection, searchQuery)}
+          {@const collectionCollapsed = !searchQuery && Boolean(collapsedSidebarCollections[collection.id])}
           <article class:active={collection.id === activeCollection?.id}>
             <header>
-              <button class="collection-title" on:click={() => selectCollection(collection.id)}>{collection.name}</button>
+              <button
+                class="tree-chevron"
+                class:collapsed={collectionCollapsed}
+                type="button"
+                aria-expanded={!collectionCollapsed}
+                aria-label={`${collectionCollapsed ? 'Expand' : 'Collapse'} ${collection.name}`}
+                onclick={() => toggleSidebarCollection(collection.id)}
+              >▾</button>
+              <button class="collection-title" onclick={() => selectCollection(collection.id)}>{collection.name}</button>
               <span class="collection-badges">
                 {#if collectionIsScratch(collection)}<small>Scratch</small>{/if}
                 {#if collection.remote}<small>Git</small>{/if}
@@ -6951,26 +7162,35 @@
               <div class="ghost-row">
                 <code>{collection.remote}</code>
                 <div class="button-row compact">
-                  <button on:click={() => selectCollection(collection.id)}>Details</button>
-                  <button on:click={() => copyText(collection.remote ?? '')}>Copy URL</button>
-                  <button on:click={() => disconnectGitRemote(collection.id)}>Remove</button>
+                  <button onclick={() => selectCollection(collection.id)}>Details</button>
+                  <button onclick={() => copyText(collection.remote ?? '')}>Copy URL</button>
+                  <button onclick={() => disconnectGitRemote(collection.id)}>Remove</button>
                 </div>
               </div>
-            {:else if groups.length === 0}
+            {:else if groups.length === 0 && !collectionCollapsed}
               <div class="sidebar-empty">No requests</div>
             {/if}
-            {#if !collection.notFoundLocally}
-              {#each groups as group}
+            {#if !collection.notFoundLocally && !collectionCollapsed}
+              {#each groups as group (group.folder)}
+                {@const folderCollapsed = Boolean(group.folder) && !searchQuery && Boolean(collapsedSidebarFolders[sidebarFolderKey(collection.id, group.folder)])}
                 {#if group.folder}
                   <div class="folder-row-shell">
-                    <button class="folder-row" title={`${group.folder} settings`} on:click={() => selectFolderSettings(collection, group.folder)}>{group.folder}</button>
+                    <button
+                      class="tree-chevron"
+                      class:collapsed={folderCollapsed}
+                      type="button"
+                      aria-expanded={!folderCollapsed}
+                      aria-label={`${folderCollapsed ? 'Expand' : 'Collapse'} folder ${group.folder}`}
+                      onclick={() => toggleSidebarFolder(collection.id, group.folder)}
+                    >▾</button>
+                    <button class="folder-row" title={`${group.folder} settings`} onclick={() => selectFolderSettings(collection, group.folder)}>{group.folder}</button>
                     <button
                       class="folder-action"
                       type="button"
                       title={revealInFolderLabel()}
                       aria-label={`${revealInFolderLabel()} ${group.folder}`}
                       data-testid="collection-item-menu-show-in-folder"
-                      on:click={() => revealFolderInFolder(collection, group.folder)}
+                      onclick={() => revealFolderInFolder(collection, group.folder)}
                     >F</button>
                     <button
                       class="folder-action"
@@ -6978,7 +7198,7 @@
                       title="Info"
                       aria-label="Info"
                       data-testid="collection-item-menu-info"
-                      on:click={() => openFolderInfoModal(collection, group.folder)}
+                      onclick={() => openFolderInfoModal(collection, group.folder)}
                     >i</button>
                     <button
                       class="folder-action"
@@ -6986,14 +7206,14 @@
                       title="Open in Terminal"
                       aria-label={`Open ${group.folder} in Terminal`}
                       data-testid="collection-item-menu-open-terminal"
-                      on:click={() => openFolderInTerminal(collection, group.folder)}
+                      onclick={() => openFolderInTerminal(collection, group.folder)}
                     >T</button>
                     <button
                       class="folder-action"
                       type="button"
                       title="New Folder"
                       data-testid="collection-item-menu-new-folder"
-                      on:click={() => openNewFolderModal(group.folder, collection)}
+                      onclick={() => openNewFolderModal(group.folder, collection)}
                     >+</button>
                     <button
                       class="folder-action"
@@ -7001,7 +7221,7 @@
                       title="Rename"
                       aria-label="Rename"
                       data-testid="collection-item-menu-rename"
-                      on:click={() => openRenameFolderModal(collection, group.folder)}
+                      onclick={() => openRenameFolderModal(collection, group.folder)}
                     >✎</button>
                     <button
                       class="folder-action"
@@ -7009,7 +7229,7 @@
                       title="Clone"
                       aria-label="Clone"
                       data-testid="collection-item-menu-clone"
-                      on:click={() => openCloneFolderModal(collection, group.folder)}
+                      onclick={() => openCloneFolderModal(collection, group.folder)}
                     >C</button>
                     <button
                       class="folder-action"
@@ -7017,31 +7237,41 @@
                       title="Delete"
                       aria-label="Delete"
                       data-testid="collection-item-menu-delete"
-                      on:click={() => openDeleteFolderModal(collection, group.folder)}
+                      onclick={() => openDeleteFolderModal(collection, group.folder)}
                     >x</button>
                   </div>
                 {/if}
-                {#each group.items as item}
-                  <div class="request-row-shell">
+                {#if !folderCollapsed}
+                {@const win = sidebarItemWindow(collection.id, group.folder, group.items.length)}
+                {#if win.padTop > 0}<div class="sidebar-spacer" style={`height:${win.padTop}px`} aria-hidden="true"></div>{/if}
+                {#each group.items.slice(win.start, win.end) as item (item.id)}
+                  <div class="request-row-shell" class:in-folder={Boolean(group.folder)}>
                     <button
                       class="request-row"
                       class:item-active={item.id === activeRequest?.id}
                       title={group.folder ? `${group.folder} · ${item.url}` : item.url}
-                      on:click={() => openRequestTab(collection.id, item.id)}
+                      onclick={() => openRequestTab(collection.id, item.id)}
                     >
-                      <span class="method">{item.method}</span>
+                      <span class="method" data-method={item.method}>{methodLabel(item.method)}</span>
                       <span>{item.name}</span>
                       {#if requestIsTransient(collection, item)}<em>temp</em>{/if}
                       {#if item.draft}<em>draft</em>{/if}
                     </button>
+                    <!-- US-031: the menu body renders only while the disclosure is
+                         open. <details> keeps its children in the DOM when closed, so a
+                         500-request collection was carrying ~3,000 buttons nobody could
+                         see. bind:open is what makes the {#if} track the real state. -->
+                    <details class="request-actions" data-testid="request-actions-menu" bind:open={openRequestMenus[`${collection.id}:${item.id}`]}>
+                      <summary data-testid="request-actions-menu-toggle" aria-label={`More actions for ${item.name}`} title={`More actions for ${item.name}`}>More</summary>
+                    {#if openRequestMenus[`${collection.id}:${item.id}`]}
                     <button
                       class="request-action"
                       type="button"
                       title={revealInFolderLabel()}
                       aria-label={`${revealInFolderLabel()} ${item.name}`}
                       data-testid="collection-item-menu-show-in-folder"
-                      on:click={() => revealRequestInFolder(collection, item)}
-                    >F</button>
+                      onclick={() => { closeRequestActionMenus(); void revealRequestInFolder(collection, item) }}
+                    >Reveal</button>
                     {#if requestSupportsGenerateCode(item)}
                       <button
                         class="request-action"
@@ -7049,8 +7279,8 @@
                         title="Generate Code"
                         aria-label={`Generate Code ${item.name}`}
                         data-testid="collection-item-menu-generate-code"
-                        on:click={() => beginGenerateRequestCode(collection, item)}
-                      >G</button>
+                        onclick={() => { closeRequestActionMenus(); void beginGenerateRequestCode(collection, item) }}
+                      >Code</button>
                     {/if}
                     <button
                       class="request-action"
@@ -7058,32 +7288,34 @@
                       title="Info"
                       aria-label={`Info ${item.name}`}
                       data-testid="collection-item-menu-info"
-                      on:click={() => openRequestInfoModal(collection, item)}
-                    >i</button>
+                      onclick={() => { closeRequestActionMenus(); openRequestInfoModal(collection, item) }}
+                    >Info</button>
                     <button
                       class="request-action"
                       type="button"
                       title="Rename"
                       aria-label={`Rename ${item.name}`}
                       data-testid="collection-item-menu-rename"
-                      on:click={() => openRenameRequestModal(collection, item)}
-                    >R</button>
+                      onclick={() => { closeRequestActionMenus(); openRenameRequestModal(collection, item) }}
+                    >Rename</button>
                     <button
                       class="request-action"
                       type="button"
                       title="Clone"
                       aria-label={`Clone ${item.name}`}
                       data-testid="collection-item-menu-clone"
-                      on:click={() => openCloneRequestModal(collection, item)}
-                    >C</button>
+                      onclick={() => { closeRequestActionMenus(); openCloneRequestModal(collection, item) }}
+                    >Clone</button>
                     <button
                       class="request-action danger-inline"
                       type="button"
                       title="Delete"
                       aria-label={`Delete ${item.name}`}
                       data-testid="collection-item-menu-delete"
-                      on:click={() => openDeleteRequestModal(collection, item)}
-                    >x</button>
+                      onclick={() => { closeRequestActionMenus(); openDeleteRequestModal(collection, item) }}
+                    >Delete</button>
+                    {/if}
+                    </details>
                   </div>
                   {#if (item.examples ?? []).length > 0}
                     <div class="sidebar-examples" aria-label={`Response examples for ${item.name}`}>
@@ -7092,7 +7324,7 @@
                           class="sidebar-example-row"
                           class:item-active={responseExampleIsActive(collection.id, item.id, example)}
                           title={example.description || example.request?.url || example.name}
-                          on:click={() => openResponseExampleTabFor(collection.id, item.id, example)}
+                          onclick={() => openResponseExampleTabFor(collection.id, item.id, example)}
                         >
                           <span class="example-glyph">Ex</span>
                           <span>{example.name}</span>
@@ -7102,88 +7334,94 @@
                     </div>
                   {/if}
                 {/each}
+                {#if win.padBottom > 0}<div class="sidebar-spacer" style={`height:${win.padBottom}px`} aria-hidden="true"></div>{/if}
+                {/if}
               {/each}
             {/if}
           </article>
         {/each}
       </section>
 
-      <section class="rail-footer" aria-label="Support, licensing, and tools">
-        <button type="button" aria-label="Open Dev Tools" data-trigger="dev-tools" on:click={() => openDevTools()}>
-          <span>DT</span>
-          <strong>Dev Tools</strong>
-        </button>
-        <button type="button" on:click={() => (supportOpen = true)}>
-          <span>?</span>
-          <strong>Support</strong>
-        </button>
-        <button type="button" on:click={() => (goldenEditionOpen = true)}>
-          <span>GE</span>
-          <strong>Golden Edition</strong>
-        </button>
-      </section>
     </aside>
+    <input
+      type="range"
+      class="sidebar-resizer"
+      aria-label="Resize collection sidebar"
+      min="220"
+      max="420"
+      value={sidebarWidth}
+      title="Drag to resize sidebar; double-click to reset"
+      onmousedown={startSidebarResize}
+      ondblclick={() => { sidebarWidth = DEFAULT_SIDEBAR_WIDTH; persistWorkbenchLayout() }}
+      oninput={(event) => (sidebarWidth = clampSidebarWidth(Number(event.currentTarget.value)))}
+      onchange={persistWorkbenchLayout}
+    />
 
     <section class="main-pane">
       <header class="topbar">
-        <nav class="tabs">
-          {#each state.openTabs as tab}
-            <button class:active={tab.id === state.activeTabId} on:click={() => setActiveTab(tab.id)}>
-              {tabLabel(tab)}
-            </button>
-          {/each}
-        </nav>
-        <div class="toolbar">
-          <button
-            type="button"
-            class="icon-button"
-            data-testid="toggle-sidebar-button"
-            aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
-            title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
-            on:click={toggleSidebarCollapse}
-          >
-            {sidebarCollapsed ? '>>' : '<<'}
-          </button>
-          <button class="notification-trigger" type="button" aria-label="Check all Notifications" title="Notifications" on:click={openNotifications}>
-            <span>Notifications</span>
-            {#if unreadNotificationCount > 0}
-              <strong>{unreadNotificationCount}</strong>
+        <WorkspaceCommandBar
+          {sidebarCollapsed}
+          {activeView}
+          notificationCount={unreadNotificationCount}
+          runningCollectionName={activeCollectionRun?.collectionName ?? ''}
+          cancellingRun={collectionRunCancellationRequested}
+          onCommand={runWorkbenchCommand}
+          onWorkspaceChange={setActiveWorkspace}
+          onGlobalEnvironmentChange={setActiveGlobalEnvironment}
+          onEnvironmentChange={(environmentID) => { workspaceStore.selectedEnvironmentId = environmentID }}
+        >
+          {#snippet recovery()}
+            {#if recoveryEntries.length > 0}
+              <details class="recovery-center" aria-live="polite">
+                <summary aria-label={`${recoveryEntries.length} recoverable deletion${recoveryEntries.length === 1 ? '' : 's'}`}>Recovery ({recoveryEntries.length})</summary>
+                <div class="recovery-center-list" aria-label="Recoverable deletions">
+                  {#each recoveryEntries as entry (entry.id)}
+                    <article>
+                      <div>
+                        <strong>{entry.displayName}</strong>
+                        <span>{entry.kind} · {recoveryExpiryLabel(entry)}</span>
+                      </div>
+                      <div class="button-row compact">
+                        <button type="button" aria-label={`Restore ${entry.kind} ${entry.displayName}`} onclick={() => void restoreRecoveryEntry(entry)} disabled={recoveryBusyEntryID !== ''}>Restore</button>
+                        <button type="button" class="danger-button" aria-label={`Remove recovery copy for ${entry.displayName}`} onclick={() => void discardRecoveryEntry(entry)} disabled={recoveryBusyEntryID !== ''}>Remove recovery copy</button>
+                      </div>
+                    </article>
+                  {/each}
+                </div>
+              </details>
             {/if}
-          </button>
-          <select aria-label="Global environment" value={activeWorkspace?.activeGlobalEnvironmentId ?? ''} on:change={(e) => setActiveGlobalEnvironment(e.currentTarget.value)}>
-            <option value="">No global environment</option>
-            {#each activeWorkspace?.globalEnvironments ?? [] as env}
-              <option value={env.id}>{env.name}</option>
+          {/snippet}
+        </WorkspaceCommandBar>
+        {#if (appState.openTabs ?? []).length > 0}
+          <nav class="tabs" aria-label="Open tabs">
+            {#each appState.openTabs as tab (tab.id)}
+              <div class="tab" class:active={tab.id === appState.activeTabId}>
+                <button class="tab-select" title={tabLabel(tab)} onclick={() => setActiveTab(tab.id)}>
+                  {#if tabMethod(tab)}
+                    <span class="tab-method" data-method={tabMethod(tab)}>{methodLabel(tabMethod(tab))}</span>
+                  {/if}
+                  <span class="tab-name">{tabLabel(tab)}</span>
+                </button>
+                <button
+                  class="tab-close"
+                  type="button"
+                  aria-label={`Close tab ${tabLabel(tab)}`}
+                  title="Close tab"
+                  onclick={() => beginTabLifecycleAction('close-active', tab.id)}
+                >×</button>
+              </div>
             {/each}
-          </select>
-          <select aria-label="Environment" bind:value={selectedEnvironmentId}>
-            <option value="">No environment</option>
-            {#each activeCollection?.environments ?? [] as env}
-              <option value={env.id}>{env.name}</option>
-            {/each}
-          </select>
-          <button on:click={saveRequest} disabled={!activeRequest || busy !== ''}>{requestIsTransient(activeCollection, activeRequest) ? 'Save temp' : 'Save'}</button>
-          <button class="primary" on:click={sendRequest} disabled={!activeRequest || busy !== ''}>Send</button>
-          <button on:click={runCollection} disabled={!activeCollection || busy !== ''}>Run</button>
-        </div>
+          </nav>
+        {/if}
       </header>
 
-      {#if error}
-        <div class="error-banner">{error}</div>
+      {#if nativeWindowError}
+        <div class="error-banner" role="alert" aria-live="assertive">{nativeWindowError}</div>
       {/if}
 
-      <nav class="view-switcher">
-        <button class:active={activeView === 'request'} on:click={() => (activeView = 'request')}>Request</button>
-        <button class:active={activeView === 'collection'} on:click={() => (activeView = 'collection')}>Collection</button>
-        <button class:active={activeView === 'runner'} on:click={() => (activeView = 'runner')}>Runner</button>
-        <button class:active={activeView === 'environments'} on:click={() => (activeView = 'environments')}>Environments</button>
-        <button class:active={activeView === 'import'} on:click={() => (activeView = 'import')}>Import</button>
-        <button class:active={activeView === 'network'} on:click={() => (activeView = 'network')}>Network</button>
-        <button class:active={activeView === 'cookies'} on:click={() => (activeView = 'cookies')}>Cookies</button>
-        <button class:active={devToolsOpen} on:click={() => openDevTools()}>Dev Tools</button>
-        <button class:active={activeView === 'preferences'} on:click={() => (activeView = 'preferences')}>Preferences</button>
-        <button class:active={activeView === 'features'} on:click={() => (activeView = 'features')}>Parity</button>
-      </nav>
+      {#if error}
+        <div class="error-banner" role="alert" aria-live="assertive">{error}</div>
+      {/if}
 
       {#snippet devToolsPanel()}
         <section class="panel devtools-panel" aria-label="Dev Tools">
@@ -7195,35 +7433,21 @@
             <div class="runner-summary">
               <span>{devToolsConsoleRows.length} logs</span>
               <span>{devToolsNetworkRows.length} requests</span>
-              <button type="button" on:click={refreshDevToolsSnapshot}>Refresh</button>
-              <button type="button" aria-label="Close console" on:click={closeDevTools}>Close</button>
+              <button type="button" onclick={refreshDevToolsSnapshot}>Refresh</button>
+              <button type="button" aria-label="Close console" onclick={closeDevTools}>Close</button>
             </div>
           </header>
           <nav class="devtools-tabs" aria-label="Dev Tools tabs">
-            {#each devToolsTabs as tab}
-              <button type="button" class:active={devToolsTab === tab.id} on:click={() => selectDevToolsTab(tab.id)}>{tab.label}</button>
+            {#each devToolsTabs as tab (tab.id)}
+              <button type="button" class:active={devToolsTab === tab.id} onclick={() => selectDevToolsTab(tab.id)}>{tab.label}</button>
             {/each}
           </nav>
           <div class="devtools-content">
             {#if devToolsTab === 'console'}
-              {#if devToolsConsoleRows.length === 0}
-                <div class="empty-state devtools-empty">
-                  <strong>No logs to display</strong>
-                  <span>Logs will appear here as your application runs</span>
-                </div>
-              {:else}
-                <div class="console-log-list devtools-console-list" aria-label="DevTools console logs">
-                  {#each devToolsConsoleRows as log}
-                    <div class={`console-row ${log.level}`}>
-                      <span>{log.level}</span>
-                      <div>
-                        <code>{log.message}</code>
-                        <small>{log.source}</small>
-                      </div>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
+              {#await import('./lib/views/devtools/ConsoleTab.svelte') then ConsoleTab}
+                {@const ConsoleTabComponent = ConsoleTab.default}
+                <ConsoleTabComponent {devToolsConsoleRows} />
+              {/await}
             {:else if devToolsTab === 'network'}
               <div class="network-filter-bar" aria-label="Filter requests by method">
                 <div>
@@ -7231,44 +7455,49 @@
                   <span>{devToolsNetworkActiveFilterCount === devToolsNetworkMethods.length ? 'All' : `${devToolsNetworkActiveFilterCount}/${devToolsNetworkMethods.length}`}</span>
                 </div>
                 <div class="button-row compact">
-                  <button type="button" on:click={() => setAllDevToolsNetworkFilters(false)}>Hide All</button>
-                  <button type="button" on:click={() => setAllDevToolsNetworkFilters(true)}>Show All</button>
+                  <button type="button" onclick={() => setAllDevToolsNetworkFilters(false)}>Hide All</button>
+                  <button type="button" onclick={() => setAllDevToolsNetworkFilters(true)}>Show All</button>
                 </div>
                 <div class="method-filter-list">
-                  {#each devToolsNetworkMethods as method}
+                  {#each devToolsNetworkMethods as method (method)}
                     <label>
-                      <input type="checkbox" checked={devToolsNetworkFilters[method]} on:change={(event) => setDevToolsNetworkFilter(method, event.currentTarget.checked)} />
+                      <input type="checkbox" checked={devToolsNetworkFilters[method]} onchange={(event) => setDevToolsNetworkFilter(method, event.currentTarget.checked)} />
                       <span>{method} {devToolsNetworkMethodCounts[method] ?? 0}</span>
                     </label>
                   {/each}
                 </div>
               </div>
               {#if devToolsNetworkRows.length === 0}
-                <div class="empty-state devtools-empty">
+                <div class="empty-appState devtools-empty">
                   <strong>No network requests</strong>
                   <span>Requests will appear here as you make API calls</span>
                 </div>
               {:else}
                 <div class="network-layout" style={`--network-details-width: ${devToolsDetailsPanelWidth}px;`}>
-                  <div class="table-scroll network-table-scroll" class:resizing={devToolsNetworkResizingColumn >= 0}>
+                  <div
+                    class="table-scroll network-table-scroll"
+                    class:resizing={devToolsNetworkResizingColumn >= 0}
+                    use:measureDevToolsNetworkViewport
+                    onscroll={(event) => (devToolsNetworkScrollTop = event.currentTarget.scrollTop)}
+                  >
                     <table class="devtools-network-table" style={`min-width: ${devToolsNetworkTableWidth}px;`}>
                       <colgroup>
-                        {#each devToolsNetworkColumnWidths as width}
+                        {#each devToolsNetworkColumnWidths as width, index (index)}
                           <col style={`width: ${width}px;`} />
                         {/each}
                       </colgroup>
                       <thead>
                         <tr>
-                          {#each devToolsNetworkColumns as column, index}
+                          {#each devToolsNetworkColumns as column, index (column.key)}
                             <th aria-sort={devToolsNetworkAriaSort[column.key]}>
-                              <button type="button" class="network-sort-button" on:click={() => cycleDevToolsNetworkSort(column.key)}>{column.label} {devToolsNetworkSortLabels[column.key]}</button>
+                              <button type="button" class="network-sort-button" onclick={() => cycleDevToolsNetworkSort(column.key)}>{column.label} {devToolsNetworkSortLabels[column.key]}</button>
                               {#if index < devToolsNetworkColumns.length - 1}
                                 <button
                                   type="button"
                                   class="column-resizer"
                                   class:active={devToolsNetworkResizingColumn === index}
                                   aria-label={`Resize ${column.label} column`}
-                                  on:mousedown={(event) => startDevToolsNetworkColumnResize(index, event)}
+                                  onmousedown={(event) => startDevToolsNetworkColumnResize(index, event)}
                                 ></button>
                               {/if}
                             </th>
@@ -7276,9 +7505,18 @@
                         </tr>
                       </thead>
                       <tbody>
-                        {#each devToolsNetworkRows as row}
-                          <tr class:selected={selectedDevToolsNetworkRow?.id === row.id}>
-                            <td><button class="table-link" type="button" on:click={() => selectDevToolsNetworkRow(row)}>{normalizedNetworkMethod(row)}</button></td>
+                        <!--
+                          Spacer rows rather than a transform or absolute
+                          positioning: this is a real <table>, and anything that
+                          takes rows out of flow breaks the colgroup widths the
+                          resizable columns depend on.
+                        -->
+                        {#if devToolsNetworkWindow.topPadding > 0}
+                          <tr aria-hidden="true" class="network-spacer"><td colspan={devToolsNetworkColumns.length} style={`height: ${devToolsNetworkWindow.topPadding}px; padding: 0; border: none;`}></td></tr>
+                        {/if}
+                        {#each devToolsNetworkVisibleRows as row (row.id)}
+                          <tr data-network-row class:selected={selectedDevToolsNetworkRow?.id === row.id}>
+                            <td><button class="table-link" type="button" onclick={() => selectDevToolsNetworkRow(row)}>{normalizedNetworkMethod(row)}</button></td>
                             <td>{statusDisplay(row.status)}</td>
                             <td>{devToolsNetworkDomain(row)}</td>
                             <td><code>{devToolsNetworkPath(row)}</code></td>
@@ -7287,465 +7525,197 @@
                             <td>{formatNetworkSize(row.size)}</td>
                           </tr>
                         {/each}
+                        {#if devToolsNetworkWindow.bottomPadding > 0}
+                          <tr aria-hidden="true" class="network-spacer"><td colspan={devToolsNetworkColumns.length} style={`height: ${devToolsNetworkWindow.bottomPadding}px; padding: 0; border: none;`}></td></tr>
+                        {/if}
                       </tbody>
                     </table>
                   </div>
                   {#if selectedDevToolsNetworkRow}
-                    <section class="network-details-panel" aria-label="Request Details">
-                      <button
-                        type="button"
-                        class="details-panel-resizer"
-                        aria-label="Resize request details"
-                        on:mousedown={startDevToolsDetailsPanelResize}
-                      ></button>
-                    <header>
-                      <h3>Request Details</h3>
-                      <div class="subtabs">
-                        {#each devToolsNetworkDetailTabs as detailTab}
-                          <button type="button" class:active={devToolsNetworkDetailTab === detailTab.id} on:click={() => (devToolsNetworkDetailTab = detailTab.id)}>{detailTab.label}</button>
-                        {/each}
-                      </div>
-                    </header>
-                    {#if devToolsNetworkDetailTab === 'request'}
-                      <div class="network-detail-content">
-                        <h4>General</h4>
-                        <dl class="detail-list">
-                          <div><dt>Request URL:</dt><dd>{selectedDevToolsNetworkRow.url}</dd></div>
-                          <div><dt>Request Method:</dt><dd>{normalizedNetworkMethod(selectedDevToolsNetworkRow)}</dd></div>
-                        </dl>
-                        <h4>Request Headers</h4>
-                        {#if networkHeaderRows(selectedDevToolsNetworkRow.requestHeaders).length === 0}
-                          <div class="empty-state compact">No headers</div>
-                        {:else}
-                          <table class="details-table">
-                            <thead><tr><th>Name</th><th>Value</th></tr></thead>
-                            <tbody>
-                              {#each networkHeaderRows(selectedDevToolsNetworkRow.requestHeaders) as [name, value]}
-                                <tr><td>{name}</td><td><code>{value}</code></td></tr>
-                              {/each}
-                            </tbody>
-                          </table>
-                        {/if}
-                        <h4>Request Body</h4>
-                        {#if networkLogBody(selectedDevToolsNetworkRow.requestBody)}
-                          <pre class="network-body">{networkLogBody(selectedDevToolsNetworkRow.requestBody)}</pre>
-                        {:else}
-                          <div class="empty-state compact">No body</div>
-                        {/if}
-                      </div>
-                    {:else if devToolsNetworkDetailTab === 'response'}
-                      <div class="network-detail-content">
-                        <h4>Response Headers</h4>
-                        {#if networkHeaderRows(selectedDevToolsNetworkRow.responseHeaders).length === 0}
-                          <div class="empty-state compact">No headers</div>
-                        {:else}
-                          <table class="details-table">
-                            <thead><tr><th>Name</th><th>Value</th></tr></thead>
-                            <tbody>
-                              {#each networkHeaderRows(selectedDevToolsNetworkRow.responseHeaders) as [name, value]}
-                                <tr><td>{name}</td><td><code>{value}</code></td></tr>
-                              {/each}
-                            </tbody>
-                          </table>
-                        {/if}
-                        <h4>Response Body</h4>
-                        {#if networkLogBody(selectedDevToolsNetworkRow.responseBody)}
-                          <pre class="network-body">{networkLogBody(selectedDevToolsNetworkRow.responseBody)}</pre>
-                        {:else}
-                          <div class="empty-state compact">No response data</div>
-                        {/if}
-                      </div>
-                    {:else}
-                      <div class="network-detail-content">
-                        <h4>Network Logs</h4>
-                        {#if networkLogLines(selectedDevToolsNetworkRow).length === 0}
-                          <div class="empty-state compact">No network logs available</div>
-                        {:else}
-                          <div class="progress-log">
-                            {#each networkLogLines(selectedDevToolsNetworkRow) as line}
-                              <div class="progress-row"><span>net</span><code>{line}</code></div>
-                            {/each}
-                          </div>
-                        {/if}
-                      </div>
-                    {/if}
-                    </section>
+              {#await import('./lib/views/devtools/RequestDetailsPanel.svelte') then RequestDetailsPanel}
+                {@const RequestDetailsPanelComponent = RequestDetailsPanel.default}
+                <RequestDetailsPanelComponent
+                  {selectedDevToolsNetworkRow}
+                  {devToolsNetworkDetailTab}
+                  {devToolsNetworkDetailTabs}
+                  {networkHeaderRows}
+                  {networkLogBody}
+                  {networkLogLines}
+                  {normalizedNetworkMethod}
+                  {startDevToolsDetailsPanelResize}
+                />
+              {/await}
                   {/if}
                 </div>
               {/if}
             {:else if devToolsTab === 'performance'}
-              <div class="performance-toolbar">
-                <label>
-                  <span>View:</span>
-                  <select aria-label="Performance process view" bind:value={devToolsPerformanceView}>
-                    <option value="cumulative">Cumulative (All Processes)</option>
-                    {#each devToolsPerformanceProcesses as process}
-                      <option value={String(process.pid)}>PID {process.pid} - {process.title || 'LiteAPI'} ({process.type || 'main'})</option>
-                    {/each}
-                  </select>
-                </label>
-                <button type="button" on:click={refreshDevToolsSnapshot}>Refresh</button>
-              </div>
-              <h3>System Resources</h3>
-              <div class="resource-cards">
-                <article>
-                  <span>CPU Usage</span>
-                  <strong>{formatCPUPercent(displayedDevToolsCPUPercent)}</strong>
-                  <small>{selectedDevToolsPerformanceProcess ? 'Current CPU usage' : 'Total CPU usage'}</small>
-                </article>
-                <article>
-                  <span>Memory Usage</span>
-                  <strong>{formatRuntimeBytes(displayedDevToolsMemoryBytes)}</strong>
-                  <small>{selectedDevToolsPerformanceProcess ? 'Current memory usage' : 'Total memory usage'}</small>
-                </article>
-                <article>
-                  <span>Uptime</span>
-                  <strong>{formatUptime(displayedDevToolsUptimeSeconds)}</strong>
-                  <small>Process runtime</small>
-                </article>
-                <article>
-                  <span>Process ID</span>
-                  <strong>{displayedDevToolsPID ?? '-'}</strong>
-                  <small>{selectedDevToolsPerformanceProcess ? 'Process PID' : 'Main process PID'}</small>
-                </article>
-                <article>
-                  <span>Heap Alloc</span>
-                  <strong>{formatRuntimeBytes(devToolsSnapshot?.heapAllocBytes)}</strong>
-                  <small>Go heap allocation</small>
-                </article>
-                <article>
-                  <span>Goroutines</span>
-                  <strong>{devToolsSnapshot?.goroutines ?? '-'}</strong>
-                  <small>Runtime workers</small>
-                </article>
-              </div>
+          {#await import('./lib/views/devtools/PerformanceTab.svelte') then PerformanceTab}
+            {@const PerformanceTabComponent = PerformanceTab.default}
+            <PerformanceTabComponent
+              {devToolsSnapshot}
+              {devToolsPerformanceProcesses}
+              {displayedDevToolsCPUPercent}
+              {displayedDevToolsMemoryBytes}
+              {displayedDevToolsUptimeSeconds}
+              {devToolsPerformanceView}
+              {displayedDevToolsPID}
+              {selectedDevToolsPerformanceProcess}
+              {formatCPUPercent}
+              {formatRuntimeBytes}
+              {formatUptime}
+              {refreshDevToolsSnapshot}
+            />
+          {/await}
             {:else}
-              <div class="terminal-shell">
-                <header>
-                  <h3>Terminal</h3>
-                  <button type="button" on:click={createTerminalSession} disabled={terminalBusy}>
-                    {terminalBusy ? 'Starting...' : 'New Terminal Session'}
-                  </button>
-                </header>
-                <div class="terminal-body">
-                  <aside>
-                    <strong>Sessions</strong>
-                    {#if terminalSessions.length === 0}
-                      <div class="empty-state">No active sessions</div>
-                    {:else}
-                      <div class="terminal-session-list">
-                        {#each terminalSessions as session}
-                          <div class:active={terminalActiveSessionId === session.id} class="terminal-session-row">
-                            <button type="button" class="terminal-session-button" on:click={() => selectTerminalSession(session.id)}>
-                              <strong>{terminalSessionLabel(session)}</strong>
-                              <span>{terminalSessionStatus(session)}</span>
-                              <small>{session.cwd}</small>
-                            </button>
-                            <button type="button" class="icon-button subtle" title="Close terminal session" aria-label="Close terminal session" on:click={() => closeTerminalSession(session.id)}>×</button>
-                          </div>
-                        {/each}
-                      </div>
-                    {/if}
-                  </aside>
-                  <section>
-                    {#if activeTerminalSession}
-                      <div class="terminal-status">
-                        <span>{activeTerminalSession.cwd}</span>
-                        <strong>{terminalSessionStatus(activeTerminalSession)}</strong>
-                      </div>
-                      <pre class="terminal-output" aria-label="Terminal output">{terminalDisplayOutput(terminalOutput) || ' '}</pre>
-                      <form class="terminal-input-row" on:submit|preventDefault={sendTerminalInput}>
-                        <input aria-label="Terminal input" bind:value={terminalInput} disabled={activeTerminalSession.exited} placeholder="Type a command and press Enter" />
-                        <button type="submit" disabled={activeTerminalSession.exited || !terminalInput.trim()}>Send</button>
-                      </form>
-                      {#if terminalError}
-                        <p class="error-text">{terminalError}</p>
-                      {/if}
-                    {:else}
-                      <div class="empty-state">No terminal session selected</div>
-                      {#if terminalError}
-                        <p class="error-text">{terminalError}</p>
-                      {/if}
-                    {/if}
-                  </section>
-                </div>
-              </div>
+              {#await import('./lib/views/devtools/TerminalTab.svelte') then TerminalTab}
+                {@const TerminalTabComponent = TerminalTab.default}
+                <TerminalTabComponent
+                  bind:terminalInput
+                  {terminalSessions}
+                  {terminalActiveSessionId}
+                  {activeTerminalSession}
+                  {terminalBusy}
+                  {terminalError}
+                  {terminalDisplayOutput}
+                  {terminalOutput}
+                  {terminalSessionLabel}
+                  {terminalSessionStatus}
+                  {createTerminalSession}
+                  {selectTerminalSession}
+                  {closeTerminalSession}
+                  {sendTerminalInput}
+                />
+              {/await}
             {/if}
           </div>
         </section>
       {/snippet}
 
       {#if activeView === 'request' && activeRequest && activeCollection}
-        <section class="request-workbench" class:vertical-layout={responsePaneOrientation === 'vertical'} data-orientation={responsePaneOrientation}>
+        <section
+          class="request-workbench"
+          class:vertical-layout={responsePaneOrientation === 'vertical'}
+          data-orientation={responsePaneOrientation}
+          style={`--request-pane-size: ${Math.round(responseSplit * 100)}%;`}
+        >
+          <RequestCommandStrip
+            command={requestCommand}
+            actions={{
+              onSave: saveRequest,
+              onSend: sendRequest,
+              onRun: runCollection,
+              onCancel: cancelActiveRequest,
+              onCancelBackground: cancelHTTPTransport,
+              onToggleOrientation: toggleResponsePaneOrientation
+            }}
+            disabled={busy !== '' || hasActiveHTTPTransport}
+            orientation={responsePaneOrientation}
+          >
+            {#snippet requestLine()}
+              {#snippet variableURLField()}
+                <div class="url-variable-editor">
+                  <input
+                    class="url-variable-input"
+                    aria-label={activeRequest.type === 'grpc' ? 'gRPC server URL' : activeRequest.type === 'websocket' ? 'WebSocket URL' : 'URL'}
+                    bind:this={requestURLInput}
+                    value={activeRequest.url}
+                    oninput={patchURLField}
+                    onscroll={syncURLInputScroll}
+                    onkeyup={syncURLInputScroll}
+                    onmouseup={syncURLInputScroll}
+                  />
+                  <div class="url-variable-overlay">
+                    <span class="url-variable-overlay-content" style={`transform: translateX(-${urlInputScrollLeft}px);`}>
+                      {#each urlVariableSegments(activeRequest.url, requestVariableTooltips, activeRequest.pathParams ?? []) as segment (segment.key)}
+                        {#if segment.variable}
+                          <span
+                            class="url-variable-token-wrapper"
+                            class:open={variableTooltips.active === segment.name}
+                          >
+                            <span
+                              role="button"
+                              tabindex="0"
+                              class:cm-variable-valid={isValidURLVariableSegment(segment)}
+                              class:cm-variable-invalid={!isValidURLVariableSegment(segment)}
+                              onclick={() => toggleActiveVariableTooltip(segment.name)}
+                              onkeydown={(event) => handleInlineVariableTokenKey(event, segment.name)}
+                            >{segment.text}</span>
+                            {#if segment.info}
+                              <div class="CodeMirror-brunoVarInfo inline-var-tooltip" role="tooltip">
+                                <div class="variable-tooltip-title">
+                                  <strong class="var-name">{segment.info.name}</strong>
+                                  <span class="var-scope-badge">{segment.info.scope}</span>
+                                </div>
+                                {#if !segment.info.validName}
+                                  <small class="var-warning-note">{invalidVariableWarning}</small>
+                                {:else if variableTooltips.editing === segment.info.name}
+                                  <textarea
+                                    class="var-value-editor"
+                                    aria-label={'Edit variable ' + segment.info.name}
+                                    bind:value={variableTooltips.draft}
+                                    onkeydown={(event) => handleVariableTooltipEditorKey(event, segment.info)}
+                                    onblur={(event) => handleVariableTooltipEditorBlur(event, segment.info)}
+                                  ></textarea>
+                                  <div class="button-row compact">
+                                    <button class="var-save-button" onclick={(event) => { event.stopPropagation(); saveVariableTooltipEdit(segment.info) }} disabled={busy !== ''}>Save</button>
+                                    <button onclick={(event) => { event.stopPropagation(); cancelVariableTooltipEdit() }}>Cancel</button>
+                                  </div>
+                                {:else if segment.info.editable}
+                                  <button type="button" class="var-value-editable-display" onclick={(event) => { event.stopPropagation(); beginVariableTooltipEdit(segment.info) }}>
+                                    {displayTooltipValue(segment.info, variableTooltips.isRevealed(segment.info.name))}
+                                  </button>
+                                {:else}
+                                  <div class="var-value-editable-display">{displayTooltipValue(segment.info, variableTooltips.isRevealed(segment.info.name))}</div>
+                                {/if}
+                                {#if segment.info.readOnly}
+                                  <small class="var-readonly-note">read-only</small>
+                                {/if}
+                                <div class="button-row compact">
+                                  <button
+                                    class="copy-button"
+                                    class:copy-success={variableTooltips.isCopied(segment.info.name)}
+                                    onclick={(event) => { event.stopPropagation(); copyVariableTooltipValue(segment.info) }}
+                                    disabled={!segment.info.found || !segment.info.validName || variableTooltips.isCopied(segment.info.name)}
+                                  >
+                                    {variableTooltips.isCopied(segment.info.name) ? 'Copied' : 'Copy'}
+                                  </button>
+                                  {#if segment.info.secret}
+                                    <button class="secret-toggle-button" onclick={(event) => { event.stopPropagation(); toggleTooltipSecret(segment.info.name) }}>
+                                      {variableTooltips.isRevealed(segment.info.name) ? 'Hide' : 'Show'}
+                                    </button>
+                                  {/if}
+                                </div>
+                              </div>
+                            {/if}
+                          </span>
+	                        {:else if segment.prompt}
+	                          <span class="cm-variable-prompt">{segment.text}</span>
+	                        {:else}
+	                          <span>{segment.text}</span>
+	                        {/if}
+                      {/each}
+                    </span>
+                  </div>
+                </div>
+              {/snippet}
+              <ProtocolRequestLine
+                protocol={activeRequest.type}
+                method={activeRequest.method}
+                {methods}
+                {busy}
+                urlField={variableURLField}
+                onMethodChange={(method) => patchField('method', method)}
+                onGenerateGrpcurl={beginGenerateGrpcurlCommand}
+              />
+            {/snippet}
+          </RequestCommandStrip>
           <div class="request-side">
-            <div class="request-line" class:grpc={activeRequest.type === 'grpc'} class:ws={activeRequest.type === 'websocket'}>
-              {#if activeRequest.type === 'grpc'}
-                <div class="url-variable-editor">
-                  <input
-                    class="url-variable-input"
-                    aria-label="gRPC server URL"
-                    value={activeRequest.url}
-                    on:input={patchURLField}
-                    on:scroll={syncURLInputScroll}
-                    on:keyup={syncURLInputScroll}
-                    on:mouseup={syncURLInputScroll}
-                  />
-                  <div class="url-variable-overlay">
-                    <span class="url-variable-overlay-content" style={`transform: translateX(-${urlInputScrollLeft}px);`}>
-                      {#each urlVariableSegments(activeRequest.url, requestVariableTooltips, activeRequest.pathParams ?? []) as segment (segment.key)}
-                        {#if segment.variable}
-                          <span
-                            class="url-variable-token-wrapper"
-                            class:open={activeVariableTooltip === segment.name}
-                          >
-                            <span
-                              role="button"
-                              tabindex="0"
-                              class:cm-variable-valid={isValidURLVariableSegment(segment)}
-                              class:cm-variable-invalid={!isValidURLVariableSegment(segment)}
-                              on:click={() => toggleActiveVariableTooltip(segment.name)}
-                              on:keydown={(event) => handleInlineVariableTokenKey(event, segment.name)}
-                            >{segment.text}</span>
-                            {#if segment.info}
-                              <div class="CodeMirror-brunoVarInfo inline-var-tooltip" role="tooltip">
-                                <div class="variable-tooltip-title">
-                                  <strong class="var-name">{segment.info.name}</strong>
-                                  <span class="var-scope-badge">{segment.info.scope}</span>
-                                </div>
-                                {#if !segment.info.validName}
-                                  <small class="var-warning-note">{invalidVariableWarning}</small>
-                                {:else if editingVariableTooltip === segment.info.name}
-                                  <textarea
-                                    class="var-value-editor"
-                                    aria-label={'Edit variable ' + segment.info.name}
-                                    bind:value={variableTooltipDraft}
-                                    on:keydown={(event) => handleVariableTooltipEditorKey(event, segment.info)}
-                                    on:blur={(event) => handleVariableTooltipEditorBlur(event, segment.info)}
-                                  ></textarea>
-                                  <div class="button-row compact">
-                                    <button class="var-save-button" on:click|stopPropagation={() => saveVariableTooltipEdit(segment.info)} disabled={busy !== ''}>Save</button>
-                                    <button on:click|stopPropagation={cancelVariableTooltipEdit}>Cancel</button>
-                                  </div>
-                                {:else if segment.info.editable}
-                                  <button type="button" class="var-value-editable-display" on:click|stopPropagation={() => beginVariableTooltipEdit(segment.info)}>
-                                    {displayTooltipValue(segment.info, Boolean(revealedVariableTooltips[segment.info.name]))}
-                                  </button>
-                                {:else}
-                                  <div class="var-value-editable-display">{displayTooltipValue(segment.info, Boolean(revealedVariableTooltips[segment.info.name]))}</div>
-                                {/if}
-                                {#if segment.info.readOnly}
-                                  <small class="var-readonly-note">read-only</small>
-                                {/if}
-                                <div class="button-row compact">
-                                  <button
-                                    class="copy-button"
-                                    class:copy-success={copiedVariableTooltips[segment.info.name]}
-                                    on:click|stopPropagation={() => copyVariableTooltipValue(segment.info)}
-                                    disabled={!segment.info.found || !segment.info.validName || copiedVariableTooltips[segment.info.name]}
-                                  >
-                                    {copiedVariableTooltips[segment.info.name] ? 'Copied' : 'Copy'}
-                                  </button>
-                                  {#if segment.info.secret}
-                                    <button class="secret-toggle-button" on:click|stopPropagation={() => toggleTooltipSecret(segment.info.name)}>
-                                      {revealedVariableTooltips[segment.info.name] ? 'Hide' : 'Show'}
-                                    </button>
-                                  {/if}
-                                </div>
-                              </div>
-                            {/if}
-                          </span>
-	                        {:else if segment.prompt}
-	                          <span class="cm-variable-prompt">{segment.text}</span>
-	                        {:else}
-	                          <span>{segment.text}</span>
-	                        {/if}
-                      {/each}
-                    </span>
-                  </div>
-                </div>
-                <input aria-label="gRPC method" placeholder="package.Service/Method" value={activeRequest.method === 'CALL' ? '' : activeRequest.method} on:input={(e) => patchField('method', e.currentTarget.value)} />
-                <button type="button" title="Generate grpcurl command" on:click={beginGenerateGrpcurlCommand} disabled={busy !== '' || !activeRequest.method || activeRequest.method === 'CALL'}>grpcurl</button>
-              {:else if activeRequest.type === 'websocket'}
-                <span class="method-badge ws">WS</span>
-                <div class="url-variable-editor">
-                  <input
-                    class="url-variable-input"
-                    aria-label="WebSocket URL"
-                    value={activeRequest.url}
-                    on:input={patchURLField}
-                    on:scroll={syncURLInputScroll}
-                    on:keyup={syncURLInputScroll}
-                    on:mouseup={syncURLInputScroll}
-                  />
-                  <div class="url-variable-overlay">
-                    <span class="url-variable-overlay-content" style={`transform: translateX(-${urlInputScrollLeft}px);`}>
-                      {#each urlVariableSegments(activeRequest.url, requestVariableTooltips, activeRequest.pathParams ?? []) as segment (segment.key)}
-                        {#if segment.variable}
-                          <span
-                            class="url-variable-token-wrapper"
-                            class:open={activeVariableTooltip === segment.name}
-                          >
-                            <span
-                              role="button"
-                              tabindex="0"
-                              class:cm-variable-valid={isValidURLVariableSegment(segment)}
-                              class:cm-variable-invalid={!isValidURLVariableSegment(segment)}
-                              on:click={() => toggleActiveVariableTooltip(segment.name)}
-                              on:keydown={(event) => handleInlineVariableTokenKey(event, segment.name)}
-                            >{segment.text}</span>
-                            {#if segment.info}
-                              <div class="CodeMirror-brunoVarInfo inline-var-tooltip" role="tooltip">
-                                <div class="variable-tooltip-title">
-                                  <strong class="var-name">{segment.info.name}</strong>
-                                  <span class="var-scope-badge">{segment.info.scope}</span>
-                                </div>
-                                {#if !segment.info.validName}
-                                  <small class="var-warning-note">{invalidVariableWarning}</small>
-                                {:else if editingVariableTooltip === segment.info.name}
-                                  <textarea
-                                    class="var-value-editor"
-                                    aria-label={'Edit variable ' + segment.info.name}
-                                    bind:value={variableTooltipDraft}
-                                    on:keydown={(event) => handleVariableTooltipEditorKey(event, segment.info)}
-                                    on:blur={(event) => handleVariableTooltipEditorBlur(event, segment.info)}
-                                  ></textarea>
-                                  <div class="button-row compact">
-                                    <button class="var-save-button" on:click|stopPropagation={() => saveVariableTooltipEdit(segment.info)} disabled={busy !== ''}>Save</button>
-                                    <button on:click|stopPropagation={cancelVariableTooltipEdit}>Cancel</button>
-                                  </div>
-                                {:else if segment.info.editable}
-                                  <button type="button" class="var-value-editable-display" on:click|stopPropagation={() => beginVariableTooltipEdit(segment.info)}>
-                                    {displayTooltipValue(segment.info, Boolean(revealedVariableTooltips[segment.info.name]))}
-                                  </button>
-                                {:else}
-                                  <div class="var-value-editable-display">{displayTooltipValue(segment.info, Boolean(revealedVariableTooltips[segment.info.name]))}</div>
-                                {/if}
-                                {#if segment.info.readOnly}
-                                  <small class="var-readonly-note">read-only</small>
-                                {/if}
-                                <div class="button-row compact">
-                                  <button
-                                    class="copy-button"
-                                    class:copy-success={copiedVariableTooltips[segment.info.name]}
-                                    on:click|stopPropagation={() => copyVariableTooltipValue(segment.info)}
-                                    disabled={!segment.info.found || !segment.info.validName || copiedVariableTooltips[segment.info.name]}
-                                  >
-                                    {copiedVariableTooltips[segment.info.name] ? 'Copied' : 'Copy'}
-                                  </button>
-                                  {#if segment.info.secret}
-                                    <button class="secret-toggle-button" on:click|stopPropagation={() => toggleTooltipSecret(segment.info.name)}>
-                                      {revealedVariableTooltips[segment.info.name] ? 'Hide' : 'Show'}
-                                    </button>
-                                  {/if}
-                                </div>
-                              </div>
-                            {/if}
-                          </span>
-	                        {:else if segment.prompt}
-	                          <span class="cm-variable-prompt">{segment.text}</span>
-	                        {:else}
-	                          <span>{segment.text}</span>
-	                        {/if}
-                      {/each}
-                    </span>
-                  </div>
-                </div>
-              {:else}
-                <select aria-label="Method" value={activeRequest.method} on:change={(e) => patchField('method', e.currentTarget.value)}>
-                  {#each methods as method}
-                    <option value={method}>{method}</option>
-                  {/each}
-                </select>
-                <div class="url-variable-editor">
-                  <input
-                    class="url-variable-input"
-                    aria-label="URL"
-                    value={activeRequest.url}
-                    on:input={patchURLField}
-                    on:scroll={syncURLInputScroll}
-                    on:keyup={syncURLInputScroll}
-                    on:mouseup={syncURLInputScroll}
-                  />
-                  <div class="url-variable-overlay">
-                    <span class="url-variable-overlay-content" style={`transform: translateX(-${urlInputScrollLeft}px);`}>
-                      {#each urlVariableSegments(activeRequest.url, requestVariableTooltips, activeRequest.pathParams ?? []) as segment (segment.key)}
-                        {#if segment.variable}
-                          <span
-                            class="url-variable-token-wrapper"
-                            class:open={activeVariableTooltip === segment.name}
-                          >
-                            <span
-                              role="button"
-                              tabindex="0"
-                              class:cm-variable-valid={isValidURLVariableSegment(segment)}
-                              class:cm-variable-invalid={!isValidURLVariableSegment(segment)}
-                              on:click={() => toggleActiveVariableTooltip(segment.name)}
-                              on:keydown={(event) => handleInlineVariableTokenKey(event, segment.name)}
-                            >{segment.text}</span>
-                            {#if segment.info}
-                              <div class="CodeMirror-brunoVarInfo inline-var-tooltip" role="tooltip">
-                                <div class="variable-tooltip-title">
-                                  <strong class="var-name">{segment.info.name}</strong>
-                                  <span class="var-scope-badge">{segment.info.scope}</span>
-                                </div>
-                                {#if !segment.info.validName}
-                                  <small class="var-warning-note">{invalidVariableWarning}</small>
-                                {:else if editingVariableTooltip === segment.info.name}
-                                  <textarea
-                                    class="var-value-editor"
-                                    aria-label={'Edit variable ' + segment.info.name}
-                                    bind:value={variableTooltipDraft}
-                                    on:keydown={(event) => handleVariableTooltipEditorKey(event, segment.info)}
-                                    on:blur={(event) => handleVariableTooltipEditorBlur(event, segment.info)}
-                                  ></textarea>
-                                  <div class="button-row compact">
-                                    <button class="var-save-button" on:click|stopPropagation={() => saveVariableTooltipEdit(segment.info)} disabled={busy !== ''}>Save</button>
-                                    <button on:click|stopPropagation={cancelVariableTooltipEdit}>Cancel</button>
-                                  </div>
-                                {:else if segment.info.editable}
-                                  <button type="button" class="var-value-editable-display" on:click|stopPropagation={() => beginVariableTooltipEdit(segment.info)}>
-                                    {displayTooltipValue(segment.info, Boolean(revealedVariableTooltips[segment.info.name]))}
-                                  </button>
-                                {:else}
-                                  <div class="var-value-editable-display">{displayTooltipValue(segment.info, Boolean(revealedVariableTooltips[segment.info.name]))}</div>
-                                {/if}
-                                {#if segment.info.readOnly}
-                                  <small class="var-readonly-note">read-only</small>
-                                {/if}
-                                <div class="button-row compact">
-                                  <button
-                                    class="copy-button"
-                                    class:copy-success={copiedVariableTooltips[segment.info.name]}
-                                    on:click|stopPropagation={() => copyVariableTooltipValue(segment.info)}
-                                    disabled={!segment.info.found || !segment.info.validName || copiedVariableTooltips[segment.info.name]}
-                                  >
-                                    {copiedVariableTooltips[segment.info.name] ? 'Copied' : 'Copy'}
-                                  </button>
-                                  {#if segment.info.secret}
-                                    <button class="secret-toggle-button" on:click|stopPropagation={() => toggleTooltipSecret(segment.info.name)}>
-                                      {revealedVariableTooltips[segment.info.name] ? 'Hide' : 'Show'}
-                                    </button>
-                                  {/if}
-                                </div>
-                              </div>
-                            {/if}
-                          </span>
-	                        {:else if segment.prompt}
-	                          <span class="cm-variable-prompt">{segment.text}</span>
-	                        {:else}
-	                          <span>{segment.text}</span>
-	                        {/if}
-                      {/each}
-                    </span>
-                  </div>
-                </div>
-              {/if}
-            </div>
+            <div class="request-variable-region">
             {#if requestVariableTooltips.length > 0}
               <div class="variable-inspector" aria-label="Variable inspector">
                 {#each requestVariableTooltips as variableInfo (variableInfo.name)}
-                  <div class="variable-chip-wrapper" class:invalid={!variableInfo.found} class:open={activeVariableTooltip === variableInfo.name}>
-                    <button type="button" class="variable-chip" on:click={() => toggleActiveVariableTooltip(variableInfo.name)}>
+                  <div class="variable-chip-wrapper" class:invalid={!variableInfo.found} class:open={variableTooltips.active === variableInfo.name}>
+                    <button type="button" class="variable-chip" onclick={() => toggleActiveVariableTooltip(variableInfo.name)}>
                       <span class="var-token">{'{{' + variableInfo.name + '}}'}</span>
                     </button>
                     <div class="variable-tooltip" role="tooltip">
@@ -7755,24 +7725,24 @@
                       </div>
                       {#if !variableInfo.validName}
                         <small class="var-warning-note">{invalidVariableWarning}</small>
-                      {:else if editingVariableTooltip === variableInfo.name}
+                      {:else if variableTooltips.editing === variableInfo.name}
                         <textarea
                           class="var-value-editor"
                           aria-label={'Edit variable ' + variableInfo.name}
-                          bind:value={variableTooltipDraft}
-                          on:keydown={(event) => handleVariableTooltipEditorKey(event, variableInfo)}
-                          on:blur={(event) => handleVariableTooltipEditorBlur(event, variableInfo)}
+                          bind:value={variableTooltips.draft}
+                          onkeydown={(event) => handleVariableTooltipEditorKey(event, variableInfo)}
+                          onblur={(event) => handleVariableTooltipEditorBlur(event, variableInfo)}
                         ></textarea>
                         <div class="button-row compact">
-                          <button class="var-save-button" on:click|stopPropagation={() => saveVariableTooltipEdit(variableInfo)} disabled={busy !== ''}>Save</button>
-                          <button on:click|stopPropagation={cancelVariableTooltipEdit}>Cancel</button>
+                          <button class="var-save-button" onclick={(event) => { event.stopPropagation(); saveVariableTooltipEdit(variableInfo) }} disabled={busy !== ''}>Save</button>
+                          <button onclick={(event) => { event.stopPropagation(); cancelVariableTooltipEdit() }}>Cancel</button>
                         </div>
                       {:else if variableInfo.editable}
-                        <button type="button" class="var-value-editable-display" on:click|stopPropagation={() => beginVariableTooltipEdit(variableInfo)}>
-                          {displayTooltipValue(variableInfo, Boolean(revealedVariableTooltips[variableInfo.name]))}
+                        <button type="button" class="var-value-editable-display" onclick={(event) => { event.stopPropagation(); beginVariableTooltipEdit(variableInfo) }}>
+                          {displayTooltipValue(variableInfo, variableTooltips.isRevealed(variableInfo.name))}
                         </button>
                       {:else}
-                        <div class="var-value-editable-display">{displayTooltipValue(variableInfo, Boolean(revealedVariableTooltips[variableInfo.name]))}</div>
+                        <div class="var-value-editable-display">{displayTooltipValue(variableInfo, variableTooltips.isRevealed(variableInfo.name))}</div>
                       {/if}
                       {#if variableInfo.readOnly}
                         <small class="var-readonly-note">read-only</small>
@@ -7780,15 +7750,15 @@
                       <div class="button-row compact">
                         <button
                           class="copy-button"
-                          class:copy-success={copiedVariableTooltips[variableInfo.name]}
-                          on:click|stopPropagation={() => copyVariableTooltipValue(variableInfo)}
-                          disabled={!variableInfo.found || !variableInfo.validName || copiedVariableTooltips[variableInfo.name]}
+                          class:copy-success={variableTooltips.isCopied(variableInfo.name)}
+                          onclick={(event) => { event.stopPropagation(); copyVariableTooltipValue(variableInfo) }}
+                          disabled={!variableInfo.found || !variableInfo.validName || variableTooltips.isCopied(variableInfo.name)}
                         >
-                          {copiedVariableTooltips[variableInfo.name] ? 'Copied' : 'Copy'}
+                          {variableTooltips.isCopied(variableInfo.name) ? 'Copied' : 'Copy'}
                         </button>
                         {#if variableInfo.secret}
-                          <button class="secret-toggle-button" on:click|stopPropagation={() => toggleTooltipSecret(variableInfo.name)}>
-                            {revealedVariableTooltips[variableInfo.name] ? 'Hide' : 'Show'}
+                          <button class="secret-toggle-button" onclick={(event) => { event.stopPropagation(); toggleTooltipSecret(variableInfo.name) }}>
+                            {variableTooltips.isRevealed(variableInfo.name) ? 'Hide' : 'Show'}
                           </button>
                         {/if}
                       </div>
@@ -7797,118 +7767,110 @@
                 {/each}
               </div>
             {/if}
+            </div>
 
-            <nav class="subtabs">
-              {#each requestTabs as tab}
-                <button class:active={requestPaneTab === tab.id} on:click={() => selectRequestPaneTab(tab.id)}>
+            <div class="subtabs" role="tablist" aria-label="Request sections" tabindex="-1" onkeydown={requestTabKeydown}>
+              {#each requestTabs as tab (tab.id)}
+                <button
+                  class:active={requestPaneTab === tab.id}
+                  id={`request-tab-${tab.id}`}
+                  data-request-tab={tab.id}
+                  role="tab"
+                  aria-selected={requestPaneTab === tab.id}
+                  aria-controls={`request-panel-${tab.id}`}
+                  tabindex={requestPaneTab === tab.id ? 0 : -1}
+                  onclick={() => selectRequestPaneTab(tab.id)}
+                >
                   {tab.label}
                 </button>
               {/each}
-            </nav>
+            </div>
 
-	            <div class="editor-surface">
+	            <div class="editor-surface" id={`request-panel-${requestPaneTab}`} role="tabpanel" aria-labelledby={`request-tab-${requestPaneTab}`} tabindex="0">
 	              {#if requestPaneTab === 'params'}
 	                <div class="param-section-title">Query</div>
 	                <KeyValueTable
+	                  showBulkEdit={true}
+	                  bulkLabel="Request params bulk edit"
 	                  rows={activeRequest.params}
 	                  variableOverlay={true}
-                  {activeVariableTooltip}
-                  {editingVariableTooltip}
-                  bind:variableTooltipDraft
-                  {revealedVariableTooltips}
-                  {copiedVariableTooltips}
                   {busy}
                   valueVariableSegments={(value) => urlVariableSegments(value, requestVariableTooltips)}
                   {displayTooltipValue}
-                  onToggleActive={toggleActiveVariableTooltip}
-                  onBeginEdit={beginVariableTooltipEdit}
                   onEditorKey={handleVariableTooltipEditorKey}
                   onEditorBlur={handleVariableTooltipEditorBlur}
                   onSave={saveVariableTooltipEdit}
-                  onCancel={cancelVariableTooltipEdit}
                   onCopy={copyVariableTooltipValue}
-                  onToggleSecret={toggleTooltipSecret}
                   onAdd={() => addKeyValue('params')}
 	                  onChange={(index, field, value) => updateKeyValue('params', index, field, value)}
+	                  onBulkChange={(rows) => replaceKeyValues('params', rows as unknown as types.KeyValue[])}
 	                  onRemove={(index) => removeKeyValue('params', index)}
 	                />
 	                {#if activeRequest.pathParams?.length}
 	                  <div class="param-section-title">Path</div>
 	                  <KeyValueTable
+	                    showBulkEdit={true}
+	                    bulkLabel="Request path params bulk edit"
 	                    rows={activeRequest.pathParams}
 	                    variableOverlay={true}
 	                    readonlyNames={true}
 	                    showEnabled={false}
 	                    showActions={false}
 	                    showAddRow={false}
-	                    {activeVariableTooltip}
-	                    {editingVariableTooltip}
-	                    bind:variableTooltipDraft
-	                    {revealedVariableTooltips}
-	                    {copiedVariableTooltips}
 	                    {busy}
 	                    valueVariableSegments={(value) => urlVariableSegments(value, requestVariableTooltips)}
 	                    {displayTooltipValue}
-	                    onToggleActive={toggleActiveVariableTooltip}
-	                    onBeginEdit={beginVariableTooltipEdit}
 	                    onEditorKey={handleVariableTooltipEditorKey}
 	                    onEditorBlur={handleVariableTooltipEditorBlur}
 	                    onSave={saveVariableTooltipEdit}
-	                    onCancel={cancelVariableTooltipEdit}
 	                    onCopy={copyVariableTooltipValue}
-	                    onToggleSecret={toggleTooltipSecret}
 	                    onChange={(index, field, value) => updateKeyValue('pathParams', index, field, value)}
+                  onBulkChange={(rows) => replaceKeyValues('pathParams', rows as unknown as types.KeyValue[])}
 	                  />
 	                {/if}
 	              {:else if requestPaneTab === 'headers'}
                 <KeyValueTable
+                  showBulkEdit={true}
+                  bulkLabel="Request headers bulk edit"
                   rows={activeRequest.headers}
                   variableOverlay={true}
-                  {activeVariableTooltip}
-                  {editingVariableTooltip}
-                  bind:variableTooltipDraft
-                  {revealedVariableTooltips}
-                  {copiedVariableTooltips}
                   {busy}
                   valueVariableSegments={(value) => urlVariableSegments(value, requestVariableTooltips)}
                   {displayTooltipValue}
-                  onToggleActive={toggleActiveVariableTooltip}
-                  onBeginEdit={beginVariableTooltipEdit}
                   onEditorKey={handleVariableTooltipEditorKey}
                   onEditorBlur={handleVariableTooltipEditorBlur}
                   onSave={saveVariableTooltipEdit}
-                  onCancel={cancelVariableTooltipEdit}
                   onCopy={copyVariableTooltipValue}
-                  onToggleSecret={toggleTooltipSecret}
                   onAdd={() => addKeyValue('headers')}
                   onChange={(index, field, value) => updateKeyValue('headers', index, field, value)}
+                  onBulkChange={(rows) => replaceKeyValues('headers', rows as unknown as types.KeyValue[])}
                   onRemove={(index) => removeKeyValue('headers', index)}
                 />
               {:else if requestPaneTab === 'body'}
                 {#if activeRequest.type === 'grpc'}
                   <div class="grpc-editor">
                     <div class="grpc-method-controls">
-                      <button on:click={loadGrpcMethods} disabled={busy !== ''}>Load methods</button>
-                      <select aria-label="Discovered gRPC methods" value={activeRequest.method === 'CALL' ? '' : activeRequest.method} on:change={(e) => selectGrpcMethod(e.currentTarget.value)} disabled={grpcMethods.length === 0}>
+                      <button onclick={loadGrpcMethods} disabled={busy !== ''}>Load methods</button>
+                      <select aria-label="Discovered gRPC methods" value={activeRequest.method === 'CALL' ? '' : activeRequest.method} onchange={(e) => selectGrpcMethod(e.currentTarget.value)} disabled={grpcMethods.length === 0}>
                         <option value="">Select method</option>
-                        {#each grpcMethods as method}
+                        {#each grpcMethods as method (method.path)}
                           <option value={method.path}>{method.path} · {method.type || 'unary'}</option>
                         {/each}
                       </select>
-                      <button on:click={() => regenerateGrpcMessage(0)} disabled={busy !== '' || !activeRequest.method || activeRequest.method === 'CALL'}>Generate</button>
+                      <button onclick={() => regenerateGrpcMessage(0)} disabled={busy !== '' || !activeRequest.method || activeRequest.method === 'CALL'}>Generate</button>
                     </div>
                     {#if grpcMethodMessage}
                       <small>{grpcMethodMessage}</small>
                     {/if}
                     <div class="field-grid">
                       <span class="field-label">Method type</span>
-                      <select value={activeRequest.grpcMethodType} on:change={(e) => patchField('grpcMethodType', e.currentTarget.value)}>
-                        {#each grpcMethodTypes as methodType}
+                      <select value={activeRequest.grpcMethodType} onchange={(e) => patchField('grpcMethodType', e.currentTarget.value)}>
+                        {#each grpcMethodTypes as methodType (methodType)}
                           <option value={methodType}>{methodType || 'unspecified'}</option>
                         {/each}
                       </select>
                       <span class="field-label">Proto path</span>
-                      <input value={activeRequest.protoPath} placeholder="protos/service.proto" on:change={(e) => patchField('protoPath', e.currentTarget.value)} />
+                      <input value={activeRequest.protoPath} placeholder="protos/service.proto" onchange={(e) => patchField('protoPath', e.currentTarget.value)} />
                     </div>
 
                     {#if grpcStreamingRequest}
@@ -7920,9 +7882,9 @@
                           {/if}
                         </div>
                         <div class="button-row compact">
-                          <button on:click={connectActiveGrpcStream} disabled={busy !== '' || grpcStreamConnected}>Start stream</button>
-                          <button on:click={endActiveGrpcStream} disabled={busy !== '' || !grpcStreamConnected}>End</button>
-                          <button on:click={cancelActiveGrpcStream} disabled={busy !== '' || !grpcStreamConnected}>Cancel</button>
+                          <button onclick={connectActiveGrpcStream} disabled={busy !== '' || grpcStreamConnected}>Start stream</button>
+                          <button onclick={endActiveGrpcStream} disabled={busy !== '' || !grpcStreamConnected}>End</button>
+                          <button onclick={cancelActiveGrpcStream} disabled={busy !== '' || !grpcStreamConnected}>Cancel</button>
                         </div>
                       </div>
                     {/if}
@@ -7932,24 +7894,24 @@
                         <tr><th>Name</th><th>Content</th><th></th></tr>
                       </thead>
                       <tbody>
-                        {#each activeRequest.grpcMessages ?? [] as message, index}
+                        {#each activeRequest.grpcMessages ?? [] as message, index (index)}
                           <tr>
-                            <td><input value={message.name} on:input={(e) => updateGrpcMessage(index, 'name', e.currentTarget.value)} /></td>
-                            <td><textarea class="short" spellcheck="false" value={message.content} on:input={(e) => updateGrpcMessage(index, 'content', e.currentTarget.value)}></textarea></td>
+                            <td><input value={message.name} oninput={(e) => updateGrpcMessage(index, 'name', e.currentTarget.value)} /></td>
+                            <td><textarea class="short" spellcheck="false" value={message.content} oninput={(e) => updateGrpcMessage(index, 'content', e.currentTarget.value)}></textarea></td>
                             <td>
                               <div class="button-row compact">
                                 {#if grpcClientStreamingRequest}
-                                  <button class="icon-button" title="Send message" on:click={() => sendGrpcStreamMessage(index)} disabled={busy !== '' || !grpcStreamConnected}>Send</button>
+                                  <button class="icon-button" title="Send message" onclick={() => sendGrpcStreamMessage(index)} disabled={busy !== '' || !grpcStreamConnected}>Send</button>
                                 {/if}
-                                <button class="icon-button" title="Generate sample" on:click={() => regenerateGrpcMessage(index)}>Gen</button>
-                                <button class="icon-button" title="Remove message" on:click={() => removeGrpcMessage(index)}>x</button>
+                                <button class="icon-button" title="Generate sample" onclick={() => regenerateGrpcMessage(index)}>Gen</button>
+                                <button class="icon-button" title="Remove message" onclick={() => removeGrpcMessage(index)}>x</button>
                               </div>
                             </td>
                           </tr>
                         {/each}
                       </tbody>
 	                    </table>
-	                    <button on:click={addGrpcMessage}>Add message</button>
+	                    <button onclick={addGrpcMessage}>Add message</button>
 	                  </div>
 	                {:else if activeRequest.type === 'websocket'}
 	                  <div class="ws-editor">
@@ -7961,35 +7923,35 @@
 	                        {/if}
 	                      </div>
 	                      <div class="button-row compact">
-	                        <button on:click={connectActiveWebSocket} disabled={busy !== ''}>Connect</button>
-	                        <button on:click={() => sendWSMessage(selectedWSMessageIndex(activeRequest))} disabled={busy !== ''}>Send selected</button>
-	                        <button on:click={disconnectActiveWebSocket} disabled={busy !== '' || !websocketConnected}>Disconnect</button>
+	                        <button onclick={connectActiveWebSocket} disabled={busy !== ''}>Connect</button>
+	                        <button onclick={() => sendWSMessage(selectedWSMessageIndex(activeRequest))} disabled={busy !== ''}>Send selected</button>
+	                        <button onclick={disconnectActiveWebSocket} disabled={busy !== '' || !websocketConnected}>Disconnect</button>
 	                      </div>
 	                    </div>
 	                    {#if (activeRequest.wsMessages ?? []).length === 0}
-	                      <div class="empty-state">No WebSocket messages</div>
+	                      <div class="empty-appState">No WebSocket messages</div>
 	                    {:else}
 	                      <table class="ws-messages">
 	                        <thead>
 	                          <tr><th>Send</th><th>Name</th><th>Type</th><th>Content</th><th></th></tr>
 	                        </thead>
 	                        <tbody>
-	                          {#each activeRequest.wsMessages ?? [] as message, index}
+	                          {#each activeRequest.wsMessages ?? [] as message, index (index)}
 	                            <tr>
-	                              <td><input type="checkbox" checked={message.selected} on:change={(e) => updateWSMessage(index, 'selected', e.currentTarget.checked)} /></td>
-	                              <td><input value={message.name} on:change={(e) => updateWSMessage(index, 'name', e.currentTarget.value)} /></td>
+	                              <td><input type="checkbox" checked={message.selected} onchange={(e) => updateWSMessage(index, 'selected', e.currentTarget.checked)} /></td>
+	                              <td><input value={message.name} onchange={(e) => updateWSMessage(index, 'name', e.currentTarget.value)} /></td>
 	                              <td>
-	                                <select value={message.type || 'text'} on:change={(e) => updateWSMessage(index, 'type', e.currentTarget.value)}>
-	                                  {#each wsMessageTypes as messageType}
+	                                <select value={message.type || 'text'} onchange={(e) => updateWSMessage(index, 'type', e.currentTarget.value)}>
+	                                  {#each wsMessageTypes as messageType (messageType)}
 	                                    <option value={messageType}>{messageType}</option>
 	                                  {/each}
 	                                </select>
 	                              </td>
-	                              <td><textarea class="short" spellcheck="false" value={message.content} on:change={(e) => updateWSMessage(index, 'content', e.currentTarget.value)}></textarea></td>
+	                              <td><textarea class="short" spellcheck="false" value={message.content} onchange={(e) => updateWSMessage(index, 'content', e.currentTarget.value)}></textarea></td>
 	                              <td>
 	                                <div class="button-row compact">
-	                                  <button class="icon-button" title="Send message" on:click={() => sendWSMessage(index)} disabled={busy !== ''}>Send</button>
-	                                  <button class="icon-button" title="Remove message" on:click={() => removeWSMessage(index)}>x</button>
+	                                  <button class="icon-button" title="Send message" onclick={() => sendWSMessage(index)} disabled={busy !== ''}>Send</button>
+	                                  <button class="icon-button" title="Remove message" onclick={() => removeWSMessage(index)}>x</button>
 	                                </div>
 	                              </td>
 	                            </tr>
@@ -7997,157 +7959,38 @@
 	                        </tbody>
 	                      </table>
 	                    {/if}
-	                    <button on:click={addWSMessage}>Add message</button>
+	                    <button onclick={addWSMessage}>Add message</button>
 	                  </div>
 	                {:else}
 	                  <div class="field-row">
                     <span class="field-label">Body mode</span>
-                    <select value={activeRequest.body.mode} on:change={(e) => updateBody({ mode: e.currentTarget.value })}>
-                      {#each bodyModes as mode}
+                    <select value={activeRequest.body.mode} onchange={(e) => updateBody({ mode: e.currentTarget.value })}>
+                      {#each bodyModes as mode (mode)}
                         <option value={mode}>{mode}</option>
                       {/each}
                     </select>
                   </div>
                   {#if activeRequest.body.mode === 'json'}
-                    <div class="variable-textarea-editor" data-testid="request-body-editor">
-                      <textarea class="variable-textarea-input" spellcheck="false" value={activeRequest.body.json} on:input={(e) => updateBodyText('json', e)} on:scroll={syncBodyTextScroll} on:keyup={syncBodyTextScroll} on:mouseup={syncBodyTextScroll}></textarea>
-                      <VariableTextOverlay
-                        segments={urlVariableSegments(activeRequest.body.json ?? '', requestVariableTooltips)}
-                        {activeVariableTooltip}
-                        {editingVariableTooltip}
-                        bind:variableTooltipDraft
-                        {revealedVariableTooltips}
-                        {copiedVariableTooltips}
-                        {busy}
-                        scrollLeft={bodyTextScrollLeft}
-                        scrollTop={bodyTextScrollTop}
-                        displayTooltipValue={displayTooltipValue}
-                        onToggleActive={toggleActiveVariableTooltip}
-                        onBeginEdit={beginVariableTooltipEdit}
-                        onEditorKey={handleVariableTooltipEditorKey}
-                        onEditorBlur={handleVariableTooltipEditorBlur}
-                        onSave={saveVariableTooltipEdit}
-                        onCancel={cancelVariableTooltipEdit}
-                        onCopy={copyVariableTooltipValue}
-                        onToggleSecret={toggleTooltipSecret}
-                      />
-                    </div>
+                    <CodeEditor editorKey={`${activeRequest.id}:body-json`} value={activeRequest.body.json ?? ''} language="json" ariaLabel="JSON request body" testId="request-body-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => updateBody({ json: value })} />
                   {:else if activeRequest.body.mode === 'xml'}
-                    <div class="variable-textarea-editor" data-testid="request-body-editor">
-                      <textarea class="variable-textarea-input" spellcheck="false" value={activeRequest.body.xml} on:input={(e) => updateBodyText('xml', e)} on:scroll={syncBodyTextScroll} on:keyup={syncBodyTextScroll} on:mouseup={syncBodyTextScroll}></textarea>
-                      <VariableTextOverlay
-                        segments={urlVariableSegments(activeRequest.body.xml ?? '', requestVariableTooltips)}
-                        {activeVariableTooltip}
-                        {editingVariableTooltip}
-                        bind:variableTooltipDraft
-                        {revealedVariableTooltips}
-                        {copiedVariableTooltips}
-                        {busy}
-                        scrollLeft={bodyTextScrollLeft}
-                        scrollTop={bodyTextScrollTop}
-                        displayTooltipValue={displayTooltipValue}
-                        onToggleActive={toggleActiveVariableTooltip}
-                        onBeginEdit={beginVariableTooltipEdit}
-                        onEditorKey={handleVariableTooltipEditorKey}
-                        onEditorBlur={handleVariableTooltipEditorBlur}
-                        onSave={saveVariableTooltipEdit}
-                        onCancel={cancelVariableTooltipEdit}
-                        onCopy={copyVariableTooltipValue}
-                        onToggleSecret={toggleTooltipSecret}
-                      />
-                    </div>
+                    <CodeEditor editorKey={`${activeRequest.id}:body-xml`} value={activeRequest.body.xml ?? ''} language="xml" ariaLabel="XML request body" testId="request-body-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => updateBody({ xml: value })} />
                   {:else if activeRequest.body.mode === 'graphql'}
-                    <div class="variable-textarea-editor" data-testid="request-body-editor">
-                      <textarea class="variable-textarea-input" spellcheck="false" value={activeRequest.body.graphqlQuery} on:input={(e) => updateBodyText('graphqlQuery', e)} on:scroll={syncBodyTextScroll} on:keyup={syncBodyTextScroll} on:mouseup={syncBodyTextScroll}></textarea>
-                      <VariableTextOverlay
-                        segments={urlVariableSegments(activeRequest.body.graphqlQuery ?? '', requestVariableTooltips)}
-                        {activeVariableTooltip}
-                        {editingVariableTooltip}
-                        bind:variableTooltipDraft
-                        {revealedVariableTooltips}
-                        {copiedVariableTooltips}
-                        {busy}
-                        scrollLeft={bodyTextScrollLeft}
-                        scrollTop={bodyTextScrollTop}
-                        displayTooltipValue={displayTooltipValue}
-                        onToggleActive={toggleActiveVariableTooltip}
-                        onBeginEdit={beginVariableTooltipEdit}
-                        onEditorKey={handleVariableTooltipEditorKey}
-                        onEditorBlur={handleVariableTooltipEditorBlur}
-                        onSave={saveVariableTooltipEdit}
-                        onCancel={cancelVariableTooltipEdit}
-                        onCopy={copyVariableTooltipValue}
-                        onToggleSecret={toggleTooltipSecret}
-                      />
-                    </div>
-                    <div class="variable-textarea-editor short" data-testid="request-body-variables-editor">
-                      <textarea class="variable-textarea-input short" spellcheck="false" value={activeRequest.body.graphqlVariables} on:input={(e) => updateBodyText('graphqlVariables', e)} on:scroll={syncBodyTextScroll} on:keyup={syncBodyTextScroll} on:mouseup={syncBodyTextScroll}></textarea>
-                      <VariableTextOverlay
-                        segments={urlVariableSegments(activeRequest.body.graphqlVariables ?? '', requestVariableTooltips)}
-                        {activeVariableTooltip}
-                        {editingVariableTooltip}
-                        bind:variableTooltipDraft
-                        {revealedVariableTooltips}
-                        {copiedVariableTooltips}
-                        {busy}
-                        scrollLeft={bodyTextScrollLeft}
-                        scrollTop={bodyTextScrollTop}
-                        displayTooltipValue={displayTooltipValue}
-                        onToggleActive={toggleActiveVariableTooltip}
-                        onBeginEdit={beginVariableTooltipEdit}
-                        onEditorKey={handleVariableTooltipEditorKey}
-                        onEditorBlur={handleVariableTooltipEditorBlur}
-                        onSave={saveVariableTooltipEdit}
-                        onCancel={cancelVariableTooltipEdit}
-                        onCopy={copyVariableTooltipValue}
-                        onToggleSecret={toggleTooltipSecret}
-                      />
-                    </div>
+                    <CodeEditor editorKey={`${activeRequest.id}:body-graphql-query`} value={activeRequest.body.graphqlQuery ?? ''} language="graphql" ariaLabel="GraphQL query" testId="request-body-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => updateBody({ graphqlQuery: value })} />
+                    <CodeEditor editorKey={`${activeRequest.id}:body-graphql-variables`} value={activeRequest.body.graphqlVariables ?? ''} language="json" ariaLabel="GraphQL variables" testId="request-body-variables-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => updateBody({ graphqlVariables: value })} />
                   {:else if activeRequest.body.mode === 'text' || activeRequest.body.mode === 'sparql'}
-                    <div class="variable-textarea-editor" data-testid="request-body-editor">
-                      <textarea class="variable-textarea-input" spellcheck="false" value={activeRequest.body.text} on:input={(e) => updateBodyText('text', e)} on:scroll={syncBodyTextScroll} on:keyup={syncBodyTextScroll} on:mouseup={syncBodyTextScroll}></textarea>
-                      <VariableTextOverlay
-                        segments={urlVariableSegments(activeRequest.body.text ?? '', requestVariableTooltips)}
-                        {activeVariableTooltip}
-                        {editingVariableTooltip}
-                        bind:variableTooltipDraft
-                        {revealedVariableTooltips}
-                        {copiedVariableTooltips}
-                        {busy}
-                        scrollLeft={bodyTextScrollLeft}
-                        scrollTop={bodyTextScrollTop}
-                        displayTooltipValue={displayTooltipValue}
-                        onToggleActive={toggleActiveVariableTooltip}
-                        onBeginEdit={beginVariableTooltipEdit}
-                        onEditorKey={handleVariableTooltipEditorKey}
-                        onEditorBlur={handleVariableTooltipEditorBlur}
-                        onSave={saveVariableTooltipEdit}
-                        onCancel={cancelVariableTooltipEdit}
-                        onCopy={copyVariableTooltipValue}
-                        onToggleSecret={toggleTooltipSecret}
-	                      />
-	                    </div>
+                    <CodeEditor editorKey={`${activeRequest.id}:body-text`} value={activeRequest.body.text ?? ''} language="text" ariaLabel="Text request body" testId="request-body-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => updateBody({ text: value })} />
 	                  {:else if activeRequest.body.mode === 'formUrlEncoded'}
 	                    <KeyValueTable
 	                      rows={activeRequest.body.formUrlEncoded ?? []}
 	                      variableOverlay={true}
 	                      multilineValues={true}
-	                      {activeVariableTooltip}
-	                      {editingVariableTooltip}
-	                      bind:variableTooltipDraft
-	                      {revealedVariableTooltips}
-	                      {copiedVariableTooltips}
 	                      {busy}
 	                      valueVariableSegments={(value) => urlVariableSegments(value, requestVariableTooltips)}
 	                      {displayTooltipValue}
-	                      onToggleActive={toggleActiveVariableTooltip}
-	                      onBeginEdit={beginVariableTooltipEdit}
 	                      onEditorKey={handleVariableTooltipEditorKey}
 	                      onEditorBlur={handleVariableTooltipEditorBlur}
 	                      onSave={saveVariableTooltipEdit}
-	                      onCancel={cancelVariableTooltipEdit}
 	                      onCopy={copyVariableTooltipValue}
-	                      onToggleSecret={toggleTooltipSecret}
 	                      onAdd={addFormUrlEncodedRow}
 	                      onChange={updateFormUrlEncodedRow}
 	                      onRemove={removeFormUrlEncodedRow}
@@ -8155,22 +7998,13 @@
 	                  {:else if activeRequest.body.mode === 'multipartForm'}
 	                    <MultipartTable
 	                      rows={activeRequest.body.multipart ?? []}
-	                      {activeVariableTooltip}
-	                      {editingVariableTooltip}
-	                      bind:variableTooltipDraft
-	                      {revealedVariableTooltips}
-	                      {copiedVariableTooltips}
 	                      {busy}
 	                      valueVariableSegments={(value) => urlVariableSegments(value, requestVariableTooltips)}
 	                      {displayTooltipValue}
-	                      onToggleActive={toggleActiveVariableTooltip}
-	                      onBeginEdit={beginVariableTooltipEdit}
 	                      onEditorKey={handleVariableTooltipEditorKey}
 	                      onEditorBlur={handleVariableTooltipEditorBlur}
 	                      onSave={saveVariableTooltipEdit}
-	                      onCancel={cancelVariableTooltipEdit}
 	                      onCopy={copyVariableTooltipValue}
-	                      onToggleSecret={toggleTooltipSecret}
 	                      onAdd={addMultipartRow}
 	                      onChange={updateMultipartRow}
 	                      onRemove={removeMultipartRow}
@@ -8183,91 +8017,91 @@
 	                      onRemove={removeFileBodyRow}
 	                    />
 	                  {:else}
-                    <div class="empty-state">No body payload</div>
+                    <div class="empty-appState">No body payload</div>
                   {/if}
                 {/if}
               {:else if requestPaneTab === 'auth'}
                 <div class="field-grid">
                   <span class="field-label">Mode</span>
-                  <select value={activeRequest.auth.mode} on:change={(e) => updateAuth({ mode: e.currentTarget.value })}>
-                    {#each authModes as mode}
+                  <select value={activeRequest.auth.mode} onchange={(e) => updateAuth({ mode: e.currentTarget.value })}>
+                    {#each authModes as mode (mode)}
                       <option value={mode}>{mode}</option>
                     {/each}
                   </select>
 	                  {#if activeRequest.auth.mode === 'basic' || activeRequest.auth.mode === 'digest' || activeRequest.auth.mode === 'wsse' || activeRequest.auth.mode === 'ntlm'}
                     <span class="field-label">Username</span>
-                    <input value={activeRequest.auth.username} on:input={(e) => updateAuth({ username: e.currentTarget.value })} />
+                    <input value={activeRequest.auth.username} oninput={(e) => updateAuth({ username: e.currentTarget.value })} />
                     <span class="field-label">Password</span>
-                    <input type="password" value={activeRequest.auth.password} on:input={(e) => updateAuth({ password: e.currentTarget.value })} />
+                    <input type="password" value={activeRequest.auth.password} oninput={(e) => updateAuth({ password: e.currentTarget.value })} />
                     {#if activeRequest.auth.mode === 'ntlm'}
                       <span class="field-label">Domain</span>
-                      <input value={activeRequest.auth.domain} on:change={(e) => updateAuth({ domain: e.currentTarget.value })} />
+                      <input value={activeRequest.auth.domain} onchange={(e) => updateAuth({ domain: e.currentTarget.value })} />
                     {/if}
                   {:else if activeRequest.auth.mode === 'bearer'}
                     <span class="field-label">Token</span>
-                    <input type="password" value={activeRequest.auth.token} on:input={(e) => updateAuth({ token: e.currentTarget.value })} />
+                    <input type="password" value={activeRequest.auth.token} oninput={(e) => updateAuth({ token: e.currentTarget.value })} />
                   {:else if activeRequest.auth.mode === 'oauth2'}
                     <span class="field-label">Grant</span>
-                    <select value={activeRequest.auth.oauth2?.grantType || 'client_credentials'} on:change={(e) => updateOAuth2Auth({ grantType: e.currentTarget.value })}>
-                      {#each oauth2GrantTypes as grant}
+                    <select value={activeRequest.auth.oauth2?.grantType || 'client_credentials'} onchange={(e) => updateOAuth2Auth({ grantType: e.currentTarget.value })}>
+                      {#each oauth2GrantTypes as grant (grant)}
                         <option value={grant}>{grant}</option>
                       {/each}
                     </select>
                     {#if activeRequest.auth.oauth2?.grantType === 'authorization_code' || activeRequest.auth.oauth2?.grantType === 'implicit'}
                       <span class="field-label">Callback URL</span>
-                      <input value={activeRequest.auth.oauth2?.callbackUrl ?? ''} on:change={(e) => updateOAuth2Auth({ callbackUrl: e.currentTarget.value })} />
+                      <input value={activeRequest.auth.oauth2?.callbackUrl ?? ''} onchange={(e) => updateOAuth2Auth({ callbackUrl: e.currentTarget.value })} />
                       <span class="field-label">Authorization URL</span>
-                      <input value={activeRequest.auth.oauth2?.authorizationUrl ?? ''} on:change={(e) => updateOAuth2Auth({ authorizationUrl: e.currentTarget.value })} />
+                      <input value={activeRequest.auth.oauth2?.authorizationUrl ?? ''} onchange={(e) => updateOAuth2Auth({ authorizationUrl: e.currentTarget.value })} />
                     {/if}
                     <span class="field-label">Access token URL</span>
-                    <input value={activeRequest.auth.oauth2?.accessTokenUrl ?? ''} on:change={(e) => updateOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
+                    <input value={activeRequest.auth.oauth2?.accessTokenUrl ?? ''} onchange={(e) => updateOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
                     <span class="field-label">Client ID</span>
-                    <input value={activeRequest.auth.oauth2?.clientId ?? ''} on:change={(e) => updateOAuth2Auth({ clientId: e.currentTarget.value })} />
+                    <input value={activeRequest.auth.oauth2?.clientId ?? ''} onchange={(e) => updateOAuth2Auth({ clientId: e.currentTarget.value })} />
                     <span class="field-label">Client secret</span>
-                    <input type="password" value={activeRequest.auth.oauth2?.clientSecret ?? ''} on:change={(e) => updateOAuth2Auth({ clientSecret: e.currentTarget.value })} />
+                    <input type="password" value={activeRequest.auth.oauth2?.clientSecret ?? ''} onchange={(e) => updateOAuth2Auth({ clientSecret: e.currentTarget.value })} />
                     {#if activeRequest.auth.oauth2?.grantType === 'password'}
                       <span class="field-label">Username</span>
-                      <input value={activeRequest.auth.oauth2?.username ?? ''} on:change={(e) => updateOAuth2Auth({ username: e.currentTarget.value })} />
+                      <input value={activeRequest.auth.oauth2?.username ?? ''} onchange={(e) => updateOAuth2Auth({ username: e.currentTarget.value })} />
                       <span class="field-label">Password</span>
-                      <input type="password" value={activeRequest.auth.oauth2?.password ?? ''} on:change={(e) => updateOAuth2Auth({ password: e.currentTarget.value })} />
+                      <input type="password" value={activeRequest.auth.oauth2?.password ?? ''} onchange={(e) => updateOAuth2Auth({ password: e.currentTarget.value })} />
                     {/if}
                     <span class="field-label">Scope</span>
-                    <input value={activeRequest.auth.oauth2?.scope ?? ''} on:change={(e) => updateOAuth2Auth({ scope: e.currentTarget.value })} />
+                    <input value={activeRequest.auth.oauth2?.scope ?? ''} onchange={(e) => updateOAuth2Auth({ scope: e.currentTarget.value })} />
                     {#if activeRequest.auth.oauth2?.grantType === 'authorization_code' || activeRequest.auth.oauth2?.grantType === 'implicit'}
                       <span class="field-label">State</span>
-                      <input value={activeRequest.auth.oauth2?.state ?? ''} on:change={(e) => updateOAuth2Auth({ state: e.currentTarget.value })} />
+                      <input value={activeRequest.auth.oauth2?.state ?? ''} onchange={(e) => updateOAuth2Auth({ state: e.currentTarget.value })} />
                     {/if}
                     <span class="field-label">Credentials</span>
-                    <select value={activeRequest.auth.oauth2?.credentialsPlacement || 'basic_auth_header'} on:change={(e) => updateOAuth2Auth({ credentialsPlacement: e.currentTarget.value })}>
-                      {#each oauth2CredentialPlacements as placement}
+                    <select value={activeRequest.auth.oauth2?.credentialsPlacement || 'basic_auth_header'} onchange={(e) => updateOAuth2Auth({ credentialsPlacement: e.currentTarget.value })}>
+                      {#each oauth2CredentialPlacements as placement (placement)}
                         <option value={placement}>{placement}</option>
                       {/each}
                     </select>
                     {#if activeRequest.auth.oauth2?.grantType === 'authorization_code'}
                       <span class="field-label">PKCE</span>
-                      <input type="checkbox" checked={activeRequest.auth.oauth2?.pkce ?? false} on:change={(e) => updateOAuth2Auth({ pkce: e.currentTarget.checked })} />
+                      <input type="checkbox" checked={activeRequest.auth.oauth2?.pkce ?? false} onchange={(e) => updateOAuth2Auth({ pkce: e.currentTarget.checked })} />
                     {/if}
                     <span class="field-label">Token source</span>
-                    <select value={activeRequest.auth.oauth2?.tokenSource || 'access_token'} on:change={(e) => updateOAuth2Auth({ tokenSource: e.currentTarget.value })}>
-                      {#each oauth2TokenSources as source}
+                    <select value={activeRequest.auth.oauth2?.tokenSource || 'access_token'} onchange={(e) => updateOAuth2Auth({ tokenSource: e.currentTarget.value })}>
+                      {#each oauth2TokenSources as source (source)}
                         <option value={source}>{source}</option>
                       {/each}
                     </select>
                     <span class="field-label">Token placement</span>
-                    <select value={activeRequest.auth.oauth2?.tokenPlacement || 'header'} on:change={(e) => updateOAuth2Auth({ tokenPlacement: e.currentTarget.value })}>
-                      {#each oauth2TokenPlacements as placement}
+                    <select value={activeRequest.auth.oauth2?.tokenPlacement || 'header'} onchange={(e) => updateOAuth2Auth({ tokenPlacement: e.currentTarget.value })}>
+                      {#each oauth2TokenPlacements as placement (placement)}
                         <option value={placement}>{placement}</option>
                       {/each}
                     </select>
                     {#if (activeRequest.auth.oauth2?.tokenPlacement || 'header') === 'header'}
                       <span class="field-label">Header prefix</span>
-                      <input value={activeRequest.auth.oauth2?.tokenHeaderPrefix || 'Bearer'} on:change={(e) => updateOAuth2Auth({ tokenHeaderPrefix: e.currentTarget.value })} />
+                      <input value={activeRequest.auth.oauth2?.tokenHeaderPrefix || 'Bearer'} onchange={(e) => updateOAuth2Auth({ tokenHeaderPrefix: e.currentTarget.value })} />
                     {:else}
                       <span class="field-label">Query key</span>
-                      <input value={activeRequest.auth.oauth2?.tokenQueryKey || 'access_token'} on:change={(e) => updateOAuth2Auth({ tokenQueryKey: e.currentTarget.value })} />
+                      <input value={activeRequest.auth.oauth2?.tokenQueryKey || 'access_token'} onchange={(e) => updateOAuth2Auth({ tokenQueryKey: e.currentTarget.value })} />
                     {/if}
                     <span class="field-label">Static token</span>
-                    <input type="password" value={activeRequest.auth.token} on:input={(e) => updateAuth({ token: e.currentTarget.value })} />
+                    <input type="password" value={activeRequest.auth.token} oninput={(e) => updateAuth({ token: e.currentTarget.value })} />
                     <div class="oauth2-extra-stack">
                       <OAuth2AdditionalParams
                         title="Authorization request params"
@@ -8293,71 +8127,71 @@
                     </div>
                   {:else if activeRequest.auth.mode === 'apikey'}
                     <span class="field-label">Key</span>
-                    <input value={activeRequest.auth.apiKey} on:change={(e) => updateAuth({ apiKey: e.currentTarget.value })} />
+                    <input value={activeRequest.auth.apiKey} onchange={(e) => updateAuth({ apiKey: e.currentTarget.value })} />
                     <span class="field-label">Value</span>
-                    <input type="password" value={activeRequest.auth.apiValue} on:change={(e) => updateAuth({ apiValue: e.currentTarget.value })} />
+                    <input type="password" value={activeRequest.auth.apiValue} onchange={(e) => updateAuth({ apiValue: e.currentTarget.value })} />
                     <span class="field-label">Send in</span>
-	                    <select value={activeRequest.auth.apiLocation} on:change={(e) => updateAuth({ apiLocation: e.currentTarget.value })}>
+	                    <select value={activeRequest.auth.apiLocation} onchange={(e) => updateAuth({ apiLocation: e.currentTarget.value })}>
 	                      <option value="header">Header</option>
 	                      <option value="query">Query</option>
 	                    </select>
 	                  {:else if activeRequest.auth.mode === 'awsv4'}
 	                    <span class="field-label">Access key ID</span>
-	                    <input value={activeRequest.auth.awsv4?.accessKeyId ?? ''} on:change={(e) => updateAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
+	                    <input value={activeRequest.auth.awsv4?.accessKeyId ?? ''} onchange={(e) => updateAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
 	                    <span class="field-label">Secret access key</span>
-	                    <input type="password" value={activeRequest.auth.awsv4?.secretAccessKey ?? ''} on:change={(e) => updateAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
+	                    <input type="password" value={activeRequest.auth.awsv4?.secretAccessKey ?? ''} onchange={(e) => updateAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
 	                    <span class="field-label">Session token</span>
-	                    <input type="password" value={activeRequest.auth.awsv4?.sessionToken ?? ''} on:change={(e) => updateAWSV4Auth({ sessionToken: e.currentTarget.value })} />
+	                    <input type="password" value={activeRequest.auth.awsv4?.sessionToken ?? ''} onchange={(e) => updateAWSV4Auth({ sessionToken: e.currentTarget.value })} />
 	                    <span class="field-label">Service</span>
-	                    <input value={activeRequest.auth.awsv4?.service ?? ''} placeholder="execute-api" on:change={(e) => updateAWSV4Auth({ service: e.currentTarget.value })} />
+	                    <input value={activeRequest.auth.awsv4?.service ?? ''} placeholder="execute-api" onchange={(e) => updateAWSV4Auth({ service: e.currentTarget.value })} />
 	                    <span class="field-label">Region</span>
-	                    <input value={activeRequest.auth.awsv4?.region ?? ''} placeholder="us-east-1" on:change={(e) => updateAWSV4Auth({ region: e.currentTarget.value })} />
+	                    <input value={activeRequest.auth.awsv4?.region ?? ''} placeholder="us-east-1" onchange={(e) => updateAWSV4Auth({ region: e.currentTarget.value })} />
 		                    <span class="field-label">Profile</span>
-		                    <input value={activeRequest.auth.awsv4?.profileName ?? ''} on:change={(e) => updateAWSV4Auth({ profileName: e.currentTarget.value })} />
+		                    <input value={activeRequest.auth.awsv4?.profileName ?? ''} onchange={(e) => updateAWSV4Auth({ profileName: e.currentTarget.value })} />
 		                  {:else if activeRequest.auth.mode === 'oauth1'}
 		                    <span class="field-label">Consumer key</span>
-		                    <input value={activeRequest.auth.oauth1?.consumerKey ?? ''} on:change={(e) => updateOAuth1Auth({ consumerKey: e.currentTarget.value })} />
+		                    <input value={activeRequest.auth.oauth1?.consumerKey ?? ''} onchange={(e) => updateOAuth1Auth({ consumerKey: e.currentTarget.value })} />
 		                    <span class="field-label">Consumer secret</span>
-		                    <input type="password" value={activeRequest.auth.oauth1?.consumerSecret ?? ''} on:change={(e) => updateOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
+		                    <input type="password" value={activeRequest.auth.oauth1?.consumerSecret ?? ''} onchange={(e) => updateOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
 		                    <span class="field-label">Token</span>
-		                    <input value={activeRequest.auth.oauth1?.accessToken ?? ''} on:change={(e) => updateOAuth1Auth({ accessToken: e.currentTarget.value })} />
+		                    <input value={activeRequest.auth.oauth1?.accessToken ?? ''} onchange={(e) => updateOAuth1Auth({ accessToken: e.currentTarget.value })} />
 		                    <span class="field-label">Token secret</span>
-		                    <input type="password" value={activeRequest.auth.oauth1?.accessTokenSecret ?? ''} on:change={(e) => updateOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
+		                    <input type="password" value={activeRequest.auth.oauth1?.accessTokenSecret ?? ''} onchange={(e) => updateOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
 		                    <span class="field-label">Signature</span>
-		                    <select value={activeRequest.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} on:change={(e) => updateOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
-		                      {#each oauth1SignatureMethods as method}
+		                    <select value={activeRequest.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} onchange={(e) => updateOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
+		                      {#each oauth1SignatureMethods as method (method)}
 		                        <option value={method}>{method}</option>
 		                      {/each}
 		                    </select>
 		                    <span class="field-label">Add params to</span>
-		                    <select value={activeRequest.auth.oauth1?.placement || 'header'} on:change={(e) => updateOAuth1Auth({ placement: e.currentTarget.value })}>
-		                      {#each oauth1Placements as placement}
+		                    <select value={activeRequest.auth.oauth1?.placement || 'header'} onchange={(e) => updateOAuth1Auth({ placement: e.currentTarget.value })}>
+		                      {#each oauth1Placements as placement (placement)}
 		                        <option value={placement}>{placement}</option>
 		                      {/each}
 		                    </select>
 		                    <span class="field-label">Callback URL</span>
-		                    <input value={activeRequest.auth.oauth1?.callbackUrl ?? ''} on:change={(e) => updateOAuth1Auth({ callbackUrl: e.currentTarget.value })} />
+		                    <input value={activeRequest.auth.oauth1?.callbackUrl ?? ''} onchange={(e) => updateOAuth1Auth({ callbackUrl: e.currentTarget.value })} />
 		                    <span class="field-label">Verifier</span>
-		                    <input value={activeRequest.auth.oauth1?.verifier ?? ''} on:change={(e) => updateOAuth1Auth({ verifier: e.currentTarget.value })} />
+		                    <input value={activeRequest.auth.oauth1?.verifier ?? ''} onchange={(e) => updateOAuth1Auth({ verifier: e.currentTarget.value })} />
 		                    <span class="field-label">Timestamp</span>
-		                    <input value={activeRequest.auth.oauth1?.timestamp ?? ''} on:change={(e) => updateOAuth1Auth({ timestamp: e.currentTarget.value })} />
+		                    <input value={activeRequest.auth.oauth1?.timestamp ?? ''} onchange={(e) => updateOAuth1Auth({ timestamp: e.currentTarget.value })} />
 		                    <span class="field-label">Nonce</span>
-		                    <input value={activeRequest.auth.oauth1?.nonce ?? ''} on:change={(e) => updateOAuth1Auth({ nonce: e.currentTarget.value })} />
+		                    <input value={activeRequest.auth.oauth1?.nonce ?? ''} onchange={(e) => updateOAuth1Auth({ nonce: e.currentTarget.value })} />
 		                    <span class="field-label">Version</span>
-		                    <input value={activeRequest.auth.oauth1?.version ?? ''} placeholder="1.0" on:change={(e) => updateOAuth1Auth({ version: e.currentTarget.value })} />
+		                    <input value={activeRequest.auth.oauth1?.version ?? ''} placeholder="1.0" onchange={(e) => updateOAuth1Auth({ version: e.currentTarget.value })} />
 		                    <span class="field-label">Realm</span>
-		                    <input value={activeRequest.auth.oauth1?.realm ?? ''} on:change={(e) => updateOAuth1Auth({ realm: e.currentTarget.value })} />
+		                    <input value={activeRequest.auth.oauth1?.realm ?? ''} onchange={(e) => updateOAuth1Auth({ realm: e.currentTarget.value })} />
 		                    <span class="field-label">Private key</span>
-		                    <textarea class="short" spellcheck="false" value={activeRequest.auth.oauth1?.privateKey ?? ''} on:change={(e) => updateOAuth1Auth({ privateKey: e.currentTarget.value })}></textarea>
+		                    <textarea class="short" spellcheck="false" value={activeRequest.auth.oauth1?.privateKey ?? ''} onchange={(e) => updateOAuth1Auth({ privateKey: e.currentTarget.value })}></textarea>
 		                    <span class="field-label">Private key type</span>
-		                    <select value={activeRequest.auth.oauth1?.privateKeyType || 'text'} on:change={(e) => updateOAuth1Auth({ privateKeyType: e.currentTarget.value })}>
+		                    <select value={activeRequest.auth.oauth1?.privateKeyType || 'text'} onchange={(e) => updateOAuth1Auth({ privateKeyType: e.currentTarget.value })}>
 		                      <option value="text">text</option>
 		                      <option value="file">file</option>
 		                    </select>
 		                    <span class="field-label">Body hash</span>
-		                    <input type="checkbox" checked={activeRequest.auth.oauth1?.includeBodyHash ?? false} on:change={(e) => updateOAuth1Auth({ includeBodyHash: e.currentTarget.checked })} />
+		                    <input type="checkbox" checked={activeRequest.auth.oauth1?.includeBodyHash ?? false} onchange={(e) => updateOAuth1Auth({ includeBodyHash: e.currentTarget.checked })} />
 		                  {:else if activeRequest.auth.mode !== 'none'}
-	                    <div class="empty-state wide">This auth mode is modeled for parity and marked partial until its full backend signer is implemented.</div>
+                    <div class="empty-appState wide">This auth mode is marked partial until its full backend signer is implemented.</div>
 	                  {/if}
                 </div>
               {:else if requestPaneTab === 'vars'}
@@ -8369,81 +8203,74 @@
                 />
               {:else if requestPaneTab === 'script'}
                 <span class="field-label">Pre-request</span>
-                <textarea class="short" spellcheck="false" value={activeRequest.preScript} on:change={(e) => patchField('preScript', e.currentTarget.value)}></textarea>
+                <CodeEditor editorKey={`${activeRequest.id}:pre-script`} value={activeRequest.preScript} language="javascript" ariaLabel="Pre-request script" testId="pre-request-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => patchField('preScript', value)} />
                 <span class="field-label">Post-response</span>
-                <textarea class="short" spellcheck="false" value={activeRequest.postScript} on:change={(e) => patchField('postScript', e.currentTarget.value)}></textarea>
+                <CodeEditor editorKey={`${activeRequest.id}:post-script`} value={activeRequest.postScript} language="javascript" ariaLabel="Post-response script" testId="post-response-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => patchField('postScript', value)} />
               {:else if requestPaneTab === 'assert'}
                 <table>
                   <thead>
                     <tr><th></th><th>Expression</th><th>Operator</th><th>Value</th><th></th></tr>
                   </thead>
                   <tbody>
-                    {#each activeRequest.assertions ?? [] as row, index}
+                    {#each activeRequest.assertions ?? [] as row, index (index)}
                       <tr>
-                        <td><input type="checkbox" checked={row.enabled} on:change={(e) => updateAssertion(index, 'enabled', e.currentTarget.checked)} /></td>
-                        <td><input value={row.expression} on:change={(e) => updateAssertion(index, 'expression', e.currentTarget.value)} /></td>
-                        <td><input value={row.operator} on:change={(e) => updateAssertion(index, 'operator', e.currentTarget.value)} /></td>
-                        <td><input value={row.value} on:change={(e) => updateAssertion(index, 'value', e.currentTarget.value)} /></td>
-                        <td><button class="icon-button" on:click={() => removeAssertion(index)}>x</button></td>
+                        <td><input type="checkbox" checked={row.enabled} onchange={(e) => updateAssertion(index, 'enabled', e.currentTarget.checked)} /></td>
+                        <td><input value={row.expression} onchange={(e) => updateAssertion(index, 'expression', e.currentTarget.value)} /></td>
+                        <td><input value={row.operator} onchange={(e) => updateAssertion(index, 'operator', e.currentTarget.value)} /></td>
+                        <td><input value={row.value} onchange={(e) => updateAssertion(index, 'value', e.currentTarget.value)} /></td>
+                        <td><button class="icon-button" onclick={() => removeAssertion(index)}>x</button></td>
                       </tr>
                     {/each}
                   </tbody>
                 </table>
-                <button on:click={addAssertion}>Add assertion</button>
+                <button onclick={addAssertion}>Add assertion</button>
               {:else if requestPaneTab === 'tests'}
-                <textarea spellcheck="false" value={activeRequest.tests} on:change={(e) => patchField('tests', e.currentTarget.value)}></textarea>
+                <CodeEditor editorKey={`${activeRequest.id}:tests`} value={activeRequest.tests} language="javascript" ariaLabel="Request tests" testId="request-tests-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => patchField('tests', value)} />
               {:else if requestPaneTab === 'docs'}
-                <textarea spellcheck="false" value={activeRequest.docs} on:change={(e) => patchField('docs', e.currentTarget.value)}></textarea>
+                <CodeEditor editorKey={`${activeRequest.id}:docs`} value={activeRequest.docs} language="markdown" ariaLabel="Request documentation" testId="request-docs-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => patchField('docs', value)} />
               {:else if requestPaneTab === 'app'}
-                <div class="empty-state">Request app runtime surface</div>
+                <div class="empty-appState">Request app runtime surface</div>
               {:else if requestPaneTab === 'settings'}
-                <div class="field-grid">
-                  <span class="field-label">URL Encoding</span>
-                  <input type="checkbox" checked={activeRequest.settings.encodeUrl} on:change={(e) => updateSettings({ encodeUrl: e.currentTarget.checked })} />
-                  <span class="field-label">Timeout ms</span>
-                  <input type="number" value={activeRequest.settings.timeoutMs} on:input={(e) => updateSettings({ timeoutMs: Number(e.currentTarget.value) })} />
-                  <span class="field-label">Follow redirects</span>
-                  <input type="checkbox" checked={activeRequest.settings.followRedirects} on:change={(e) => updateSettings({ followRedirects: e.currentTarget.checked })} />
-                  <span class="field-label">Max redirects</span>
-                  <input type="number" value={activeRequest.settings.maxRedirects} on:input={(e) => updateSettings({ maxRedirects: Number(e.currentTarget.value) })} />
-                  <span class="field-label">Store cookies</span>
-                  <input type="checkbox" checked={activeRequest.settings.storeCookies} on:change={(e) => updateSettings({ storeCookies: e.currentTarget.checked })} />
-                  <span class="field-label">Verify TLS</span>
-                  <input type="checkbox" checked={activeRequest.settings.verifyTls} on:change={(e) => updateSettings({ verifyTls: e.currentTarget.checked })} />
-                  <span class="field-label">WS keep alive ms</span>
-                  <input type="number" value={activeRequest.settings.keepAliveInterval ?? 0} on:input={(e) => updateSettings({ keepAliveInterval: Number(e.currentTarget.value) })} />
-                </div>
+                <RequestSettingsPanel requestType={activeRequest.type} settings={activeRequest.settings} onChange={updateSettings} />
               {/if}
             </div>
           </div>
 
+          <input
+            type="range"
+            class="response-splitter"
+            aria-label="Resize request and response panes"
+            min="30"
+            max="70"
+            value={Math.round(responseSplit * 100)}
+            title="Drag to resize panes; double-click to reset"
+            onmousedown={startResponseSplitResize}
+            ondblclick={() => { responseSplit = DEFAULT_RESPONSE_SPLIT; persistWorkbenchLayout() }}
+            oninput={(event) => (responseSplit = clampResponseSplit(Number(event.currentTarget.value) / 100))}
+            onchange={persistWorkbenchLayout}
+          />
           <div class="response-side">
             <div class="response-summary">
-              <span class={responseStatusClass(activeRequest.response?.status)}>{activeRequest.response?.status || 'Idle'}</span>
-              <span>{activeRequest.response?.durationMs ?? 0} ms</span>
-              <span>{activeRequest.response?.size ?? 0} B</span>
-              <span>{activeRequest.response?.requestedUrl ?? activeRequest.url}</span>
-              <button
-                type="button"
-                class="icon-button orientation-toggle"
-                data-testid="response-layout-toggle-btn"
-                title="Change orientation"
-                aria-label="Change orientation"
-                on:click={toggleResponsePaneOrientation}
-              >
-                {responsePaneOrientation === 'horizontal' ? 'V' : 'H'}
-              </button>
-              <button title="Save response as example" on:click={saveResponseExample} disabled={!activeRequest.response || busy !== ''}>Example</button>
-              <select aria-label="Response view" bind:value={responseView}>
-                <option value="pretty">Pretty</option>
-                <option value="raw">Raw</option>
-                <option value="base64">Base64</option>
-                <option value="hex">Hex</option>
-              </select>
+              <div class={`response-summary-status ${requestCommand.response.tone}`} aria-live="polite">
+                <strong>{requestCommand.response.status}</strong>
+                <span>{requestCommand.response.statusText}</span>
+                <span>{requestCommand.response.duration}</span>
+                <span>{requestCommand.response.size}</span>
+              </div>
+              <button title="Save response as example" onclick={saveResponseExample} disabled={!activeRequest.response || busy !== ''}>Example</button>
             </div>
-            <nav class="subtabs">
-              {#each activeResponseTabs as tab}
-                <button class:active={responseTab === tab.id} on:click={() => selectResponsePaneTab(tab.id)}>
+            <div class="subtabs" role="tablist" aria-label="Response sections" tabindex="-1" onkeydown={responseTabKeydown}>
+              {#each activeResponseTabs as tab (tab.id)}
+                <button
+                  class:active={responseTab === tab.id}
+                  id={`response-tab-${tab.id}`}
+                  data-response-tab={tab.id}
+                  role="tab"
+                  aria-selected={responseTab === tab.id}
+                  aria-controls={`response-panel-${tab.id}`}
+                  tabindex={responseTab === tab.id ? 0 : -1}
+                  onclick={() => selectResponsePaneTab(tab.id)}
+                >
                   {tab.label}
                   {#if tab.id === 'metadata' && (activeRequest.response?.metadata?.length ?? 0) > 0}
                     <span>{activeRequest.response?.metadata?.length}</span>
@@ -8452,189 +8279,29 @@
                   {/if}
                 </button>
               {/each}
-            </nav>
-            <div class="response-content">
-              {#if responseTab === 'response'}
-                {#if activeRequest.response?.error}
-                  <div class="error-card">{activeRequest.response.error}</div>
-                {/if}
-                {#if responseView === 'pretty' && websocketResponseEvents.length > 0}
-                  <div class="ws-event-log" data-testid="ws-event-log">
-                    {#each websocketResponseEvents as event, index}
-                      <article class={`ws-event-row ${websocketEventDirection(event)}`} data-testid="ws-event-row">
-                        <div class="ws-event-meta">
-                          <span class="ws-event-direction">{websocketEventDirection(event)}</span>
-                          <span>{event.type || 'message'}</span>
-                          {#if event.name}
-                            <span>{event.name}</span>
-                          {/if}
-                          {#if event.at}
-                            <time>{websocketEventTime(event)}</time>
-                          {/if}
-                        </div>
-                        <code class:error-text={Boolean(event.error)} data-testid={`ws-event-payload-${index}`}>{websocketEventPayload(event)}</code>
-                      </article>
-                    {/each}
-                  </div>
-                {:else if responseView === 'pretty' && grpcStreamEvents.length > 0}
-                  <div class="ws-event-log" data-testid="grpc-stream-event-log">
-                    {#each grpcStreamEvents as event, index}
-                      <article class={`ws-event-row ${websocketEventDirection(event)}`} data-testid="grpc-stream-event-row">
-                        <div class="ws-event-meta">
-                          <span class="ws-event-direction">{websocketEventDirection(event)}</span>
-                          <span>{event.type || 'message'}</span>
-                          {#if event.name}
-                            <span>{event.name}</span>
-                          {/if}
-                          {#if event.at}
-                            <time>{websocketEventTime(event)}</time>
-                          {/if}
-                        </div>
-                        <code class:error-text={Boolean(event.error)} data-testid={`grpc-stream-event-payload-${index}`}>{websocketEventPayload(event)}</code>
-                      </article>
-                    {/each}
-                  </div>
-                {:else}
-                  <pre>{displayedResponse}</pre>
-                {/if}
-              {:else if responseTab === 'headers'}
-                <table>
-                  <tbody>
-                    {#each Object.entries(activeRequest.response?.headers ?? {}) as [name, value]}
-                      <tr><td>{name}</td><td>{value}</td></tr>
-                    {/each}
-                  </tbody>
-                </table>
-              {:else if responseTab === 'metadata'}
-                {#if (activeRequest.response?.metadata?.length ?? 0) === 0}
-                  <div class="empty-state">No metadata</div>
-                {:else}
-                  <table data-testid="grpc-response-metadata">
-                    <tbody>
-                      {#each activeRequest.response?.metadata ?? [] as row}
-                        <tr><td>{row.name}</td><td>{row.value}</td></tr>
-                      {/each}
-                    </tbody>
-                  </table>
-                {/if}
-              {:else if responseTab === 'trailers'}
-                {#if (activeRequest.response?.trailers?.length ?? 0) === 0}
-                  <div class="empty-state">No trailers</div>
-                {:else}
-                  <table data-testid="grpc-response-trailers">
-                    <tbody>
-                      {#each activeRequest.response?.trailers ?? [] as row}
-                        <tr><td>{row.name}</td><td>{row.value}</td></tr>
-                      {/each}
-                    </tbody>
-                  </table>
-                {/if}
-              {:else if responseTab === 'timeline'}
-                <div class="timeline" data-testid="timeline-container">
-                  {#if visibleTimelineFilters.length > 1}
-                    <div class="timeline-filter-bar" data-testid="timeline-filter-bar">
-                      {#each visibleTimelineFilters as filter}
-                        <button
-                          type="button"
-                          class:active={timelineActiveFilter === filter.id}
-                          data-testid={`timeline-chip-${filter.id}`}
-                          on:click={() => timelineActiveFilter = filter.id}
-                        >
-                          {filter.label}
-                          <span data-testid="timeline-chip-count">{timelineFilterCounts[filter.id] ?? 0}</span>
-                        </button>
-                      {/each}
-                    </div>
-                  {/if}
-                  {#if filteredTimelineEntries.length === 0}
-                    <div class="empty-state">No timeline entries</div>
-                  {:else}
-                    {#each filteredTimelineEntries as entry (entry.id)}
-                      <article class="timeline-entry" data-testid="timeline-entry">
-                        <button
-                          type="button"
-                          class="timeline-entry-header"
-                          aria-expanded={expandedTimelineEntryID === entry.id}
-                          data-testid="timeline-item-header"
-                          on:click={() => toggleTimelineEntry(entry)}
-                        >
-                          <span class={`timeline-status ${timelineFilterKind(entry)}`} data-testid="timeline-status">{timelineStatusLabel(entry)}</span>
-                          <span class="timeline-method">{timelineMethod(entry)}</span>
-                          <span class="timeline-url" data-testid="timeline-url">{timelineURL(entry)}</span>
-                          <span class={`timeline-badge ${timelineBadgeKind(entry)}`} data-testid={`timeline-badge-${timelineBadgeKind(entry)}`}>{timelineBadgeLabel(entry)}</span>
-                          <small>{timelineTime(entry)}</small>
-                        </button>
-                        {#if expandedTimelineEntryID === entry.id}
-                          <div class="timeline-detail" data-testid="timeline-detail">
-                            <div>
-                              <strong>{timelineMethod(entry)}</strong>
-                              <span>{timelineURL(entry)}</span>
-                            </div>
-                            {#if entry.sourceFile}
-                              <button type="button" class="link-button" data-testid="timeline-source-link" on:click={() => requestPaneTab = entry.phase === 'tests' ? 'tests' : 'script'}>
-                                <span data-testid="timeline-source-file">{entry.sourceFile}</span>
-                              </button>
-                            {/if}
-                            {#if entry.error}
-                              <code>{entry.error}</code>
-                            {:else if entry.payload}
-                              <code>{entry.payload}</code>
-                            {:else}
-                              <code>{entry.message}</code>
-                            {/if}
-                            {#if (entry.metadata?.length ?? 0) > 0}
-                              <table class="timeline-kv" data-testid="timeline-grpc-metadata">
-                                <tbody>
-                                  {#each entry.metadata ?? [] as row}
-                                    <tr><td>{row.name}</td><td>{row.value}</td></tr>
-                                  {/each}
-                                </tbody>
-                              </table>
-                            {/if}
-                            {#if (entry.trailers?.length ?? 0) > 0}
-                              <table class="timeline-kv" data-testid="timeline-grpc-trailers">
-                                <tbody>
-                                  {#each entry.trailers ?? [] as row}
-                                    <tr><td>{row.name}</td><td>{row.value}</td></tr>
-                                  {/each}
-                                </tbody>
-                              </table>
-                            {/if}
-                            <small>{entry.duration ?? 0} ms</small>
-                          </div>
-                        {/if}
-                      </article>
-                    {/each}
-                  {/if}
-                </div>
-              {:else if responseTab === 'console'}
-                {#if activeScriptLogs.length === 0}
-                  <div class="empty-state">No console output</div>
-                {:else}
-                  <div class="console-log-list">
-                    {#each activeScriptLogs as log}
-                      <div class={`console-row ${log.level || 'log'}`}>
-                        <span>{log.level || 'log'}</span>
-                        <code>{log.message}</code>
-                      </div>
-                    {/each}
-                  </div>
-                {/if}
-              {:else if responseTab === 'tests'}
-                <div class="results">
-                  {#each activeRequest.response?.assertions ?? [] as assertion}
-                    <div class:passed={assertion.passed} class:failed={!assertion.passed}>{assertion.expression} {assertion.message}</div>
-                  {/each}
-                  {#each activeRequest.response?.testResults ?? [] as test}
-                    <div class:passed={test.passed} class:failed={!test.passed}>{test.name} {test.message}</div>
-                  {/each}
-                </div>
-              {:else if responseTab === 'examples'}
+            </div>
+            <div class="response-content" id={`response-panel-${responseTab}`} role="tabpanel" aria-labelledby={`response-tab-${responseTab}`} tabindex="0">
+              {#if responseTab !== 'examples'}
+                <ResponseInspector
+                  {visualizerDocument}
+                  visualizerSandbox={visualizerSandboxAttribute}
+                  request={activeRequest}
+                  selectedTab={responseTab}
+                  selectedView={responseView}
+                  timeline={activeTimelineEntries}
+                  scriptLogs={activeScriptLogs}
+                  onViewChange={(view) => (responseView = view as typeof responseView)}
+                  onCopy={copyText}
+                  liveLog={activeLiveSessionLog}
+                  onDownloadBody={saveActiveResponseBody}
+                  onExportTimeline={saveActiveResponseTimeline}
+                />
+              {:else}
                 <div class="examples-toolbar">
-                  <button class="primary" type="button" on:click={beginCreateResponseExample} disabled={busy !== ''}>New example</button>
+                  <button class="primary" type="button" onclick={beginCreateResponseExample} disabled={busy !== ''}>New example</button>
                 </div>
                 {#if (activeRequest.examples ?? []).length === 0}
-                  <div class="empty-state">No response examples</div>
+                  <div class="empty-appState">No response examples</div>
                 {:else}
                   <div class="examples-list">
                     {#each activeRequest.examples ?? [] as example (responseExampleIdentifier(example))}
@@ -8642,12 +8309,12 @@
                         <header>
                           {#if editingResponseExampleID === responseExampleIdentifier(example)}
                             <div class="example-name-editor">
-                              <input aria-label="Response example name" bind:value={responseExampleNameDraft} on:keydown={(event) => {
+                              <input aria-label="Response example name" bind:value={responseExampleNameDraft} onkeydown={(event) => {
                                 if (event.key === 'Escape') cancelRenameResponseExample()
                                 if (event.key === 'Enter') void renameResponseExample(example)
                               }} />
-                              <button on:click={() => renameResponseExample(example)} disabled={busy !== '' || !responseExampleNameDraft.trim()}>Rename</button>
-                              <button on:click={cancelRenameResponseExample}>Cancel</button>
+                              <button onclick={() => renameResponseExample(example)} disabled={busy !== '' || !responseExampleNameDraft.trim()}>Rename</button>
+                              <button onclick={cancelRenameResponseExample}>Cancel</button>
                             </div>
                           {:else}
                             <strong>{example.name}</strong>
@@ -8656,18 +8323,18 @@
                         </header>
                         <small>{example.request.method} {example.request.url}</small>
                         <div class="example-actions">
-                          <button on:click={() => openResponseExampleTab(example)} disabled={busy !== ''}>Open tab</button>
-                          <button on:click={() => beginRenameResponseExample(example)} disabled={busy !== ''}>Rename</button>
-                          <button on:click={() => beginEditResponseExampleDetails(example)} disabled={busy !== ''}>Edit details</button>
-                          <button on:click={() => beginGenerateResponseExampleCode(example)} disabled={busy !== ''}>Generate Code</button>
-                          <button on:click={() => cloneResponseExample(example)} disabled={busy !== ''}>Clone</button>
-                          <button class="danger-button" on:click={() => requestDeleteResponseExample(example)} disabled={busy !== ''}>Delete</button>
+                          <button onclick={() => openResponseExampleTab(example)} disabled={busy !== ''}>Open tab</button>
+                          <button onclick={() => beginRenameResponseExample(example)} disabled={busy !== ''}>Rename</button>
+                          <button onclick={() => beginEditResponseExampleDetails(example)} disabled={busy !== ''}>Edit details</button>
+                          <button onclick={() => beginGenerateResponseExampleCode(example)} disabled={busy !== ''}>Generate Code</button>
+                          <button onclick={() => cloneResponseExample(example)} disabled={busy !== ''}>Clone</button>
+                          <button class="danger-button" onclick={() => requestDeleteResponseExample(example)} disabled={busy !== ''}>Delete</button>
                         </div>
                         {#if deletingResponseExampleID === responseExampleIdentifier(example)}
                           <div class="example-delete-confirm">
                             <span>Delete example <strong>{example.name}</strong>?</span>
-                            <button class="danger-button" on:click={() => deleteResponseExample(example)} disabled={busy !== ''}>Delete</button>
-                            <button on:click={() => (deletingResponseExampleID = '')}>Cancel</button>
+                            <button class="danger-button" onclick={() => deleteResponseExample(example)} disabled={busy !== ''}>Delete</button>
+                            <button onclick={() => (deletingResponseExampleID = '')}>Cancel</button>
                           </div>
                         {/if}
                         {#if editingResponseExampleDetailsID === responseExampleIdentifier(example)}
@@ -8676,27 +8343,27 @@
                             <div class="param-section-title">Example details</div>
                             <div class="field-grid example-editor-grid">
                               <span class="field-label">Description</span>
-                              <textarea aria-label="Example description" class="short" spellcheck="false" value={draft.description ?? ''} on:input={(event) => updateResponseExampleDescription(example, event.currentTarget.value)}></textarea>
+                              <textarea aria-label="Example description" class="short" spellcheck="false" value={draft.description ?? ''} oninput={(event) => updateResponseExampleDescription(example, event.currentTarget.value)}></textarea>
                             </div>
                             <div class="param-section-title">Request snapshot</div>
                             <div class="field-grid example-editor-grid">
                               <span class="field-label">Method</span>
-                              <select aria-label="Example request method" value={draft.request?.method || 'GET'} on:change={(event) => updateResponseExampleRequestField(example, 'method', event.currentTarget.value)}>
-                                {#each methods as method}
+                              <select aria-label="Example request method" value={draft.request?.method || 'GET'} onchange={(event) => updateResponseExampleRequestField(example, 'method', event.currentTarget.value)}>
+                                {#each methods as method (method)}
                                   <option value={method}>{method}</option>
                                 {/each}
                               </select>
                               <span class="field-label">URL</span>
-                              <input aria-label="Example request URL" value={draft.request?.url ?? ''} on:input={(event) => updateResponseExampleRequestField(example, 'url', event.currentTarget.value)} />
+                              <input aria-label="Example request URL" value={draft.request?.url ?? ''} oninput={(event) => updateResponseExampleRequestField(example, 'url', event.currentTarget.value)} />
                               <span class="field-label">Body mode</span>
-                              <select aria-label="Example request body mode" value={draft.request?.bodyMode || 'none'} on:change={(event) => updateResponseExampleRequestField(example, 'bodyMode', event.currentTarget.value)}>
-                                {#each bodyModes as mode}
+                              <select aria-label="Example request body mode" value={draft.request?.bodyMode || 'none'} onchange={(event) => updateResponseExampleRequestField(example, 'bodyMode', event.currentTarget.value)}>
+                                {#each bodyModes as mode (mode)}
                                   <option value={mode}>{mode}</option>
                                 {/each}
                               </select>
                               {#if draft.request?.bodyMode !== 'formUrlEncoded'}
                                 <span class="field-label">Body</span>
-                                <textarea aria-label="Example request body" spellcheck="false" value={draft.request?.body ?? ''} on:input={(event) => updateResponseExampleRequestField(example, 'body', event.currentTarget.value)}></textarea>
+                                <textarea aria-label="Example request body" spellcheck="false" value={draft.request?.body ?? ''} oninput={(event) => updateResponseExampleRequestField(example, 'body', event.currentTarget.value)}></textarea>
                               {/if}
                             </div>
                             {#if draft.request?.bodyMode === 'formUrlEncoded'}
@@ -8735,7 +8402,7 @@
 	                              />
                             {:else if draft.request?.bodyMode === 'json'}
                               <div class="button-row compact">
-                                <button on:click={() => prettifyResponseExampleRequestBody(example)} disabled={busy !== ''}>Prettify request JSON</button>
+                                <button onclick={() => prettifyResponseExampleRequestBody(example)} disabled={busy !== ''}>Prettify request JSON</button>
                               </div>
                             {/if}
                             <div data-example-section="request-params">
@@ -8769,21 +8436,21 @@
                             <div class="param-section-title">Response snapshot</div>
                             <div class="field-grid example-editor-grid">
                               <span class="field-label">Status</span>
-                              <input aria-label="Example response status" type="number" value={draft.response.status} on:input={(event) => updateResponseExampleResponseField(example, 'status', event.currentTarget.value)} />
+                              <input aria-label="Example response status" type="number" value={draft.response.status} oninput={(event) => updateResponseExampleResponseField(example, 'status', event.currentTarget.value)} />
                               <span class="field-label">Status text</span>
-                              <input aria-label="Example response status text" value={draft.response.statusText} on:input={(event) => updateResponseExampleResponseField(example, 'statusText', event.currentTarget.value)} />
+                              <input aria-label="Example response status text" value={draft.response.statusText} oninput={(event) => updateResponseExampleResponseField(example, 'statusText', event.currentTarget.value)} />
                               <span class="field-label">Body type</span>
-                              <select aria-label="Example response body type" value={draft.response.bodyType} on:change={(event) => updateResponseExampleResponseField(example, 'bodyType', event.currentTarget.value)}>
-                                {#each responseExampleBodyTypes as bodyType}
+                              <select aria-label="Example response body type" value={draft.response.bodyType} onchange={(event) => updateResponseExampleResponseField(example, 'bodyType', event.currentTarget.value)}>
+                                {#each responseExampleBodyTypes as bodyType (bodyType)}
                                   <option value={bodyType}>{bodyType}</option>
                                 {/each}
                               </select>
                               <span class="field-label">Body</span>
-                              <textarea aria-label="Example response body" spellcheck="false" value={draft.response.body} on:input={(event) => updateResponseExampleResponseField(example, 'body', event.currentTarget.value)}></textarea>
+                              <textarea aria-label="Example response body" spellcheck="false" value={draft.response.body} oninput={(event) => updateResponseExampleResponseField(example, 'body', event.currentTarget.value)}></textarea>
                             </div>
                             {#if draft.response.bodyType === 'json'}
                               <div class="button-row compact">
-                                <button on:click={() => prettifyResponseExampleResponseBody(example)} disabled={busy !== ''}>Prettify response JSON</button>
+                                <button onclick={() => prettifyResponseExampleResponseBody(example)} disabled={busy !== ''}>Prettify response JSON</button>
                               </div>
                             {/if}
                             <div class="param-section-title">Response headers</div>
@@ -8801,8 +8468,8 @@
                               onRemove={(index) => removeResponseExampleHeader(example, index)}
                             />
                             <div class="example-actions">
-                              <button on:click={() => saveResponseExampleDetails(example)} disabled={busy !== ''}>Save details</button>
-                              <button on:click={() => cancelEditResponseExampleDetails(example)} disabled={busy !== ''}>Cancel</button>
+                              <button onclick={() => saveResponseExampleDetails(example)} disabled={busy !== ''}>Save details</button>
+                              <button onclick={() => cancelEditResponseExampleDetails(example)} disabled={busy !== ''}>Cancel</button>
                             </div>
                           </div>
                         {:else}
@@ -8823,11 +8490,11 @@
               <h2>{activeCollection.name}</h2>
               <p class="panel-subtitle">{activeCollection.format.toUpperCase()} · {activeCollection.items?.length ?? 0} requests{activeCollection.remote ? ' · Git' : ''}{activeCollection.notFoundLocally ? ' · Not cloned' : ''}</p>
             </div>
-            <button on:click={refreshCollection}>Refresh active</button>
+            <button onclick={refreshCollection}>Refresh active</button>
           </header>
           <nav class="subtabs">
-            {#each collectionTabs as tab}
-              <button class:active={collectionTab === tab.id} on:click={() => (collectionTab = tab.id)}>
+            {#each collectionTabs as tab (tab.id)}
+              <button class:active={collectionTab === tab.id} onclick={() => (collectionTab = tab.id)}>
                 {tab.label}
               </button>
             {/each}
@@ -8856,7 +8523,7 @@
                       class:active={collectionSandboxMode(activeCollection) === 'safe'}
                       aria-pressed={collectionSandboxMode(activeCollection) === 'safe'}
                       data-testid="sandbox-mode-safe"
-                      on:click={() => updateCollectionSandboxMode('safe')}
+                      onclick={() => updateCollectionSandboxMode('safe')}
                       disabled={busy !== '' || activeCollection.notFoundLocally}
                     >
                       Safe Mode
@@ -8866,7 +8533,7 @@
                       class:active={collectionSandboxMode(activeCollection) === 'developer'}
                       aria-pressed={collectionSandboxMode(activeCollection) === 'developer'}
                       data-testid="sandbox-mode-developer"
-                      on:click={() => updateCollectionSandboxMode('developer')}
+                      onclick={() => updateCollectionSandboxMode('developer')}
                       disabled={busy !== '' || activeCollection.notFoundLocally}
                     >
                       Developer Mode
@@ -8881,8 +8548,8 @@
                     </div>
                     <p class="version-summary">{activeCollection.name}</p>
                   </div>
-                  <button type="button" data-testid="collection-actions-clone" on:click={openCloneCollectionModal} disabled={busy !== '' || activeCollection.notFoundLocally}>Clone</button>
-                  <button type="button" data-testid="collection-actions-rename" on:click={openRenameCollectionModal} disabled={busy !== '' || activeCollection.notFoundLocally}>Rename</button>
+                  <button type="button" data-testid="collection-actions-clone" onclick={openCloneCollectionModal} disabled={busy !== '' || activeCollection.notFoundLocally}>Clone</button>
+                  <button type="button" data-testid="collection-actions-rename" onclick={openRenameCollectionModal} disabled={busy !== '' || activeCollection.notFoundLocally}>Rename</button>
                 </div>
                 <span class="field-label">Folders</span>
                 <div class="collection-doc-actions">
@@ -8892,7 +8559,7 @@
                     </div>
                     <p class="version-summary">{activeCollection.folders?.length ?? 0} configured</p>
                   </div>
-                  <button type="button" data-testid="collection-actions-new-folder" on:click={() => openNewFolderModal()} disabled={busy !== '' || activeCollection.notFoundLocally}>New Folder</button>
+                  <button type="button" data-testid="collection-actions-new-folder" onclick={() => openNewFolderModal()} disabled={busy !== '' || activeCollection.notFoundLocally}>New Folder</button>
                 </div>
                 <span class="field-label">Documentation</span>
                 <div class="collection-doc-actions">
@@ -8903,7 +8570,7 @@
                     </div>
                     <p class="version-summary" data-testid="version-summary">{generateDocsFolderCount} {generateDocsFolderCount === 1 ? 'Folder' : 'Folders'} • {generateDocsRequestCount} {generateDocsRequestCount === 1 ? 'request' : 'requests'}</p>
                   </div>
-                  <button type="button" data-testid="generate-docs-overview-button" on:click={openGenerateDocsModal}>Generate Docs</button>
+                  <button type="button" data-testid="generate-docs-overview-button" onclick={openGenerateDocsModal}>Generate Docs</button>
                 </div>
                 <span class="field-label">Share</span>
                 <div class="collection-doc-actions">
@@ -8913,7 +8580,7 @@
                     </div>
                     <p class="version-summary">ZIP, YAML, or Postman</p>
                   </div>
-                  <button type="button" data-testid="collection-actions-share" on:click={openShareCollectionModal}>Share Collection</button>
+                  <button type="button" data-testid="collection-actions-share" onclick={openShareCollectionModal}>Share Collection</button>
                 </div>
                 <span class="field-label">OpenAPI Sync</span>
                 <div class="openapi-sync-panel" data-testid="openapi-sync-panel">
@@ -8925,7 +8592,7 @@
                         data-testid="openapi-sync-source"
                         placeholder="https://example.com/openapi.yml"
                         value={openAPISyncSourceURL}
-                        on:input={(event) => (openAPISyncSourceURL = event.currentTarget.value)}
+                        oninput={(event) => (openAPISyncSourceURL = event.currentTarget.value)}
                       />
                     </label>
                     <label>
@@ -8948,18 +8615,18 @@
                       spellcheck="false"
                       placeholder="Paste a spec to check/apply without fetching the source"
                       value={openAPISyncContent}
-                      on:input={(event) => (openAPISyncContent = event.currentTarget.value)}
+                      oninput={(event) => (openAPISyncContent = event.currentTarget.value)}
                     ></textarea>
                   </label>
                   <div class="openapi-sync-actions">
-                    <button type="button" data-testid="openapi-sync-connect" on:click={connectOpenAPISync} disabled={busy !== '' || activeCollection.notFoundLocally}>Connect</button>
-	                    <button type="button" data-testid="openapi-sync-check" on:click={checkOpenAPISync} disabled={busy !== '' || activeCollection.notFoundLocally}>Check Updates</button>
-			                    <button type="button" class="primary" data-testid="openapi-sync-apply" on:click={applyOpenAPISync} disabled={busy !== '' || activeCollection.notFoundLocally}>Apply Sync</button>
+                    <button type="button" data-testid="openapi-sync-connect" onclick={connectOpenAPISync} disabled={busy !== '' || activeCollection.notFoundLocally}>Connect</button>
+	                    <button type="button" data-testid="openapi-sync-check" onclick={checkOpenAPISync} disabled={busy !== '' || activeCollection.notFoundLocally}>Check Updates</button>
+			                    <button type="button" class="primary" data-testid="openapi-sync-apply" onclick={applyOpenAPISync} disabled={busy !== '' || activeCollection.notFoundLocally}>Apply Sync</button>
 			                    {#if activeCollection.openapi?.length}
-			                      <button type="button" data-testid="openapi-sync-view-spec" on:click={viewOpenAPISyncSpec} disabled={busy !== ''}>View spec</button>
-			                      <button type="button" data-testid="openapi-sync-view-spec-diff-main" on:click={viewOpenAPISyncSpecDiff} disabled={busy !== '' || activeCollection.notFoundLocally}>View Spec Diff</button>
-			                      <button type="button" data-testid="openapi-sync-settings-open" on:click={openOpenAPISyncSettings} disabled={busy !== ''}>Settings</button>
-			                      <button type="button" data-testid="openapi-sync-disconnect" on:click={disconnectOpenAPISync} disabled={busy !== ''}>Disconnect</button>
+			                      <button type="button" data-testid="openapi-sync-view-spec" onclick={viewOpenAPISyncSpec} disabled={busy !== ''}>View spec</button>
+			                      <button type="button" data-testid="openapi-sync-view-spec-diff-main" onclick={viewOpenAPISyncSpecDiff} disabled={busy !== '' || activeCollection.notFoundLocally}>View Spec Diff</button>
+			                      <button type="button" data-testid="openapi-sync-settings-open" onclick={openOpenAPISyncSettings} disabled={busy !== ''}>Settings</button>
+			                      <button type="button" data-testid="openapi-sync-disconnect" onclick={disconnectOpenAPISync} disabled={busy !== ''}>Disconnect</button>
 			                    {/if}
 	                  </div>
 	                  <div class="openapi-sync-status" data-testid="openapi-sync-status">
@@ -8985,9 +8652,9 @@
 	                      <div class="openapi-sync-review-toolbar">
 	                        <h3>Review Changes</h3>
 	                        <div>
-	                          <button type="button" data-testid="openapi-sync-view-spec-diff" on:click={viewOpenAPISyncSpecDiff}>View Spec Diff</button>
-	                          <button type="button" data-testid="openapi-sync-skip-all" on:click={() => setOpenAPISyncAllEndpointDecisions('keep-mine')}>Skip All</button>
-	                          <button type="button" data-testid="openapi-sync-accept-all" on:click={() => setOpenAPISyncAllEndpointDecisions('accept-incoming')}>Accept All</button>
+	                          <button type="button" data-testid="openapi-sync-view-spec-diff" onclick={viewOpenAPISyncSpecDiff}>View Spec Diff</button>
+	                          <button type="button" data-testid="openapi-sync-skip-all" onclick={() => setOpenAPISyncAllEndpointDecisions('keep-mine')}>Skip All</button>
+	                          <button type="button" data-testid="openapi-sync-accept-all" onclick={() => setOpenAPISyncAllEndpointDecisions('accept-incoming')}>Accept All</button>
 	                        </div>
 	                      </div>
                       <div class="openapi-sync-review-header">
@@ -8996,7 +8663,7 @@
                         <span>Endpoint</span>
                         <span>Decision</span>
                       </div>
-                      {#each openAPISyncResult.changes as change}
+                      {#each openAPISyncResult.changes as change, index (index)}
                         <div class="openapi-sync-change-row" data-testid="openapi-sync-change-row">
                           <span class="openapi-sync-change-type">{change.change}</span>
                           <span class="openapi-sync-method">{change.method}</span>
@@ -9008,7 +8675,7 @@
                             aria-label={`OpenAPI sync decision ${change.method} ${change.path}`}
                             data-testid="openapi-sync-decision"
                             value={openAPISyncEndpointDecisions[change.id] ?? defaultOpenAPISyncDecision(change)}
-                            on:change={(event) => setOpenAPISyncEndpointDecision(change.id, event.currentTarget.value)}
+                            onchange={(event) => setOpenAPISyncEndpointDecision(change.id, event.currentTarget.value)}
                           >
                             {#if change.change === 'removed'}
                               <option value="keep-mine">Keep</option>
@@ -9030,9 +8697,9 @@
                       <div class="openapi-sync-review-toolbar">
                         <h3>Collection Changes</h3>
                         <div>
-                          <button type="button" data-testid="openapi-local-drift-check" on:click={checkOpenAPILocalDrift} disabled={busy !== '' || activeCollection.notFoundLocally}>Check Collection</button>
+                          <button type="button" data-testid="openapi-local-drift-check" onclick={checkOpenAPILocalDrift} disabled={busy !== '' || activeCollection.notFoundLocally}>Check Collection</button>
                           {#if openAPILocalDriftResult?.hasChanges}
-                            <button type="button" class="primary" data-testid="openapi-local-drift-revert-all" on:click={revertAllOpenAPILocalDrift} disabled={busy !== '' || activeCollection.notFoundLocally}>Revert All to Spec</button>
+                            <button type="button" class="primary" data-testid="openapi-local-drift-revert-all" onclick={revertAllOpenAPILocalDrift} disabled={busy !== '' || activeCollection.notFoundLocally}>Revert All to Spec</button>
                           {/if}
                         </div>
                       </div>
@@ -9050,13 +8717,13 @@
                         {#if openAPILocalDriftResult.changes?.length}
                           <div class="openapi-local-drift-actions">
                             {#if openAPILocalDriftResult.modified}
-                              <button type="button" data-testid="openapi-local-drift-reset-all" on:click={() => resetOpenAPILocalDrift()} disabled={busy !== ''}>Reset All</button>
+                              <button type="button" data-testid="openapi-local-drift-reset-all" onclick={() => resetOpenAPILocalDrift()} disabled={busy !== ''}>Reset All</button>
                             {/if}
                             {#if openAPILocalDriftResult.missing}
-                              <button type="button" data-testid="openapi-local-drift-restore-all" on:click={() => restoreOpenAPILocalDrift()} disabled={busy !== ''}>Restore All</button>
+                              <button type="button" data-testid="openapi-local-drift-restore-all" onclick={() => restoreOpenAPILocalDrift()} disabled={busy !== ''}>Restore All</button>
                             {/if}
                             {#if openAPILocalDriftResult.localOnly}
-                              <button type="button" data-testid="openapi-local-drift-delete-all" on:click={() => deleteOpenAPILocalDrift()} disabled={busy !== ''}>Delete All</button>
+                              <button type="button" data-testid="openapi-local-drift-delete-all" onclick={() => deleteOpenAPILocalDrift()} disabled={busy !== ''}>Delete All</button>
                             {/if}
                           </div>
                           <div class="openapi-sync-review-header openapi-local-drift-header">
@@ -9065,7 +8732,7 @@
                             <span>Endpoint</span>
                             <span>Action</span>
                           </div>
-                          {#each openAPILocalDriftResult.changes as change}
+                          {#each openAPILocalDriftResult.changes as change, index (index)}
                             <div class="openapi-sync-change-row" data-testid="openapi-local-drift-row">
                               <span class="openapi-sync-change-type">{openAPILocalDriftLabel(change.change)}</span>
                               <span class="openapi-sync-method">{change.method}</span>
@@ -9073,15 +8740,15 @@
                                 <strong>{change.name || change.path}</strong>
                                 <small>{change.path}</small>
                                 {#if (change.change === 'modified' || change.change === 'local-only') && change.itemId}
-                                  <button type="button" class="link-button openapi-sync-open-request" data-testid="openapi-local-drift-open" on:click={() => openOpenAPILocalDriftRequest(change)} disabled={busy !== ''}>Open</button>
+                                  <button type="button" class="link-button openapi-sync-open-request" data-testid="openapi-local-drift-open" onclick={() => openOpenAPILocalDriftRequest(change)} disabled={busy !== ''}>Open</button>
                                 {/if}
                               </span>
                               {#if change.change === 'modified'}
-                                <button type="button" data-testid="openapi-local-drift-reset" on:click={() => resetOpenAPILocalDrift(change.id)} disabled={busy !== ''}>Reset</button>
+                                <button type="button" data-testid="openapi-local-drift-reset" onclick={() => resetOpenAPILocalDrift(change.id)} disabled={busy !== ''}>Reset</button>
                               {:else if change.change === 'missing'}
-                                <button type="button" data-testid="openapi-local-drift-restore" on:click={() => restoreOpenAPILocalDrift(change.id)} disabled={busy !== ''}>Restore</button>
+                                <button type="button" data-testid="openapi-local-drift-restore" onclick={() => restoreOpenAPILocalDrift(change.id)} disabled={busy !== ''}>Restore</button>
                               {:else}
-                                <button type="button" data-testid="openapi-local-drift-delete" on:click={() => deleteOpenAPILocalDrift(change.id)} disabled={busy !== ''}>Delete</button>
+                                <button type="button" data-testid="openapi-local-drift-delete" onclick={() => deleteOpenAPILocalDrift(change.id)} disabled={busy !== ''}>Delete</button>
                               {/if}
                             </div>
                           {/each}
@@ -9098,7 +8765,7 @@
                     </div>
                     <p class="version-summary">Start a Dev Tools session in this collection</p>
                   </div>
-                  <button type="button" data-testid="collection-actions-open-terminal" on:click={openCollectionInTerminal} disabled={busy !== '' || terminalBusy || activeCollection.notFoundLocally}>Open in Terminal</button>
+                  <button type="button" data-testid="collection-actions-open-terminal" onclick={openCollectionInTerminal} disabled={busy !== '' || terminalBusy || activeCollection.notFoundLocally}>Open in Terminal</button>
                 </div>
                 <span class="field-label">Folder</span>
                 <div class="collection-doc-actions">
@@ -9108,7 +8775,7 @@
                     </div>
                     <p class="version-summary" data-testid="collection-reveal-status">{revealCollectionMessage || activeCollection.path}</p>
                   </div>
-                  <button type="button" data-testid="collection-actions-show-in-folder" on:click={revealCollectionInFolder} disabled={busy !== '' || activeCollection.notFoundLocally}>{revealInFolderLabel()}</button>
+                  <button type="button" data-testid="collection-actions-show-in-folder" onclick={revealCollectionInFolder} disabled={busy !== '' || activeCollection.notFoundLocally}>{revealInFolderLabel()}</button>
                 </div>
                 <span class="field-label">Remove</span>
                 <div class="collection-doc-actions">
@@ -9118,30 +8785,28 @@
                     </div>
                     <p class="version-summary">Remove this collection from the workspace without deleting files</p>
                   </div>
-                  <button type="button" data-testid="collection-actions-remove" on:click={openRemoveCollectionModal} disabled={busy !== '' || activeCollection.scratch}>Remove Collection</button>
+                  <button type="button" data-testid="collection-actions-remove" onclick={openRemoveCollectionModal} disabled={busy !== '' || activeCollection.scratch}>Remove Collection</button>
                 </div>
-                <span class="field-label">Git remote</span>
-                <input aria-label="Git remote URL" placeholder="https://github.com/org/repo.git" bind:value={gitRemoteURL} />
-                <span class="field-label"></span>
-                <div class="button-row">
-                  <button class="primary" on:click={connectGitRemote} disabled={busy !== ''}>{activeCollection.remote ? 'Update remote' : 'Connect to Git'}</button>
-                  {#if activeCollection.remote}
-                    <button on:click={() => copyText(activeCollection.remote ?? '')}>Copy URL</button>
-                    <button on:click={() => disconnectGitRemote(activeCollection.id)}>Remove remote</button>
-                  {/if}
+                <span class="field-label">Git</span>
+                <div class="collection-doc-actions">
+                  <div class="version-info">
+                    <div class="version-line"><span class="version-label">Local Git workbench</span></div>
+                    <p class="version-summary">Review scoped changes, commits, branches, and remotes without opening a terminal.</p>
+                  </div>
+                  <button type="button" data-testid="collection-actions-open-git" onclick={openGitWorkbench} disabled={busy !== '' || activeCollection.notFoundLocally}>Open Git Workbench</button>
                 </div>
                 <span class="field-label">Docs</span>
-                <textarea spellcheck="false" value={activeCollection.docs} on:change={(e) => updateCollectionDocs(e.currentTarget.value)}></textarea>
+                <textarea spellcheck="false" value={activeCollection.docs} onchange={(e) => updateCollectionDocs(e.currentTarget.value)}></textarea>
               </div>
             {:else if collectionTab === 'folders'}
               {#if (activeCollection.folders ?? []).length === 0}
-                <div class="empty-state">No folders in this collection</div>
+                <div class="empty-appState">No folders in this collection</div>
               {:else if editableFolder}
                 <div class="settings-stack folder-settings-panel">
                   <div class="field-grid folder-picker">
                     <span class="field-label">Folder</span>
-                    <select aria-label="Folder settings folder" value={editableFolder.path} on:change={(e) => (selectedFolderPath = e.currentTarget.value)}>
-                      {#each activeCollection.folders ?? [] as folder}
+                    <select aria-label="Folder settings folder" value={editableFolder.path} onchange={(e) => (selectedFolderPath = e.currentTarget.value)}>
+                      {#each activeCollection.folders ?? [] as folder (folder.path)}
                         <option value={folder.path}>{folder.displayPath || folder.path}</option>
                       {/each}
                     </select>
@@ -9150,8 +8815,8 @@
                   </div>
 
                   <nav class="subtabs compact" aria-label="Folder settings tabs">
-                    {#each folderSettingsTabs as tab}
-                      <button type="button" class:active={folderSettingsTab === tab.id} on:click={() => (folderSettingsTab = tab.id)}>{tab.label}</button>
+                    {#each folderSettingsTabs as tab (tab.id)}
+                      <button type="button" class:active={folderSettingsTab === tab.id} onclick={() => (folderSettingsTab = tab.id)}>{tab.label}</button>
                     {/each}
                   </nav>
 
@@ -9165,150 +8830,150 @@
                   {:else if folderSettingsTab === 'vars'}
                     <div class="settings-section-header">
                       <h3>Pre Request</h3>
-                      <button on:click={() => addFolderVariable('variables')}>Add variable</button>
+                      <button onclick={() => addFolderVariable('variables')}>Add variable</button>
                     </div>
                     <div class="table-scroll">
                       <table>
                         <thead><tr><th>On</th><th>Name</th><th>Value</th><th>Type</th><th>Secret</th><th></th></tr></thead>
                         <tbody>
-                          {#each editableFolder.variables ?? [] as variable, index}
+                          {#each editableFolder.variables ?? [] as variable, index (variable.id)}
                             <tr>
-                              <td><input type="checkbox" checked={variable.enabled} on:change={(e) => updateFolderVariable('variables', index, 'enabled', e.currentTarget.checked)} /></td>
-                              <td><input aria-label="Folder pre-request variable name" value={variable.name} on:change={(e) => updateFolderVariable('variables', index, 'name', e.currentTarget.value)} /></td>
-                              <td><input aria-label="Folder pre-request variable value" value={String(variable.value ?? '')} on:change={(e) => updateFolderVariable('variables', index, 'value', e.currentTarget.value)} /></td>
+                              <td><input type="checkbox" checked={variable.enabled} onchange={(e) => updateFolderVariable('variables', index, 'enabled', e.currentTarget.checked)} /></td>
+                              <td><input aria-label="Folder pre-request variable name" value={variable.name} onchange={(e) => updateFolderVariable('variables', index, 'name', e.currentTarget.value)} /></td>
+                              <td><input aria-label="Folder pre-request variable value" value={String(variable.value ?? '')} onchange={(e) => updateFolderVariable('variables', index, 'value', e.currentTarget.value)} /></td>
                               <td>
-                                <select aria-label="Folder pre-request variable type" value={variable.dataType || variable.type || 'string'} on:change={(e) => updateFolderVariable('variables', index, 'dataType', e.currentTarget.value)}>
+                                <select aria-label="Folder pre-request variable type" value={variable.dataType || variable.type || 'string'} onchange={(e) => updateFolderVariable('variables', index, 'dataType', e.currentTarget.value)}>
                                   <option value="string">string</option>
                                   <option value="number">number</option>
                                   <option value="boolean">boolean</option>
                                   <option value="object">object</option>
                                 </select>
                               </td>
-                              <td><input aria-label="Folder pre-request variable secret" type="checkbox" checked={variable.secret} on:change={(e) => updateFolderVariable('variables', index, 'secret', e.currentTarget.checked)} /></td>
-                              <td><button on:click={() => removeFolderVariable('variables', index)}>Remove</button></td>
+                              <td><input aria-label="Folder pre-request variable secret" type="checkbox" checked={variable.secret} onchange={(e) => updateFolderVariable('variables', index, 'secret', e.currentTarget.checked)} /></td>
+                              <td><button onclick={() => removeFolderVariable('variables', index)}>Remove</button></td>
                             </tr>
                           {/each}
                         </tbody>
                       </table>
                     </div>
                     {#if (editableFolder.variables ?? []).length === 0}
-                      <div class="empty-state">No pre-request variables</div>
+                      <div class="empty-appState">No pre-request variables</div>
                     {/if}
 
                     <div class="settings-section-header">
                       <h3>Post Response</h3>
-                      <button on:click={() => addFolderVariable('resVariables')}>Add variable</button>
+                      <button onclick={() => addFolderVariable('resVariables')}>Add variable</button>
                     </div>
                     <div class="table-scroll">
                       <table>
                         <thead><tr><th>On</th><th>Name</th><th>Expression</th><th>Type</th><th>Secret</th><th></th></tr></thead>
                         <tbody>
-                          {#each editableFolder.resVariables ?? [] as variable, index}
+                          {#each editableFolder.resVariables ?? [] as variable, index (variable.id)}
                             <tr>
-                              <td><input type="checkbox" checked={variable.enabled} on:change={(e) => updateFolderVariable('resVariables', index, 'enabled', e.currentTarget.checked)} /></td>
-                              <td><input aria-label="Folder post-response variable name" value={variable.name} on:change={(e) => updateFolderVariable('resVariables', index, 'name', e.currentTarget.value)} /></td>
-                              <td><input aria-label="Folder post-response variable expression" value={String(variable.value ?? '')} on:change={(e) => updateFolderVariable('resVariables', index, 'value', e.currentTarget.value)} /></td>
+                              <td><input type="checkbox" checked={variable.enabled} onchange={(e) => updateFolderVariable('resVariables', index, 'enabled', e.currentTarget.checked)} /></td>
+                              <td><input aria-label="Folder post-response variable name" value={variable.name} onchange={(e) => updateFolderVariable('resVariables', index, 'name', e.currentTarget.value)} /></td>
+                              <td><input aria-label="Folder post-response variable expression" value={String(variable.value ?? '')} onchange={(e) => updateFolderVariable('resVariables', index, 'value', e.currentTarget.value)} /></td>
                               <td>
-                                <select aria-label="Folder post-response variable type" value={variable.dataType || variable.type || 'string'} on:change={(e) => updateFolderVariable('resVariables', index, 'dataType', e.currentTarget.value)}>
+                                <select aria-label="Folder post-response variable type" value={variable.dataType || variable.type || 'string'} onchange={(e) => updateFolderVariable('resVariables', index, 'dataType', e.currentTarget.value)}>
                                   <option value="string">string</option>
                                   <option value="number">number</option>
                                   <option value="boolean">boolean</option>
                                   <option value="object">object</option>
                                 </select>
                               </td>
-                              <td><input aria-label="Folder post-response variable secret" type="checkbox" checked={variable.secret} on:change={(e) => updateFolderVariable('resVariables', index, 'secret', e.currentTarget.checked)} /></td>
-                              <td><button on:click={() => removeFolderVariable('resVariables', index)}>Remove</button></td>
+                              <td><input aria-label="Folder post-response variable secret" type="checkbox" checked={variable.secret} onchange={(e) => updateFolderVariable('resVariables', index, 'secret', e.currentTarget.checked)} /></td>
+                              <td><button onclick={() => removeFolderVariable('resVariables', index)}>Remove</button></td>
                             </tr>
                           {/each}
                         </tbody>
                       </table>
                     </div>
                     {#if (editableFolder.resVariables ?? []).length === 0}
-                      <div class="empty-state">No post-response variables</div>
+                      <div class="empty-appState">No post-response variables</div>
                     {/if}
                   {:else if folderSettingsTab === 'auth'}
                     <div class="field-grid auth-grid">
                       <span class="field-label">Mode</span>
-                      <select aria-label="Folder auth mode" value={editableFolder.auth?.mode || ''} on:change={(e) => updateFolderAuth({ mode: e.currentTarget.value })}>
+                      <select aria-label="Folder auth mode" value={editableFolder.auth?.mode || ''} onchange={(e) => updateFolderAuth({ mode: e.currentTarget.value })}>
                         <option value="">Unset</option>
-                        {#each authModes as mode}
+                        {#each authModes as mode (mode)}
                           <option value={mode}>{mode}</option>
                         {/each}
                       </select>
                       {#if editableFolder.auth?.mode === 'basic' || editableFolder.auth?.mode === 'digest' || editableFolder.auth?.mode === 'wsse' || editableFolder.auth?.mode === 'ntlm'}
                         <span class="field-label">Username</span>
-                        <input value={editableFolder.auth.username ?? ''} on:change={(e) => updateFolderAuth({ username: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.username ?? ''} onchange={(e) => updateFolderAuth({ username: e.currentTarget.value })} />
                         <span class="field-label">Password</span>
-                        <input type="password" value={editableFolder.auth.password ?? ''} on:change={(e) => updateFolderAuth({ password: e.currentTarget.value })} />
+                        <input type="password" value={editableFolder.auth.password ?? ''} onchange={(e) => updateFolderAuth({ password: e.currentTarget.value })} />
                         {#if editableFolder.auth?.mode === 'ntlm'}
                           <span class="field-label">Domain</span>
-                          <input value={editableFolder.auth.domain ?? ''} on:change={(e) => updateFolderAuth({ domain: e.currentTarget.value })} />
+                          <input value={editableFolder.auth.domain ?? ''} onchange={(e) => updateFolderAuth({ domain: e.currentTarget.value })} />
                         {/if}
                       {:else if editableFolder.auth?.mode === 'bearer'}
                         <span class="field-label">Token</span>
-                        <input type="password" value={editableFolder.auth.token ?? ''} on:change={(e) => updateFolderAuth({ token: e.currentTarget.value })} />
+                        <input type="password" value={editableFolder.auth.token ?? ''} onchange={(e) => updateFolderAuth({ token: e.currentTarget.value })} />
                       {:else if editableFolder.auth?.mode === 'apikey'}
                         <span class="field-label">Key</span>
-                        <input value={editableFolder.auth.apiKey ?? ''} on:change={(e) => updateFolderAuth({ apiKey: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.apiKey ?? ''} onchange={(e) => updateFolderAuth({ apiKey: e.currentTarget.value })} />
                         <span class="field-label">Value</span>
-                        <input type="password" value={editableFolder.auth.apiValue ?? ''} on:change={(e) => updateFolderAuth({ apiValue: e.currentTarget.value })} />
+                        <input type="password" value={editableFolder.auth.apiValue ?? ''} onchange={(e) => updateFolderAuth({ apiValue: e.currentTarget.value })} />
                         <span class="field-label">Placement</span>
-                        <select value={editableFolder.auth.apiLocation || 'header'} on:change={(e) => updateFolderAuth({ apiLocation: e.currentTarget.value })}>
+                        <select value={editableFolder.auth.apiLocation || 'header'} onchange={(e) => updateFolderAuth({ apiLocation: e.currentTarget.value })}>
                           <option value="header">Header</option>
                           <option value="queryparams">Query params</option>
                         </select>
                       {:else if editableFolder.auth?.mode === 'awsv4'}
                         <span class="field-label">Access key</span>
-                        <input value={editableFolder.auth.awsv4?.accessKeyId ?? ''} on:change={(e) => updateFolderAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.awsv4?.accessKeyId ?? ''} onchange={(e) => updateFolderAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
                         <span class="field-label">Secret key</span>
-                        <input type="password" value={editableFolder.auth.awsv4?.secretAccessKey ?? ''} on:change={(e) => updateFolderAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
+                        <input type="password" value={editableFolder.auth.awsv4?.secretAccessKey ?? ''} onchange={(e) => updateFolderAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
                         <span class="field-label">Service</span>
-                        <input value={editableFolder.auth.awsv4?.service ?? ''} placeholder="execute-api" on:change={(e) => updateFolderAWSV4Auth({ service: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.awsv4?.service ?? ''} placeholder="execute-api" onchange={(e) => updateFolderAWSV4Auth({ service: e.currentTarget.value })} />
                         <span class="field-label">Region</span>
-                        <input value={editableFolder.auth.awsv4?.region ?? ''} placeholder="us-east-1" on:change={(e) => updateFolderAWSV4Auth({ region: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.awsv4?.region ?? ''} placeholder="us-east-1" onchange={(e) => updateFolderAWSV4Auth({ region: e.currentTarget.value })} />
                       {:else if editableFolder.auth?.mode === 'oauth1'}
                         <span class="field-label">Consumer key</span>
-                        <input value={editableFolder.auth.oauth1?.consumerKey ?? ''} on:change={(e) => updateFolderOAuth1Auth({ consumerKey: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.oauth1?.consumerKey ?? ''} onchange={(e) => updateFolderOAuth1Auth({ consumerKey: e.currentTarget.value })} />
                         <span class="field-label">Consumer secret</span>
-                        <input type="password" value={editableFolder.auth.oauth1?.consumerSecret ?? ''} on:change={(e) => updateFolderOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
+                        <input type="password" value={editableFolder.auth.oauth1?.consumerSecret ?? ''} onchange={(e) => updateFolderOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
                         <span class="field-label">Access token</span>
-                        <input value={editableFolder.auth.oauth1?.accessToken ?? ''} on:change={(e) => updateFolderOAuth1Auth({ accessToken: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.oauth1?.accessToken ?? ''} onchange={(e) => updateFolderOAuth1Auth({ accessToken: e.currentTarget.value })} />
                         <span class="field-label">Token secret</span>
-                        <input type="password" value={editableFolder.auth.oauth1?.accessTokenSecret ?? ''} on:change={(e) => updateFolderOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
+                        <input type="password" value={editableFolder.auth.oauth1?.accessTokenSecret ?? ''} onchange={(e) => updateFolderOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
                         <span class="field-label">Signature</span>
-                        <select value={editableFolder.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} on:change={(e) => updateFolderOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
-                          {#each oauth1SignatureMethods as method}
+                        <select value={editableFolder.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} onchange={(e) => updateFolderOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
+                          {#each oauth1SignatureMethods as method (method)}
                             <option value={method}>{method}</option>
                           {/each}
                         </select>
                       {:else if editableFolder.auth?.mode === 'oauth2'}
                         <span class="field-label">Grant type</span>
-                        <select value={editableFolder.auth.oauth2?.grantType || 'client_credentials'} on:change={(e) => updateFolderOAuth2Auth({ grantType: e.currentTarget.value })}>
-                          {#each oauth2GrantTypes as grantType}
+                        <select value={editableFolder.auth.oauth2?.grantType || 'client_credentials'} onchange={(e) => updateFolderOAuth2Auth({ grantType: e.currentTarget.value })}>
+                          {#each oauth2GrantTypes as grantType (grantType)}
                             <option value={grantType}>{grantType}</option>
                           {/each}
                         </select>
                         <span class="field-label">Access token URL</span>
-                        <input value={editableFolder.auth.oauth2?.accessTokenUrl ?? ''} on:change={(e) => updateFolderOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.oauth2?.accessTokenUrl ?? ''} onchange={(e) => updateFolderOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
                         <span class="field-label">Client ID</span>
-                        <input value={editableFolder.auth.oauth2?.clientId ?? ''} on:change={(e) => updateFolderOAuth2Auth({ clientId: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.oauth2?.clientId ?? ''} onchange={(e) => updateFolderOAuth2Auth({ clientId: e.currentTarget.value })} />
                         <span class="field-label">Client secret</span>
-                        <input type="password" value={editableFolder.auth.oauth2?.clientSecret ?? ''} on:change={(e) => updateFolderOAuth2Auth({ clientSecret: e.currentTarget.value })} />
+                        <input type="password" value={editableFolder.auth.oauth2?.clientSecret ?? ''} onchange={(e) => updateFolderOAuth2Auth({ clientSecret: e.currentTarget.value })} />
                         <span class="field-label">Scope</span>
-                        <input value={editableFolder.auth.oauth2?.scope ?? ''} on:change={(e) => updateFolderOAuth2Auth({ scope: e.currentTarget.value })} />
+                        <input value={editableFolder.auth.oauth2?.scope ?? ''} onchange={(e) => updateFolderOAuth2Auth({ scope: e.currentTarget.value })} />
                         <span class="field-label">Token</span>
-                        <input type="password" value={editableFolder.auth.token ?? ''} on:change={(e) => updateFolderAuth({ token: e.currentTarget.value })} />
+                        <input type="password" value={editableFolder.auth.token ?? ''} onchange={(e) => updateFolderAuth({ token: e.currentTarget.value })} />
                       {/if}
                     </div>
                   {:else if folderSettingsTab === 'script'}
                     <span class="field-label">Pre-request</span>
-                    <textarea class="short" spellcheck="false" value={editableFolder.preScript ?? ''} on:change={(e) => updateFolderScript('preScript', e.currentTarget.value)}></textarea>
+                    <textarea class="short" spellcheck="false" value={editableFolder.preScript ?? ''} onchange={(e) => updateFolderScript('preScript', e.currentTarget.value)}></textarea>
                     <span class="field-label">Post-response</span>
-                    <textarea class="short" spellcheck="false" value={editableFolder.postScript ?? ''} on:change={(e) => updateFolderScript('postScript', e.currentTarget.value)}></textarea>
+                    <textarea class="short" spellcheck="false" value={editableFolder.postScript ?? ''} onchange={(e) => updateFolderScript('postScript', e.currentTarget.value)}></textarea>
                   {:else if folderSettingsTab === 'tests'}
-                    <textarea spellcheck="false" value={editableFolder.tests ?? ''} on:change={(e) => updateFolderScript('tests', e.currentTarget.value)}></textarea>
+                    <textarea spellcheck="false" value={editableFolder.tests ?? ''} onchange={(e) => updateFolderScript('tests', e.currentTarget.value)}></textarea>
                   {:else if folderSettingsTab === 'docs'}
-                    <textarea spellcheck="false" value={editableFolder.docs ?? ''} on:change={(e) => updateFolderDocs(e.currentTarget.value)}></textarea>
+                    <textarea spellcheck="false" value={editableFolder.docs ?? ''} onchange={(e) => updateFolderDocs(e.currentTarget.value)}></textarea>
                   {/if}
                 </div>
               {/if}
@@ -9325,107 +8990,107 @@
                   <tr><th></th><th>Name</th><th>Value</th><th>Type</th><th>Secret</th></tr>
                 </thead>
                 <tbody>
-                  {#each activeCollection.variables ?? [] as variable, index}
+                  {#each activeCollection.variables ?? [] as variable, index (variable.id)}
                     <tr>
-                      <td><input type="checkbox" checked={variable.enabled} on:change={(e) => updateCollectionVariable(index, 'enabled', e.currentTarget.checked)} /></td>
-                      <td><input value={variable.name} on:change={(e) => updateCollectionVariable(index, 'name', e.currentTarget.value)} /></td>
-                      <td><input value={String(variable.value ?? '')} on:change={(e) => updateCollectionVariable(index, 'value', e.currentTarget.value)} /></td>
+                      <td><input type="checkbox" checked={variable.enabled} onchange={(e) => updateCollectionVariable(index, 'enabled', e.currentTarget.checked)} /></td>
+                      <td><input value={variable.name} onchange={(e) => updateCollectionVariable(index, 'name', e.currentTarget.value)} /></td>
+                      <td><input value={String(variable.value ?? '')} onchange={(e) => updateCollectionVariable(index, 'value', e.currentTarget.value)} /></td>
                       <td>
-                        <select value={variable.dataType || 'string'} on:change={(e) => updateCollectionVariable(index, 'dataType', e.currentTarget.value)}>
+                        <select value={variable.dataType || 'string'} onchange={(e) => updateCollectionVariable(index, 'dataType', e.currentTarget.value)}>
                           <option value="string">string</option>
                           <option value="number">number</option>
                           <option value="boolean">boolean</option>
                           <option value="object">object</option>
                         </select>
                       </td>
-                      <td><input type="checkbox" checked={variable.secret} on:change={(e) => updateCollectionVariable(index, 'secret', e.currentTarget.checked)} /></td>
+                      <td><input type="checkbox" checked={variable.secret} onchange={(e) => updateCollectionVariable(index, 'secret', e.currentTarget.checked)} /></td>
                     </tr>
                   {/each}
                 </tbody>
               </table>
-              <button on:click={addCollectionVariable}>Add variable</button>
+              <button onclick={addCollectionVariable}>Add variable</button>
             {:else if collectionTab === 'auth'}
               <div class="field-grid auth-grid">
                 <span class="field-label">Mode</span>
-                <select value={activeCollection.auth?.mode ?? 'none'} on:change={(e) => updateCollectionAuth({ mode: e.currentTarget.value })}>
-                  {#each authModes as mode}
+                <select value={activeCollection.auth?.mode ?? 'none'} onchange={(e) => updateCollectionAuth({ mode: e.currentTarget.value })}>
+                  {#each authModes as mode (mode)}
                     <option value={mode}>{mode}</option>
                   {/each}
                 </select>
 	                {#if activeCollection.auth?.mode === 'basic' || activeCollection.auth?.mode === 'digest' || activeCollection.auth?.mode === 'wsse' || activeCollection.auth?.mode === 'ntlm'}
                   <span class="field-label">Username</span>
-                  <input value={activeCollection.auth.username} on:change={(e) => updateCollectionAuth({ username: e.currentTarget.value })} />
+                  <input value={activeCollection.auth.username} onchange={(e) => updateCollectionAuth({ username: e.currentTarget.value })} />
                   <span class="field-label">Password</span>
-                  <input type="password" value={activeCollection.auth.password} on:change={(e) => updateCollectionAuth({ password: e.currentTarget.value })} />
+                  <input type="password" value={activeCollection.auth.password} onchange={(e) => updateCollectionAuth({ password: e.currentTarget.value })} />
                   {#if activeCollection.auth?.mode === 'ntlm'}
                     <span class="field-label">Domain</span>
-                    <input value={activeCollection.auth.domain} on:change={(e) => updateCollectionAuth({ domain: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.domain} onchange={(e) => updateCollectionAuth({ domain: e.currentTarget.value })} />
                   {/if}
                 {:else if activeCollection.auth?.mode === 'bearer'}
                   <span class="field-label">Token</span>
-                  <input type="password" value={activeCollection.auth.token} on:change={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
+                  <input type="password" value={activeCollection.auth.token} onchange={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
                 {:else if activeCollection.auth?.mode === 'oauth2'}
                   <span class="field-label">Grant</span>
-                  <select value={activeCollection.auth.oauth2?.grantType || 'client_credentials'} on:change={(e) => updateCollectionOAuth2Auth({ grantType: e.currentTarget.value })}>
-                    {#each oauth2GrantTypes as grant}
+                  <select value={activeCollection.auth.oauth2?.grantType || 'client_credentials'} onchange={(e) => updateCollectionOAuth2Auth({ grantType: e.currentTarget.value })}>
+                    {#each oauth2GrantTypes as grant (grant)}
                       <option value={grant}>{grant}</option>
                     {/each}
                   </select>
                   {#if activeCollection.auth.oauth2?.grantType === 'authorization_code' || activeCollection.auth.oauth2?.grantType === 'implicit'}
                     <span class="field-label">Callback URL</span>
-                    <input value={activeCollection.auth.oauth2?.callbackUrl ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ callbackUrl: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.callbackUrl ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ callbackUrl: e.currentTarget.value })} />
                     <span class="field-label">Authorization URL</span>
-                    <input value={activeCollection.auth.oauth2?.authorizationUrl ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ authorizationUrl: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.authorizationUrl ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ authorizationUrl: e.currentTarget.value })} />
                   {/if}
                   <span class="field-label">Access token URL</span>
-                  <input value={activeCollection.auth.oauth2?.accessTokenUrl ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
+                  <input value={activeCollection.auth.oauth2?.accessTokenUrl ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
                   <span class="field-label">Client ID</span>
-                  <input value={activeCollection.auth.oauth2?.clientId ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ clientId: e.currentTarget.value })} />
+                  <input value={activeCollection.auth.oauth2?.clientId ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ clientId: e.currentTarget.value })} />
                   <span class="field-label">Client secret</span>
-                  <input type="password" value={activeCollection.auth.oauth2?.clientSecret ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ clientSecret: e.currentTarget.value })} />
+                  <input type="password" value={activeCollection.auth.oauth2?.clientSecret ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ clientSecret: e.currentTarget.value })} />
                   {#if activeCollection.auth.oauth2?.grantType === 'password'}
                     <span class="field-label">Username</span>
-                    <input value={activeCollection.auth.oauth2?.username ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ username: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.username ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ username: e.currentTarget.value })} />
                     <span class="field-label">Password</span>
-                    <input type="password" value={activeCollection.auth.oauth2?.password ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ password: e.currentTarget.value })} />
+                    <input type="password" value={activeCollection.auth.oauth2?.password ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ password: e.currentTarget.value })} />
                   {/if}
                   <span class="field-label">Scope</span>
-                  <input value={activeCollection.auth.oauth2?.scope ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ scope: e.currentTarget.value })} />
+                  <input value={activeCollection.auth.oauth2?.scope ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ scope: e.currentTarget.value })} />
                   {#if activeCollection.auth.oauth2?.grantType === 'authorization_code' || activeCollection.auth.oauth2?.grantType === 'implicit'}
                     <span class="field-label">State</span>
-                    <input value={activeCollection.auth.oauth2?.state ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ state: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.state ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ state: e.currentTarget.value })} />
                   {/if}
                   <span class="field-label">Credentials</span>
-                  <select value={activeCollection.auth.oauth2?.credentialsPlacement || 'basic_auth_header'} on:change={(e) => updateCollectionOAuth2Auth({ credentialsPlacement: e.currentTarget.value })}>
-                    {#each oauth2CredentialPlacements as placement}
+                  <select value={activeCollection.auth.oauth2?.credentialsPlacement || 'basic_auth_header'} onchange={(e) => updateCollectionOAuth2Auth({ credentialsPlacement: e.currentTarget.value })}>
+                    {#each oauth2CredentialPlacements as placement (placement)}
                       <option value={placement}>{placement}</option>
                     {/each}
                   </select>
                   {#if activeCollection.auth.oauth2?.grantType === 'authorization_code'}
                     <span class="field-label">PKCE</span>
-                    <input type="checkbox" checked={activeCollection.auth.oauth2?.pkce ?? false} on:change={(e) => updateCollectionOAuth2Auth({ pkce: e.currentTarget.checked })} />
+                    <input type="checkbox" checked={activeCollection.auth.oauth2?.pkce ?? false} onchange={(e) => updateCollectionOAuth2Auth({ pkce: e.currentTarget.checked })} />
                   {/if}
                   <span class="field-label">Token source</span>
-                  <select value={activeCollection.auth.oauth2?.tokenSource || 'access_token'} on:change={(e) => updateCollectionOAuth2Auth({ tokenSource: e.currentTarget.value })}>
-                    {#each oauth2TokenSources as source}
+                  <select value={activeCollection.auth.oauth2?.tokenSource || 'access_token'} onchange={(e) => updateCollectionOAuth2Auth({ tokenSource: e.currentTarget.value })}>
+                    {#each oauth2TokenSources as source (source)}
                       <option value={source}>{source}</option>
                     {/each}
                   </select>
                   <span class="field-label">Token placement</span>
-                  <select value={activeCollection.auth.oauth2?.tokenPlacement || 'header'} on:change={(e) => updateCollectionOAuth2Auth({ tokenPlacement: e.currentTarget.value })}>
-                    {#each oauth2TokenPlacements as placement}
+                  <select value={activeCollection.auth.oauth2?.tokenPlacement || 'header'} onchange={(e) => updateCollectionOAuth2Auth({ tokenPlacement: e.currentTarget.value })}>
+                    {#each oauth2TokenPlacements as placement (placement)}
                       <option value={placement}>{placement}</option>
                     {/each}
                   </select>
                   {#if (activeCollection.auth.oauth2?.tokenPlacement || 'header') === 'header'}
                     <span class="field-label">Header prefix</span>
-                    <input value={activeCollection.auth.oauth2?.tokenHeaderPrefix || 'Bearer'} on:change={(e) => updateCollectionOAuth2Auth({ tokenHeaderPrefix: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.tokenHeaderPrefix || 'Bearer'} onchange={(e) => updateCollectionOAuth2Auth({ tokenHeaderPrefix: e.currentTarget.value })} />
                   {:else}
                     <span class="field-label">Query key</span>
-                    <input value={activeCollection.auth.oauth2?.tokenQueryKey || 'access_token'} on:change={(e) => updateCollectionOAuth2Auth({ tokenQueryKey: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.tokenQueryKey || 'access_token'} onchange={(e) => updateCollectionOAuth2Auth({ tokenQueryKey: e.currentTarget.value })} />
                   {/if}
                   <span class="field-label">Static token</span>
-                  <input type="password" value={activeCollection.auth.token} on:change={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
+                  <input type="password" value={activeCollection.auth.token} onchange={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
                   <div class="oauth2-extra-stack">
                     <OAuth2AdditionalParams
                       title="Authorization request params"
@@ -9451,89 +9116,168 @@
                   </div>
                 {:else if activeCollection.auth?.mode === 'apikey'}
                   <span class="field-label">Key</span>
-                  <input value={activeCollection.auth.apiKey} on:change={(e) => updateCollectionAuth({ apiKey: e.currentTarget.value })} />
+                  <input value={activeCollection.auth.apiKey} onchange={(e) => updateCollectionAuth({ apiKey: e.currentTarget.value })} />
                   <span class="field-label">Value</span>
-                  <input type="password" value={activeCollection.auth.apiValue} on:change={(e) => updateCollectionAuth({ apiValue: e.currentTarget.value })} />
+                  <input type="password" value={activeCollection.auth.apiValue} onchange={(e) => updateCollectionAuth({ apiValue: e.currentTarget.value })} />
                   <span class="field-label">Send in</span>
-	                  <select value={activeCollection.auth.apiLocation || 'header'} on:change={(e) => updateCollectionAuth({ apiLocation: e.currentTarget.value })}>
+	                  <select value={activeCollection.auth.apiLocation || 'header'} onchange={(e) => updateCollectionAuth({ apiLocation: e.currentTarget.value })}>
 	                    <option value="header">Header</option>
 	                    <option value="query">Query</option>
 	                  </select>
 	                {:else if activeCollection.auth?.mode === 'awsv4'}
 	                  <span class="field-label">Access key ID</span>
-	                  <input value={activeCollection.auth.awsv4?.accessKeyId ?? ''} on:change={(e) => updateCollectionAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
+	                  <input value={activeCollection.auth.awsv4?.accessKeyId ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
 	                  <span class="field-label">Secret access key</span>
-	                  <input type="password" value={activeCollection.auth.awsv4?.secretAccessKey ?? ''} on:change={(e) => updateCollectionAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
+	                  <input type="password" value={activeCollection.auth.awsv4?.secretAccessKey ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
 	                  <span class="field-label">Session token</span>
-	                  <input type="password" value={activeCollection.auth.awsv4?.sessionToken ?? ''} on:change={(e) => updateCollectionAWSV4Auth({ sessionToken: e.currentTarget.value })} />
+	                  <input type="password" value={activeCollection.auth.awsv4?.sessionToken ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ sessionToken: e.currentTarget.value })} />
 	                  <span class="field-label">Service</span>
-	                  <input value={activeCollection.auth.awsv4?.service ?? ''} placeholder="execute-api" on:change={(e) => updateCollectionAWSV4Auth({ service: e.currentTarget.value })} />
+	                  <input value={activeCollection.auth.awsv4?.service ?? ''} placeholder="execute-api" onchange={(e) => updateCollectionAWSV4Auth({ service: e.currentTarget.value })} />
 	                  <span class="field-label">Region</span>
-	                  <input value={activeCollection.auth.awsv4?.region ?? ''} placeholder="us-east-1" on:change={(e) => updateCollectionAWSV4Auth({ region: e.currentTarget.value })} />
+	                  <input value={activeCollection.auth.awsv4?.region ?? ''} placeholder="us-east-1" onchange={(e) => updateCollectionAWSV4Auth({ region: e.currentTarget.value })} />
 		                  <span class="field-label">Profile</span>
-		                  <input value={activeCollection.auth.awsv4?.profileName ?? ''} on:change={(e) => updateCollectionAWSV4Auth({ profileName: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.awsv4?.profileName ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ profileName: e.currentTarget.value })} />
 		                {:else if activeCollection.auth?.mode === 'oauth1'}
 		                  <span class="field-label">Consumer key</span>
-		                  <input value={activeCollection.auth.oauth1?.consumerKey ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ consumerKey: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.consumerKey ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ consumerKey: e.currentTarget.value })} />
 		                  <span class="field-label">Consumer secret</span>
-		                  <input type="password" value={activeCollection.auth.oauth1?.consumerSecret ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
+		                  <input type="password" value={activeCollection.auth.oauth1?.consumerSecret ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
 		                  <span class="field-label">Token</span>
-		                  <input value={activeCollection.auth.oauth1?.accessToken ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ accessToken: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.accessToken ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ accessToken: e.currentTarget.value })} />
 		                  <span class="field-label">Token secret</span>
-		                  <input type="password" value={activeCollection.auth.oauth1?.accessTokenSecret ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
+		                  <input type="password" value={activeCollection.auth.oauth1?.accessTokenSecret ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
 		                  <span class="field-label">Signature</span>
-		                  <select value={activeCollection.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} on:change={(e) => updateCollectionOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
-		                    {#each oauth1SignatureMethods as method}
+		                  <select value={activeCollection.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} onchange={(e) => updateCollectionOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
+		                    {#each oauth1SignatureMethods as method (method)}
 		                      <option value={method}>{method}</option>
 		                    {/each}
 		                  </select>
 		                  <span class="field-label">Add params to</span>
-		                  <select value={activeCollection.auth.oauth1?.placement || 'header'} on:change={(e) => updateCollectionOAuth1Auth({ placement: e.currentTarget.value })}>
-		                    {#each oauth1Placements as placement}
+		                  <select value={activeCollection.auth.oauth1?.placement || 'header'} onchange={(e) => updateCollectionOAuth1Auth({ placement: e.currentTarget.value })}>
+		                    {#each oauth1Placements as placement (placement)}
 		                      <option value={placement}>{placement}</option>
 		                    {/each}
 		                  </select>
 		                  <span class="field-label">Callback URL</span>
-		                  <input value={activeCollection.auth.oauth1?.callbackUrl ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ callbackUrl: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.callbackUrl ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ callbackUrl: e.currentTarget.value })} />
 		                  <span class="field-label">Verifier</span>
-		                  <input value={activeCollection.auth.oauth1?.verifier ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ verifier: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.verifier ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ verifier: e.currentTarget.value })} />
 		                  <span class="field-label">Timestamp</span>
-		                  <input value={activeCollection.auth.oauth1?.timestamp ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ timestamp: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.timestamp ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ timestamp: e.currentTarget.value })} />
 		                  <span class="field-label">Nonce</span>
-		                  <input value={activeCollection.auth.oauth1?.nonce ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ nonce: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.nonce ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ nonce: e.currentTarget.value })} />
 		                  <span class="field-label">Version</span>
-		                  <input value={activeCollection.auth.oauth1?.version ?? ''} placeholder="1.0" on:change={(e) => updateCollectionOAuth1Auth({ version: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.version ?? ''} placeholder="1.0" onchange={(e) => updateCollectionOAuth1Auth({ version: e.currentTarget.value })} />
 		                  <span class="field-label">Realm</span>
-		                  <input value={activeCollection.auth.oauth1?.realm ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ realm: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.realm ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ realm: e.currentTarget.value })} />
 		                  <span class="field-label">Private key</span>
-		                  <textarea class="short" spellcheck="false" value={activeCollection.auth.oauth1?.privateKey ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ privateKey: e.currentTarget.value })}></textarea>
+		                  <textarea class="short" spellcheck="false" value={activeCollection.auth.oauth1?.privateKey ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ privateKey: e.currentTarget.value })}></textarea>
 		                  <span class="field-label">Private key type</span>
-		                  <select value={activeCollection.auth.oauth1?.privateKeyType || 'text'} on:change={(e) => updateCollectionOAuth1Auth({ privateKeyType: e.currentTarget.value })}>
+		                  <select value={activeCollection.auth.oauth1?.privateKeyType || 'text'} onchange={(e) => updateCollectionOAuth1Auth({ privateKeyType: e.currentTarget.value })}>
 		                    <option value="text">text</option>
 		                    <option value="file">file</option>
 		                  </select>
 		                  <span class="field-label">Body hash</span>
-		                  <input type="checkbox" checked={activeCollection.auth.oauth1?.includeBodyHash ?? false} on:change={(e) => updateCollectionOAuth1Auth({ includeBodyHash: e.currentTarget.checked })} />
+		                  <input type="checkbox" checked={activeCollection.auth.oauth1?.includeBodyHash ?? false} onchange={(e) => updateCollectionOAuth1Auth({ includeBodyHash: e.currentTarget.checked })} />
 		                {:else if activeCollection.auth?.mode !== 'none'}
-		                  <div class="empty-state wide">This collection auth mode is modeled for parity and marked partial until its backend signer is implemented.</div>
+		                  <div class="empty-appState wide">This collection auth mode is marked partial until its backend signer is implemented.</div>
 		                {/if}
               </div>
+            {:else if collectionTab === 'docs'}
+              {#if activeCollection}
+                <section class="panel-section">
+                  <h3>Docs Preview</h3>
+                  <p class="muted">
+                    Serves this collection's generated documentation over 127.0.0.1 so it can be opened in a browser. Docs are regenerated on every request, so a refresh shows your latest edit.
+                  </p>
+                  <div class="field-grid">
+                    <label class="field-label" for="docs-port">Port</label>
+                    <input
+                      id="docs-port"
+                      data-testid="docs-port"
+                      type="number"
+                      min="0"
+                      max="65535"
+                      bind:value={docsServerPort}
+                      disabled={docsServerStatus?.running}
+                    />
+                    <span class="muted">0 lets the operating system pick a free port.</span>
+                  </div>
+                  <div class="button-row">
+                    {#if docsServerStatus?.running}
+                      <button type="button" data-testid="docs-stop" onclick={() => stopDocsServer(activeCollection.id)} disabled={busy !== ''}>Stop</button>
+                    {:else}
+                      <button class="primary" type="button" data-testid="docs-start" onclick={() => startDocsServer(activeCollection.id)} disabled={busy !== ''}>Start</button>
+                    {/if}
+                  </div>
+                  {#if docsServerStatus?.running}
+                    <p data-testid="docs-status">
+                      Serving at <code>{docsServerStatus.url}</code> — YAML at <code>{docsServerStatus.url}/collection.yaml</code>.
+                    </p>
+                    <p class="muted">
+                      The preview describes every request, header and example in this collection. It is reachable only from this machine.
+                    </p>
+                  {:else}
+                    <p class="muted" data-testid="docs-status">Not running.</p>
+                  {/if}
+                </section>
+              {/if}
+            {:else if collectionTab === 'mock'}
+              {#if activeCollection}
+                <section class="panel-section">
+                  <h3>Mock Server</h3>
+                  <p class="muted">
+                    Answers requests from this collection's saved response examples. Binds to 127.0.0.1 only — a mock replays recorded traffic, which often contains credentials.
+                  </p>
+                  <div class="field-grid">
+                    <label class="field-label" for="mock-port">Port</label>
+                    <input
+                      id="mock-port"
+                      data-testid="mock-port"
+                      type="number"
+                      min="0"
+                      max="65535"
+                      bind:value={mockServerPort}
+                      disabled={mockServerStatus?.running}
+                    />
+                    <span class="muted">0 lets the operating system pick a free port.</span>
+                  </div>
+                  <div class="button-row">
+                    {#if mockServerStatus?.running}
+                      <button type="button" data-testid="mock-stop" onclick={() => stopMockServer(activeCollection.id)} disabled={busy !== ''}>Stop</button>
+                      <button type="button" data-testid="mock-refresh" onclick={() => refreshMockServerRoutes(activeCollection.id)} disabled={busy !== ''}>Reload examples</button>
+                    {:else}
+                      <button class="primary" type="button" data-testid="mock-start" onclick={() => startMockServer(activeCollection.id)} disabled={busy !== ''}>Start</button>
+                    {/if}
+                  </div>
+                  {#if mockServerStatus?.running}
+                    <p data-testid="mock-status">
+                      Running at <code>{mockServerStatus.url}</code> — {mockServerStatus.routes} route{mockServerStatus.routes === 1 ? '' : 's'}.
+                    </p>
+                    <p class="muted">
+                      Send <code>x-mock-response-name</code> to choose a specific example. Calls appear in Dev Tools → Network.
+                    </p>
+                  {:else}
+                    <p class="muted" data-testid="mock-status">Not running.</p>
+                  {/if}
+                </section>
+              {/if}
             {:else if collectionTab === 'presets'}
               <div class="field-grid">
                 <span class="field-label">Request Type</span>
-                <select aria-label="Preset request type" value={normalizePresetRequestType(activeCollection.presets?.requestType) || 'http'} on:change={(e) => updateCollectionPresets({ requestType: e.currentTarget.value })}>
+                <select aria-label="Preset request type" value={normalizePresetRequestType(activeCollection.presets?.requestType) || 'http'} onchange={(e) => updateCollectionPresets({ requestType: e.currentTarget.value })}>
                   <option value="http">HTTP</option>
                   <option value="graphql">GraphQL</option>
                   <option value="grpc">gRPC</option>
                   <option value="websocket">WebSocket</option>
                 </select>
                 <span class="field-label">Base URL</span>
-                <input aria-label="Preset base URL" placeholder="https://api.example.com" value={activeCollection.presets?.requestUrl ?? ''} on:change={(e) => updateCollectionPresets({ requestUrl: e.currentTarget.value })} />
+                <input aria-label="Preset base URL" placeholder="https://api.example.com" value={activeCollection.presets?.requestUrl ?? ''} onchange={(e) => updateCollectionPresets({ requestUrl: e.currentTarget.value })} />
               </div>
 	            {:else if collectionTab === 'proxy'}
 	              <div class="field-grid">
 	                <span class="field-label">Mode</span>
-	                <select aria-label="Collection proxy mode" value={collectionProxyMode(activeCollection.proxy)} on:change={(e) => updateCollectionProxyMode(e.currentTarget.value)}>
+	                <select aria-label="Collection proxy mode" value={collectionProxyMode(activeCollection.proxy)} onchange={(e) => updateCollectionProxyMode(e.currentTarget.value)}>
 	                  <option value="inherit">Inherit</option>
 	                  <option value="manual">Enabled</option>
 	                  <option value="off">Disabled</option>
@@ -9542,23 +9286,23 @@
 	              {#if collectionProxyMode(activeCollection.proxy) === 'manual'}
 	                <div class="field-grid">
 	                  <span class="field-label">Protocol</span>
-	                  <select aria-label="Collection proxy protocol" value={activeCollection.proxy?.protocol || 'http'} on:change={(e) => updateCollectionProxy({ protocol: e.currentTarget.value })}>
+	                  <select aria-label="Collection proxy protocol" value={activeCollection.proxy?.protocol || 'http'} onchange={(e) => updateCollectionProxy({ protocol: e.currentTarget.value })}>
 	                    <option value="http">HTTP</option>
 	                    <option value="https">HTTPS</option>
 	                    <option value="socks5">SOCKS5</option>
 	                  </select>
 	                  <span class="field-label">Host</span>
-	                  <input aria-label="Collection proxy host" value={activeCollection.proxy?.hostname ?? ''} on:input={(e) => updateCollectionProxy({ hostname: e.currentTarget.value })} />
+	                  <input aria-label="Collection proxy host" value={activeCollection.proxy?.hostname ?? ''} oninput={(e) => updateCollectionProxy({ hostname: e.currentTarget.value })} />
 	                  <span class="field-label">Port</span>
-	                  <input aria-label="Collection proxy port" value={activeCollection.proxy?.port ?? ''} on:input={(e) => updateCollectionProxy({ port: e.currentTarget.value })} />
+	                  <input aria-label="Collection proxy port" value={activeCollection.proxy?.port ?? ''} oninput={(e) => updateCollectionProxy({ port: e.currentTarget.value })} />
 	                  <span class="field-label">Bypass</span>
-	                  <input aria-label="Collection proxy bypass" value={activeCollection.proxy?.bypassProxy ?? ''} on:input={(e) => updateCollectionProxy({ bypassProxy: e.currentTarget.value })} />
+	                  <input aria-label="Collection proxy bypass" value={activeCollection.proxy?.bypassProxy ?? ''} oninput={(e) => updateCollectionProxy({ bypassProxy: e.currentTarget.value })} />
 	                  <span class="field-label">Auth enabled</span>
-	                  <input aria-label="Collection proxy auth enabled" type="checkbox" checked={!(activeCollection.proxy?.auth?.disabled ?? false)} on:change={(e) => updateCollectionProxyAuth({ disabled: !e.currentTarget.checked })} />
+	                  <input aria-label="Collection proxy auth enabled" type="checkbox" checked={!(activeCollection.proxy?.auth?.disabled ?? false)} onchange={(e) => updateCollectionProxyAuth({ disabled: !e.currentTarget.checked })} />
 	                  <span class="field-label">Username</span>
-	                  <input aria-label="Collection proxy username" value={activeCollection.proxy?.auth?.username ?? ''} on:input={(e) => updateCollectionProxyAuth({ username: e.currentTarget.value })} />
+	                  <input aria-label="Collection proxy username" value={activeCollection.proxy?.auth?.username ?? ''} oninput={(e) => updateCollectionProxyAuth({ username: e.currentTarget.value })} />
 	                  <span class="field-label">Password</span>
-	                  <input aria-label="Collection proxy password" type="password" value={activeCollection.proxy?.auth?.password ?? ''} on:input={(e) => updateCollectionProxyAuth({ password: e.currentTarget.value })} />
+	                  <input aria-label="Collection proxy password" type="password" value={activeCollection.proxy?.auth?.password ?? ''} oninput={(e) => updateCollectionProxyAuth({ password: e.currentTarget.value })} />
 	                </div>
 	              {/if}
             {:else if collectionTab === 'clientCert'}
@@ -9576,31 +9320,31 @@
                     </tr>
                   </thead>
                   <tbody>
-                    {#each activeCollection.clientCertificates ?? [] as certificate, index}
+                    {#each activeCollection.clientCertificates ?? [] as certificate, index (index)}
                       <tr>
-                        <td><input aria-label="Client certificate domain" placeholder="example.org" value={certificate.domain ?? ''} on:input={(e) => updateCollectionClientCertificate(index, 'domain', e.currentTarget.value)} /></td>
+                        <td><input aria-label="Client certificate domain" placeholder="example.org" value={certificate.domain ?? ''} oninput={(e) => updateCollectionClientCertificate(index, 'domain', e.currentTarget.value)} /></td>
                         <td>
-                          <select value={certificate.type || 'cert'} on:change={(e) => updateCollectionClientCertificate(index, 'type', e.currentTarget.value)}>
+                          <select value={certificate.type || 'cert'} onchange={(e) => updateCollectionClientCertificate(index, 'type', e.currentTarget.value)}>
                             <option value="cert">Cert</option>
                             <option value="pfx">PFX</option>
                           </select>
                         </td>
-                        <td><input aria-label="Client certificate cert file" disabled={(certificate.type || 'cert') === 'pfx'} value={certificate.certFilePath ?? ''} on:input={(e) => updateCollectionClientCertificate(index, 'certFilePath', e.currentTarget.value)} /></td>
-                        <td><input aria-label="Client certificate key file" disabled={(certificate.type || 'cert') === 'pfx'} value={certificate.keyFilePath ?? ''} on:input={(e) => updateCollectionClientCertificate(index, 'keyFilePath', e.currentTarget.value)} /></td>
-                        <td><input aria-label="Client certificate pfx file" disabled={(certificate.type || 'cert') !== 'pfx'} value={certificate.pfxFilePath ?? ''} on:input={(e) => updateCollectionClientCertificate(index, 'pfxFilePath', e.currentTarget.value)} /></td>
-                        <td><input aria-label="Client certificate passphrase" type="password" value={certificate.passphrase ?? ''} on:input={(e) => updateCollectionClientCertificate(index, 'passphrase', e.currentTarget.value)} /></td>
-                        <td><button on:click={() => removeCollectionClientCertificate(index)}>Remove</button></td>
+                        <td><input aria-label="Client certificate cert file" disabled={(certificate.type || 'cert') === 'pfx'} value={certificate.certFilePath ?? ''} oninput={(e) => updateCollectionClientCertificate(index, 'certFilePath', e.currentTarget.value)} /></td>
+                        <td><input aria-label="Client certificate key file" disabled={(certificate.type || 'cert') === 'pfx'} value={certificate.keyFilePath ?? ''} oninput={(e) => updateCollectionClientCertificate(index, 'keyFilePath', e.currentTarget.value)} /></td>
+                        <td><input aria-label="Client certificate pfx file" disabled={(certificate.type || 'cert') !== 'pfx'} value={certificate.pfxFilePath ?? ''} oninput={(e) => updateCollectionClientCertificate(index, 'pfxFilePath', e.currentTarget.value)} /></td>
+                        <td><input aria-label="Client certificate passphrase" type="password" value={certificate.passphrase ?? ''} oninput={(e) => updateCollectionClientCertificate(index, 'passphrase', e.currentTarget.value)} /></td>
+                        <td><button onclick={() => removeCollectionClientCertificate(index)}>Remove</button></td>
                       </tr>
                     {/each}
                   </tbody>
                 </table>
               </div>
-              <button on:click={addCollectionClientCertificate}>Add client certificate</button>
+              <button onclick={addCollectionClientCertificate}>Add client certificate</button>
             {:else if collectionTab === 'protobuf'}
               <div class="settings-stack">
                 <div class="settings-section-header">
                   <h3>Proto Files</h3>
-                  <button on:click={addCollectionProtoFile}>Add proto file</button>
+                  <button onclick={addCollectionProtoFile}>Add proto file</button>
                 </div>
                 <div class="table-scroll">
                   <table>
@@ -9613,28 +9357,28 @@
                       </tr>
                     </thead>
                     <tbody>
-                      {#each activeCollection.protobuf?.protoFiles ?? [] as protoFile, index}
+                      {#each activeCollection.protobuf?.protoFiles ?? [] as protoFile, index (protoFile.path)}
                         <tr>
-                          <td><input aria-label="Proto file path" placeholder="protos/service.proto" value={protoFile.path ?? ''} on:change={(e) => updateCollectionProtoFile(index, 'path', e.currentTarget.value)} /></td>
+                          <td><input aria-label="Proto file path" placeholder="protos/service.proto" value={protoFile.path ?? ''} onchange={(e) => updateCollectionProtoFile(index, 'path', e.currentTarget.value)} /></td>
                           <td>
-                            <select aria-label="Proto file type" value={protoFile.type || 'file'} on:change={(e) => updateCollectionProtoFile(index, 'type', e.currentTarget.value)}>
+                            <select aria-label="Proto file type" value={protoFile.type || 'file'} onchange={(e) => updateCollectionProtoFile(index, 'type', e.currentTarget.value)}>
                               <option value="file">file</option>
                             </select>
                           </td>
                           <td><span class:ok={protoFile.exists} class:bad={!protoFile.exists}>{protoFile.exists ? 'Found' : 'Missing'}</span></td>
-                          <td><button on:click={() => removeCollectionProtoFile(index)}>Remove</button></td>
+                          <td><button onclick={() => removeCollectionProtoFile(index)}>Remove</button></td>
                         </tr>
                       {/each}
                     </tbody>
                   </table>
                 </div>
                 {#if (activeCollection.protobuf?.protoFiles?.length ?? 0) === 0}
-                  <div class="empty-state">No proto files</div>
+                  <div class="empty-appState">No proto files</div>
                 {/if}
 
                 <div class="settings-section-header">
                   <h3>Import Paths</h3>
-                  <button on:click={addCollectionProtoImportPath}>Add import path</button>
+                  <button onclick={addCollectionProtoImportPath}>Add import path</button>
                 </div>
                 <div class="table-scroll">
                   <table>
@@ -9647,106 +9391,181 @@
                       </tr>
                     </thead>
                     <tbody>
-                      {#each activeCollection.protobuf?.importPaths ?? [] as importPath, index}
+                      {#each activeCollection.protobuf?.importPaths ?? [] as importPath, index (importPath.path)}
                         <tr>
-                          <td><input aria-label="Enable proto import path" type="checkbox" checked={importPath.enabled} on:change={(e) => updateCollectionProtoImportPath(index, 'enabled', e.currentTarget.checked)} /></td>
-                          <td><input aria-label="Proto import path" placeholder="protos" value={importPath.path ?? ''} on:change={(e) => updateCollectionProtoImportPath(index, 'path', e.currentTarget.value)} /></td>
+                          <td><input aria-label="Enable proto import path" type="checkbox" checked={importPath.enabled} onchange={(e) => updateCollectionProtoImportPath(index, 'enabled', e.currentTarget.checked)} /></td>
+                          <td><input aria-label="Proto import path" placeholder="protos" value={importPath.path ?? ''} onchange={(e) => updateCollectionProtoImportPath(index, 'path', e.currentTarget.value)} /></td>
                           <td><span class:ok={importPath.exists} class:bad={!importPath.exists}>{importPath.exists ? 'Found' : 'Missing'}</span></td>
-                          <td><button on:click={() => removeCollectionProtoImportPath(index)}>Remove</button></td>
+                          <td><button onclick={() => removeCollectionProtoImportPath(index)}>Remove</button></td>
                         </tr>
                       {/each}
                     </tbody>
                   </table>
                 </div>
                 {#if (activeCollection.protobuf?.importPaths?.length ?? 0) === 0}
-                  <div class="empty-state">No import paths</div>
+                  <div class="empty-appState">No import paths</div>
                 {/if}
               </div>
             {:else if collectionTab === 'script'}
               <span class="field-label">Pre-request</span>
-              <textarea class="short" spellcheck="false" value={activeCollection.preScript} on:change={(e) => updateCollectionScript('preScript', e.currentTarget.value)}></textarea>
+              <textarea class="short" spellcheck="false" value={activeCollection.preScript} onchange={(e) => updateCollectionScript('preScript', e.currentTarget.value)}></textarea>
               <span class="field-label">Post-response</span>
-              <textarea class="short" spellcheck="false" value={activeCollection.postScript} on:change={(e) => updateCollectionScript('postScript', e.currentTarget.value)}></textarea>
+              <textarea class="short" spellcheck="false" value={activeCollection.postScript} onchange={(e) => updateCollectionScript('postScript', e.currentTarget.value)}></textarea>
             {:else if collectionTab === 'tests'}
-              <textarea spellcheck="false" value={activeCollection.tests} on:change={(e) => updateCollectionScript('tests', e.currentTarget.value)}></textarea>
+              <textarea spellcheck="false" value={activeCollection.tests} onchange={(e) => updateCollectionScript('tests', e.currentTarget.value)}></textarea>
             {/if}
           </div>
         </section>
-      {:else if activeView === 'runner'}
-        <section class="panel">
+      {:else if activeView === 'git'}
+        <section class="panel git-workbench-panel" aria-labelledby="git-workbench-title" data-testid="git-workbench">
           <header class="panel-header">
-            <h2>Runner</h2>
-            <button data-testid="runner-run-button" on:click={runCollection} disabled={runnerSelectedCount === 0 || busy !== ''}>
-              Run {runnerSelectedCount} Request{runnerSelectedCount === 1 ? '' : 's'}
-            </button>
+            <div>
+              <h2 id="git-workbench-title" tabindex="-1" bind:this={gitWorkbenchHeading}>Git Workbench</h2>
+              <p class="panel-subtitle">Safe, collection-scoped Git actions for {activeCollection?.name ?? 'the active collection'}.</p>
+            </div>
+            <button type="button" onclick={() => refreshGitWorkbench()} disabled={gitWorkbenchLoading || gitWorkbenchBusy !== ''}>Refresh</button>
           </header>
-          <div class="runner-workbench">
-            <aside class="runner-config-panel" data-testid="runner-config-panel">
-              <div class="runner-config-header">
-                <strong data-testid="runner-config-counter">{runnerSelectedCount} of {runnerConfigItems.length} selected</strong>
+
+          <div class="git-workbench-feedback" aria-live="polite" aria-atomic="true">
+            {#if gitWorkbenchStatus}<p class="git-status-message">{gitWorkbenchStatus}</p>{/if}
+            {#if gitWorkbenchError}<p class="error-text">{gitWorkbenchError}</p>{/if}
+          </div>
+
+          {#if !activeCollection}
+            <div class="empty-appState wide">Select a local collection before opening the Git workbench.</div>
+          {:else if gitWorkbenchLoading && !gitWorkbenchSnapshot}
+            <div class="empty-appState wide">Loading Git status…</div>
+          {:else if gitWorkbenchSnapshot && !gitWorkbenchSnapshot.available}
+            <div class="empty-appState wide">Git is required for this workbench. Install Git, then refresh.</div>
+          {:else if gitWorkbenchSnapshot && !gitWorkbenchSnapshot.initialized}
+            <div class="git-workbench-empty">
+              <h3>Initialize this collection</h3>
+              <p>This creates only local Git metadata. It does not stage, commit, or share any files.</p>
+              <button class="primary" type="button" onclick={initializeGitWorkbench} disabled={gitWorkbenchBusy !== ''}>Initialize Git</button>
+            </div>
+          {:else if gitWorkbenchSnapshot}
+            <div class="git-summary" aria-label="Repository summary">
+              <div><span>Repository</span><strong>{gitWorkbenchSnapshot.rootLabel || 'Local repository'}</strong></div>
+              <div><span>Branch</span><strong>{gitWorkbenchSnapshot.detached ? 'Detached HEAD' : gitWorkbenchSnapshot.branch || 'Unborn branch'}</strong></div>
+              <div><span>Upstream</span><strong>{gitWorkbenchSnapshot.upstream || 'Not configured'}</strong></div>
+              <div><span>Sync</span><strong>{gitWorkbenchSnapshot.ahead} ahead · {gitWorkbenchSnapshot.behind} behind</strong></div>
+              <div class:conflict={gitWorkbenchSnapshot.conflicts}><span>Status</span><strong>{gitWorkbenchSnapshot.conflicts ? 'Conflicts need manual resolution' : gitWorkbenchSnapshot.clean ? 'Clean' : 'Scoped changes'}</strong></div>
+            </div>
+
+            <section class="git-workbench-section" aria-labelledby="git-files-title">
+              <div class="git-section-heading">
+                <div><h3 id="git-files-title">Changes</h3><p>{gitWorkbenchSelectedPaths.length} selected · only active collection files are shown.</p></div>
                 <div class="button-row compact">
-                  <button type="button" data-testid="runner-select-all" on:click={toggleRunnerSelectAll}>
-                    {runnerSelectedCount === runnerConfigItems.length ? 'Deselect All' : 'Select All'}
-                  </button>
-                  <button type="button" data-testid="runner-config-reset" on:click={resetRunnerConfiguration}>Reset</button>
+                  <button type="button" onclick={() => viewGitWorkbenchDiff(false)} disabled={gitWorkbenchBusy !== '' || gitWorkbenchSelectedPaths.length !== 1}>View unstaged diff</button>
+                  <button type="button" onclick={() => viewGitWorkbenchDiff(true)} disabled={gitWorkbenchBusy !== '' || gitWorkbenchSelectedPaths.length !== 1}>View staged diff</button>
+                  <button type="button" onclick={stageGitWorkbenchSelection} disabled={gitWorkbenchBusy !== '' || !canStageGitSelection(gitWorkbenchSelectedPaths, gitWorkbenchSnapshot.files ?? [])}>Stage selected</button>
+                  <button type="button" onclick={unstageGitWorkbenchSelection} disabled={gitWorkbenchBusy !== '' || !canUnstageGitSelection(gitWorkbenchSelectedPaths, gitWorkbenchSnapshot.files ?? [])}>Unstage selected</button>
                 </div>
               </div>
-              <label class="runner-delay-field">
-                <span class="field-label">Delay between requests (ms)</span>
-                <input
-                  data-testid="runner-delay-input"
-                  type="number"
-                  min="0"
-                  max="600000"
-                  value={runnerDelayMs}
-                  on:input={(event) => (runnerDelayMs = normalizedRunnerDelayMs(Number(event.currentTarget.value)))}
-                />
-              </label>
-              <div class="runner-request-list">
-                {#if runnerConfigItems.length === 0}
-                  <div class="empty-state compact">No runnable requests</div>
-                {:else}
-                  {#each runnerConfigItems as item}
-                    <label class="runner-request-item" data-testid="runner-request-item">
-                      <span class="checkbox-container"><input type="checkbox" checked={runnerItemSelected(item.id)} on:change={(event) => setRunnerItemSelected(item.id, event.currentTarget.checked)} /></span>
-                      <span>
-                        <strong>{item.name}</strong>
-                        <small>{item.method || 'GET'} {item.folderPath || 'Collection'}</small>
+              {#if (gitWorkbenchSnapshot.files ?? []).length}
+                <div class="git-file-table" role="table" aria-label="Collection Git changes">
+                  <div class="git-file-row git-file-header" role="row"><span role="columnheader">Select</span><span role="columnheader">File</span><span role="columnheader">Status</span></div>
+                  {#each gitWorkbenchSnapshot.files ?? [] as file (file.path)}
+                    <div class="git-file-row" class:selected={gitWorkbenchSelectedPaths.includes(file.path)} role="row">
+                      <span role="cell"><input type="checkbox" aria-label={`Select ${file.path}`} checked={gitWorkbenchSelectedPaths.includes(file.path)} onchange={(event) => toggleGitWorkbenchPath(file.path, event.currentTarget.checked)} /></span>
+                      <span role="cell"><code>{file.path}</code></span>
+                      <span class="git-file-badges" role="cell">
+                        {#if file.conflicted}<span class="git-badge conflict">Conflict</span>{/if}
+                        {#if file.staged}<span class="git-badge staged">Staged {file.index}</span>{/if}
+                        {#if file.untracked}<span class="git-badge untracked">Untracked</span>{/if}
+                        {#if file.worktree && !file.untracked}<span class="git-badge">Working {file.worktree}</span>{/if}
+                        {#if file.binary}<span class="git-badge">Binary</span>{/if}
                       </span>
-                    </label>
+                    </div>
                   {/each}
-                {/if}
-              </div>
-            </aside>
-            <div class="runner-results">
-              <div class="runner-summary">
-                <span>Total {state.runner.total}</span>
-                <span class="ok">Passed {state.runner.passed}</span>
-                <span class="bad">Failed {state.runner.failed}</span>
-                <span>Skipped {state.runner.skipped}</span>
-              </div>
-              <table>
-                <thead><tr><th>Name</th><th>Status</th><th>Code</th><th>Time</th><th>Error</th></tr></thead>
-                <tbody>
-                  {#each state.runner.results ?? [] as result}
-                    <tr><td>{result.name}</td><td>{result.status}</td><td>{result.code}</td><td>{result.durationMs} ms</td><td>{result.error}</td></tr>
-                  {/each}
-                </tbody>
-              </table>
+                </div>
+              {:else}
+                <div class="empty-appState compact">No scoped changes.</div>
+              {/if}
+              {#if gitWorkbenchDiff}
+                <article class="git-diff-viewer" aria-label={`Git diff ${gitWorkbenchDiff.path}`}>
+                  <header><strong>{gitWorkbenchDiff.staged ? 'Staged' : 'Unstaged'} diff · {gitWorkbenchDiff.path}</strong><button type="button" onclick={() => (gitWorkbenchDiff = undefined)}>Close diff</button></header>
+                  {#if gitWorkbenchDiff.binary}<p>This file is binary; Git does not provide a text diff.</p>{:else}<pre>{gitWorkbenchDiff.text || 'No text diff is available.'}</pre>{/if}
+                  {#if gitWorkbenchDiff.truncated}<p class="muted">This diff is bounded for safe display and was truncated.</p>{/if}
+                </article>
+              {/if}
+            </section>
+
+            <div class="git-workbench-grid">
+              <section class="git-workbench-section" aria-labelledby="git-commit-title">
+                <h3 id="git-commit-title">Commit staged changes</h3>
+                <label>Message<textarea aria-label="Git commit message" bind:value={gitWorkbenchCommitMessage} placeholder="Describe this intentional change" disabled={gitWorkbenchBusy !== ''}></textarea></label>
+                <button class="primary" type="button" onclick={commitGitWorkbench} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchCommitMessage.trim()}>Commit staged</button>
+              </section>
+
+              <section class="git-workbench-section" aria-labelledby="git-branch-title">
+                <h3 id="git-branch-title">Branches</h3>
+                <label>Current or target branch<select aria-label="Git branch" bind:value={gitWorkbenchBranch} disabled={gitWorkbenchBusy !== ''}>{#each gitWorkbenchSnapshot.branches ?? [] as branch (branch)}<option value={branch}>{branch}</option>{/each}</select></label>
+                {#if !canSwitchGitBranch(gitWorkbenchSnapshot)}<p class="muted">Switching is disabled until this collection’s scoped changes and conflicts are resolved.</p>{/if}
+                <button type="button" onclick={checkoutGitWorkbenchBranch} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchBranch || !canSwitchGitBranch(gitWorkbenchSnapshot)}>Switch branch</button>
+                <label>New branch<input aria-label="New Git branch" bind:value={gitWorkbenchNewBranch} placeholder="feature/name" disabled={gitWorkbenchBusy !== ''} /></label>
+                <label class="checkbox-line"><input type="checkbox" bind:checked={gitWorkbenchCheckoutNewBranch} disabled={gitWorkbenchBusy !== ''} />Switch to the new branch after creation</label>
+                <button type="button" onclick={createGitWorkbenchBranch} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchNewBranch.trim() || (gitWorkbenchCheckoutNewBranch && !canSwitchGitBranch(gitWorkbenchSnapshot))}>Create branch</button>
+              </section>
             </div>
-          </div>
+
+            <section class="git-workbench-section" aria-labelledby="git-remote-title">
+              <div class="git-section-heading"><div><h3 id="git-remote-title">Remote sync</h3><p>Use credential-free URLs. Pull is fast-forward only; push never forces.</p></div></div>
+              {#if (gitWorkbenchSnapshot.remotes ?? []).length}<div class="git-remote-list" aria-label="Configured Git remotes">{#each gitWorkbenchSnapshot.remotes ?? [] as remote (remote.name)}<span><strong>{remote.name}</strong><code>{remote.url}</code></span>{/each}</div>{/if}
+              <div class="git-remote-fields">
+                <label>Name<input aria-label="Git remote name" value={gitWorkbenchRemoteName} oninput={(event) => selectGitWorkbenchRemote(event.currentTarget.value)} placeholder="origin" disabled={gitWorkbenchBusy !== ''} /></label>
+                <label>Credential-free URL<input aria-label="Git remote URL" bind:value={gitWorkbenchRemoteURL} placeholder="https://host/org/repository.git or file:///…" disabled={gitWorkbenchBusy !== ''} /></label>
+                <label>Branch<input aria-label="Git remote branch" bind:value={gitWorkbenchRemoteBranch} placeholder={gitWorkbenchSnapshot.branch || 'main'} disabled={gitWorkbenchBusy !== ''} /></label>
+              </div>
+              <div class="button-row compact">
+                <button type="button" onclick={setGitWorkbenchRemote} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchRemoteName.trim() || !gitWorkbenchRemoteURL.trim()}>Set / update remote</button>
+                <button type="button" onclick={fetchGitWorkbench} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchRemoteName.trim()}>Fetch</button>
+                <button type="button" onclick={pullGitWorkbench} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchRemoteName.trim() || !gitWorkbenchRemoteBranch.trim()}>Pull ff-only</button>
+                <label class="checkbox-line"><input type="checkbox" bind:checked={gitWorkbenchSetUpstream} disabled={gitWorkbenchBusy !== ''} />Set upstream</label>
+                <button class="primary" type="button" onclick={pushGitWorkbench} disabled={gitWorkbenchBusy !== '' || !gitWorkbenchRemoteName.trim() || !gitWorkbenchRemoteBranch.trim() || !canPushGitBranch(gitWorkbenchSnapshot.upstream, gitWorkbenchRemoteName.trim(), gitWorkbenchRemoteBranch.trim(), gitWorkbenchSetUpstream)}>Push</button>
+              </div>
+              {#if !canPushGitBranch(gitWorkbenchSnapshot.upstream, gitWorkbenchRemoteName.trim(), gitWorkbenchRemoteBranch.trim(), gitWorkbenchSetUpstream)}<p class="muted">Push is disabled until this exact remote/branch is upstream, or you explicitly choose Set upstream.</p>{/if}
+            </section>
+          {/if}
         </section>
+      {:else if activeView === 'runner'}
+        {#await import('./lib/views/RunnerPanel.svelte') then RunnerPanel}
+          {@const RunnerPanelComponent = RunnerPanel.default}
+          <RunnerPanelComponent
+            bind:runnerDelayMs
+            bind:runnerBailOnFailure
+            bind:runnerIterations
+            bind:runnerDataFile
+            {chooseRunnerDataFile}
+            {normalizedRunnerIterations}
+            state={appState}
+            {busy}
+            {activeCollectionRun}
+            {collectionRunCancellationRequested}
+            {runnerCancelledCount}
+            {runnerCompletedCancelled}
+            {runnerConfigItems}
+            {runnerSelectedCount}
+            {runnerItemSelected}
+            {setRunnerItemSelected}
+            {toggleRunnerSelectAll}
+            {normalizedRunnerDelayMs}
+            {resetRunnerConfiguration}
+            {runCollection}
+            {cancelCollectionRun}
+          />
+        {/await}
       {:else if activeView === 'environments'}
         <section class="panel">
           <header class="panel-header">
             <h2>Environments</h2>
             <div class="split">
               <input aria-label="Global environment name" bind:value={globalEnvironmentName} />
-              <button on:click={createGlobalEnvironment}>Create global</button>
+              <button onclick={createGlobalEnvironment}>Create global</button>
             </div>
             <div class="split">
               <input aria-label="Collection environment name" bind:value={environmentName} />
-              <button on:click={createEnvironment}>Create</button>
+              <button onclick={createEnvironment}>Create</button>
             </div>
           </header>
           <div class="env-grid">
@@ -9755,16 +9574,16 @@
               {#if selectedGlobalEnvironment && activeWorkspace}
                 <div class="field-grid">
                   <span class="field-label">Active</span>
-                  <select aria-label="Active global environment" value={activeWorkspace.activeGlobalEnvironmentId ?? ''} on:change={(e) => setActiveGlobalEnvironment(e.currentTarget.value)}>
+                  <select aria-label="Active global environment" value={activeWorkspace.activeGlobalEnvironmentId ?? ''} onchange={(e) => setActiveGlobalEnvironment(e.currentTarget.value)}>
                     <option value="">No global environment</option>
-                    {#each activeWorkspace.globalEnvironments ?? [] as env}
+                    {#each activeWorkspace.globalEnvironments ?? [] as env (env.id)}
                       <option value={env.id}>{env.name}</option>
                     {/each}
                   </select>
                   <span class="field-label">Name</span>
-                  <input aria-label="Global environment editor name" value={selectedGlobalEnvironment.name} on:input={(e) => updateGlobalEnvironmentMetadata('name', e.currentTarget.value)} />
+                  <input aria-label="Global environment editor name" value={selectedGlobalEnvironment.name} oninput={(e) => updateGlobalEnvironmentMetadata('name', e.currentTarget.value)} />
                   <span class="field-label">Color</span>
-                  <input aria-label="Global environment color" type="color" value={selectedGlobalEnvironment.color || '#2f8cff'} on:input={(e) => updateGlobalEnvironmentMetadata('color', e.currentTarget.value)} />
+                  <input aria-label="Global environment color" type="color" value={selectedGlobalEnvironment.color || '#2f8cff'} oninput={(e) => updateGlobalEnvironmentMetadata('color', e.currentTarget.value)} />
                   <span class="field-label">Copy name</span>
                   <input aria-label="Global environment copy name" placeholder={`${selectedGlobalEnvironment.name} - Copy`} bind:value={globalEnvironmentCopyName} />
                   <span class="field-label">Export format</span>
@@ -9783,49 +9602,49 @@
                   <input aria-label="Global environment export path" placeholder="Optional file or folder path" bind:value={globalEnvironmentExportPath} />
                 </div>
                 <nav class="subtabs compact" aria-label="Global environment variable tabs">
-                  {#each environmentVariableTabs as tab}
-                    <button type="button" class:active={globalEnvironmentVariableTab === tab.id} on:click={() => (globalEnvironmentVariableTab = tab.id)}>{tab.label}</button>
+                  {#each environmentVariableTabs as tab (tab.id)}
+                    <button type="button" class:active={globalEnvironmentVariableTab === tab.id} onclick={() => (globalEnvironmentVariableTab = tab.id)}>{tab.label}</button>
                   {/each}
                 </nav>
                 <div class="search-box env-search">
                   <input aria-label="Search global environment variables" placeholder="Search variables" bind:value={globalEnvironmentVariableSearch} />
                   {#if globalEnvironmentVariableSearch}
-                    <button class="icon-button ghost" title="Clear global environment variable search" on:click={() => (globalEnvironmentVariableSearch = '')}>x</button>
+                    <button class="icon-button ghost" title="Clear global environment variable search" onclick={() => (globalEnvironmentVariableSearch = '')}>x</button>
                   {/if}
                 </div>
                 {#if visibleGlobalEnvironmentRows.length > 0}
                   <table>
                     <thead><tr><th>On</th><th>Name</th><th>Value</th><th>Type</th><th>Secret</th><th></th></tr></thead>
                     <tbody>
-                      {#each visibleGlobalEnvironmentRows as row}
+                      {#each visibleGlobalEnvironmentRows as row (row.variable.id)}
                         <tr>
-                          <td><input type="checkbox" checked={row.variable.enabled} on:change={(e) => updateGlobalEnvironmentVariable(row.index, 'enabled', e.currentTarget.checked)} /></td>
-                          <td><input aria-label="Global environment variable name" value={row.variable.name} on:input={(e) => updateGlobalEnvironmentVariable(row.index, 'name', e.currentTarget.value)} /></td>
-                          <td><input aria-label="Global environment variable value" value={String(row.variable.value ?? '')} on:input={(e) => updateGlobalEnvironmentVariable(row.index, 'value', e.currentTarget.value)} /></td>
+                          <td><input type="checkbox" checked={row.variable.enabled} onchange={(e) => updateGlobalEnvironmentVariable(row.index, 'enabled', e.currentTarget.checked)} /></td>
+                          <td><input aria-label="Global environment variable name" value={row.variable.name} oninput={(e) => updateGlobalEnvironmentVariable(row.index, 'name', e.currentTarget.value)} /></td>
+                          <td><input aria-label="Global environment variable value" value={String(row.variable.value ?? '')} oninput={(e) => updateGlobalEnvironmentVariable(row.index, 'value', e.currentTarget.value)} /></td>
                           <td>
-                            <select aria-label="Global environment variable type" value={row.variable.dataType || row.variable.type || 'string'} on:change={(e) => updateGlobalEnvironmentVariable(row.index, 'dataType', e.currentTarget.value)}>
+                            <select aria-label="Global environment variable type" value={row.variable.dataType || row.variable.type || 'string'} onchange={(e) => updateGlobalEnvironmentVariable(row.index, 'dataType', e.currentTarget.value)}>
                               <option value="string">string</option>
                               <option value="number">number</option>
                               <option value="boolean">boolean</option>
                               <option value="object">object</option>
                             </select>
                           </td>
-                          <td><input aria-label="Global environment variable secret" type="checkbox" checked={row.variable.secret} on:change={(e) => updateGlobalEnvironmentVariable(row.index, 'secret', e.currentTarget.checked)} /></td>
-                          <td><button on:click={() => removeGlobalEnvironmentVariable(row.index)}>Remove</button></td>
+                          <td><input aria-label="Global environment variable secret" type="checkbox" checked={row.variable.secret} onchange={(e) => updateGlobalEnvironmentVariable(row.index, 'secret', e.currentTarget.checked)} /></td>
+                          <td><button onclick={() => removeGlobalEnvironmentVariable(row.index)}>Remove</button></td>
                         </tr>
                       {/each}
                     </tbody>
                   </table>
                 {:else}
-                  <div class="empty-state">{globalEnvironmentVariableQuery ? 'No results found' : `No ${globalEnvironmentVariableTab}`}</div>
+                  <div class="empty-appState">{globalEnvironmentVariableQuery ? 'No results found' : `No ${globalEnvironmentVariableTab}`}</div>
                 {/if}
                 <div class="toolbar">
-                  <button on:click={addGlobalEnvironmentVariable}>{environmentVariableAddLabel(globalEnvironmentVariableTab)}</button>
-                  <button on:click={copyGlobalEnvironment}>Copy</button>
-                  <button on:click={exportGlobalEnvironment} disabled={globalEnvironmentExportAll && globalEnvironmentExportFormat === 'single-object'}>Export</button>
-                  <button on:click={saveGlobalEnvironmentExport} disabled={globalEnvironmentExportAll && globalEnvironmentExportFormat === 'single-object'}>Save export</button>
-                  <button on:click={importGlobalEnvironment} disabled={!globalEnvironmentPayload.trim()}>Import</button>
-                  <button on:click={deleteGlobalEnvironment}>Delete global</button>
+                  <button onclick={addGlobalEnvironmentVariable}>{environmentVariableAddLabel(globalEnvironmentVariableTab)}</button>
+                  <button onclick={copyGlobalEnvironment}>Copy</button>
+                  <button onclick={exportGlobalEnvironment} disabled={globalEnvironmentExportAll && globalEnvironmentExportFormat === 'single-object'}>Export</button>
+                  <button onclick={saveGlobalEnvironmentExport} disabled={globalEnvironmentExportAll && globalEnvironmentExportFormat === 'single-object'}>Save export</button>
+                  <button onclick={importGlobalEnvironment} disabled={!globalEnvironmentPayload.trim()}>Import</button>
+                  <button onclick={deleteGlobalEnvironment}>Delete global</button>
                 </div>
                 {#if globalEnvironmentExportFilename}
                   <div class="muted">Export: {globalEnvironmentExportFilename}</div>
@@ -9837,52 +9656,52 @@
                   bind:value={globalEnvironmentPayload}
                 ></textarea>
               {:else}
-                <div class="empty-state">Create a global environment</div>
+                <div class="empty-appState">Create a global environment</div>
               {/if}
             </article>
             <article>
               <h3>{selectedEnvironment?.name ?? 'No environment'} Variables</h3>
               {#if selectedEnvironment}
                 <nav class="subtabs compact" aria-label="Environment variable tabs">
-                  {#each environmentVariableTabs as tab}
-                    <button type="button" class:active={environmentVariableTab === tab.id} on:click={() => (environmentVariableTab = tab.id)}>{tab.label}</button>
+                  {#each environmentVariableTabs as tab (tab.id)}
+                    <button type="button" class:active={environmentVariableTab === tab.id} onclick={() => (environmentVariableTab = tab.id)}>{tab.label}</button>
                   {/each}
                 </nav>
                 <div class="search-box env-search">
                   <input aria-label="Search environment variables" placeholder="Search variables" bind:value={environmentVariableSearch} />
                   {#if environmentVariableSearch}
-                    <button class="icon-button ghost" title="Clear environment variable search" on:click={() => (environmentVariableSearch = '')}>x</button>
+                    <button class="icon-button ghost" title="Clear environment variable search" onclick={() => (environmentVariableSearch = '')}>x</button>
                   {/if}
                 </div>
                 {#if visibleEnvironmentRows.length > 0}
                   <table>
                     <thead><tr><th>On</th><th>Name</th><th>Value</th><th>Type</th><th>Secret</th><th></th></tr></thead>
                     <tbody>
-                      {#each visibleEnvironmentRows as row}
+                      {#each visibleEnvironmentRows as row (row.variable.id)}
                         <tr>
-                          <td><input type="checkbox" checked={row.variable.enabled} on:change={(e) => updateEnvironmentVariable(row.index, 'enabled', e.currentTarget.checked)} /></td>
-                          <td><input aria-label="Environment variable name" value={row.variable.name} on:input={(e) => updateEnvironmentVariable(row.index, 'name', e.currentTarget.value)} /></td>
-                          <td><input aria-label="Environment variable value" value={String(row.variable.value ?? '')} on:input={(e) => updateEnvironmentVariable(row.index, 'value', e.currentTarget.value)} /></td>
+                          <td><input type="checkbox" checked={row.variable.enabled} onchange={(e) => updateEnvironmentVariable(row.index, 'enabled', e.currentTarget.checked)} /></td>
+                          <td><input aria-label="Environment variable name" value={row.variable.name} oninput={(e) => updateEnvironmentVariable(row.index, 'name', e.currentTarget.value)} /></td>
+                          <td><input aria-label="Environment variable value" value={String(row.variable.value ?? '')} oninput={(e) => updateEnvironmentVariable(row.index, 'value', e.currentTarget.value)} /></td>
                           <td>
-                            <select aria-label="Environment variable type" value={row.variable.dataType || row.variable.type || 'string'} on:change={(e) => updateEnvironmentVariable(row.index, 'dataType', e.currentTarget.value)}>
+                            <select aria-label="Environment variable type" value={row.variable.dataType || row.variable.type || 'string'} onchange={(e) => updateEnvironmentVariable(row.index, 'dataType', e.currentTarget.value)}>
                               <option value="string">string</option>
                               <option value="number">number</option>
                               <option value="boolean">boolean</option>
                               <option value="object">object</option>
                             </select>
                           </td>
-                          <td><input aria-label="Environment variable secret" type="checkbox" checked={row.variable.secret} on:change={(e) => updateEnvironmentVariable(row.index, 'secret', e.currentTarget.checked)} /></td>
-                          <td><button on:click={() => removeEnvironmentVariable(row.index)}>Remove</button></td>
+                          <td><input aria-label="Environment variable secret" type="checkbox" checked={row.variable.secret} onchange={(e) => updateEnvironmentVariable(row.index, 'secret', e.currentTarget.checked)} /></td>
+                          <td><button onclick={() => removeEnvironmentVariable(row.index)}>Remove</button></td>
                         </tr>
                       {/each}
                     </tbody>
                   </table>
                 {:else}
-                  <div class="empty-state">{environmentVariableQuery ? 'No results found' : `No ${environmentVariableTab}`}</div>
+                  <div class="empty-appState">{environmentVariableQuery ? 'No results found' : `No ${environmentVariableTab}`}</div>
                 {/if}
-                <button on:click={addEnvironmentVariable}>{environmentVariableAddLabel(environmentVariableTab)}</button>
+                <button onclick={addEnvironmentVariable}>{environmentVariableAddLabel(environmentVariableTab)}</button>
               {:else}
-                <div class="empty-state">Create or select an environment</div>
+                <div class="empty-appState">Create or select an environment</div>
               {/if}
             </article>
             <article>
@@ -9897,68 +9716,68 @@
                 <input aria-label=".env file name" placeholder=".env" bind:value={dotEnvName} />
               </div>
               <div class="toolbar">
-                <button on:click={newDotEnvFile}>New</button>
-                <button on:click={saveDotEnvFile}>Save</button>
-                <button on:click={() => loadDotEnvFiles(true)}>Reload</button>
-                <button on:click={deleteDotEnvFile} disabled={!selectedDotEnvFile}>Delete</button>
+                <button onclick={newDotEnvFile}>New</button>
+                <button onclick={saveDotEnvFile}>Save</button>
+                <button onclick={() => loadDotEnvFiles(true)}>Reload</button>
+                <button onclick={deleteDotEnvFile} disabled={!selectedDotEnvFile}>Delete</button>
               </div>
               <div class="tabs compact">
-                <button class:active={dotEnvEditorMode === 'table'} on:click={() => (dotEnvEditorMode = 'table')}>Table</button>
-                <button class:active={dotEnvEditorMode === 'raw'} on:click={() => (dotEnvEditorMode = 'raw')}>Raw</button>
+                <button class:active={dotEnvEditorMode === 'table'} onclick={() => (dotEnvEditorMode = 'table')}>Table</button>
+                <button class:active={dotEnvEditorMode === 'raw'} onclick={() => (dotEnvEditorMode = 'raw')}>Raw</button>
               </div>
               {#if dotEnvFiles.length > 0}
                 <table>
                   <thead><tr><th>Scope</th><th>File</th><th>Runtime</th></tr></thead>
                   <tbody>
-                    {#each dotEnvFiles as file}
+                    {#each dotEnvFiles as file (file.path)}
                       <tr class:active={dotEnvFileKey(file) === selectedDotEnvKey}>
                         <td>{file.scope}</td>
-                        <td><button on:click={() => selectDotEnvFile(file)}>{file.name}</button></td>
+                        <td><button onclick={() => selectDotEnvFile(file)}>{file.name}</button></td>
                         <td>{file.runtime ? 'yes' : ''}</td>
                       </tr>
                     {/each}
                   </tbody>
                 </table>
               {:else}
-                <div class="empty-state">No .env files</div>
+                <div class="empty-appState">No .env files</div>
               {/if}
               {#if dotEnvEditorMode === 'table'}
                 {#if dotEnvRows.length > 0}
                   <table>
                     <thead><tr><th>Name</th><th>Value</th><th></th></tr></thead>
                     <tbody>
-                      {#each dotEnvRows as row}
+                      {#each dotEnvRows as row, index (index)}
                         <tr>
-                          <td><input aria-label=".env variable name" value={row.name} on:input={(e) => updateDotEnvRow(row, 'name', e.currentTarget.value)} /></td>
-                          <td><input aria-label=".env variable value" value={row.value} on:input={(e) => updateDotEnvRow(row, 'value', e.currentTarget.value)} /></td>
-                          <td><button on:click={() => removeDotEnvRow(row)}>Remove</button></td>
+                          <td><input aria-label=".env variable name" value={row.name} oninput={(e) => updateDotEnvRow(row, 'name', e.currentTarget.value)} /></td>
+                          <td><input aria-label=".env variable value" value={row.value} oninput={(e) => updateDotEnvRow(row, 'value', e.currentTarget.value)} /></td>
+                          <td><button onclick={() => removeDotEnvRow(row)}>Remove</button></td>
                         </tr>
                       {/each}
                     </tbody>
                   </table>
                 {:else}
-                  <div class="empty-state">No .env variables</div>
+                  <div class="empty-appState">No .env variables</div>
                 {/if}
-                <button on:click={addDotEnvRow}>Add variable</button>
+                <button onclick={addDotEnvRow}>Add variable</button>
               {:else}
-                <textarea class="short" aria-label=".env file content" spellcheck="false" bind:value={dotEnvContent} on:input={() => (dotEnvDirty = true)}></textarea>
+                <textarea class="short" aria-label=".env file content" spellcheck="false" bind:value={dotEnvContent} oninput={() => (dotEnvDirty = true)}></textarea>
               {/if}
             </article>
             <article>
               <h3>Collection Variables</h3>
               <table>
                 <tbody>
-                  {#each activeCollection?.variables ?? [] as variable, index}
+                  {#each activeCollection?.variables ?? [] as variable, index (variable.id)}
                     <tr>
-                      <td><input type="checkbox" checked={variable.enabled} on:change={(e) => updateCollectionVariable(index, 'enabled', e.currentTarget.checked)} /></td>
-                      <td><input value={variable.name} on:change={(e) => updateCollectionVariable(index, 'name', e.currentTarget.value)} /></td>
-                      <td><input value={String(variable.value ?? '')} on:change={(e) => updateCollectionVariable(index, 'value', e.currentTarget.value)} /></td>
-                      <td><input type="checkbox" checked={variable.secret} on:change={(e) => updateCollectionVariable(index, 'secret', e.currentTarget.checked)} /></td>
+                      <td><input type="checkbox" checked={variable.enabled} onchange={(e) => updateCollectionVariable(index, 'enabled', e.currentTarget.checked)} /></td>
+                      <td><input value={variable.name} onchange={(e) => updateCollectionVariable(index, 'name', e.currentTarget.value)} /></td>
+                      <td><input value={String(variable.value ?? '')} onchange={(e) => updateCollectionVariable(index, 'value', e.currentTarget.value)} /></td>
+                      <td><input type="checkbox" checked={variable.secret} onchange={(e) => updateCollectionVariable(index, 'secret', e.currentTarget.checked)} /></td>
                     </tr>
                   {/each}
                 </tbody>
               </table>
-              <button on:click={addCollectionVariable}>Add variable</button>
+              <button onclick={addCollectionVariable}>Add variable</button>
             </article>
             <article>
               <h3>Collection Headers</h3>
@@ -9973,85 +9792,85 @@
               <h3>Collection Auth</h3>
               <div class="field-grid">
                 <span class="field-label">Mode</span>
-                <select value={activeCollection?.auth?.mode ?? 'none'} on:change={(e) => updateCollectionAuth({ mode: e.currentTarget.value })}>
-                  {#each authModes as mode}
+                <select value={activeCollection?.auth?.mode ?? 'none'} onchange={(e) => updateCollectionAuth({ mode: e.currentTarget.value })}>
+                  {#each authModes as mode (mode)}
                     <option value={mode}>{mode}</option>
                   {/each}
                 </select>
 	                {#if activeCollection?.auth?.mode === 'basic' || activeCollection?.auth?.mode === 'digest' || activeCollection?.auth?.mode === 'wsse' || activeCollection?.auth?.mode === 'ntlm'}
                   <span class="field-label">Username</span>
-                  <input value={activeCollection.auth.username} on:change={(e) => updateCollectionAuth({ username: e.currentTarget.value })} />
+                  <input value={activeCollection.auth.username} onchange={(e) => updateCollectionAuth({ username: e.currentTarget.value })} />
                   <span class="field-label">Password</span>
-                  <input type="password" value={activeCollection.auth.password} on:change={(e) => updateCollectionAuth({ password: e.currentTarget.value })} />
+                  <input type="password" value={activeCollection.auth.password} onchange={(e) => updateCollectionAuth({ password: e.currentTarget.value })} />
                   {#if activeCollection?.auth?.mode === 'ntlm'}
                     <span class="field-label">Domain</span>
-                    <input value={activeCollection.auth.domain} on:change={(e) => updateCollectionAuth({ domain: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.domain} onchange={(e) => updateCollectionAuth({ domain: e.currentTarget.value })} />
                   {/if}
                 {:else if activeCollection?.auth?.mode === 'bearer'}
                   <span class="field-label">Token</span>
-                  <input type="password" value={activeCollection.auth.token} on:change={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
+                  <input type="password" value={activeCollection.auth.token} onchange={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
                 {:else if activeCollection?.auth?.mode === 'oauth2'}
                   <span class="field-label">Grant</span>
-                  <select value={activeCollection.auth.oauth2?.grantType || 'client_credentials'} on:change={(e) => updateCollectionOAuth2Auth({ grantType: e.currentTarget.value })}>
-                    {#each oauth2GrantTypes as grant}
+                  <select value={activeCollection.auth.oauth2?.grantType || 'client_credentials'} onchange={(e) => updateCollectionOAuth2Auth({ grantType: e.currentTarget.value })}>
+                    {#each oauth2GrantTypes as grant (grant)}
                       <option value={grant}>{grant}</option>
                     {/each}
                   </select>
                   {#if activeCollection.auth.oauth2?.grantType === 'authorization_code' || activeCollection.auth.oauth2?.grantType === 'implicit'}
                     <span class="field-label">Callback URL</span>
-                    <input value={activeCollection.auth.oauth2?.callbackUrl ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ callbackUrl: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.callbackUrl ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ callbackUrl: e.currentTarget.value })} />
                     <span class="field-label">Authorization URL</span>
-                    <input value={activeCollection.auth.oauth2?.authorizationUrl ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ authorizationUrl: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.authorizationUrl ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ authorizationUrl: e.currentTarget.value })} />
                   {/if}
                   <span class="field-label">Access token URL</span>
-                  <input value={activeCollection.auth.oauth2?.accessTokenUrl ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
+                  <input value={activeCollection.auth.oauth2?.accessTokenUrl ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
                   <span class="field-label">Client ID</span>
-                  <input value={activeCollection.auth.oauth2?.clientId ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ clientId: e.currentTarget.value })} />
+                  <input value={activeCollection.auth.oauth2?.clientId ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ clientId: e.currentTarget.value })} />
                   <span class="field-label">Client secret</span>
-                  <input type="password" value={activeCollection.auth.oauth2?.clientSecret ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ clientSecret: e.currentTarget.value })} />
+                  <input type="password" value={activeCollection.auth.oauth2?.clientSecret ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ clientSecret: e.currentTarget.value })} />
                   {#if activeCollection.auth.oauth2?.grantType === 'password'}
                     <span class="field-label">Username</span>
-                    <input value={activeCollection.auth.oauth2?.username ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ username: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.username ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ username: e.currentTarget.value })} />
                     <span class="field-label">Password</span>
-                    <input type="password" value={activeCollection.auth.oauth2?.password ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ password: e.currentTarget.value })} />
+                    <input type="password" value={activeCollection.auth.oauth2?.password ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ password: e.currentTarget.value })} />
                   {/if}
                   <span class="field-label">Scope</span>
-                  <input value={activeCollection.auth.oauth2?.scope ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ scope: e.currentTarget.value })} />
+                  <input value={activeCollection.auth.oauth2?.scope ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ scope: e.currentTarget.value })} />
                   {#if activeCollection.auth.oauth2?.grantType === 'authorization_code' || activeCollection.auth.oauth2?.grantType === 'implicit'}
                     <span class="field-label">State</span>
-                    <input value={activeCollection.auth.oauth2?.state ?? ''} on:change={(e) => updateCollectionOAuth2Auth({ state: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.state ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ state: e.currentTarget.value })} />
                   {/if}
                   <span class="field-label">Credentials</span>
-                  <select value={activeCollection.auth.oauth2?.credentialsPlacement || 'basic_auth_header'} on:change={(e) => updateCollectionOAuth2Auth({ credentialsPlacement: e.currentTarget.value })}>
-                    {#each oauth2CredentialPlacements as placement}
+                  <select value={activeCollection.auth.oauth2?.credentialsPlacement || 'basic_auth_header'} onchange={(e) => updateCollectionOAuth2Auth({ credentialsPlacement: e.currentTarget.value })}>
+                    {#each oauth2CredentialPlacements as placement (placement)}
                       <option value={placement}>{placement}</option>
                     {/each}
                   </select>
                   {#if activeCollection.auth.oauth2?.grantType === 'authorization_code'}
                     <span class="field-label">PKCE</span>
-                    <input type="checkbox" checked={activeCollection.auth.oauth2?.pkce ?? false} on:change={(e) => updateCollectionOAuth2Auth({ pkce: e.currentTarget.checked })} />
+                    <input type="checkbox" checked={activeCollection.auth.oauth2?.pkce ?? false} onchange={(e) => updateCollectionOAuth2Auth({ pkce: e.currentTarget.checked })} />
                   {/if}
                   <span class="field-label">Token source</span>
-                  <select value={activeCollection.auth.oauth2?.tokenSource || 'access_token'} on:change={(e) => updateCollectionOAuth2Auth({ tokenSource: e.currentTarget.value })}>
-                    {#each oauth2TokenSources as source}
+                  <select value={activeCollection.auth.oauth2?.tokenSource || 'access_token'} onchange={(e) => updateCollectionOAuth2Auth({ tokenSource: e.currentTarget.value })}>
+                    {#each oauth2TokenSources as source (source)}
                       <option value={source}>{source}</option>
                     {/each}
                   </select>
                   <span class="field-label">Token placement</span>
-                  <select value={activeCollection.auth.oauth2?.tokenPlacement || 'header'} on:change={(e) => updateCollectionOAuth2Auth({ tokenPlacement: e.currentTarget.value })}>
-                    {#each oauth2TokenPlacements as placement}
+                  <select value={activeCollection.auth.oauth2?.tokenPlacement || 'header'} onchange={(e) => updateCollectionOAuth2Auth({ tokenPlacement: e.currentTarget.value })}>
+                    {#each oauth2TokenPlacements as placement (placement)}
                       <option value={placement}>{placement}</option>
                     {/each}
                   </select>
                   {#if (activeCollection.auth.oauth2?.tokenPlacement || 'header') === 'header'}
                     <span class="field-label">Header prefix</span>
-                    <input value={activeCollection.auth.oauth2?.tokenHeaderPrefix || 'Bearer'} on:change={(e) => updateCollectionOAuth2Auth({ tokenHeaderPrefix: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.tokenHeaderPrefix || 'Bearer'} onchange={(e) => updateCollectionOAuth2Auth({ tokenHeaderPrefix: e.currentTarget.value })} />
                   {:else}
                     <span class="field-label">Query key</span>
-                    <input value={activeCollection.auth.oauth2?.tokenQueryKey || 'access_token'} on:change={(e) => updateCollectionOAuth2Auth({ tokenQueryKey: e.currentTarget.value })} />
+                    <input value={activeCollection.auth.oauth2?.tokenQueryKey || 'access_token'} onchange={(e) => updateCollectionOAuth2Auth({ tokenQueryKey: e.currentTarget.value })} />
                   {/if}
                   <span class="field-label">Static token</span>
-                  <input type="password" value={activeCollection.auth.token} on:change={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
+                  <input type="password" value={activeCollection.auth.token} onchange={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
                   <div class="oauth2-extra-stack">
                     <OAuth2AdditionalParams
                       title="Authorization request params"
@@ -10077,167 +9896,111 @@
                   </div>
 	                {:else if activeCollection?.auth?.mode === 'apikey'}
 	                  <span class="field-label">Key</span>
-	                  <input value={activeCollection.auth.apiKey} on:change={(e) => updateCollectionAuth({ apiKey: e.currentTarget.value })} />
+	                  <input value={activeCollection.auth.apiKey} onchange={(e) => updateCollectionAuth({ apiKey: e.currentTarget.value })} />
 	                  <span class="field-label">Value</span>
-	                  <input type="password" value={activeCollection.auth.apiValue} on:change={(e) => updateCollectionAuth({ apiValue: e.currentTarget.value })} />
+	                  <input type="password" value={activeCollection.auth.apiValue} onchange={(e) => updateCollectionAuth({ apiValue: e.currentTarget.value })} />
 	                {:else if activeCollection?.auth?.mode === 'awsv4'}
 	                  <span class="field-label">Access key ID</span>
-	                  <input value={activeCollection.auth.awsv4?.accessKeyId ?? ''} on:change={(e) => updateCollectionAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
+	                  <input value={activeCollection.auth.awsv4?.accessKeyId ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
 	                  <span class="field-label">Secret access key</span>
-	                  <input type="password" value={activeCollection.auth.awsv4?.secretAccessKey ?? ''} on:change={(e) => updateCollectionAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
+	                  <input type="password" value={activeCollection.auth.awsv4?.secretAccessKey ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
 	                  <span class="field-label">Session token</span>
-	                  <input type="password" value={activeCollection.auth.awsv4?.sessionToken ?? ''} on:change={(e) => updateCollectionAWSV4Auth({ sessionToken: e.currentTarget.value })} />
+	                  <input type="password" value={activeCollection.auth.awsv4?.sessionToken ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ sessionToken: e.currentTarget.value })} />
 	                  <span class="field-label">Service</span>
-	                  <input value={activeCollection.auth.awsv4?.service ?? ''} placeholder="execute-api" on:change={(e) => updateCollectionAWSV4Auth({ service: e.currentTarget.value })} />
+	                  <input value={activeCollection.auth.awsv4?.service ?? ''} placeholder="execute-api" onchange={(e) => updateCollectionAWSV4Auth({ service: e.currentTarget.value })} />
 	                  <span class="field-label">Region</span>
-	                  <input value={activeCollection.auth.awsv4?.region ?? ''} placeholder="us-east-1" on:change={(e) => updateCollectionAWSV4Auth({ region: e.currentTarget.value })} />
+	                  <input value={activeCollection.auth.awsv4?.region ?? ''} placeholder="us-east-1" onchange={(e) => updateCollectionAWSV4Auth({ region: e.currentTarget.value })} />
 		                  <span class="field-label">Profile</span>
-		                  <input value={activeCollection.auth.awsv4?.profileName ?? ''} on:change={(e) => updateCollectionAWSV4Auth({ profileName: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.awsv4?.profileName ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ profileName: e.currentTarget.value })} />
 		                {:else if activeCollection?.auth?.mode === 'oauth1'}
 		                  <span class="field-label">Consumer key</span>
-		                  <input value={activeCollection.auth.oauth1?.consumerKey ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ consumerKey: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.consumerKey ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ consumerKey: e.currentTarget.value })} />
 		                  <span class="field-label">Consumer secret</span>
-		                  <input type="password" value={activeCollection.auth.oauth1?.consumerSecret ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
+		                  <input type="password" value={activeCollection.auth.oauth1?.consumerSecret ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
 		                  <span class="field-label">Token</span>
-		                  <input value={activeCollection.auth.oauth1?.accessToken ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ accessToken: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.accessToken ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ accessToken: e.currentTarget.value })} />
 		                  <span class="field-label">Token secret</span>
-		                  <input type="password" value={activeCollection.auth.oauth1?.accessTokenSecret ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
+		                  <input type="password" value={activeCollection.auth.oauth1?.accessTokenSecret ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
 		                  <span class="field-label">Signature</span>
-		                  <select value={activeCollection.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} on:change={(e) => updateCollectionOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
-		                    {#each oauth1SignatureMethods as method}
+		                  <select value={activeCollection.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} onchange={(e) => updateCollectionOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
+		                    {#each oauth1SignatureMethods as method (method)}
 		                      <option value={method}>{method}</option>
 		                    {/each}
 		                  </select>
 		                  <span class="field-label">Add params to</span>
-		                  <select value={activeCollection.auth.oauth1?.placement || 'header'} on:change={(e) => updateCollectionOAuth1Auth({ placement: e.currentTarget.value })}>
-		                    {#each oauth1Placements as placement}
+		                  <select value={activeCollection.auth.oauth1?.placement || 'header'} onchange={(e) => updateCollectionOAuth1Auth({ placement: e.currentTarget.value })}>
+		                    {#each oauth1Placements as placement (placement)}
 		                      <option value={placement}>{placement}</option>
 		                    {/each}
 		                  </select>
 		                  <span class="field-label">Callback URL</span>
-		                  <input value={activeCollection.auth.oauth1?.callbackUrl ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ callbackUrl: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.callbackUrl ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ callbackUrl: e.currentTarget.value })} />
 		                  <span class="field-label">Verifier</span>
-		                  <input value={activeCollection.auth.oauth1?.verifier ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ verifier: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.verifier ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ verifier: e.currentTarget.value })} />
 		                  <span class="field-label">Timestamp</span>
-		                  <input value={activeCollection.auth.oauth1?.timestamp ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ timestamp: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.timestamp ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ timestamp: e.currentTarget.value })} />
 		                  <span class="field-label">Nonce</span>
-		                  <input value={activeCollection.auth.oauth1?.nonce ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ nonce: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.nonce ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ nonce: e.currentTarget.value })} />
 		                  <span class="field-label">Version</span>
-		                  <input value={activeCollection.auth.oauth1?.version ?? ''} placeholder="1.0" on:change={(e) => updateCollectionOAuth1Auth({ version: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.version ?? ''} placeholder="1.0" onchange={(e) => updateCollectionOAuth1Auth({ version: e.currentTarget.value })} />
 		                  <span class="field-label">Realm</span>
-		                  <input value={activeCollection.auth.oauth1?.realm ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ realm: e.currentTarget.value })} />
+		                  <input value={activeCollection.auth.oauth1?.realm ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ realm: e.currentTarget.value })} />
 		                  <span class="field-label">Private key</span>
-		                  <textarea class="short" spellcheck="false" value={activeCollection.auth.oauth1?.privateKey ?? ''} on:change={(e) => updateCollectionOAuth1Auth({ privateKey: e.currentTarget.value })}></textarea>
+		                  <textarea class="short" spellcheck="false" value={activeCollection.auth.oauth1?.privateKey ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ privateKey: e.currentTarget.value })}></textarea>
 		                  <span class="field-label">Private key type</span>
-		                  <select value={activeCollection.auth.oauth1?.privateKeyType || 'text'} on:change={(e) => updateCollectionOAuth1Auth({ privateKeyType: e.currentTarget.value })}>
+		                  <select value={activeCollection.auth.oauth1?.privateKeyType || 'text'} onchange={(e) => updateCollectionOAuth1Auth({ privateKeyType: e.currentTarget.value })}>
 		                    <option value="text">text</option>
 		                    <option value="file">file</option>
 		                  </select>
 		                  <span class="field-label">Body hash</span>
-		                  <input type="checkbox" checked={activeCollection.auth.oauth1?.includeBodyHash ?? false} on:change={(e) => updateCollectionOAuth1Auth({ includeBodyHash: e.currentTarget.checked })} />
+		                  <input type="checkbox" checked={activeCollection.auth.oauth1?.includeBodyHash ?? false} onchange={(e) => updateCollectionOAuth1Auth({ includeBodyHash: e.currentTarget.checked })} />
 		                {/if}
               </div>
             </article>
           </div>
         </section>
       {:else if activeView === 'import'}
-        <section class="panel import-panel">
-          <header class="panel-header">
-            <h2>Import and Export</h2>
-            <div class="toolbar">
-              <button on:click={openCollection}>Open path</button>
-              <button on:click={refreshCollection}>Refresh active</button>
-              <button on:click={importCollection}>Import</button>
-              <button on:click={exportCollection}>Export active</button>
-            </div>
-          </header>
-          <div class="import-grid">
-            <div>
-              <span class="field-label">Existing Bruno collection path</span>
-              <input bind:value={openCollectionPath} />
-              <span class="field-label">Kind</span>
-              <select bind:value={importKind}>
-                <option value="postman">Postman</option>
-                <option value="insomnia">Insomnia</option>
-                <option value="bruno-json">Bruno JSON</option>
-                <option value="bru">BRU</option>
-                <option value="openapi">OpenAPI</option>
-	              </select>
-	              {#if importKind === 'openapi'}
-	                <span class="field-label">Group by</span>
-	                <select bind:value={importGroupBy}>
-	                  <option value="tag">Tags</option>
-	                  <option value="path">Paths</option>
-	                </select>
-	                <span class="field-label">Spec source</span>
-	                <input aria-label="OpenAPI import source" data-testid="openapi-import-source" placeholder="https://example.com/openapi.yml" bind:value={importSourceURL} />
-	                <span class="field-label">Updates</span>
-	                <label class="checkbox-line">
-	                  <input type="checkbox" data-testid="openapi-import-sync" bind:checked={importOpenAPISync} />
-	                  <span>Check for Spec Updates</span>
-	                </label>
-	              {/if}
-	              <span class="field-label">Name</span>
-	              <input bind:value={importName} />
-              <span class="field-label">Payload</span>
-              <textarea spellcheck="false" bind:value={importContent}></textarea>
-            </div>
-            <div>
-              <div class="import-stack">
-                <section>
-                  <h3>Git Repository</h3>
-                  <span class="field-label">Remote URL</span>
-                  <input aria-label="Git clone URL" placeholder="https://github.com/org/repo.git" bind:value={gitCloneURL} />
-                  <span class="field-label">Clone location</span>
-                  <input aria-label="Git clone location" bind:value={gitCloneRoot} />
-                  <span class="field-label">Folder name</span>
-                  <input aria-label="Git clone folder name" placeholder="Derived from remote" bind:value={gitCloneName} />
-                  <div class="button-row">
-                    <button on:click={checkGitVersion} disabled={busy !== ''}>Check Git</button>
-                    <button on:click={scanGitCollections} disabled={busy !== ''}>Scan path</button>
-                    <button class="primary" on:click={cloneGitRepository} disabled={busy !== '' || !gitCloneURL.trim()}>{gitCloneInProgress ? 'Cloning' : 'Clone'}</button>
-                  </div>
-                  {#if gitVersionText}
-                    <p class="panel-subtitle">{gitVersionText}</p>
-                  {/if}
-                  {#if gitCloneProgress.length > 0}
-                    <div class="progress-log" aria-label="Git clone progress">
-                      {#each gitCloneProgress as row}
-                        <div class="progress-row">
-                          <span>{row.stage || 'git'}</span>
-                          <code>{row.message}</code>
-                        </div>
-                      {/each}
-                    </div>
-                  {/if}
-                  {#if gitCloneOutput}
-                    <pre class="mini-output">{gitCloneOutput}</pre>
-                  {/if}
-                  {#if gitCandidates.length > 0}
-                    <table>
-                      <thead><tr><th></th><th>Name</th><th>Format</th><th>Requests</th><th>Path</th></tr></thead>
-                      <tbody>
-                        {#each gitCandidates as candidate}
-                          <tr>
-                            <td><input type="checkbox" checked={selectedGitCollectionPaths.includes(candidate.path)} on:change={(e) => toggleGitCandidate(candidate.path, e.currentTarget.checked)} /></td>
-                            <td>{candidate.name}</td>
-                            <td>{candidate.format}</td>
-                            <td>{candidate.requestCount}</td>
-                            <td><code>{candidate.path}</code></td>
-                          </tr>
-                        {/each}
-                      </tbody>
-                    </table>
-                    <button on:click={openSelectedGitCollections} disabled={selectedGitCollectionPaths.length === 0 || !gitCloneURL}>Open selected</button>
-                  {/if}
-                </section>
-              </div>
-
-              <span class="field-label">Export</span>
-              <textarea spellcheck="false" bind:value={exportText}></textarea>
-            </div>
-          </div>
-        </section>
+        {#await import('./lib/views/ImportPanel.svelte') then ImportPanel}
+          {@const ImportPanelComponent = ImportPanel.default}
+          <ImportPanelComponent
+            bind:importSourceMode
+            bind:importTranslatePostmanScripts
+            bind:importURL
+            bind:importContent
+            bind:importPasteName
+            bind:importDestinationWorkspaceID
+            bind:importDestinationRoot
+            bind:importExpanded
+            bind:gitCloneURL
+            bind:gitCloneRoot
+            bind:importApplyButton
+            bind:importPickerButton
+            state={appState}
+            {busy}
+            {importStatus}
+            {importReadyRows}
+            {importPreview}
+            {importSources}
+            {importApplyResult}
+            {importApplyInFlight}
+            {gitCloneInProgress}
+            {importDecisionFor}
+            {selectImportSourceMode}
+            {chooseImportFiles}
+            {chooseImportFolder}
+            {previewImportSources}
+            {previewURLImport}
+            {previewPasteImport}
+            {requestPlannedImport}
+            {updateImportDecision}
+            {updateImportOverride}
+            {toggleImportChild}
+            {exportCollection}
+            {scanGitCollections}
+            {cloneGitRepository}
+            {checkGitVersion}
+          />
+        {/await}
       {:else if activeView === 'devtools'}
         {@render devToolsPanel()}
       {:else if activeView === 'network'}
@@ -10246,22 +10009,40 @@
           <table>
             <thead><tr><th>Method</th><th>URL</th><th>Status</th><th>Time</th><th>Error</th></tr></thead>
             <tbody>
-              {#each state.networkLog ?? [] as row}
+              {#each appState.networkLog ?? [] as row (row.id)}
                 <tr><td>{row.method}</td><td>{row.url}</td><td>{row.status}</td><td>{row.durationMs} ms</td><td>{row.error}</td></tr>
               {/each}
             </tbody>
           </table>
         </section>
+      {:else if activeView === 'history'}
+        {#await import('./lib/views/HistoryPanel.svelte') then HistoryPanel}
+          {@const HistoryPanelComponent = HistoryPanel.default}
+          <HistoryPanelComponent
+            entries={historyEntries}
+            bind:query={historyQuery}
+            bind:onlyFailures={historyOnlyFailures}
+            bind:methodFilter={historyMethodFilter}
+            bind:saveTargetCollectionID={historySaveTargetID}
+            collections={historyCollections}
+            {busy}
+            onSearch={scheduleHistorySearch}
+            onOpenInTab={openHistoryEntryInTab}
+            onSaveToCollection={saveHistoryEntryToCollection}
+            onClear={clearHistory}
+            canOpenInTab={historyEntryStillExists}
+          />
+        {/await}
 	      {:else if activeView === 'cookies'}
 	        <section class="panel">
 	          <header class="panel-header">
 	            <div>
               <h2>Cookies</h2>
-              <p class="panel-subtitle">{visibleCookieCount}/{state.cookies?.length ?? 0} stored cookies</p>
+              <p class="panel-subtitle">{visibleCookieCount}/{appState.cookies?.length ?? 0} stored cookies</p>
             </div>
             <div class="runner-summary">
               <input aria-label="Search cookies" placeholder="Search cookies" bind:value={cookieSearch} />
-              <button on:click={clearCookies} disabled={(state.cookies?.length ?? 0) === 0 || busy !== ''}>Clear all</button>
+              <button onclick={clearCookies} disabled={(appState.cookies?.length ?? 0) === 0 || busy !== ''}>Clear all</button>
             </div>
           </header>
           <div class="cookie-manager">
@@ -10294,8 +10075,8 @@
                   <label><input type="checkbox" bind:checked={cookieForm.hostOnly} /> Host only</label>
                 </div>
                 <div class="button-row">
-                  <button class="primary" on:click={saveCookieForm} disabled={busy !== ''}>Save cookie</button>
-                  <button on:click={resetCookieForm}>Reset</button>
+                  <button class="primary" onclick={saveCookieForm} disabled={busy !== ''}>Save cookie</button>
+                  <button onclick={resetCookieForm}>Reset</button>
                 </div>
               </section>
 
@@ -10307,30 +10088,30 @@
                   <span class="field-label">Header</span>
                   <textarea class="short" aria-label="Raw Set-Cookie header" spellcheck="false" bind:value={rawCookieHeader}></textarea>
                 </div>
-                <button on:click={importRawCookie} disabled={busy !== ''}>Import header</button>
+                <button onclick={importRawCookie} disabled={busy !== ''}>Import header</button>
               </section>
             </div>
 
             <div class="cookie-domains">
-              {#if (state.cookies?.length ?? 0) === 0}
-                <div class="empty-state">No stored cookies</div>
+              {#if (appState.cookies?.length ?? 0) === 0}
+                <div class="empty-appState">No stored cookies</div>
               {:else if visibleCookieGroups.length === 0}
-                <div class="empty-state">No matching cookies</div>
+                <div class="empty-appState">No matching cookies</div>
               {:else}
-                {#each visibleCookieGroups as group}
+                {#each visibleCookieGroups as group (group.domain)}
                   <article>
                     <header>
                       <div>
                         <h3>{group.domain}</h3>
                         <p class="panel-subtitle">{group.cookies.length} cookie{group.cookies.length === 1 ? '' : 's'}</p>
                       </div>
-                      <button on:click={() => clearDomainCookies(group.domain)} disabled={busy !== ''}>Clear domain</button>
+                      <button onclick={() => clearDomainCookies(group.domain)} disabled={busy !== ''}>Clear domain</button>
                     </header>
                     <small>{group.header}</small>
                     <table>
                       <thead><tr><th>Name</th><th>Value</th><th>Path</th><th>Expires</th><th>Flags</th><th></th></tr></thead>
                       <tbody>
-                        {#each group.cookies as cookie}
+                        {#each group.cookies as cookie (cookie.id)}
                           <tr>
                             <td>{cookie.name}</td>
                             <td>{cookie.value}</td>
@@ -10339,8 +10120,8 @@
                             <td>{cookieFlags(cookie)}</td>
                             <td>
                               <div class="button-row compact">
-                                <button on:click={() => editCookie(cookie)}>Edit</button>
-                                <button class="icon-button" title="Delete cookie" on:click={() => deleteCookie(cookie.id)}>x</button>
+                                <button onclick={() => editCookie(cookie)}>Edit</button>
+                                <button class="icon-button" title="Delete cookie" onclick={() => deleteCookie(cookie.id)}>x</button>
                               </div>
                             </td>
                           </tr>
@@ -10354,467 +10135,128 @@
 	          </div>
 	        </section>
 	      {:else if activeView === 'preferences'}
-	        <section class="panel">
+	        <section class="panel preferences-panel">
 	          <header class="panel-header">
 	            <div>
 	              <h2>Preferences</h2>
-	              <p class="panel-subtitle">Theme {selectedThemeMode} · Proxy {proxyModeLabel(preferencesProxyMode(state.preferences))}</p>
+	              <p class="panel-subtitle">Theme {selectedThemeMode} · Proxy {proxyModeLabel(preferencesProxyMode(appState.preferences))}</p>
 	            </div>
 	          </header>
 	          <div class="settings-stack">
-	            <section>
-	              <div class="settings-section-header">
-	                <h3>Appearance</h3>
-	              </div>
-	              <div class="theme-mode-selector" aria-label="Theme mode">
-	                {#each themeModes as mode}
-	                  <button
-	                    class:selected={selectedThemeMode === mode.id}
-	                    aria-pressed={selectedThemeMode === mode.id}
-	                    on:click={() => updateThemeMode(mode.id)}
-	                  >
-	                    {mode.label}
-	                  </button>
-	                {/each}
-	              </div>
+          {#await import('./lib/views/preferences/AppearanceSection.svelte') then AppearanceSection}
+            {@const AppearanceSectionComponent = AppearanceSection.default}
+            <AppearanceSectionComponent
+              state={appState}
+              {selectedThemeMode}
+              {themeModes}
+              {lightThemeVariants}
+              {darkThemeVariants}
+              {updateThemeMode}
+              {updateThemeVariant}
+            />
+          {/await}
 
-	              {#if selectedThemeMode === 'light' || selectedThemeMode === 'system'}
-	                <div class="theme-variant-section">
-	                  <span class="field-label">Light Theme</span>
-	                  <div class="theme-variants">
-	                    {#each lightThemeVariants as variant}
-	                      <button
-	                        class="theme-variant-card"
-	                        class:selected={(state.preferences.themeVariantLight || 'light') === variant.id}
-	                        aria-label={`Light theme ${variant.name}`}
-	                        aria-pressed={(state.preferences.themeVariantLight || 'light') === variant.id}
-	                        on:click={() => updateThemeVariant('light', variant.id)}
-	                      >
-	                        <span class="theme-preview" style={`--preview-bg: ${variant.preview.background}; --preview-sidebar: ${variant.preview.sidebar}; --preview-accent: ${variant.preview.accent};`}>
-	                          <span class="theme-preview-sidebar"></span>
-	                          <span class="theme-preview-main">
-	                            <span></span>
-	                            <span></span>
-	                            <span></span>
-	                          </span>
-	                        </span>
-	                        <span>{variant.name}</span>
-	                      </button>
-	                    {/each}
-	                  </div>
-	                </div>
-	              {/if}
+          {#await import('./lib/views/preferences/DisplaySection.svelte') then DisplaySection}
+            {@const DisplaySectionComponent = DisplaySection.default}
+            <DisplaySectionComponent
+              {appZoomPercentage}
+              {zoomPercentages}
+              {zoomDefaultPercentage}
+              {codeFont}
+              {codeFontSize}
+              {resetZoomPercentage}
+              {setZoomPercentage}
+              {updateCodeFont}
+              {updateCodeFontSize}
+            />
+          {/await}
 
-	              {#if selectedThemeMode === 'dark' || selectedThemeMode === 'system'}
-	                <div class="theme-variant-section">
-	                  <span class="field-label">Dark Theme</span>
-	                  <div class="theme-variants">
-	                    {#each darkThemeVariants as variant}
-	                      <button
-	                        class="theme-variant-card"
-	                        class:selected={(state.preferences.themeVariantDark || 'dark') === variant.id}
-	                        aria-label={`Dark theme ${variant.name}`}
-	                        aria-pressed={(state.preferences.themeVariantDark || 'dark') === variant.id}
-	                        on:click={() => updateThemeVariant('dark', variant.id)}
-	                      >
-	                        <span class="theme-preview" style={`--preview-bg: ${variant.preview.background}; --preview-sidebar: ${variant.preview.sidebar}; --preview-accent: ${variant.preview.accent};`}>
-	                          <span class="theme-preview-sidebar"></span>
-	                          <span class="theme-preview-main">
-	                            <span></span>
-	                            <span></span>
-	                            <span></span>
-	                          </span>
-	                        </span>
-	                        <span>{variant.name}</span>
-	                      </button>
-	                    {/each}
-	                  </div>
-	                </div>
-	              {/if}
-		            </section>
-
-		            <section>
-		              <div class="settings-section-header">
-		                <h3>Display</h3>
-		                <span class="preference-value" data-testid="zoom-percentage-value">{appZoomPercentage}%</span>
-		              </div>
-		              <div class="font-preference-grid">
-		                <label class="field-label" for="code-font-input">Code Editor Font</label>
-		                <label class="field-label" for="code-font-size-input">Font Size</label>
-		                <input
-		                  id="code-font-input"
-		                  data-testid="code-font-input"
-		                  aria-label="Code Editor Font"
-		                  value={codeFont}
-		                  autocapitalize="off"
-		                  autocomplete="off"
-		                  autocorrect="off"
-		                  spellcheck="false"
-		                  on:input={(event) => updateCodeFont(event.currentTarget.value)}
-		                />
-		                <input
-		                  id="code-font-size-input"
-		                  data-testid="code-font-size-input"
-		                  aria-label="Font Size"
-		                  type="number"
-		                  min="1"
-		                  max="32"
-		                  inputmode="numeric"
-		                  value={codeFontSize}
-		                  on:input={(event) => updateCodeFontSize(Number(event.currentTarget.value))}
-		                />
-		              </div>
-		              <div class="zoom-preference-row">
-		                <label class="field-label" for="zoom-percentage">Zoom</label>
-		                <select
-		                  id="zoom-percentage"
-		                  data-testid="zoom-percentage-select"
-		                  aria-label="App zoom"
-		                  value={appZoomPercentage}
-		                  on:change={(event) => setZoomPercentage(Number(event.currentTarget.value))}
-		                >
-		                  {#each zoomPercentages as percentage}
-		                    <option value={percentage}>{percentage}%</option>
-		                  {/each}
-		                </select>
-		                <button
-		                  data-testid="zoom-reset-btn"
-		                  on:click={resetZoomPercentage}
-		                  disabled={appZoomPercentage === zoomDefaultPercentage}
-		                >
-		                  Reset
-		                </button>
-		              </div>
-		            </section>
-
-		            <section>
-		              <div class="settings-section-header">
-		                <h3>General Settings</h3>
-		              </div>
-		              <div class="general-preferences-grid">
-		                <label class="inline-toggle">
-		                  <input
-		                    id="sslVerification"
-		                    data-testid="ssl-verification-toggle"
-		                    type="checkbox"
-		                    checked={state.preferences.request?.sslVerification !== false}
-		                    on:change={(event) => updateRequestPreferences({ sslVerification: event.currentTarget.checked } as Partial<main.RequestPreferences>)}
-		                  />
-		                  SSL/TLS Certificate Verification
-		                </label>
-		                <label class="inline-toggle">
-		                  <input
-		                    id="customCaCertificateEnabled"
-		                    data-testid="custom-ca-enabled-toggle"
-		                    type="checkbox"
-		                    checked={state.preferences.request?.customCaCertificate?.enabled ?? false}
-		                    on:change={(event) => updateRequestPreferences({
-		                      customCaCertificate: {
-		                        ...(state?.preferences.request?.customCaCertificate ?? {}),
-		                        enabled: event.currentTarget.checked
-		                      } as main.CustomCaCertificatePreferences
-		                    })}
-		                  />
-		                  Use Custom CA Certificate
-		                </label>
-		                <div class:settings-disabled={!(state.preferences.request?.customCaCertificate?.enabled ?? false)} class="path-picker-row">
-		                  {#if state.preferences.request?.customCaCertificate?.filePath}
-		                    <span class="selected-path-chip" data-testid="custom-ca-file-name">
-		                      {customCaFileName(state.preferences.request.customCaCertificate.filePath)}
-		                      <button type="button" aria-label="Remove custom CA certificate" on:click={clearCustomCaCertificate}>x</button>
-		                    </span>
-		                  {:else}
-		                    <button
-		                      type="button"
-		                      data-testid="custom-ca-select-btn"
-		                      on:click={browseCustomCaCertificate}
-		                      disabled={!(state.preferences.request?.customCaCertificate?.enabled ?? false)}
-		                    >
-		                      Select File
-		                    </button>
-		                  {/if}
-		                </div>
-		                <label class:settings-disabled={!((state.preferences.request?.customCaCertificate?.enabled ?? false) && state.preferences.request?.customCaCertificate?.filePath)} class="inline-toggle">
-		                  <input
-		                    id="keepDefaultCaCertificatesEnabled"
-		                    data-testid="keep-default-ca-toggle"
-		                    type="checkbox"
-		                    checked={state.preferences.request?.keepDefaultCaCertificates?.enabled !== false}
-		                    disabled={!((state.preferences.request?.customCaCertificate?.enabled ?? false) && state.preferences.request?.customCaCertificate?.filePath)}
-		                    on:change={(event) => updateRequestPreferences({
-		                      keepDefaultCaCertificates: { enabled: event.currentTarget.checked } as main.KeepDefaultCaCertificatesPreferences
-		                    })}
-		                  />
-		                  Keep Default CA Certificates
-		                </label>
-		                <label class="inline-toggle">
-		                  <input
-		                    id="storeCookies"
-		                    data-testid="store-cookies-toggle"
-		                    type="checkbox"
-		                    checked={state.preferences.request?.storeCookies ?? state.preferences.storeCookies ?? true}
-		                    on:change={(event) => updateRequestPreferences({ storeCookies: event.currentTarget.checked } as Partial<main.RequestPreferences>)}
-		                  />
-		                  Store Cookies automatically
-		                </label>
-		                <label class="inline-toggle">
-		                  <input
-		                    id="sendCookies"
-		                    data-testid="send-cookies-toggle"
-		                    type="checkbox"
-		                    checked={state.preferences.request?.sendCookies ?? true}
-		                    on:change={(event) => updateRequestPreferences({ sendCookies: event.currentTarget.checked } as Partial<main.RequestPreferences>)}
-		                  />
-		                  Send Cookies automatically
-		                </label>
-		                <div class="field-grid compact-preference-grid">
-		                  <label class="field-label" for="requestTimeout">Request Timeout (in ms)</label>
-		                  <input
-		                    id="requestTimeout"
-		                    data-testid="request-timeout-input"
-		                    value={state.preferences.request?.timeout ?? 0}
-		                    inputmode="numeric"
-		                    on:input={(event) => updateRequestPreferences({ timeout: Number(event.currentTarget.value) } as Partial<main.RequestPreferences>)}
-		                  />
-		                </div>
-		                <label class="inline-toggle">
-		                  <input
-		                    id="autoSaveEnabled"
-		                    data-testid="autosave-enabled-toggle"
-		                    type="checkbox"
-		                    checked={state.preferences.autoSave?.enabled ?? state.preferences.autosave ?? false}
-		                    on:change={(event) => updateAutoSavePreferences({ enabled: event.currentTarget.checked } as Partial<main.AutoSavePreferences>)}
-		                  />
-		                  Enable Auto Save
-		                </label>
-		                <div class:settings-disabled={!(state.preferences.autoSave?.enabled ?? state.preferences.autosave ?? false)} class="field-grid compact-preference-grid">
-		                  <label class="field-label" for="autoSaveInterval">Save Delay (in ms)</label>
-		                  <input
-		                    id="autoSaveInterval"
-		                    data-testid="autosave-interval-input"
-		                    value={state.preferences.autoSave?.interval ?? 1000}
-		                    disabled={!(state.preferences.autoSave?.enabled ?? state.preferences.autosave ?? false)}
-		                    inputmode="numeric"
-		                    on:input={(event) => updateAutoSavePreferences({ interval: Number(event.currentTarget.value) } as Partial<main.AutoSavePreferences>)}
-		                  />
-		                </div>
-		                <div class="field-grid default-location-grid">
-		                  <label class="field-label" for="defaultLocation">Default Location</label>
-		                  <div class="default-location-control">
-		                    <input
-		                      id="defaultLocation"
-		                      data-testid="default-location-input"
-		                      class="default-location-input"
-		                      readonly
-		                      value={state.preferences.general?.defaultLocation ?? state.preferences.defaultCollectionPath ?? ''}
-		                      placeholder="Click to browse for default location"
-		                      on:click={browseDefaultLocation}
-		                    />
-		                    <button type="button" data-testid="default-location-browse-btn" on:click={browseDefaultLocation}>Browse</button>
-		                    <button
-		                      type="button"
-		                      data-testid="default-location-clear-btn"
-		                      on:click={clearDefaultLocation}
-		                      disabled={!((state.preferences.general?.defaultLocation ?? state.preferences.defaultCollectionPath ?? '').trim())}
-		                    >
-		                      Clear
-		                    </button>
-		                  </div>
-		                </div>
-		              </div>
-		            </section>
+          {#await import('./lib/views/preferences/GeneralSection.svelte') then GeneralSection}
+            {@const GeneralSectionComponent = GeneralSection.default}
+            <GeneralSectionComponent
+              state={appState}
+              {customCaFileName}
+              {browseDefaultLocation}
+              {clearDefaultLocation}
+              {browseCustomCaCertificate}
+              {clearCustomCaCertificate}
+              {updateAutoSavePreferences}
+              {updateRequestPreferences}
+            />
+          {/await}
 	
-		            <section>
-		              <div class="settings-section-header">
-		                <h3>OAuth2</h3>
-		              </div>
-		              <label class="inline-toggle oauth2-browser-toggle">
-		                <input
-		                  type="checkbox"
-		                  checked={state.preferences.oauth2UseSystemBrowser ?? false}
-		                  on:change={(e) => updateAppearancePreferences({ oauth2UseSystemBrowser: e.currentTarget.checked } as Partial<main.Preferences>)}
-		                />
-		                Use system browser for OAuth
-		              </label>
-		            </section>
+          {#await import('./lib/views/preferences/OAuth2Section.svelte') then OAuth2Section}
+            {@const OAuth2SectionComponent = OAuth2Section.default}
+            <OAuth2SectionComponent
+              state={appState}
+              {updateAppearancePreferences}
+            />
+          {/await}
 	
-		            <section>
-		              <div class="settings-section-header">
-		                <h3>Keybindings</h3>
-	                <div class="settings-section-actions">
-	                  <label class="inline-toggle">
-	                    <input
-	                      type="checkbox"
-	                      checked={keybindingsAreEnabled(state.preferences)}
-	                      on:change={(e) => updateKeybindingsEnabled(e.currentTarget.checked)}
-	                    />
-	                    Enabled
-	                  </label>
-	                  <button on:click={resetAllKeyBindings} disabled={Object.keys(state.preferences.keyBindings ?? {}).length === 0}>Reset Default</button>
-	                </div>
-	              </div>
-	              <div class:settings-disabled={!keybindingsAreEnabled(state.preferences)} class="keybindings-table-wrap">
-	                <table class="keybindings-table">
-	                  <thead>
-	                    <tr>
-	                      <th>Command</th>
-	                      <th>Keybinding</th>
-	                      <th></th>
-	                    </tr>
-	                  </thead>
-	                  <tbody>
-	                    {#each keyBindingSections as section}
-	                      <tr class="keybinding-section-row">
-	                        <td colspan="3">{section.heading}</td>
-	                      </tr>
-	                      {#each visibleKeyBindingEntries(section) as [action, binding]}
-	                        {@const value = recordingKeybindingAction === action ? keybindingDraft : keyBindingDisplayValue(action)}
-	                        {@const canEdit = keyBindingCanEdit(action) && keybindingsAreEnabled(state.preferences)}
-	                        <tr>
-	                          <td>
-	                            <span>{binding.name}</span>
-	                          </td>
-	                          <td>
-	                            <input
-	                              class="keybinding-input"
-	                              class:error={recordingKeybindingAction === action && Boolean(keybindingError)}
-	                              aria-label={`Keybinding ${binding.name}`}
-	                              readonly
-	                              disabled={!canEdit}
-	                              value={formatKeyBinding(value)}
-	                              placeholder="Press shortcut"
-	                              on:focus={() => beginRecordKeyBinding(action)}
-	                              on:keydown={(e) => recordKeyBinding(action, e)}
-	                              on:blur={() => stopRecordKeyBinding(action)}
-	                            />
-	                            {#if recordingKeybindingAction === action && keybindingError}
-	                              <small class="keybinding-error">{keybindingError}</small>
-	                            {/if}
-	                          </td>
-	                          <td>
-	                            {#if binding.readOnly}
-	                              <span class="muted">Locked</span>
-	                            {:else}
-	                              <button on:click={() => resetKeyBinding(action)} disabled={!keyBindingIsCustomized(action)}>Reset</button>
-	                            {/if}
-	                          </td>
-	                        </tr>
-	                      {/each}
-	                    {/each}
-	                  </tbody>
-	                </table>
-	              </div>
-	            </section>
+          {#await import('./lib/views/preferences/KeybindingsSection.svelte') then KeybindingsSection}
+            {@const KeybindingsSectionComponent = KeybindingsSection.default}
+            <KeybindingsSectionComponent
+              state={appState}
+              {keyBindingSections}
+              keyBindingPreset={activeKeyBindingPreset}
+              {updateKeyBindingPreset}
+              {visibleKeyBindingEntries}
+              {keyBindingDisplayValue}
+              {keyBindingCanEdit}
+              {keyBindingIsCustomized}
+              {keybindingDraft}
+              {keybindingsAreEnabled}
+              {keybindingError}
+              {recordingKeybindingAction}
+              {formatKeyBinding}
+              {beginRecordKeyBinding}
+              {recordKeyBinding}
+              {stopRecordKeyBinding}
+              {resetKeyBinding}
+              {resetAllKeyBindings}
+              {updateKeybindingsEnabled}
+            />
+          {/await}
 
-	            <section>
-	              <div class="settings-section-header">
-	                <h3>Proxy Settings</h3>
-	              </div>
-	              <div class="field-grid">
-	                <span class="field-label">Mode</span>
-	                <select aria-label="App proxy mode" value={preferencesProxyMode(state.preferences)} on:change={(e) => updatePreferencesProxyMode(e.currentTarget.value)}>
-	                  <option value="off">Off</option>
-	                  <option value="manual">On</option>
-	                  <option value="inherit">System Proxy</option>
-	                  <option value="pac">PAC</option>
-	                </select>
-	              </div>
+          {#await import('./lib/views/preferences/ProxySection.svelte') then ProxySection}
+            {@const ProxySectionComponent = ProxySection.default}
+            <ProxySectionComponent
+              state={appState}
+              {preferencesProxyMode}
+              {updatePreferencesProxy}
+              {updatePreferencesProxyAuth}
+              {updatePreferencesProxyConfig}
+              {updatePreferencesProxyMode}
+            />
+          {/await}
 
-	              {#if preferencesProxyMode(state.preferences) === 'manual'}
-	                <div class="field-grid">
-	                  <span class="field-label">Protocol</span>
-	                  <select aria-label="App proxy protocol" value={state.preferences.proxy?.config?.protocol || 'http'} on:change={(e) => updatePreferencesProxyConfig({ protocol: e.currentTarget.value })}>
-	                    <option value="http">HTTP</option>
-	                    <option value="https">HTTPS</option>
-	                    <option value="socks5">SOCKS5</option>
-	                  </select>
-	                  <span class="field-label">Host</span>
-	                  <input aria-label="App proxy host" value={state.preferences.proxy?.config?.hostname ?? ''} on:input={(e) => updatePreferencesProxyConfig({ hostname: e.currentTarget.value })} />
-	                  <span class="field-label">Port</span>
-	                  <input aria-label="App proxy port" value={state.preferences.proxy?.config?.port ?? ''} on:input={(e) => updatePreferencesProxyConfig({ port: e.currentTarget.value })} />
-	                  <span class="field-label">Bypass</span>
-	                  <input aria-label="App proxy bypass" value={state.preferences.proxy?.config?.bypassProxy ?? ''} on:input={(e) => updatePreferencesProxyConfig({ bypassProxy: e.currentTarget.value })} />
-	                  <span class="field-label">Auth enabled</span>
-	                  <input aria-label="App proxy auth enabled" type="checkbox" checked={!(state.preferences.proxy?.config?.auth?.disabled ?? false)} on:change={(e) => updatePreferencesProxyAuth({ disabled: !e.currentTarget.checked })} />
-	                  <span class="field-label">Username</span>
-	                  <input aria-label="App proxy username" value={state.preferences.proxy?.config?.auth?.username ?? ''} on:input={(e) => updatePreferencesProxyAuth({ username: e.currentTarget.value })} />
-	                  <span class="field-label">Password</span>
-	                  <input aria-label="App proxy password" type="password" value={state.preferences.proxy?.config?.auth?.password ?? ''} on:input={(e) => updatePreferencesProxyAuth({ password: e.currentTarget.value })} />
-	                </div>
-	              {:else if preferencesProxyMode(state.preferences) === 'pac'}
-	                <div class="field-grid">
-	                  <span class="field-label">PAC Source</span>
-	                  <input aria-label="PAC source" placeholder="https://example.com/proxy.pac or file:///path/proxy.pac" value={state.preferences.proxy?.pac?.source ?? ''} on:change={(e) => updatePreferencesProxy({ pac: { source: e.currentTarget.value } as main.ProxyPACConfig })} />
-	                </div>
-	              {/if}
-	            </section>
+          {#await import('./lib/views/preferences/CacheSection.svelte') then CacheSection}
+            {@const CacheSectionComponent = CacheSection.default}
+            <CacheSectionComponent
+              state={appState}
+              {fileCacheSize}
+              {formatRuntimeBytes}
+              {updateFileCache}
+              {updateSSLSessionCache}
+              {clearFileCache}
+              {clearSSLSessionCache}
+            />
+          {/await}
 
-	            <section>
-	              <div class="settings-section-header">
-	                <h3>Cache</h3>
-	              </div>
-	              <div class="cache-preference-card">
-	                <div>
-	                  <strong>File cache <span class="beta-badge">Beta</span></strong>
-	                  <p>Loads your workspace faster by caching opened collections. Clearing it won't affect your original files.</p>
-	                  <p class="cache-size">Cache size <strong>{fileCacheSize === undefined ? '-' : formatRuntimeBytes(fileCacheSize)}</strong></p>
-	                </div>
-	                <label class="inline-toggle">
-	                  <input
-	                    data-testid="cache.file.enabled"
-	                    type="checkbox"
-	                    checked={state.preferences.cache?.file?.enabled ?? false}
-	                    on:change={(event) => updateFileCache(event.currentTarget.checked)}
-	                  />
-	                  Enabled
-	                </label>
-	                <button type="button" data-testid="file-cache-clear-btn" disabled={!fileCacheSize} on:click={clearFileCache}>Clear cache</button>
-	              </div>
-	              <div class="cache-preference-card">
-	                <div>
-	                  <strong>SSL session cache</strong>
-	                  <p>Reuses TLS sessions and connections across requests for faster handshakes.</p>
-	                </div>
-	                <label class="inline-toggle">
-	                  <input
-	                    data-testid="sslSession.enabled"
-	                    type="checkbox"
-	                    checked={state.preferences.cache?.sslSession?.enabled ?? false}
-	                    on:change={(event) => updateSSLSessionCache(event.currentTarget.checked)}
-	                  />
-	                  Enabled
-	                </label>
-	                <button type="button" data-testid="ssl-session-clear-btn" on:click={clearSSLSessionCache}>Clear cache</button>
-	              </div>
-	            </section>
-
-	            <section>
-	              <div class="settings-section-header">
-	                <h3>Support</h3>
-	              </div>
-	              <div class="support-link-list" aria-label="Support links">
-	                {#each supportLinks as link}
-	                  <button type="button" class="support-link" on:click={() => openExternalLink(link.url)}>
-	                    <span>{link.glyph}</span>
-	                    <strong>{link.label}</strong>
-	                  </button>
-	                {/each}
-	              </div>
-	            </section>
 	          </div>
 	        </section>
 	      {:else if activeView === 'features'}
 	        <section class="panel">
 	          <header class="panel-header">
-            <h2>Parity Ledger</h2>
+            <h2>Local Capabilities</h2>
             <div class="runner-summary">
               <span>{doneFeatures}/{totalFeatures} done</span>
               <span>{partialFeatures} partial</span>
-              <button on:click={resetDemoData}>Reset demo data</button>
+              <button onclick={resetDemoData}>Reset demo data</button>
             </div>
           </header>
           <div class="feature-grid">
-            {#each state.featureLedger ?? [] as feature}
+            {#each appState.featureLedger ?? [] as feature (feature.id)}
               <article>
                 <header>
                   <strong>{feature.name}</strong>
@@ -10833,7 +10275,7 @@
             type="button"
             class="devtools-drawer-resizer"
             aria-label="Resize Dev Tools drawer"
-            on:mousedown={startDevToolsDrawerResize}
+            onmousedown={startDevToolsDrawerResize}
           ></button>
           {@render devToolsPanel()}
         </div>
@@ -10842,1239 +10284,460 @@
   </main>
 {:else}
   <main class="boot">
-    <p>{error || 'LiteAPI could not load state.'}</p>
-    <button on:click={load}>Retry</button>
+    <p>{error || 'LiteAPI could not load appState.'}</p>
+    <button onclick={load}>Retry</button>
   </main>
 {/if}
 
+{#if importReplaceConfirmationOpen}
+  {#await import('./lib/modals/confirm/ImportReplaceModal.svelte') then ImportReplaceModal}
+    {@const ImportReplaceModalComponent = ImportReplaceModal.default}
+    <ImportReplaceModalComponent
+      bind:importReplaceConfirmationCancelButton
+      {cancelImportReplaceConfirmation}
+      {confirmImportReplace}
+    />
+  {/await}
+{/if}
+
+{#if workspaceWindowPickerOpen}
+  <WorkspaceWindowPicker
+    targets={workspaceWindowTargets}
+    currentWorkspaceId={appState?.activeWorkspaceId ?? ''}
+    busy={workspaceWindowPickerBusy}
+    busyAction={workspaceWindowPickerBusyAction}
+    error={workspaceWindowPickerError}
+    onOpen={openSelectedWorkspaceInNewWindow}
+    onCreate={createWorkspaceForNewWindow}
+    onCancel={closeWorkspaceWindowPicker}
+  />
+{/if}
+
+{#if creationOpen}
+  {#await import('./lib/modals/confirm/NewRequestModal.svelte') then NewRequestModal}
+    {@const NewRequestModalComponent = NewRequestModal.default}
+    <NewRequestModalComponent
+      bind:requestName
+      bind:requestType
+      {activeCollection}
+      {submitCreationFlow}
+      {closeCreationFlow}
+    />
+  {/await}
+{/if}
+
+{#if commandPaletteOpen}
+  {#await import('./lib/modals/search/CommandPaletteModal.svelte') then CommandPaletteModal}
+    {@const CommandPaletteModalComponent = CommandPaletteModal.default}
+    <CommandPaletteModalComponent
+      bind:commandPaletteQuery
+      bind:commandPaletteActiveIndex
+      bind:commandPaletteInput
+      {visibleCommandPaletteActions}
+      {runCommandPaletteAction}
+      {closeCommandPalette}
+    />
+  {/await}
+{/if}
+
 {#if globalSearchOpen}
-  <div class="prompt-backdrop">
-    <div class="global-search-modal" role="dialog" aria-modal="true" aria-labelledby="global-search-title" tabindex="-1">
-      <header>
-        <div>
-          <h2 id="global-search-title">Global Search</h2>
-        </div>
-        <button type="button" class="icon-button" title="Close" on:click={closeGlobalSearch}>x</button>
-      </header>
-      <input
-        class="global-search-input"
-        aria-label="Global search"
-        placeholder="Search collections and requests"
-        bind:this={globalSearchInput}
-        bind:value={globalSearchQuery}
-        on:keydown={handleGlobalSearchKeydown}
-      />
-      {#if globalSearchResults.length === 0}
-        <div class="empty-state">No results found</div>
-      {:else}
-        <div class="global-search-results">
-          {#each globalSearchResults as result, index (result.id)}
-            <button
-              type="button"
-              class:active={index === globalSearchIndex}
-              on:mousemove={() => (globalSearchIndex = index)}
-              on:click={() => selectGlobalSearchResult(result)}
-            >
-              <span class="global-search-type">{result.type}</span>
-              <span class="global-search-main">
-                <strong>{result.name}</strong>
-                <small>{result.subtitle}</small>
-              </span>
-              <span class="global-search-meta">{result.meta}</span>
-            </button>
-          {/each}
-        </div>
-      {/if}
-    </div>
-  </div>
-{/if}
-
-{#if supportOpen}
-  <div class="prompt-backdrop">
-    <div class="support-modal" role="dialog" aria-modal="true" aria-labelledby="support-title" tabindex="-1">
-      <header>
-        <h2 id="support-title">Support</h2>
-        <button type="button" class="icon-button" title="Close support" on:click={() => (supportOpen = false)}>x</button>
-      </header>
-      <div class="support-link-list modal-links" aria-label="Support links">
-        {#each supportLinks as link}
-          <button type="button" class="support-link" on:click={() => openExternalLink(link.url)}>
-            <span>{link.glyph}</span>
-            <strong>{link.label}</strong>
-          </button>
-        {/each}
-      </div>
-    </div>
-  </div>
-{/if}
-
-{#if goldenEditionOpen}
-  <div class="prompt-backdrop">
-    <div class="golden-modal" role="dialog" aria-modal="true" aria-labelledby="golden-title" tabindex="-1">
-      <header>
-        <div>
-          <h2 id="golden-title">Golden Edition</h2>
-        </div>
-        <button type="button" class="icon-button" title="Close Golden Edition" on:click={() => (goldenEditionOpen = false)}>x</button>
-      </header>
-      <div class="golden-heading">
-        <h3>Golden Edition</h3>
-        <button type="button" class="golden-buy" on:click={() => openExternalLink('https://www.usebruno.com/pricing')}>Buy</button>
-      </div>
-      {#if goldenPricingOption === 'individuals'}
-        <div class="golden-price">
-          <strong>$19</strong>
-          <span>One Time Payment</span>
-          <p>perpetual license for 2 devices, with 2 years of updates</p>
-        </div>
-      {:else}
-        <div class="golden-price">
-          <strong>$49</strong>
-          <em>/ user</em>
-          <span>One Time Payment</span>
-          <p>perpetual license with 2 years of updates</p>
-        </div>
-      {/if}
-      <div class="golden-switch" role="tablist" aria-label="Golden Edition pricing">
-        <button type="button" role="tab" class:selected={goldenPricingOption === 'individuals'} aria-selected={goldenPricingOption === 'individuals'} on:click={() => (goldenPricingOption = 'individuals')}>Individuals</button>
-        <button type="button" role="tab" class:selected={goldenPricingOption === 'organizations'} aria-selected={goldenPricingOption === 'organizations'} on:click={() => (goldenPricingOption = 'organizations')}>Organizations</button>
-      </div>
-      <ul class="golden-features">
-        <li><span>Heart</span> Support Bruno's Development</li>
-        {#if goldenPricingOption === 'organizations'}
-          <li><span>+</span> Everything in the Individual Plan</li>
-          {#each goldenEditionOrganizations as item}
-            <li><span>Check</span> {item}</li>
-          {/each}
-        {:else}
-          {#each goldenEditionIndividuals as item}
-            <li><span>Check</span> {item}</li>
-          {/each}
-        {/if}
-      </ul>
-    </div>
-  </div>
+  {#await import('./lib/modals/search/GlobalSearchModal.svelte') then GlobalSearchModal}
+    {@const GlobalSearchModalComponent = GlobalSearchModal.default}
+    <GlobalSearchModalComponent
+      bind:globalSearchQuery
+      bind:globalSearchIndex
+      bind:globalSearchInput
+      {globalSearchResults}
+      {handleGlobalSearchKeydown}
+      {selectGlobalSearchResult}
+      {closeGlobalSearch}
+    />
+  {/await}
 {/if}
 
 {#if notificationsOpen}
-  <div class="prompt-backdrop">
-    <div class="notification-modal" role="dialog" aria-modal="true" aria-labelledby="notifications-title" tabindex="-1">
-      <header>
-        <div>
-          <h2 id="notifications-title">Notifications</h2>
-          <p>{unreadNotificationCount} unread</p>
-        </div>
-        <button type="button" class="icon-button" title="Close notifications" on:click={closeNotifications}>x</button>
-      </header>
-      <div class="notification-tabs">
-        <div class="segmented compact">
-          <button type="button" class:active={notificationTab === 'all'} on:click={() => setNotificationTab('all')}>All</button>
-          <button type="button" class:active={notificationTab === 'unread'} on:click={() => setNotificationTab('unread')}>
-            Unread
-            {#if unreadNotificationCount > 0}
-              <span class="notification-tab-count">{unreadNotificationCount}</span>
-            {/if}
-          </button>
-        </div>
-        <div class="button-row compact">
-          <button type="button" on:click={markAllNotificationsRead} disabled={unreadNotificationCount === 0 || busy !== ''}>Mark all as read</button>
-          <button type="button" on:click={clearNotifications} disabled={visibleNotifications.length === 0 || busy !== ''}>Clear all</button>
-        </div>
-      </div>
-      <div class="notification-content">
-        <div class="notification-list" aria-label="Notifications list">
-          {#if listedNotifications.length === 0}
-            <div class="notification-empty">No notifications to show.</div>
-          {:else}
-            {#each listedNotifications as notification (notification.id)}
-              <button
-                type="button"
-                class:active={selectedNotification?.id === notification.id}
-                class:unread={!notification.read}
-                on:click={() => selectNotification(notification)}
-              >
-                <span class="notification-list-title">{notificationTitle(notification)}</span>
-                <span>{notificationDate(notification)}</span>
-              </button>
-            {/each}
-          {/if}
-        </div>
-        <article class="notification-detail">
-          {#if selectedNotification}
-            <div class="notification-detail-meta">
-              <span class={`notification-type ${notificationLevelClass(selectedNotification)}`}>{notificationType(selectedNotification)}</span>
-              <span>{notificationDate(selectedNotification)}</span>
-            </div>
-            <h3>{notificationTitle(selectedNotification)}</h3>
-            <p>{notificationDescription(selectedNotification)}</p>
-          {:else}
-            <div class="notification-empty">You are all caught up!</div>
-          {/if}
-        </article>
-      </div>
-    </div>
-  </div>
+  {#await import('./lib/modals/NotificationsModal.svelte') then NotificationsModal}
+    {@const NotificationsModalComponent = NotificationsModal.default}
+    <NotificationsModalComponent
+      {unreadNotificationCount}
+      {notificationTab}
+      {visibleNotifications}
+      {listedNotifications}
+      {selectedNotification}
+      {busy}
+      {setNotificationTab}
+      {markAllNotificationsRead}
+      {clearNotifications}
+      {selectNotification}
+      {notificationTitle}
+      {notificationDate}
+      {notificationType}
+      {notificationDescription}
+      {notificationLevelClass}
+      {closeNotifications}
+    />
+  {/await}
 {/if}
 
 {#if oauth2AuthorizationRequest}
-  <div class="prompt-backdrop oauth2-auth-backdrop">
-    <div class="prompt-dialog oauth2-auth-dialog" role="dialog" aria-modal="true" aria-labelledby="oauth2-auth-title">
-      <header>
-        <h2 id="oauth2-auth-title">OAuth2 Authorization</h2>
-        <button type="button" class="icon-button" title="Close" on:click={closeOAuth2Authorization}>x</button>
-      </header>
-      <div class="oauth2-auth-frame-wrap">
-        {#key oauth2FrameKey}
-          <iframe
-            class="oauth2-auth-frame"
-            title="OAuth2 Authorization"
-            src={oauth2AuthorizationRequest.authorizeUrl}
-            sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
-          ></iframe>
-        {/key}
-      </div>
-      <div class="oauth2-auth-controls">
-        <button type="button" on:click={openOAuth2AuthorizationInSystemBrowser}>Open in System Browser</button>
-        <label>
-          <span>Callback URL</span>
-          <input
-            aria-label="OAuth2 callback URL"
-            value={oauth2CallbackURLInput}
-            on:input={(event) => (oauth2CallbackURLInput = event.currentTarget.value)}
-          />
-        </label>
-        <button type="button" class="primary" on:click={submitOAuth2CallbackURL} disabled={!oauth2CallbackURLInput.trim()}>Submit Callback</button>
-      </div>
-      {#if oauth2CallbackMessage}
-        <p class="oauth2-auth-message">{oauth2CallbackMessage}</p>
-      {/if}
-    </div>
-  </div>
+  {#await import('./lib/modals/confirm/OAuth2AuthorizationModal.svelte') then OAuth2AuthorizationModal}
+    {@const OAuth2AuthorizationModalComponent = OAuth2AuthorizationModal.default}
+    <OAuth2AuthorizationModalComponent
+      bind:oauth2CallbackURLInput
+      {oauth2AuthorizationRequest}
+      {oauth2FrameKey}
+      {oauth2CallbackMessage}
+      {openOAuth2AuthorizationInSystemBrowser}
+      {submitOAuth2CallbackURL}
+      {closeOAuth2Authorization}
+    />
+  {/await}
 {/if}
 
 {#if creatingResponseExample && activeRequest}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog create-example-dialog" role="dialog" aria-modal="true" aria-labelledby="create-example-title">
-      <form on:submit|preventDefault={createResponseExample}>
-        <header>
-          <h2 id="create-example-title">Create Response Example</h2>
-          <button type="button" class="icon-button" title="Cancel" on:click={cancelCreateResponseExample}>x</button>
-        </header>
-        <div class="prompt-fields">
-          <label>
-            <span>Example Name</span>
-            <input
-              bind:this={createResponseExampleInput}
-              aria-label="Create example name"
-              value={createResponseExampleName}
-              on:input={(event) => (createResponseExampleName = event.currentTarget.value)}
-            />
-          </label>
-          <label>
-            <span>Description</span>
-            <textarea
-              aria-label="Create example description"
-              rows="3"
-              value={createResponseExampleDescription}
-              on:input={(event) => (createResponseExampleDescription = event.currentTarget.value)}
-            ></textarea>
-          </label>
-        </div>
-        <div class="button-row">
-          <button type="button" on:click={cancelCreateResponseExample}>Cancel</button>
-          <button class="primary" type="submit" disabled={busy !== '' || !createResponseExampleName.trim()}>Create Example</button>
-        </div>
-      </form>
-    </div>
-  </div>
+  {#await import('./lib/modals/confirm/CreateExampleModal.svelte') then CreateExampleModal}
+    {@const CreateExampleModalComponent = CreateExampleModal.default}
+    <CreateExampleModalComponent
+      bind:createResponseExampleName
+      bind:createResponseExampleDescription
+      bind:createResponseExampleInput
+      {busy}
+      {createResponseExample}
+      {cancelCreateResponseExample}
+    />
+  {/await}
 {/if}
 
 {#if showShareCollectionModal && activeCollection}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog share-collection-dialog" role="dialog" aria-modal="true" aria-labelledby="share-collection-title" data-testid="share-collection-modal">
-      <form on:submit|preventDefault={shareCollectionProceed}>
-        <header>
-          <h2 id="share-collection-title">Share Collection</h2>
-          <button type="button" class="icon-button" title="Cancel" on:click={cancelShareCollectionModal}>x</button>
-        </header>
-        <div class="share-collection-content">
-          <p>Bruno uses <a href="https://opencollection.com" target="_blank" rel="noreferrer">OpenCollection</a> - An open format for API collections</p>
-
-          <div class="share-section-title">Bruno Format</div>
-          <div class="share-format-grid">
-            <button
-              type="button"
-              class:selected={shareCollectionFormat === 'zip'}
-              class="share-format-card"
-              data-testid="share-format-zip"
-              aria-pressed={shareCollectionFormat === 'zip'}
-              on:click={() => (shareCollectionFormat = 'zip')}
-            >
-              <div class="share-card-header">
-                <span>Bruno Collection (ZIP)</span>
-                <em>Recommended</em>
-              </div>
-              <p>OpenCollection format organized as folders and files</p>
-              <ul>
-                <li>Folder structure with individual .yml files</li>
-                <li>Collaborate with your team via pull requests</li>
-                <li>Extract and open directly in Bruno</li>
-              </ul>
-              <small>Best for: Team collaboration, version control, publishing</small>
-            </button>
-
-            <button
-              type="button"
-              class:selected={shareCollectionFormat === 'yaml'}
-              class="share-format-card"
-              data-testid="share-format-yaml"
-              aria-pressed={shareCollectionFormat === 'yaml'}
-              on:click={() => (shareCollectionFormat = 'yaml')}
-            >
-              <div class="share-card-header">
-                <span>Single File (YAML)</span>
-              </div>
-              <p>OpenCollection format bundled into one .yml file</p>
-              <ul>
-                <li>Everything in a single YAML file</li>
-                <li>Paste in a gist or attach to an issue</li>
-              </ul>
-              <small>Best for: Quick sharing as a single file</small>
-            </button>
-          </div>
-
-          <div class="share-section-title">Other Format</div>
-          <button
-            type="button"
-            class:selected={shareCollectionFormat === 'postman'}
-            class="share-other-format"
-            data-testid="share-format-postman"
-            aria-pressed={shareCollectionFormat === 'postman'}
-            on:click={() => (shareCollectionFormat = 'postman')}
-          >
-            <strong>Postman</strong>
-            <span>Export for Postman</span>
-          </button>
-
-          {#if shareCollectionFormat === 'postman' && shareCollectionUnsupportedTypes.length > 0}
-            <div class="share-warning" data-testid="share-postman-warning">
-              Note: {shareCollectionUnsupportedTypes.join(', ')} requests in this collection will not be exported
-            </div>
-          {/if}
-        </div>
-        <div class="button-row modal-footer">
-          <button type="button" on:click={cancelShareCollectionModal}>Cancel</button>
-          <button class="primary" type="submit" data-testid="share-collection-proceed" disabled={busy !== ''}>{busy === 'share collection' ? 'Exporting...' : 'Proceed'}</button>
-        </div>
-      </form>
-    </div>
-  </div>
+  {#await import('./lib/modals/collection/ShareCollectionModal.svelte') then ShareCollectionModal}
+    {@const ShareCollectionModalComponent = ShareCollectionModal.default}
+    <ShareCollectionModalComponent
+      bind:shareCollectionFormat
+      {shareCollectionUnsupportedTypes}
+      {busy}
+      {shareCollectionProceed}
+      {cancelShareCollectionModal}
+    />
+  {/await}
 {/if}
 
 {#if newFolderTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="new-folder-title" data-testid="new-folder-modal">
-      <form on:submit|preventDefault={confirmNewFolder}>
-        <header>
-          <h2 id="new-folder-title">New Folder</h2>
-          <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={cancelNewFolderModal}>x</button>
-        </header>
-        <div class="prompt-fields">
-          <label>
-            <span>Folder Name</span>
-            <input
-              id="folder-name"
-              name="folderName"
-              aria-label="Folder Name"
-              data-testid="new-folder-input"
-              value={newFolderNameDraft}
-              on:input={(event) => updateNewFolderName(event.currentTarget.value)}
-            />
-          </label>
-          <div class="button-row compact">
-            <button type="button" data-testid="new-folder-options-toggle" on:click={() => (newFolderShowFilesystemName = !newFolderShowFilesystemName)}>
-              {newFolderShowFilesystemName ? 'Hide Filesystem Name' : 'Show Filesystem Name'}
-            </button>
-          </div>
-          {#if newFolderShowFilesystemName}
-            <label>
-              <span>Folder Name (on filesystem)</span>
-              <div class="inline-field-action">
-                {#if newFolderDirectoryEditing}
-                  <input
-                    id="file-name"
-                    name="directoryName"
-                    aria-label="Folder Name on filesystem"
-                    data-testid="new-folder-directory-name"
-                    value={newFolderDirectoryDraft}
-                    on:input={(event) => (newFolderDirectoryDraft = event.currentTarget.value)}
-                  />
-                {:else}
-                  <input
-                    aria-label="Folder Name on filesystem"
-                    data-testid="new-folder-directory-name"
-                    readonly
-                    value={newFolderDirectoryDraft}
-                  />
-                {/if}
-                <button
-                  type="button"
-                  data-testid="new-folder-directory-toggle"
-                  on:click={() => {
-                    newFolderDirectoryEditing = !newFolderDirectoryEditing
-                    if (!newFolderDirectoryEditing) newFolderDirectoryDraft = sanitizeCollectionFolderName(newFolderNameDraft)
-                  }}
-                >{newFolderDirectoryEditing ? 'Reset' : 'Edit'}</button>
-              </div>
-            </label>
-          {/if}
-          {#if newFolderDirectoryDraft && !collectionFolderNameIsValid(newFolderDirectoryDraft)}
-            <p class="field-error">Folder name is not valid.</p>
-          {/if}
-          {#if newFolderDirectoryIsReservedRoot()}
-            <p class="field-error">The folder name "environments" at the root of the collection is reserved in bruno.</p>
-          {/if}
-        </div>
-        <div class="button-row">
-          <button type="button" data-testid="new-folder-cancel" on:click={cancelNewFolderModal}>Cancel</button>
-          <button
-            class="primary"
-            type="submit"
-            data-testid="modal-submit-btn"
-            disabled={busy !== '' || newFolderNameDraft.trim() === '' || !newFolderDirectoryNameIsValid()}
-          >{busy === 'new folder' ? 'Creating...' : 'Create'}</button>
-        </div>
-      </form>
-    </div>
-  </div>
+  {#await import('./lib/modals/collection/NewFolderModal.svelte') then NewFolderModal}
+    {@const NewFolderModalComponent = NewFolderModal.default}
+    <NewFolderModalComponent
+      bind:newFolderDirectoryDraft
+      bind:newFolderDirectoryEditing
+      bind:newFolderShowFilesystemName
+      {newFolderNameDraft}
+      {busy}
+      {newFolderDirectoryNameIsValid}
+      {collectionFolderNameIsValid}
+      {newFolderDirectoryIsReservedRoot}
+      {sanitizeCollectionFolderName}
+      {updateNewFolderName}
+      {confirmNewFolder}
+      {cancelNewFolderModal}
+    />
+  {/await}
 {/if}
 
 {#if renameFolderTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="rename-folder-title" data-testid="rename-folder-modal">
-      <form on:submit|preventDefault={confirmRenameFolder}>
-        <header>
-          <h2 id="rename-folder-title">Rename Folder</h2>
-          <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={cancelRenameFolderModal}>x</button>
-        </header>
-        <div class="prompt-fields">
-          <label>
-            <span>Folder Name</span>
-            <input
-              id="collection-item-name"
-              name="name"
-              aria-label="Rename folder name"
-              data-testid="rename-folder-name"
-              value={renameFolderNameDraft}
-              on:input={(event) => updateRenameFolderName(event.currentTarget.value)}
-            />
-          </label>
-          <div class="button-row compact">
-            <button type="button" data-testid="rename-folder-options-toggle" on:click={() => (renameFolderShowFilesystemName = !renameFolderShowFilesystemName)}>
-              {renameFolderShowFilesystemName ? 'Hide Filesystem Name' : 'Show Filesystem Name'}
-            </button>
-          </div>
-          {#if renameFolderShowFilesystemName}
-            <label>
-              <span>Folder Name (on filesystem)</span>
-              <div class="inline-field-action">
-                {#if renameFolderDirectoryEditing}
-                  <input
-                    id="file-name"
-                    name="filename"
-                    aria-label="Rename folder filesystem name"
-                    data-testid="rename-folder-directory-name"
-                    value={renameFolderDirectoryDraft}
-                    on:input={(event) => (renameFolderDirectoryDraft = event.currentTarget.value)}
-                  />
-                {:else}
-                  <input
-                    aria-label="Rename folder filesystem name"
-                    data-testid="rename-folder-directory-name"
-                    readonly
-                    value={renameFolderDirectoryDraft}
-                  />
-                {/if}
-                <button
-                  type="button"
-                  data-testid="rename-folder-directory-toggle"
-                  on:click={() => {
-                    renameFolderDirectoryEditing = !renameFolderDirectoryEditing
-                    if (!renameFolderDirectoryEditing) renameFolderDirectoryDraft = sanitizeCollectionFolderName(renameFolderNameDraft)
-                  }}
-                >{renameFolderDirectoryEditing ? 'Reset' : 'Edit'}</button>
-              </div>
-            </label>
-          {/if}
-          {#if renameFolderDirectoryDraft && !collectionFolderNameIsValid(renameFolderDirectoryDraft)}
-            <p class="field-error">Folder name is not valid.</p>
-          {/if}
-          {#if renameFolderDirectoryIsReserved()}
-            <p class="field-error">The file names "collection" and "folder" are reserved in bruno.</p>
-          {/if}
-        </div>
-        <div class="button-row">
-          <button type="button" data-testid="rename-folder-cancel" on:click={cancelRenameFolderModal}>Cancel</button>
-          <button
-            class="primary"
-            type="submit"
-            data-testid="rename-item-button"
-            disabled={busy !== '' || renameFolderNameDraft.trim() === '' || !renameFolderDirectoryNameIsValid()}
-          >{busy === 'rename folder' ? 'Renaming...' : 'Rename'}</button>
-        </div>
-      </form>
-    </div>
-  </div>
+  {#await import('./lib/modals/collection/RenameFolderModal.svelte') then RenameFolderModal}
+    {@const RenameFolderModalComponent = RenameFolderModal.default}
+    <RenameFolderModalComponent
+      bind:renameFolderDirectoryDraft
+      bind:renameFolderDirectoryEditing
+      bind:renameFolderShowFilesystemName
+      {renameFolderNameDraft}
+      {busy}
+      {renameFolderDirectoryNameIsValid}
+      {renameFolderDirectoryIsReserved}
+      {collectionFolderNameIsValid}
+      {sanitizeCollectionFolderName}
+      {updateRenameFolderName}
+      {confirmRenameFolder}
+      {cancelRenameFolderModal}
+    />
+  {/await}
 {/if}
 
 {#if cloneFolderTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="clone-folder-title">
-      <form on:submit|preventDefault={confirmCloneFolder}>
-        <header>
-          <h2 id="clone-folder-title">Clone Folder</h2>
-          <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={cancelCloneFolderModal}>x</button>
-        </header>
-        <div class="prompt-fields">
-          <label>
-            <span>Folder Name</span>
-            <input
-              id="collection-item-name"
-              name="name"
-              aria-label="Clone folder name"
-              data-testid="clone-folder-name"
-              value={cloneFolderNameDraft}
-              on:input={(event) => updateCloneFolderName(event.currentTarget.value)}
-            />
-          </label>
-          <div class="button-row compact">
-            <button type="button" data-testid="clone-folder-options-toggle" on:click={() => (cloneFolderShowFilesystemName = !cloneFolderShowFilesystemName)}>
-              {cloneFolderShowFilesystemName ? 'Hide Filesystem Name' : 'Show Filesystem Name'}
-            </button>
-          </div>
-          {#if cloneFolderShowFilesystemName}
-            <label>
-              <span>Folder Name (on filesystem)</span>
-              <div class="inline-field-action">
-                {#if cloneFolderDirectoryEditing}
-                  <input
-                    id="file-name"
-                    name="filename"
-                    aria-label="Clone folder filesystem name"
-                    data-testid="clone-folder-directory-name"
-                    value={cloneFolderDirectoryDraft}
-                    on:input={(event) => (cloneFolderDirectoryDraft = event.currentTarget.value)}
-                  />
-                {:else}
-                  <input
-                    aria-label="Clone folder filesystem name"
-                    data-testid="clone-folder-directory-name"
-                    readonly
-                    value={cloneFolderDirectoryDraft}
-                  />
-                {/if}
-                <button
-                  type="button"
-                  data-testid="clone-folder-directory-toggle"
-                  on:click={() => {
-                    cloneFolderDirectoryEditing = !cloneFolderDirectoryEditing
-                    if (!cloneFolderDirectoryEditing) cloneFolderDirectoryDraft = sanitizeCollectionFolderName(cloneFolderNameDraft)
-                  }}
-                >{cloneFolderDirectoryEditing ? 'Reset' : 'Edit'}</button>
-              </div>
-            </label>
-          {/if}
-          {#if cloneFolderDirectoryDraft && !collectionFolderNameIsValid(cloneFolderDirectoryDraft)}
-            <p class="field-error">Folder name is not valid.</p>
-          {/if}
-          {#if cloneFolderDirectoryIsReserved()}
-            <p class="field-error">The file names "collection" and "folder" are reserved in bruno.</p>
-          {/if}
-        </div>
-        <div class="button-row">
-          <button type="button" on:click={cancelCloneFolderModal}>Cancel</button>
-          <button
-            class="primary"
-            type="submit"
-            data-testid="clone-item-button"
-            disabled={busy !== '' || cloneFolderNameDraft.trim() === '' || !cloneFolderDirectoryNameIsValid()}
-          >{busy === 'clone folder' ? 'Cloning...' : 'Clone'}</button>
-        </div>
-      </form>
-    </div>
-  </div>
+  {#await import('./lib/modals/collection/CloneFolderModal.svelte') then CloneFolderModal}
+    {@const CloneFolderModalComponent = CloneFolderModal.default}
+    <CloneFolderModalComponent
+      bind:cloneFolderDirectoryDraft
+      bind:cloneFolderDirectoryEditing
+      bind:cloneFolderShowFilesystemName
+      {cloneFolderNameDraft}
+      {busy}
+      {cloneFolderDirectoryNameIsValid}
+      {cloneFolderDirectoryIsReserved}
+      {collectionFolderNameIsValid}
+      {sanitizeCollectionFolderName}
+      {updateCloneFolderName}
+      {confirmCloneFolder}
+      {cancelCloneFolderModal}
+    />
+  {/await}
 {/if}
 
 {#if renameRequestTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="rename-request-title">
-      <form on:submit|preventDefault={confirmRenameRequest}>
-        <header>
-          <h2 id="rename-request-title">Rename Request</h2>
-          <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={cancelRenameRequestModal}>x</button>
-        </header>
-        <div class="prompt-fields">
-          <label>
-            <span>Request Name</span>
-            <input
-              id="collection-item-name"
-              name="name"
-              aria-label="Rename request name"
-              data-testid="rename-request-name"
-              value={renameRequestNameDraft}
-              on:input={(event) => updateRenameRequestName(event.currentTarget.value)}
-            />
-          </label>
-          <div class="button-row compact">
-            <button type="button" data-testid="rename-request-options-toggle" on:click={() => (renameRequestShowFilesystemName = !renameRequestShowFilesystemName)}>
-              {renameRequestShowFilesystemName ? 'Hide Filesystem Name' : 'Show Filesystem Name'}
-            </button>
-          </div>
-          {#if renameRequestShowFilesystemName}
-            <label>
-              <span>File Name (on filesystem)</span>
-              <div class="inline-field-action">
-                <div class="filename-with-extension">
-                  {#if renameRequestFilenameEditing}
-                    <input
-                      id="file-name"
-                      name="filename"
-                      aria-label="Rename request filesystem name"
-                      data-testid="rename-request-file-name"
-                      value={renameRequestFilenameDraft}
-                      on:input={(event) => (renameRequestFilenameDraft = event.currentTarget.value)}
-                    />
-                  {:else}
-                    <input
-                      aria-label="Rename request filesystem name"
-                      data-testid="rename-request-file-name"
-                      readonly
-                      value={renameRequestFilenameDraft}
-                    />
-                  {/if}
-                  <span>{renameRequestTarget.collection.format === 'yml' || renameRequestTarget.collection.format === 'yaml' ? '.yml' : '.bru'}</span>
-                </div>
-                <button
-                  type="button"
-                  data-testid="rename-request-edit-icon"
-                  on:click={() => {
-                    renameRequestFilenameEditing = !renameRequestFilenameEditing
-                    if (!renameRequestFilenameEditing) renameRequestFilenameDraft = sanitizeCollectionFolderName(renameRequestNameDraft)
-                  }}
-                >{renameRequestFilenameEditing ? 'Reset' : 'Edit'}</button>
-              </div>
-            </label>
-          {/if}
-          {#if renameRequestFilenameDraft && !collectionFolderNameIsValid(renameRequestFilenameDraft)}
-            <p class="field-error">File name is not valid.</p>
-          {/if}
-          {#if renameRequestFilenameIsReserved()}
-            <p class="field-error">The file names "collection" and "folder" are reserved in bruno.</p>
-          {/if}
-        </div>
-        <div class="button-row">
-          <button type="button" on:click={cancelRenameRequestModal}>Cancel</button>
-          <button
-            class="primary"
-            type="submit"
-            data-testid="rename-item-button"
-            disabled={busy !== '' || renameRequestNameDraft.trim() === '' || !renameRequestFilenameIsValid()}
-          >{busy === 'rename request' ? 'Renaming...' : 'Rename'}</button>
-        </div>
-      </form>
-    </div>
-  </div>
+  {#await import('./lib/modals/collection/RenameRequestModal.svelte') then RenameRequestModal}
+    {@const RenameRequestModalComponent = RenameRequestModal.default}
+    <RenameRequestModalComponent
+      bind:renameRequestFilenameDraft
+      bind:renameRequestFilenameEditing
+      bind:renameRequestShowFilesystemName
+      {renameRequestNameDraft}
+      {renameRequestTarget}
+      {busy}
+      {renameRequestFilenameIsValid}
+      {renameRequestFilenameIsReserved}
+      {collectionFolderNameIsValid}
+      {sanitizeCollectionFolderName}
+      {updateRenameRequestName}
+      {confirmRenameRequest}
+      {cancelRenameRequestModal}
+    />
+  {/await}
 {/if}
 
 {#if cloneRequestTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="clone-request-title">
-      <form on:submit|preventDefault={confirmCloneRequest}>
-        <header>
-          <h2 id="clone-request-title">Clone Request</h2>
-          <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={cancelCloneRequestModal}>x</button>
-        </header>
-        <div class="prompt-fields">
-          <label>
-            <span>Request Name</span>
-            <input
-              id="collection-item-name"
-              name="name"
-              aria-label="Clone request name"
-              data-testid="clone-request-name"
-              value={cloneRequestNameDraft}
-              on:input={(event) => updateCloneRequestName(event.currentTarget.value)}
-            />
-          </label>
-          <div class="button-row compact">
-            <button type="button" data-testid="clone-request-options-toggle" on:click={() => (cloneRequestShowFilesystemName = !cloneRequestShowFilesystemName)}>
-              {cloneRequestShowFilesystemName ? 'Hide Filesystem Name' : 'Show Filesystem Name'}
-            </button>
-          </div>
-          {#if cloneRequestShowFilesystemName}
-            <label>
-              <span>File Name (on filesystem)</span>
-              <div class="inline-field-action">
-                <div class="filename-with-extension">
-                  {#if cloneRequestFilenameEditing}
-                    <input
-                      id="file-name"
-                      name="filename"
-                      aria-label="Clone request filesystem name"
-                      data-testid="clone-request-file-name"
-                      value={cloneRequestFilenameDraft}
-                      on:input={(event) => (cloneRequestFilenameDraft = event.currentTarget.value)}
-                    />
-                  {:else}
-                    <input
-                      aria-label="Clone request filesystem name"
-                      data-testid="clone-request-file-name"
-                      readonly
-                      value={cloneRequestFilenameDraft}
-                    />
-                  {/if}
-                  <span>{cloneRequestTarget.collection.format === 'yml' || cloneRequestTarget.collection.format === 'yaml' ? '.yml' : '.bru'}</span>
-                </div>
-                <button
-                  type="button"
-                  data-testid="clone-request-filename-toggle"
-                  on:click={() => {
-                    cloneRequestFilenameEditing = !cloneRequestFilenameEditing
-                    if (!cloneRequestFilenameEditing) cloneRequestFilenameDraft = sanitizeCollectionFolderName(cloneRequestNameDraft)
-                  }}
-                >{cloneRequestFilenameEditing ? 'Reset' : 'Edit'}</button>
-              </div>
-            </label>
-          {/if}
-          {#if cloneRequestFilenameDraft && !collectionFolderNameIsValid(cloneRequestFilenameDraft)}
-            <p class="field-error">File name is not valid.</p>
-          {/if}
-          {#if cloneRequestFilenameIsReserved()}
-            <p class="field-error">The file names "collection" and "folder" are reserved in bruno.</p>
-          {/if}
-        </div>
-        <div class="button-row">
-          <button type="button" on:click={cancelCloneRequestModal}>Cancel</button>
-          <button
-            class="primary"
-            type="submit"
-            data-testid="clone-item-button"
-            disabled={busy !== '' || cloneRequestNameDraft.trim() === '' || !cloneRequestFilenameIsValid()}
-          >{busy === 'clone request' ? 'Cloning...' : 'Clone'}</button>
-        </div>
-      </form>
-    </div>
-  </div>
+  {#await import('./lib/modals/collection/CloneRequestModal.svelte') then CloneRequestModal}
+    {@const CloneRequestModalComponent = CloneRequestModal.default}
+    <CloneRequestModalComponent
+      bind:cloneRequestFilenameDraft
+      bind:cloneRequestFilenameEditing
+      bind:cloneRequestShowFilesystemName
+      {cloneRequestNameDraft}
+      {cloneRequestTarget}
+      {busy}
+      {cloneRequestFilenameIsValid}
+      {cloneRequestFilenameIsReserved}
+      {collectionFolderNameIsValid}
+      {sanitizeCollectionFolderName}
+      {updateCloneRequestName}
+      {confirmCloneRequest}
+      {cancelCloneRequestModal}
+    />
+  {/await}
 {/if}
 
 {#if itemInfoTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog item-info-dialog" role="dialog" aria-modal="true" aria-labelledby="item-info-title">
-      <header>
-        <h2 id="item-info-title">Info</h2>
-        <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={closeItemInfoModal}>x</button>
-      </header>
-      <div class="prompt-fields">
-        <table class="item-info-table">
-          <tbody>
-            <tr>
-              <td class="item-info-label">{itemInfoTarget.kind === 'folder' ? 'Folder Name' : 'Request Name'}</td>
-              <td class="item-info-value" title={itemInfoDisplayName(itemInfoTarget)}>
-                <span class="item-info-colon">:</span>{itemInfoDisplayName(itemInfoTarget)}
-              </td>
-            </tr>
-            <tr>
-              <td class="item-info-label">
-                {itemInfoTarget.kind === 'folder' ? 'Folder Name' : 'File Name'}
-                <small>(on filesystem)</small>
-              </td>
-              <td class="item-info-value break-all" title={itemInfoFilesystemName(itemInfoTarget)}>
-                <span class="item-info-colon">:</span>{itemInfoFilesystemName(itemInfoTarget)}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
+  {#await import('./lib/modals/confirm/ItemInfoModal.svelte') then ItemInfoModal}
+    {@const ItemInfoModalComponent = ItemInfoModal.default}
+    <ItemInfoModalComponent
+      {itemInfoTarget}
+      {itemInfoDisplayName}
+      {itemInfoFilesystemName}
+      {closeItemInfoModal}
+    />
+  {/await}
 {/if}
 
 {#if deleteRequestTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-request-title">
-      <form on:submit|preventDefault={confirmDeleteRequest}>
-        <header>
-          <h2 id="delete-request-title">Delete Request</h2>
-          <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={cancelDeleteRequestModal}>x</button>
-        </header>
-        <div class="prompt-fields">
-          <p>Are you sure you want to delete <span class="font-medium">{deleteRequestTarget.request.name}</span> ?</p>
-        </div>
-        <div class="button-row">
-          <button type="button" on:click={cancelDeleteRequestModal}>Cancel</button>
-          <button
-            class="danger-button"
-            type="submit"
-            data-testid="modal-submit-btn"
-            disabled={busy !== ''}
-          >{busy === 'delete request' ? 'Deleting...' : 'Delete'}</button>
-        </div>
-      </form>
-    </div>
-  </div>
+  {#await import('./lib/modals/confirm/DeleteRequestModal.svelte') then DeleteRequestModal}
+    {@const DeleteRequestModalComponent = DeleteRequestModal.default}
+    <DeleteRequestModalComponent
+      {deleteRequestTarget}
+      {busy}
+      {confirmDeleteRequest}
+      {cancelDeleteRequestModal}
+    />
+  {/await}
 {/if}
 
 {#if deleteFolderTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-folder-title">
-      <form on:submit|preventDefault={confirmDeleteFolder}>
-        <header>
-          <h2 id="delete-folder-title">Delete Folder</h2>
-          <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={cancelDeleteFolderModal}>x</button>
-        </header>
-        <div class="prompt-fields">
-          <p>Are you sure you want to delete <span class="font-medium">{deleteFolderTarget.folder.name || slashPathBase(deleteFolderTarget.folder.displayPath || deleteFolderTarget.folder.path)}</span> ?</p>
-        </div>
-        <div class="button-row">
-          <button type="button" on:click={cancelDeleteFolderModal}>Cancel</button>
-          <button
-            class="danger-button"
-            type="submit"
-            data-testid="modal-submit-btn"
-            disabled={busy !== ''}
-          >{busy === 'delete folder' ? 'Deleting...' : 'Delete'}</button>
-        </div>
-      </form>
-    </div>
-  </div>
+  {#await import('./lib/modals/confirm/DeleteFolderModal.svelte') then DeleteFolderModal}
+    {@const DeleteFolderModalComponent = DeleteFolderModal.default}
+    <DeleteFolderModalComponent
+      {deleteFolderTarget}
+      {busy}
+      {slashPathBase}
+      {confirmDeleteFolder}
+      {cancelDeleteFolderModal}
+    />
+  {/await}
 {/if}
 
 {#if cloneCollectionTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="clone-collection-title" data-testid="clone-collection-modal">
-      <form on:submit|preventDefault={confirmCloneCollection}>
-        <header>
-          <h2 id="clone-collection-title">Clone Collection</h2>
-          <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={cancelCloneCollectionModal}>x</button>
-        </header>
-        <div class="prompt-fields">
-          <label>
-            <span>Name</span>
-            <input
-              id="collection-name"
-              name="collectionName"
-              aria-label="Clone collection name"
-              data-testid="clone-collection-name"
-              value={cloneCollectionNameDraft}
-              on:input={(event) => updateCloneCollectionName(event.currentTarget.value)}
-            />
-          </label>
-          <label>
-            <span>Location</span>
-            <div class="inline-field-action">
-              <input
-                id="collection-location"
-                name="collectionLocation"
-                aria-label="Clone collection location"
-                data-testid="clone-collection-location"
-                readonly
-                value={cloneCollectionLocationDraft}
-                on:click={browseCloneCollectionLocation}
-              />
-              <button type="button" data-testid="clone-collection-browse" on:click={browseCloneCollectionLocation}>Browse</button>
-            </div>
-          </label>
-          <label>
-            <span>Folder Name</span>
-            <div class="inline-field-action">
-              {#if cloneCollectionFolderEditing}
-                <input
-                  id="collection-folder-name"
-                  name="collectionFolderName"
-                  aria-label="Clone collection folder name"
-                  data-testid="clone-collection-folder-name"
-                  value={cloneCollectionFolderDraft}
-                  on:input={(event) => (cloneCollectionFolderDraft = event.currentTarget.value)}
-                />
-              {:else}
-                <input
-                  aria-label="Clone collection folder name"
-                  data-testid="clone-collection-folder-name"
-                  readonly
-                  value={cloneCollectionFolderDraft}
-                />
-              {/if}
-              <button type="button" data-testid="clone-collection-folder-toggle" on:click={() => (cloneCollectionFolderEditing = !cloneCollectionFolderEditing)}>{cloneCollectionFolderEditing ? 'Reset' : 'Edit'}</button>
-            </div>
-          </label>
-          {#if cloneCollectionFolderDraft && !collectionFolderNameIsValid(cloneCollectionFolderDraft)}
-            <p class="field-error">Folder name is not valid.</p>
-          {/if}
-        </div>
-        <div class="button-row">
-          <button type="button" data-testid="clone-collection-cancel" on:click={cancelCloneCollectionModal}>Cancel</button>
-          <button
-            class="primary"
-            type="submit"
-            data-testid="modal-submit-btn"
-            disabled={busy !== '' || cloneCollectionNameDraft === '' || !cloneCollectionLocationDraft || !collectionFolderNameIsValid(cloneCollectionFolderDraft)}
-          >{busy === 'clone collection' ? 'Creating...' : 'Create'}</button>
-        </div>
-      </form>
-    </div>
-  </div>
+  {#await import('./lib/modals/collection/CloneCollectionModal.svelte') then CloneCollectionModal}
+    {@const CloneCollectionModalComponent = CloneCollectionModal.default}
+    <CloneCollectionModalComponent
+      bind:cloneCollectionFolderDraft
+      bind:cloneCollectionFolderEditing
+      {cloneCollectionNameDraft}
+      {cloneCollectionLocationDraft}
+      {busy}
+      {collectionFolderNameIsValid}
+      {updateCloneCollectionName}
+      {browseCloneCollectionLocation}
+      {confirmCloneCollection}
+      {cancelCloneCollectionModal}
+    />
+  {/await}
 {/if}
 
 {#if renameCollectionTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="rename-collection-title" data-testid="rename-collection-modal">
-      <form on:submit|preventDefault={confirmRenameCollection}>
-        <header>
-          <h2 id="rename-collection-title">Rename Collection</h2>
-          <button type="button" class="icon-button" title="Cancel" on:click={cancelRenameCollectionModal}>x</button>
-        </header>
-        <div class="prompt-fields">
-          <label>
-            <span>Name</span>
-            <input
-              aria-label="Rename collection name"
-              data-testid="rename-collection-name"
-              value={renameCollectionDraft}
-              on:input={(event) => (renameCollectionDraft = event.currentTarget.value)}
-            />
-          </label>
-        </div>
-        <div class="button-row">
-          <button type="button" data-testid="rename-collection-cancel" on:click={cancelRenameCollectionModal}>Cancel</button>
-          <button class="primary" type="submit" data-testid="rename-collection-confirm" disabled={busy !== '' || renameCollectionDraft === ''}>{busy === 'rename collection' ? 'Renaming...' : 'Rename'}</button>
-        </div>
-      </form>
-    </div>
-  </div>
+  {#await import('./lib/modals/collection/RenameCollectionModal.svelte') then RenameCollectionModal}
+    {@const RenameCollectionModalComponent = RenameCollectionModal.default}
+    <RenameCollectionModalComponent
+      bind:renameCollectionDraft
+      {busy}
+      {confirmRenameCollection}
+      {cancelRenameCollectionModal}
+    />
+  {/await}
 {/if}
 
 {#if removeCollectionTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="remove-collection-title" data-testid="remove-collection-modal">
-      <header>
-        <h2 id="remove-collection-title">Remove Collection</h2>
-        <button type="button" class="icon-button" title="Cancel" on:click={cancelRemoveCollectionModal}>x</button>
-      </header>
-      <p>Remove {removeCollectionTarget.name} from this workspace. The collection folder remains on disk.</p>
-      <code>{removeCollectionTarget.path}</code>
-      <div class="button-row">
-        <button type="button" data-testid="remove-collection-cancel" on:click={cancelRemoveCollectionModal}>Cancel</button>
-        <button class="primary" type="button" data-testid="remove-collection-confirm" on:click={confirmRemoveCollection} disabled={busy !== ''}>{busy === 'remove collection' ? 'Removing...' : 'Remove'}</button>
-      </div>
-    </div>
-  </div>
+  {#await import('./lib/modals/confirm/RemoveCollectionModal.svelte') then RemoveCollectionModal}
+    {@const RemoveCollectionModalComponent = RemoveCollectionModal.default}
+    <RemoveCollectionModalComponent
+      {removeCollectionTarget}
+      {busy}
+      {confirmRemoveCollection}
+      {cancelRemoveCollectionModal}
+    />
+  {/await}
 {/if}
 
 	{#if showGenerateDocsModal && activeCollection}
-	  <div class="prompt-backdrop">
-	    <div class="prompt-dialog generate-docs-dialog" role="dialog" aria-modal="true" aria-labelledby="generate-docs-title" data-testid="generate-docs-modal">
-      <form on:submit|preventDefault={generateCollectionDocs}>
-        <header>
-          <h2 id="generate-docs-title">Generate Documentation</h2>
-          <button type="button" class="icon-button" title="Cancel" on:click={cancelGenerateDocsModal}>x</button>
-        </header>
-        <div class="generate-docs-content">
-          <h3 data-testid="generate-docs-heading">Interactive API Documentation</h3>
-          <p>Generate a standalone HTML file that can be hosted anywhere or shared with your team.</p>
-          <ul class="generate-docs-features">
-            <li>Standalone HTML file - no server required</li>
-            <li>Interactive API playground</li>
-            <li>Host on any static file server</li>
-          </ul>
-          <div class="generate-docs-card">
-            <div class="version-info" data-testid="version-info">
-              <div class="version-line">
-                <span class="version-label">Collection Version:</span>
-                <span class="version-value" data-testid="version-value">{formattedCollectionVersion(activeCollection.version)}</span>
-              </div>
-              <p class="version-summary" data-testid="version-summary">{generateDocsFolderCount} {generateDocsFolderCount === 1 ? 'Folder' : 'Folders'} • {generateDocsRequestCount} {generateDocsRequestCount === 1 ? 'request' : 'requests'}</p>
-            </div>
-            {#if generateDocsEnvironments.length > 0}
-              <div class="card-divider"></div>
-              <div class="env-section-header">
-                <div class="env-section-heading">
-                  <h4 class="env-section-title" data-testid="env-section-title">Environments to include</h4>
-                  <span class="env-section-count" data-testid="env-selected-count">({generateDocsSelectedCount}/{generateDocsEnvironments.length} selected)</span>
-                </div>
-                <label class="env-select-all">
-                  <input
-                    bind:this={generateDocsSelectAllInput}
-                    type="checkbox"
-                    data-testid="env-select-all"
-                    checked={generateDocsSelectedCount === generateDocsEnvironments.length}
-                    on:change={(event) => toggleGenerateDocsSelectAll(event.currentTarget.checked)}
-                  />
-                  <span data-testid="env-select-all-label">Select All</span>
-                </label>
-              </div>
-              <div class="env-list">
-                {#each generateDocsEnvironments as env}
-                  <label class="env-row" data-testid="env-row">
-                    <input
-                      type="checkbox"
-                      data-testid={`env-select-${env.id}`}
-                      checked={generateDocsSelectedEnvIds.includes(env.id)}
-                      on:change={(event) => toggleGenerateDocsEnvironment(env.id, event.currentTarget.checked)}
-                    />
-                    <span class="env-color" style={`background: ${env.color || '#64748b'}`}></span>
-                    <span>{env.name}</span>
-                  </label>
-                {/each}
-              </div>
-            {/if}
-          </div>
-          <p class="generate-docs-note">The generated file loads OpenCollection's JavaScript and CSS files from a CDN, which requires an internet connection.</p>
-        </div>
-        <div class="button-row">
-          <button type="button" data-testid="generate-docs-cancel" on:click={cancelGenerateDocsModal}>Cancel</button>
-          <button class="primary" type="submit" data-testid="generate-docs-generate" disabled={busy !== ''}>Generate</button>
-        </div>
-      </form>
-    </div>
-	  </div>
+	  {#await import('./lib/modals/collection/GenerateDocsModal.svelte') then GenerateDocsModal}
+	    {@const GenerateDocsModalComponent = GenerateDocsModal.default}
+	    <GenerateDocsModalComponent
+	      {activeCollection}
+	      {generateDocsFolderCount}
+	      {generateDocsRequestCount}
+	      {generateDocsEnvironments}
+	      {generateDocsSelectedEnvIds}
+	      {generateDocsSelectedCount}
+	      {busy}
+	      {formattedCollectionVersion}
+	      {toggleGenerateDocsSelectAll}
+	      {toggleGenerateDocsEnvironment}
+	      {generateCollectionDocs}
+	      {cancelGenerateDocsModal}
+	      bind:selectAllInput={generateDocsSelectAllInput}
+	    />
+	  {/await}
 		{/if}
 
 		{#if openAPISpecViewerOpen && openAPISpecViewerResult}
-		  <div class="prompt-backdrop">
-		    <div class="prompt-dialog openapi-spec-dialog" role="dialog" aria-modal="true" aria-labelledby="openapi-spec-title" data-testid="openapi-spec-viewer-modal">
-		      <header>
-		        <h2 id="openapi-spec-title">API Spec</h2>
-		        <button type="button" class="icon-button" title="Close" on:click={closeOpenAPISyncSpecViewer}>x</button>
-		      </header>
-		      <div class="openapi-spec-meta">
-		        {#if openAPISpecViewerResult.sourceUrl}
-		          <span data-testid="openapi-spec-viewer-source">{openAPISpecViewerResult.sourceUrl}</span>
-		        {/if}
-		        {#if openAPISpecViewerResult.fetched}
-		          <small data-testid="openapi-spec-viewer-origin">Showing spec file from source.</small>
-		        {:else}
-		          <small data-testid="openapi-spec-viewer-origin">Stored spec from last sync.</small>
-		        {/if}
-		      </div>
-		      <pre class="openapi-spec-viewer" aria-label="OpenAPI spec content" data-testid="openapi-spec-viewer-content">{formattedOpenAPISpecContent(openAPISpecViewerResult.content)}</pre>
-		      <div class="button-row">
-		        <button type="button" data-testid="openapi-spec-viewer-close" on:click={closeOpenAPISyncSpecViewer}>Close</button>
-		        <button class="primary" type="button" data-testid="openapi-spec-viewer-copy" on:click={copyOpenAPISyncSpec}>Copy</button>
-		      </div>
-		    </div>
-		  </div>
+  {#await import('./lib/modals/openapi/SpecViewerModal.svelte') then SpecViewerModal}
+    {@const SpecViewerModalComponent = SpecViewerModal.default}
+    <SpecViewerModalComponent
+      {openAPISpecViewerResult}
+      {formattedOpenAPISpecContent}
+      {copyOpenAPISyncSpec}
+      {closeOpenAPISyncSpecViewer}
+    />
+  {/await}
 		{/if}
 
 		{#if openAPISpecDiffOpen && openAPISpecDiffResult}
-		  <div class="prompt-backdrop">
-		    <div class="prompt-dialog openapi-spec-diff-dialog" role="dialog" aria-modal="true" aria-labelledby="openapi-spec-diff-title" data-testid="openapi-spec-diff-modal">
-		      <header>
-		        <h2 id="openapi-spec-diff-title">Spec Diff</h2>
-		        <button type="button" class="icon-button" title="Close" on:click={closeOpenAPISyncSpecDiff}>x</button>
-		      </header>
-		      <div class="openapi-spec-meta">
-		        {#if openAPISpecDiffResult.sourceUrl}
-		          <span data-testid="openapi-spec-diff-source">{openAPISpecDiffResult.sourceUrl}</span>
-		        {/if}
-		        <small data-testid="openapi-spec-diff-summary">{openAPISyncSpecDiffSummary(openAPISpecDiffResult)}</small>
-		        {#if openAPISpecDiffResult.noStoredSpec}
-		          <small>No stored spec file found. Comparing against an empty current spec.</small>
-		        {/if}
-		      </div>
-		      <div class="openapi-spec-diff-badges" aria-label="Endpoint change summary">
-		        <span class="openapi-spec-diff-badge added">{openAPISpecDiffResult.added ?? 0} New in Spec</span>
-		        <span class="openapi-spec-diff-badge changed">{openAPISpecDiffResult.updated ?? 0} Updated in Spec</span>
-		        <span class="openapi-spec-diff-badge removed">{openAPISpecDiffResult.removed ?? 0} Removed from Spec</span>
-		      </div>
-		      <div class="openapi-spec-diff-toolbar" data-testid="openapi-spec-diff-navigation">
-		        <button type="button" data-testid="openapi-spec-diff-previous" on:click={() => goOpenAPISpecDiffChange(-1)} disabled={openAPISpecDiffChangeCount === 0 || openAPISpecDiffActiveChangeIndex === 0}>Previous</button>
-		        <span data-testid="openapi-spec-diff-change-counter">
-		          {openAPISpecDiffChangeCount > 0 ? `${openAPISpecDiffActiveChangeIndex + 1} / ${openAPISpecDiffChangeCount} changes` : '0 changes'}
-		        </span>
-		        <button type="button" data-testid="openapi-spec-diff-next" on:click={() => goOpenAPISpecDiffChange(1)} disabled={openAPISpecDiffChangeCount === 0 || openAPISpecDiffActiveChangeIndex >= openAPISpecDiffChangeCount - 1}>Next</button>
-		      </div>
-		      <div class="openapi-spec-diff-grid" data-testid="openapi-spec-diff-content">
-		        <div class="openapi-spec-diff-heading">Current Spec</div>
-		        <div class="openapi-spec-diff-heading">Updated Spec</div>
-		        {#each openAPISpecDiffResult.lines ?? [] as line, lineIndex}
-		          <div class={`openapi-spec-diff-cell ${line.kind}`} class:active-change={openAPISpecDiffLineIsActive(lineIndex, line)} data-testid="openapi-spec-diff-current-line" data-openapi-spec-diff-line-index={lineIndex}>
-		            <span class="openapi-spec-diff-line-number">{line.oldNumber || ''}</span>
-		            <code>{line.oldText ?? ''}</code>
-		          </div>
-		          <div class={`openapi-spec-diff-cell ${line.kind}`} class:active-change={openAPISpecDiffLineIsActive(lineIndex, line)} data-testid="openapi-spec-diff-updated-line" data-openapi-spec-diff-line-index={lineIndex}>
-		            <span class="openapi-spec-diff-line-number">{line.newNumber || ''}</span>
-		            <code>{line.newText ?? ''}</code>
-		          </div>
-		        {/each}
-		      </div>
-		      <div class="button-row">
-		        <button type="button" data-testid="openapi-spec-diff-close" on:click={closeOpenAPISyncSpecDiff}>Close</button>
-		      </div>
-		    </div>
-		  </div>
+		  {#await import('./lib/modals/openapi/SpecDiffModal.svelte') then SpecDiffModal}
+		    {@const SpecDiffModalComponent = SpecDiffModal.default}
+		    <SpecDiffModalComponent
+		      {openAPISpecDiffResult}
+		      {openAPISpecDiffChangeCount}
+		      {openAPISpecDiffActiveChangeIndex}
+		      {openAPISyncSpecDiffSummary}
+		      {openAPISpecDiffLineIsActive}
+		      {goOpenAPISpecDiffChange}
+		      {closeOpenAPISyncSpecDiff}
+		    />
+		  {/await}
 		{/if}
 
 		{#if openAPISyncSettingsOpen && activeCollection}
-		  <div class="prompt-backdrop">
-		    <div class="prompt-dialog openapi-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="openapi-settings-title" data-testid="openapi-sync-settings-modal">
-		      <form on:submit|preventDefault={saveOpenAPISyncSettings}>
-	        <header>
-	          <h2 id="openapi-settings-title">Connection Settings</h2>
-	          <button type="button" class="icon-button" title="Cancel" on:click={cancelOpenAPISyncSettings}>x</button>
-	        </header>
-	        <div class="prompt-fields">
-	          <label>
-	            <span>Spec Source</span>
-	            <input
-	              aria-label="OpenAPI sync settings source"
-	              data-testid="openapi-sync-settings-source"
-	              placeholder="https://api.example.com/openapi.json"
-	              bind:value={openAPISyncSettingsSourceURL}
-	            />
-	          </label>
-	          <label class="checkbox-line openapi-settings-toggle">
-	            <input type="checkbox" data-testid="openapi-sync-settings-auto-check" bind:checked={openAPISyncSettingsAutoCheck} />
-	            <span>Auto-check for updates</span>
-	          </label>
-	          {#if openAPISyncSettingsAutoCheck}
-	            <div class="openapi-settings-intervals">
-	              <span>Check interval</span>
-	              <div class="segmented compact" data-testid="openapi-sync-settings-intervals">
-	                {#each openAPISyncCheckIntervals as minutes}
-	                  <button
-	                    type="button"
-	                    class:active={openAPISyncSettingsInterval === minutes}
-	                    data-testid={`openapi-sync-settings-interval-${minutes}`}
-	                    on:click={() => (openAPISyncSettingsInterval = minutes)}
-	                  >
-	                    {minutes} min
-	                  </button>
-	                {/each}
-	              </div>
-	            </div>
-	          {/if}
-	        </div>
-	        <div class="button-row modal-footer">
-	          <button type="button" class="danger-button" data-testid="openapi-sync-settings-disconnect" on:click={disconnectOpenAPISync} disabled={busy !== ''}>Disconnect sync</button>
-	          <button type="button" data-testid="openapi-sync-settings-cancel" on:click={cancelOpenAPISyncSettings}>Cancel</button>
-	          <button class="primary" type="submit" data-testid="openapi-sync-settings-save" disabled={busy !== ''}>Save</button>
-	        </div>
-	      </form>
-	    </div>
-	  </div>
+		  {#await import('./lib/modals/openapi/SyncSettingsModal.svelte') then SyncSettingsModal}
+		    {@const SyncSettingsModalComponent = SyncSettingsModal.default}
+		    <SyncSettingsModalComponent
+		      bind:openAPISyncSettingsSourceURL
+		      bind:openAPISyncSettingsAutoCheck
+		      bind:openAPISyncSettingsInterval
+		      {openAPISyncCheckIntervals}
+		      {busy}
+		      {saveOpenAPISyncSettings}
+		      {cancelOpenAPISyncSettings}
+		      {disconnectOpenAPISync}
+		    />
+		  {/await}
+	{/if}
+
+	{#if tabLifecycleDialog}
+  {#await import('./lib/modals/confirm/UnsavedTabsModal.svelte') then UnsavedTabsModal}
+    {@const UnsavedTabsModalComponent = UnsavedTabsModal.default}
+    <UnsavedTabsModalComponent
+      bind:tabLifecycleCancelButton
+      {tabLifecycleDialog}
+      {tabLifecycleDecisionBusy}
+      {discardAndCompleteTabLifecycle}
+      {saveAndCompleteTabLifecycle}
+      {dismissTabLifecycleDialog}
+    />
+  {/await}
 	{/if}
 
 	{#if promptDialog}
-	  <div class="prompt-backdrop">
-	    <div class="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="prompt-dialog-title">
-      <form on:submit|preventDefault={submitPromptDialog}>
-        <header>
-          <h2 id="prompt-dialog-title">Input Required</h2>
-          <button type="button" class="icon-button" title="Cancel" on:click={cancelPromptDialog}>x</button>
-        </header>
-        <div class="prompt-fields">
-          {#each promptDialog.prompts as prompt}
-            <label>
-              <span>{prompt}</span>
-              <input value={promptDialog.values[prompt] ?? ''} on:input={(event) => updatePromptValue(prompt, event.currentTarget.value)} />
-            </label>
-          {/each}
-        </div>
-        <div class="button-row">
-          <button type="button" on:click={cancelPromptDialog}>Cancel</button>
-          <button class="primary" type="submit">Continue</button>
-        </div>
-      </form>
-    </div>
-  </div>
+  {#await import('./lib/modals/confirm/PromptDialogModal.svelte') then PromptDialogModal}
+    {@const PromptDialogModalComponent = PromptDialogModal.default}
+    <PromptDialogModalComponent
+      {promptDialog}
+      {updatePromptValue}
+      {submitPromptDialog}
+      {cancelPromptDialog}
+    />
+  {/await}
 {/if}
 
 {#if gitNotFoundMessage}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog git-not-found-dialog" role="dialog" aria-modal="true" aria-labelledby="git-not-found-title">
-      <header>
-        <h2 id="git-not-found-title">Git Required</h2>
-        <button type="button" class="icon-button" title="Close" on:click={() => (gitNotFoundMessage = '')}>x</button>
-      </header>
-      <p>{gitNotFoundMessage}</p>
-      <div class="button-row">
-        <button class="primary" type="button" on:click={() => (gitNotFoundMessage = '')}>Close</button>
-      </div>
-    </div>
-  </div>
+  {#await import('./lib/modals/confirm/GitNotFoundModal.svelte') then GitNotFoundModal}
+    {@const GitNotFoundModalComponent = GitNotFoundModal.default}
+    <GitNotFoundModalComponent bind:gitNotFoundMessage />
+  {/await}
 {/if}
 
 {#if generatedGrpcurlCommand}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog code-generator-dialog" role="dialog" aria-modal="true" aria-labelledby="grpcurl-code-title">
-      <header>
-        <h2 id="grpcurl-code-title">Generate grpcurl Command</h2>
-        <button type="button" class="icon-button" title="Close" on:click={closeGrpcurlCommand}>x</button>
-      </header>
-      <pre class="generated-code" aria-label="Generated grpcurl command">{generatedGrpcurlCommand}</pre>
-      <div class="button-row">
-        <button type="button" on:click={closeGrpcurlCommand}>Close</button>
-        <button class="primary" type="button" on:click={copyGrpcurlCommand}>Copy</button>
-      </div>
-    </div>
-  </div>
+  {#await import('./lib/modals/codegen/GrpcurlCommandModal.svelte') then GrpcurlCommandModal}
+    {@const GrpcurlCommandModalComponent = GrpcurlCommandModal.default}
+    <GrpcurlCommandModalComponent
+      {generatedGrpcurlCommand}
+      {copyGrpcurlCommand}
+      {closeGrpcurlCommand}
+    />
+  {/await}
 {/if}
 
 {#if requestCodeTarget}
-  <div class="prompt-backdrop">
-    <div class="prompt-dialog code-generator-dialog" role="dialog" aria-modal="true" aria-labelledby="request-code-title">
-      <header>
-        <h2 id="request-code-title">Generate Code</h2>
-        <button type="button" class="icon-button" title="Close" on:click={closeRequestCode}>x</button>
-      </header>
-      <div class="field-grid code-generator-controls">
-        <span class="field-label">Language</span>
-        <select
-          aria-label="Request code language"
-          data-testid="request-code-language"
-          value={requestCodeLanguage}
-          on:change={(event) => changeRequestCodeLanguage(event.currentTarget.value)}
-        >
-          <option value="curl">cURL</option>
-          <option value="fetch">JavaScript fetch</option>
-        </select>
-      </div>
-      <pre class="generated-code" aria-label="Generated request code">{requestGeneratedCode}</pre>
-      <div class="button-row">
-        <button type="button" on:click={closeRequestCode}>Close</button>
-        <button class="primary" type="button" on:click={copyRequestCode} disabled={!requestGeneratedCode}>Copy</button>
-      </div>
-    </div>
-  </div>
+  {#await import('./lib/modals/codegen/RequestCodeModal.svelte') then RequestCodeModal}
+    {@const RequestCodeModalComponent = RequestCodeModal.default}
+    <RequestCodeModalComponent
+      {requestCodeLanguage}
+      {codeGenerationTargets}
+      {requestGeneratedCode}
+      {changeRequestCodeLanguage}
+      {copyRequestCode}
+      {closeRequestCode}
+    />
+  {/await}
 {/if}
 
 {#if generatingResponseExampleID && activeRequest}
   {@const generatedExample = (activeRequest.examples ?? []).find((example) => responseExampleIdentifier(example) === generatingResponseExampleID)}
   {#if generatedExample}
-    <div class="prompt-backdrop">
-      <div class="prompt-dialog code-generator-dialog" role="dialog" aria-modal="true" aria-labelledby="response-example-code-title">
-        <header>
-          <h2 id="response-example-code-title">Generate Code - {generatedExample.name}</h2>
-          <button type="button" class="icon-button" title="Close" on:click={closeResponseExampleCode}>x</button>
-        </header>
-        <div class="field-grid code-generator-controls">
-          <span class="field-label">Language</span>
-          <select
-            aria-label="Response example code language"
-            value={responseExampleCodeLanguage}
-            on:change={(event) => changeResponseExampleCodeLanguage(generatedExample, event.currentTarget.value)}
-          >
-            <option value="curl">cURL</option>
-            <option value="fetch">JavaScript fetch</option>
-          </select>
-        </div>
-        <pre class="generated-code" aria-label="Generated response example code">{responseExampleGeneratedCode}</pre>
-        <div class="button-row">
-          <button type="button" on:click={closeResponseExampleCode}>Close</button>
-          <button class="primary" type="button" on:click={copyResponseExampleCode} disabled={!responseExampleGeneratedCode}>Copy</button>
-        </div>
-      </div>
-    </div>
+  {#await import('./lib/modals/codegen/ResponseExampleCodeModal.svelte') then ResponseExampleCodeModal}
+    {@const ResponseExampleCodeModalComponent = ResponseExampleCodeModal.default}
+    <ResponseExampleCodeModalComponent
+      {generatedExample}
+      {responseExampleCodeLanguage}
+      {responseExampleGeneratedCode}
+      {changeResponseExampleCodeLanguage}
+      {copyResponseExampleCode}
+      {closeResponseExampleCode}
+    />
+  {/await}
   {/if}
 {/if}
 

@@ -1,4 +1,898 @@
-export namespace main {
+export namespace codegen {
+	
+	export class Target {
+	    id: string;
+	    label: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Target(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	    }
+	}
+
+}
+
+export namespace core {
+	
+	export class CollectionImportSelection {
+	    sourceId: string;
+	    candidateId: string;
+	    environmentIds?: string[];
+	    folderIds?: string[];
+	    requestIds?: string[];
+	    outputName?: string;
+	    kindOverride?: string;
+	    conflictAction?: string;
+	    expectedContentHash: string;
+	    filterEnvironments?: boolean;
+	    filterFolders?: boolean;
+	    filterRequests?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionImportSelection(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceId = source["sourceId"];
+	        this.candidateId = source["candidateId"];
+	        this.environmentIds = source["environmentIds"];
+	        this.folderIds = source["folderIds"];
+	        this.requestIds = source["requestIds"];
+	        this.outputName = source["outputName"];
+	        this.kindOverride = source["kindOverride"];
+	        this.conflictAction = source["conflictAction"];
+	        this.expectedContentHash = source["expectedContentHash"];
+	        this.filterEnvironments = source["filterEnvironments"];
+	        this.filterFolders = source["filterFolders"];
+	        this.filterRequests = source["filterRequests"];
+	    }
+	}
+	export class CollectionImportSource {
+	    id?: string;
+	    path?: string;
+	    url?: string;
+	    name?: string;
+	    content?: string;
+	    kindOverride?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionImportSource(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.path = source["path"];
+	        this.url = source["url"];
+	        this.name = source["name"];
+	        this.content = source["content"];
+	        this.kindOverride = source["kindOverride"];
+	    }
+	}
+	export class CollectionImportApplyRequest {
+	    workspaceId: string;
+	    destinationRoot?: string;
+	    sources: CollectionImportSource[];
+	    selections: CollectionImportSelection[];
+	    translatePostmanScripts?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionImportApplyRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.workspaceId = source["workspaceId"];
+	        this.destinationRoot = source["destinationRoot"];
+	        this.sources = this.convertValues(source["sources"], CollectionImportSource);
+	        this.selections = this.convertValues(source["selections"], CollectionImportSelection);
+	        this.translatePostmanScripts = source["translatePostmanScripts"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CollectionImportRequestPreview {
+	    selectionId: string;
+	    name: string;
+	    folderPath?: string;
+	    method?: string;
+	    type?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionImportRequestPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.selectionId = source["selectionId"];
+	        this.name = source["name"];
+	        this.folderPath = source["folderPath"];
+	        this.method = source["method"];
+	        this.type = source["type"];
+	    }
+	}
+	export class CollectionImportFolderPreview {
+	    selectionId: string;
+	    name: string;
+	    path: string;
+	    parentPath?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionImportFolderPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.selectionId = source["selectionId"];
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.parentPath = source["parentPath"];
+	    }
+	}
+	export class CollectionImportEnvironmentPreview {
+	    selectionId: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionImportEnvironmentPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.selectionId = source["selectionId"];
+	        this.name = source["name"];
+	    }
+	}
+	export class CollectionImportPreviewRow {
+	    sourceId: string;
+	    candidateId: string;
+	    sourceName: string;
+	    sourcePath?: string;
+	    detectedKind: string;
+	    confidence: string;
+	    collectionName?: string;
+	    collectionId?: string;
+	    environmentIds?: string[];
+	    folderIds?: string[];
+	    requestIds?: string[];
+	    environments?: CollectionImportEnvironmentPreview[];
+	    folders?: CollectionImportFolderPreview[];
+	    requests?: CollectionImportRequestPreview[];
+	    warnings?: string[];
+	    losses?: string[];
+	    error?: string;
+	    defaultSelect: boolean;
+	    contentHash?: string;
+	    conflict?: string;
+	    destinationPath?: string;
+	    openSemantics?: string;
+	    existingFolder?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionImportPreviewRow(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceId = source["sourceId"];
+	        this.candidateId = source["candidateId"];
+	        this.sourceName = source["sourceName"];
+	        this.sourcePath = source["sourcePath"];
+	        this.detectedKind = source["detectedKind"];
+	        this.confidence = source["confidence"];
+	        this.collectionName = source["collectionName"];
+	        this.collectionId = source["collectionId"];
+	        this.environmentIds = source["environmentIds"];
+	        this.folderIds = source["folderIds"];
+	        this.requestIds = source["requestIds"];
+	        this.environments = this.convertValues(source["environments"], CollectionImportEnvironmentPreview);
+	        this.folders = this.convertValues(source["folders"], CollectionImportFolderPreview);
+	        this.requests = this.convertValues(source["requests"], CollectionImportRequestPreview);
+	        this.warnings = source["warnings"];
+	        this.losses = source["losses"];
+	        this.error = source["error"];
+	        this.defaultSelect = source["defaultSelect"];
+	        this.contentHash = source["contentHash"];
+	        this.conflict = source["conflict"];
+	        this.destinationPath = source["destinationPath"];
+	        this.openSemantics = source["openSemantics"];
+	        this.existingFolder = source["existingFolder"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CollectionImportApplyResult {
+	    state: types.AppState;
+	    applied?: CollectionImportPreviewRow[];
+	    skipped?: CollectionImportPreviewRow[];
+	    errors?: CollectionImportPreviewRow[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionImportApplyResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = this.convertValues(source["state"], types.AppState);
+	        this.applied = this.convertValues(source["applied"], CollectionImportPreviewRow);
+	        this.skipped = this.convertValues(source["skipped"], CollectionImportPreviewRow);
+	        this.errors = this.convertValues(source["errors"], CollectionImportPreviewRow);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	export class CollectionImportPickerResult {
+	    paths: string[];
+	    cancelled: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionImportPickerResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.paths = source["paths"];
+	        this.cancelled = source["cancelled"];
+	    }
+	}
+	export class CollectionImportPreview {
+	    rows: CollectionImportPreviewRow[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionImportPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.rows = this.convertValues(source["rows"], CollectionImportPreviewRow);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CollectionImportPreviewRequest {
+	    workspaceId?: string;
+	    destinationRoot?: string;
+	    sources: CollectionImportSource[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionImportPreviewRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.workspaceId = source["workspaceId"];
+	        this.destinationRoot = source["destinationRoot"];
+	        this.sources = this.convertValues(source["sources"], CollectionImportSource);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	
+	
+	export class RequestMutation {
+	    revision: number;
+	    collectionId: string;
+	    item: types.RequestItem;
+	
+	    static createFrom(source: any = {}) {
+	        return new RequestMutation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.revision = source["revision"];
+	        this.collectionId = source["collectionId"];
+	        this.item = this.convertValues(source["item"], types.RequestItem);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ResponseBodySaveResult {
+	    filename: string;
+	    path?: string;
+	    byteCount: number;
+	    contentType?: string;
+	    cancelled?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ResponseBodySaveResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.filename = source["filename"];
+	        this.path = source["path"];
+	        this.byteCount = source["byteCount"];
+	        this.contentType = source["contentType"];
+	        this.cancelled = source["cancelled"];
+	    }
+	}
+	export class ResponseBodySlice {
+	    raw: string;
+	    base64: string;
+	    offset: number;
+	    length: number;
+	    totalSize: number;
+	    truncated: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ResponseBodySlice(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.raw = source["raw"];
+	        this.base64 = source["base64"];
+	        this.offset = source["offset"];
+	        this.length = source["length"];
+	        this.totalSize = source["totalSize"];
+	        this.truncated = source["truncated"];
+	    }
+	}
+	export class ResponseTimelineSaveResult {
+	    filename: string;
+	    path?: string;
+	    byteCount: number;
+	    cancelled?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ResponseTimelineSaveResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.filename = source["filename"];
+	        this.path = source["path"];
+	        this.byteCount = source["byteCount"];
+	        this.cancelled = source["cancelled"];
+	    }
+	}
+	export class TabsMutation {
+	    revision: number;
+	    openTabs: types.OpenTab[];
+	    activeTabId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TabsMutation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.revision = source["revision"];
+	        this.openTabs = this.convertValues(source["openTabs"], types.OpenTab);
+	        this.activeTabId = source["activeTabId"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class UnsavedDraft {
+	    collectionId: string;
+	    itemId: string;
+	    name: string;
+	    transient: boolean;
+	    scratch: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new UnsavedDraft(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.collectionId = source["collectionId"];
+	        this.itemId = source["itemId"];
+	        this.name = source["name"];
+	        this.transient = source["transient"];
+	        this.scratch = source["scratch"];
+	    }
+	}
+	export class WorkspaceWindowTarget {
+	    id: string;
+	    name: string;
+	    path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new WorkspaceWindowTarget(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.path = source["path"];
+	    }
+	}
+
+}
+
+export namespace gitworkbench {
+	
+	export class CollectionGitDiff {
+	    path: string;
+	    staged: boolean;
+	    text: string;
+	    truncated: boolean;
+	    binary: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionGitDiff(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.staged = source["staged"];
+	        this.text = source["text"];
+	        this.truncated = source["truncated"];
+	        this.binary = source["binary"];
+	    }
+	}
+	export class CollectionGitFile {
+	    path: string;
+	    index: string;
+	    worktree: string;
+	    staged: boolean;
+	    untracked: boolean;
+	    conflicted: boolean;
+	    binary: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionGitFile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.index = source["index"];
+	        this.worktree = source["worktree"];
+	        this.staged = source["staged"];
+	        this.untracked = source["untracked"];
+	        this.conflicted = source["conflicted"];
+	        this.binary = source["binary"];
+	    }
+	}
+	export class CollectionGitRemote {
+	    name: string;
+	    url: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionGitRemote(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.url = source["url"];
+	    }
+	}
+	export class CollectionGitSnapshot {
+	    available: boolean;
+	    initialized: boolean;
+	    rootLabel?: string;
+	    branch?: string;
+	    detached: boolean;
+	    upstream?: string;
+	    ahead: number;
+	    behind: number;
+	    clean: boolean;
+	    conflicts: boolean;
+	    remotes: CollectionGitRemote[];
+	    branches: string[];
+	    files: CollectionGitFile[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionGitSnapshot(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.initialized = source["initialized"];
+	        this.rootLabel = source["rootLabel"];
+	        this.branch = source["branch"];
+	        this.detached = source["detached"];
+	        this.upstream = source["upstream"];
+	        this.ahead = source["ahead"];
+	        this.behind = source["behind"];
+	        this.clean = source["clean"];
+	        this.conflicts = source["conflicts"];
+	        this.remotes = this.convertValues(source["remotes"], CollectionGitRemote);
+	        this.branches = source["branches"];
+	        this.files = this.convertValues(source["files"], CollectionGitFile);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CollectionGitOperationResult {
+	    snapshot: CollectionGitSnapshot;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CollectionGitOperationResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.snapshot = this.convertValues(source["snapshot"], CollectionGitSnapshot);
+	        this.message = source["message"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+
+}
+
+export namespace history {
+	
+	export class HistoryEntry {
+	    id: string;
+	    // Go type: time
+	    at: any;
+	    collectionId?: string;
+	    itemId?: string;
+	    name?: string;
+	    method: string;
+	    url: string;
+	    status?: number;
+	    statusText?: string;
+	    durationMs?: number;
+	    size?: number;
+	    error?: string;
+	    requestHeaders?: types.KeyValue[];
+	    responseHeaders?: types.KeyValue[];
+	    redacted?: boolean;
+	    bodyHandle?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new HistoryEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.at = this.convertValues(source["at"], null);
+	        this.collectionId = source["collectionId"];
+	        this.itemId = source["itemId"];
+	        this.name = source["name"];
+	        this.method = source["method"];
+	        this.url = source["url"];
+	        this.status = source["status"];
+	        this.statusText = source["statusText"];
+	        this.durationMs = source["durationMs"];
+	        this.size = source["size"];
+	        this.error = source["error"];
+	        this.requestHeaders = this.convertValues(source["requestHeaders"], types.KeyValue);
+	        this.responseHeaders = this.convertValues(source["responseHeaders"], types.KeyValue);
+	        this.redacted = source["redacted"];
+	        this.bodyHandle = source["bodyHandle"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class HistoryQuery {
+	    text?: string;
+	    collectionId?: string;
+	    method?: string;
+	    onlyFailures?: boolean;
+	    limit?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new HistoryQuery(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.text = source["text"];
+	        this.collectionId = source["collectionId"];
+	        this.method = source["method"];
+	        this.onlyFailures = source["onlyFailures"];
+	        this.limit = source["limit"];
+	    }
+	}
+
+}
+
+export namespace localserver {
+	
+	export class DocsServerStatus {
+	    collectionId: string;
+	    running: boolean;
+	    port: number;
+	    url?: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocsServerStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.collectionId = source["collectionId"];
+	        this.running = source["running"];
+	        this.port = source["port"];
+	        this.url = source["url"];
+	        this.error = source["error"];
+	    }
+	}
+	export class MockServerStatus {
+	    collectionId: string;
+	    running: boolean;
+	    port: number;
+	    url?: string;
+	    routes: number;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MockServerStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.collectionId = source["collectionId"];
+	        this.running = source["running"];
+	        this.port = source["port"];
+	        this.url = source["url"];
+	        this.routes = source["routes"];
+	        this.error = source["error"];
+	    }
+	}
+
+}
+
+export namespace recovery {
+	
+	export class Entry {
+	    id: string;
+	    kind: string;
+	    displayName: string;
+	    workspaceId: string;
+	    collectionId: string;
+	    // Go type: time
+	    deletedAt: any;
+	    // Go type: time
+	    expiresAt: any;
+	    restorable: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Entry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.kind = source["kind"];
+	        this.displayName = source["displayName"];
+	        this.workspaceId = source["workspaceId"];
+	        this.collectionId = source["collectionId"];
+	        this.deletedAt = this.convertValues(source["deletedAt"], null);
+	        this.expiresAt = this.convertValues(source["expiresAt"], null);
+	        this.restorable = source["restorable"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RecoverableDeleteResult {
+	    state: types.AppState;
+	    entry: Entry;
+	
+	    static createFrom(source: any = {}) {
+	        return new RecoverableDeleteResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = this.convertValues(source["state"], types.AppState);
+	        this.entry = this.convertValues(source["entry"], Entry);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
+export namespace types {
 	
 	export class AWSV4Auth {
 	    accessKeyId: string;
@@ -27,6 +921,7 @@ export namespace main {
 	    }
 	}
 	export class RunResult {
+	    iteration?: number;
 	    itemId: string;
 	    name: string;
 	    status: string;
@@ -42,6 +937,7 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.iteration = source["iteration"];
 	        this.itemId = source["itemId"];
 	        this.name = source["name"];
 	        this.status = source["status"];
@@ -74,9 +970,12 @@ export namespace main {
 	    passed: number;
 	    failed: number;
 	    skipped: number;
+	    cancelled?: number;
 	    results: RunResult[];
 	    // Go type: time
 	    finished: any;
+	    iterations?: number;
+	    completedIterations?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new RunnerSnapshot(source);
@@ -88,8 +987,11 @@ export namespace main {
 	        this.passed = source["passed"];
 	        this.failed = source["failed"];
 	        this.skipped = source["skipped"];
+	        this.cancelled = source["cancelled"];
 	        this.results = this.convertValues(source["results"], RunResult);
 	        this.finished = this.convertValues(source["finished"], null);
+	        this.iterations = source["iterations"];
+	        this.completedIterations = source["completedIterations"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -112,6 +1014,7 @@ export namespace main {
 	}
 	export class NetworkLog {
 	    id: string;
+	    source?: string;
 	    method: string;
 	    url: string;
 	    status: number;
@@ -133,6 +1036,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
+	        this.source = source["source"];
 	        this.method = source["method"];
 	        this.url = source["url"];
 	        this.status = source["status"];
@@ -387,6 +1291,7 @@ export namespace main {
 	export class GeneralPreferences {
 	    defaultLocation?: string;
 	    defaultWorkspacePath?: string;
+	    lastImportDirectory?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new GeneralPreferences(source);
@@ -396,6 +1301,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.defaultLocation = source["defaultLocation"];
 	        this.defaultWorkspacePath = source["defaultWorkspacePath"];
+	        this.lastImportDirectory = source["lastImportDirectory"];
 	    }
 	}
 	export class KeepDefaultCaCertificatesPreferences {
@@ -431,6 +1337,7 @@ export namespace main {
 	    storeCookies?: boolean;
 	    sendCookies?: boolean;
 	    timeout?: number;
+	    maxResponseBytes?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new RequestPreferences(source);
@@ -444,6 +1351,7 @@ export namespace main {
 	        this.storeCookies = source["storeCookies"];
 	        this.sendCookies = source["sendCookies"];
 	        this.timeout = source["timeout"];
+	        this.maxResponseBytes = source["maxResponseBytes"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -524,6 +1432,7 @@ export namespace main {
 	    themeVariantDark?: string;
 	    keybindingsEnabled?: boolean;
 	    keyBindings?: Record<string, KeyBinding>;
+	    keyBindingPreset?: string;
 	    layout: LayoutPreferences;
 	    display: DisplayPreferences;
 	    font: FontPreferences;
@@ -551,6 +1460,7 @@ export namespace main {
 	        this.themeVariantDark = source["themeVariantDark"];
 	        this.keybindingsEnabled = source["keybindingsEnabled"];
 	        this.keyBindings = this.convertValues(source["keyBindings"], KeyBinding, true);
+	        this.keyBindingPreset = source["keyBindingPreset"];
 	        this.layout = this.convertValues(source["layout"], LayoutPreferences);
 	        this.display = this.convertValues(source["display"], DisplayPreferences);
 	        this.font = this.convertValues(source["font"], FontPreferences);
@@ -985,6 +1895,46 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class ResponseTimings {
+	    dnsMs: number;
+	    connectMs: number;
+	    tlsMs: number;
+	    uploadMs: number;
+	    waitMs: number;
+	    downloadMs: number;
+	    totalMs: number;
+	    redirectCount: number;
+	    connectionReused: boolean;
+	    dnsAvailable: boolean;
+	    connectAvailable: boolean;
+	    tlsAvailable: boolean;
+	    uploadAvailable: boolean;
+	    waitAvailable: boolean;
+	    downloadAvailable: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ResponseTimings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.dnsMs = source["dnsMs"];
+	        this.connectMs = source["connectMs"];
+	        this.tlsMs = source["tlsMs"];
+	        this.uploadMs = source["uploadMs"];
+	        this.waitMs = source["waitMs"];
+	        this.downloadMs = source["downloadMs"];
+	        this.totalMs = source["totalMs"];
+	        this.redirectCount = source["redirectCount"];
+	        this.connectionReused = source["connectionReused"];
+	        this.dnsAvailable = source["dnsAvailable"];
+	        this.connectAvailable = source["connectAvailable"];
+	        this.tlsAvailable = source["tlsAvailable"];
+	        this.uploadAvailable = source["uploadAvailable"];
+	        this.waitAvailable = source["waitAvailable"];
+	        this.downloadAvailable = source["downloadAvailable"];
+	    }
+	}
 	export class CookieEntry {
 	    id: string;
 	    name: string;
@@ -1074,17 +2024,36 @@ export namespace main {
 	        this.message = source["message"];
 	    }
 	}
+	export class VisualizerPayload {
+	    template: string;
+	    data?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new VisualizerPayload(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.template = source["template"];
+	        this.data = source["data"];
+	    }
+	}
 	export class Response {
 	    status: number;
 	    statusText: string;
 	    headers: Record<string, string>;
+	    headerEntries?: KeyValue[];
 	    metadata?: KeyValue[];
 	    trailers?: KeyValue[];
 	    body: string;
 	    bodyBase64: string;
+	    bodyHandle?: string;
+	    bodyHead?: string;
+	    visualizer?: VisualizerPayload;
 	    size: number;
 	    durationMs: number;
 	    error: string;
+	    cancelled?: boolean;
 	    previewMode: string;
 	    testResults: TestResult[];
 	    scriptLogs: ScriptLog[];
@@ -1093,6 +2062,7 @@ export namespace main {
 	    // Go type: time
 	    sentAt: any;
 	    cookies: CookieEntry[];
+	    timings: ResponseTimings;
 	
 	    static createFrom(source: any = {}) {
 	        return new Response(source);
@@ -1103,13 +2073,18 @@ export namespace main {
 	        this.status = source["status"];
 	        this.statusText = source["statusText"];
 	        this.headers = source["headers"];
+	        this.headerEntries = this.convertValues(source["headerEntries"], KeyValue);
 	        this.metadata = this.convertValues(source["metadata"], KeyValue);
 	        this.trailers = this.convertValues(source["trailers"], KeyValue);
 	        this.body = source["body"];
 	        this.bodyBase64 = source["bodyBase64"];
+	        this.bodyHandle = source["bodyHandle"];
+	        this.bodyHead = source["bodyHead"];
+	        this.visualizer = this.convertValues(source["visualizer"], VisualizerPayload);
 	        this.size = source["size"];
 	        this.durationMs = source["durationMs"];
 	        this.error = source["error"];
+	        this.cancelled = source["cancelled"];
 	        this.previewMode = source["previewMode"];
 	        this.testResults = this.convertValues(source["testResults"], TestResult);
 	        this.scriptLogs = this.convertValues(source["scriptLogs"], ScriptLog);
@@ -1117,6 +2092,7 @@ export namespace main {
 	        this.requestedUrl = source["requestedUrl"];
 	        this.sentAt = this.convertValues(source["sentAt"], null);
 	        this.cookies = this.convertValues(source["cookies"], CookieEntry);
+	        this.timings = this.convertValues(source["timings"], ResponseTimings);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1144,6 +2120,7 @@ export namespace main {
 	    bodyType: string;
 	    body: string;
 	    size: number;
+	    durationMs?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ResponseExamplePayload(source);
@@ -1157,6 +2134,7 @@ export namespace main {
 	        this.bodyType = source["bodyType"];
 	        this.body = source["body"];
 	        this.size = source["size"];
+	        this.durationMs = source["durationMs"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1940,6 +2918,7 @@ export namespace main {
 	    networkLog: NetworkLog[];
 	    runner: RunnerSnapshot;
 	    cookies: CookieEntry[];
+	    revision: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppState(source);
@@ -1959,6 +2938,7 @@ export namespace main {
 	        this.networkLog = this.convertValues(source["networkLog"], NetworkLog);
 	        this.runner = this.convertValues(source["runner"], RunnerSnapshot);
 	        this.cookies = this.convertValues(source["cookies"], CookieEntry);
+	        this.revision = source["revision"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -2436,6 +3416,7 @@ export namespace main {
 	    groupBy: string;
 	    sourceUrl: string;
 	    openapiSync: boolean;
+	    translatePostmanScripts?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ImportPayload(source);
@@ -2449,6 +3430,7 @@ export namespace main {
 	        this.groupBy = source["groupBy"];
 	        this.sourceUrl = source["sourceUrl"];
 	        this.openapiSync = source["openapiSync"];
+	        this.translatePostmanScripts = source["translatePostmanScripts"];
 	    }
 	}
 	
@@ -2828,9 +3810,13 @@ export namespace main {
 	
 	
 	
+	
 	export class RunnerOptions {
 	    selectedItemIds: string[];
 	    delayMs?: number;
+	    bailOnFailure?: boolean;
+	    iterations?: number;
+	    dataFile?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new RunnerOptions(source);
@@ -2840,6 +3826,9 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.selectedItemIds = source["selectedItemIds"];
 	        this.delayMs = source["delayMs"];
+	        this.bailOnFailure = source["bailOnFailure"];
+	        this.iterations = source["iterations"];
+	        this.dataFile = source["dataFile"];
 	    }
 	}
 	
@@ -2873,6 +3862,7 @@ export namespace main {
 	        this.updatedAt = source["updatedAt"];
 	    }
 	}
+	
 	
 	
 	

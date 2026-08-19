@@ -1,0 +1,206 @@
+name: CI
+
+# US-001 — the PR gate. release.yml only runs on push to main, which means a
+# regression is currently caught after merge, during a release build. This
+# workflow runs the same standing gates as improvement_v2.md §5.1 on every PR.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24"
+  GOLANGCI_LINT_VERSION: "v2.12.2"
+
+jobs:
+  go:
+    name: Go — build, vet, test, race
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Wails links against GTK3 + WebKit2GTK. release.yml uses the webkit2_41
+      # build tag on Linux; the gates below must use it too or they compile a
+      # different program than the one we ship.
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            pkg-config
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # main.go embeds frontend/dist via `//go:embed all:frontend/dist`, and
+      # that directory is gitignored — so on a fresh checkout every Go
+      # compilation of package main fails before it starts. release.yml never
+      # hit this because all three of its jobs build the frontend before the Go
+      # steps; these two jobs did not, so the Go gates could not run at all.
+      #
+      # Build the real bundle rather than stubbing the directory: a stub would
+      # compile a program that ships no UI, which is not the program we release.
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build the embedded frontend bundle
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build
+        run: go build -tags webkit2_41 ./...
+
+      - name: Vet
+        run: go vet -tags webkit2_41 ./...
+
+      # The gate that did not exist. Four root files imported golang.org/x/sys/unix
+      # without a build tag, so the Windows build was broken while every gate here
+      # stayed green — this job only ever compiled Linux. release.yml builds
+      # windows/amd64 on every push to main, so the failure surfaced at release
+      # time rather than on the PR that caused it.
+      #
+      # Cheap: no cgo, no WebKit, no toolchain beyond the one already set up.
+      - name: Cross-compile for Windows and macOS
+        run: |
+          GOOS=windows GOARCH=amd64 go build ./...
+          GOOS=darwin GOARCH=arm64 go build ./...
+
+      # The binding surface is the contract between package main and the
+      # frontend, and nothing else in this workflow checks it. A renamed or
+      # re-signed bound method compiles on both sides and only fails when a
+      # user clicks the thing that calls it.
+      - name: Check the Wails binding surface
+        run: ./qa/bindings.sh
+
+      # `go test ./...` reports "[no test files]" and exits 0, so a package
+      # losing its tests leaves CI green. -cover makes it worse by printing a
+      # coverage line instead, which is how the gap went unnoticed here.
+      - name: Check every package still has its tests
+        run: ./qa/test-presence.sh
+
+      - name: Test
+        run: go test -tags webkit2_41 ./...
+
+      # Kept separate from the plain test run: -race is the gate US-020 (a.mu ->
+      # sync.RWMutex) and the whole async-persistence line of work depend on, so
+      # a race failure must be attributable on its own rather than hidden behind
+      # a functional failure.
+      - name: Test with race detector
+        run: go test -race -tags webkit2_41 ./...
+
+  go-lint:
+    name: Go — golangci-lint
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            pkg-config
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      # main.go embeds frontend/dist via `//go:embed all:frontend/dist`, and
+      # that directory is gitignored — so on a fresh checkout every Go
+      # compilation of package main fails before it starts. release.yml never
+      # hit this because all three of its jobs build the frontend before the Go
+      # steps; these two jobs did not, so the Go gates could not run at all.
+      #
+      # Build the real bundle rather than stubbing the directory: a stub would
+      # compile a program that ships no UI, which is not the program we release.
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build the embedded frontend bundle
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      # US-003. Pinned rather than floating: golangci-lint gates the build, so a
+      # new release adding a check must be an explicit, reviewable bump.
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          args: --timeout 15m --build-tags webkit2_41
+
+      # Belongs in THIS job, not the build one: it shells out to golangci-lint,
+      # which only exists here. An exclusion is anchored to an exact file path,
+      # so a code move silently stops it applying — which is how this repo once
+      # reached 45 live issues with five exclusions still pointing at app.go.
+      - name: Check the lint exclusions still apply
+        run: ./qa/lint-exclusions.sh
+
+  frontend:
+    name: Frontend — check, lint, build, test
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run check
+
+      # US-004
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      # US-002. These 7 cases existed but were reachable only by invoking node
+      # directly, so nothing ran them.
+      - name: Test
+        run: npm test

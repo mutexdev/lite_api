@@ -1,0 +1,8 @@
+# Tests that skip on a healthy machine, with the reason each is allowed to.
+# Anything not listed here that skips is a test which stopped checking
+# something; see qa/skip-audit.sh.
+
+# Not a test. It is the child process spawned by
+# TestPersistStateJSONSurvivesSIGKILL, and skips when run directly because the
+# environment variable that drives it is unset.
+TestPersistKillHelperProcess

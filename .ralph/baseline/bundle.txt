@@ -1,0 +1,727 @@
+# Bundle-size baseline
+# Captured on branch ralph/postman-switchable-v2, working tree at Phase 0 start.
+# Command: cd frontend && npm run build
+# Referenced by: US-036 (initial chunk must drop below 500 KB), improvement_v2.md §2.
+
+date          2026-07-25
+vite          8.1.0 (rolldown)
+svelte        5.56.4
+
+file                                    bytes      gzip
+frontend/dist/assets/index-BsBUEQ9r.js  1159933    352560
+frontend/dist/assets/index-LydZFBwi.css  113999     20490
+frontend/dist/index.html                    370       260
+
+# Single JS chunk — no code splitting configured. Vite emits its own warning:
+#   "(!) Some chunks are larger than 500 kB after minification."
+#
+# US-036 target: initial chunk < 500,000 bytes.
+
+
+# ===========================================================================
+# US-036 — after splitting CodeMirror off the cold-launch path
+# ===========================================================================
+# Command: cd frontend && npm run build
+
+file                                     bytes     note
+frontend/dist/assets/index-*.js         533898    initial chunk (was 1159933)
+frontend/dist/assets/codemirror-*.js    623453    deferred; loads on first
+                                                  Body/Script/Tests/Docs open
+frontend/dist/assets/CodeEditor-*.js      9759    deferred
+frontend/dist/assets/CodeEditor-*.css      684    deferred
+frontend/dist/assets/index-*.css        113609
+
+# Initial JS: 1,159,933 -> 533,898 bytes. A 54% reduction, and 623 KB of
+# CodeMirror now never loads for a user who does not open an editor.
+#
+# ---------------------------------------------------------------------------
+# THE <500 KB CRITERION IS NOT MET, AND IS BLOCKED ON US-025.
+#
+# 533,898 is still 33,898 bytes over the story's 500,000-byte target. The
+# remaining chunk is NOT vendor code: frontend/package.json "dependencies"
+# contains ONLY @codemirror/* and codemirror, all of which are now deferred.
+# What is left is App.svelte's own compiled output (~14k lines) plus the Svelte
+# runtime, so there is nothing further to split out by dependency.
+#
+# Getting under 500 KB therefore requires splitting App.svelte itself, which
+# means extracting the DevTools, Runner, Import, Preferences and OpenAPI-sync
+# surfaces into components that can be dynamically imported. That is US-025
+# ("Extract inlined modals from App.svelte"), which has not been done.
+#
+# US-036's own criterion "DevTools, Runner, Import, Preferences, OpenAPI-sync
+# and CodeMirror are dynamically imported" has the same dependency: only
+# CodeMirror is currently a separate component. The story does not state this
+# ordering constraint; it should be run AFTER US-025.
+# ---------------------------------------------------------------------------
+
+
+# ===========================================================================
+# Re-measured after US-025 (all 29 dialogs moved onto the shared Modal shell)
+# ===========================================================================
+#
+#   initial chunk  533,898 -> 532,602 bytes   (-1,296)
+#
+# Essentially unchanged, and that is the expected result rather than a
+# disappointment: US-025 replaced each dialog's hand-rolled backdrop/dialog
+# WRAPPER with <Modal>, but every dialog's BODY is still inline in App.svelte.
+# The wrappers were a few lines each; the bodies are the bytes.
+#
+# WHAT IT WOULD TAKE to clear the 500,000-byte target, measured rather than
+# estimated. The 29 modal bodies total ~57 KB of source in App.svelte:
+#
+#   3,757  generate-docs          3,649  rename-request      3,613  clone-request
+#   3,606  share-collection       3,454  rename-folder       3,350  clone-folder
+#   3,337  new-folder             3,336  openapi-spec-diff   3,281  clone-collection
+#   2,696  notifications          2,385  openapi-settings    ... 18 more under 2 KB
+#
+# The remaining gap is 32,602 bytes of MINIFIED output. Moving the bodies into
+# lazily-imported components under lib/modals/ would very likely clear it, since
+# ~57 KB of source minifies to more than that — but each extraction has to
+# thread that dialog's form state and handlers as props, and the large ones
+# (the folder/request/collection forms) carry a lot of both. This is a
+# component-by-component job, not a scripted one: unlike the wrapper conversion,
+# there is no structural pattern a script can derive the props from.
+#
+# So US-036 remains PARTIAL. The 54% reduction from deferring CodeMirror stands;
+# the <500 KB criterion needs the modal bodies extracted, which is the natural
+# continuation of US-025 rather than a separate technique.
+
+
+# ---------------------------------------------------------------------------
+# First modal-body extraction, to establish the exchange rate before committing
+# to 28 more of them.
+#
+#   openapi-spec-diff body: 3,336 B of source moved out of App.svelte
+#   initial chunk: 532,602 -> 529,719  (-2,883)
+#   new deferred chunk: SpecDiffModal 3,865 B
+#
+# So roughly 0.86 bytes come off the initial chunk per byte of source moved.
+#
+# PROJECTION for the remaining 28 bodies (~54 KB of source): ~46 KB off the
+# initial chunk, landing near 484,000 — under the 500,000 target with ~16 KB of
+# headroom. So the approach does close US-036; it is a question of grinding
+# through the props, not of finding a different technique.
+#
+# The dynamic import has to sit INSIDE the {#if} that gates the dialog. Moving
+# markup to a new file and importing it statically changes nothing — the
+# bundler still puts it in the initial graph. That is the whole trick here and
+# it is easy to get wrong in a way that measures as zero.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# ATTEMPTED and REVERTED: automating the remaining 28 body extractions.
+#
+# The wrapper conversion in US-025 automated cleanly because the structure
+# supplied everything a script needed. Body extraction does not, and the reason
+# is worth writing down so nobody re-attempts the same shortcut.
+#
+# The hard part is deriving each dialog's PROPS. A first attempt collected every
+# identifier in the block that App.svelte also declares. That over-collects: it
+# picked up `source` and `value` for the openapi-settings dialog, which are
+# bound LOCALLY inside the block (an {#each} destructuring) and merely happen to
+# share a name with an App.svelte local. The generated component then declared
+# them as props, and App.svelte tried to forward variables that do not exist in
+# its scope — 8 errors, reverted.
+#
+# Doing it properly means excluding every identifier bound within the block by
+# ANY construct: {#each ... as x}, destructured each bindings, {#await ... then
+# x}, let: directives, and inline arrow parameters. That is a small scope
+# analysis, not a regex, and getting it wrong produces components that typecheck
+# in isolation and fail at the call site.
+#
+# RECOMMENDATION: extract the remaining bodies BY HAND, largest first, one per
+# commit with a typecheck between — the same discipline that made the wrapper
+# conversion 20/20 clean. SpecDiffModal (committed) is the worked example: 7
+# props, ~2,883 bytes off the initial chunk.
+# ---------------------------------------------------------------------------
+
+# Hand extraction #2 — generate-docs (the largest body, 3,757 B of source):
+#   initial chunk 529,719 -> 527,277  (-2,442); new chunk GenerateDocsModal 3,951 B
+#
+# Two notes from doing it by hand that the scripted attempt would have got wrong:
+#  * bind:this cannot cross a component boundary. The <input> is bound inside
+#    the component and surfaced as a bindable prop, with App.svelte keeping its
+#    existing reference via bind:selectAllInput — so the indeterminate-state
+#    logic there is untouched.
+#  * activeCollection had to be typed main.Collection, not a structural
+#    {version?: string} & Record<string, unknown>. Collection has no index
+#    signature, so the structural type does not accept it.
+# Running total: 1,159,933 -> 527,277 (54.5% smaller). 27,277 above target.
+
+# Hand extraction #3 — notifications (2,696 B of source):
+#   initial chunk 527,277 -> 525,321  (-1,956); new chunk NotificationsModal 3,468 B
+#
+# Third case of svelte-check catching something a generated `any` prop would
+# have swallowed: setNotificationTab takes App.svelte's local
+# NotificationTab = 'all' | 'unread'. Typing the prop as `string` made it accept
+# a value the handler cannot take, and the error surfaced at the CALL SITE in
+# App.svelte. The union is mirrored in the component instead.
+#
+# Running total: 1,159,933 -> 525,321 (54.7% smaller). 25,321 above target.
+# Three extractions have averaged ~2,400 B off the initial chunk each, so the
+# remaining ~26 bodies comfortably cover the gap.
+
+# Hand extraction #4 — share-collection (3,606 B of source):
+#   initial chunk 525,321 -> 522,890  (-2,431); new chunk ShareCollectionModal
+#
+# Second case needing a BINDABLE prop rather than a one-way one: the format
+# cards assign to shareCollectionFormat directly, so it must write back to
+# App.svelte. Bound with bind:shareCollectionFormat, which leaves App.svelte's
+# own reset-to-'zip' logic working unchanged.
+#
+# Running total: 1,159,933 -> 522,890 (54.9% smaller). 22,890 above target.
+
+# Hand extraction #5 — rename-collection (1,171 B of source):
+#   initial chunk 522,890 -> 522,246  (-644)
+#
+# Note the smaller return: this body is 1,171 B of source against
+# share-collection's 3,606 B. The ~2,400 B average from the first four came
+# from picking the LARGEST bodies first. Working down the size-ordered list in
+# bundle.txt keeps the return per commit as high as it can be; the tail of
+# sub-1 KB dialogs will each yield a few hundred bytes.
+#
+# Running total: 1,159,933 -> 522,246 (55.0% smaller). 22,246 above target.
+
+# Hand extraction #6 — openapi-settings (2,385 B of source):
+#   initial chunk 522,246 -> 520,971  (-1,275)
+#
+# ESLint refused the shortcut, which is worth recording. A helper that generated
+# `export let x: any` for every prop tripped @typescript-eslint/no-explicit-any
+# (8 errors) and could not be committed. That is the SAME shortcut the abandoned
+# scripted extraction depended on — so the repo's own lint config independently
+# rules that approach out, not just my judgement about it.
+#
+# Also: guessing prop names from memory produced two that do not exist
+# (openAPISyncSettingsBusy, toggleOpenAPISyncAutoCheck). Read the body and take
+# the identifiers from it; do not reconstruct them.
+#
+# Running total: 1,159,933 -> 520,971 (55.1% smaller). 20,971 above target.
+
+# Hand extraction #7 — clone-collection (3,281 B of source):
+#   initial chunk 520,971 -> 519,273  (-1,698)
+#
+# Method note that saves time on the rest: grepping the body for lines
+# containing {identifier}, on:, bind:, disabled= or value= gives the real prop
+# list in one pass. Collecting "every identifier the body shares with
+# App.svelte's declarations" does NOT — for this dialog it returned 21
+# candidates including collection, folder, id, input, label, location, name,
+# row and value, all of which are HTML attribute names or locally scoped and
+# merely collide with an App.svelte local.
+#
+# Running total: 1,159,933 -> 519,273 (55.2% smaller). 19,273 above target.
+
+# Hand extraction #8 — new-folder (3,337 B of source):
+#   initial chunk 519,273 -> 517,593  (-1,680)
+#
+# The grep heuristic is a starting point, not an oracle: it missed
+# collectionFolderNameIsValid and newFolderDirectoryIsReservedRoot, both used
+# inside {#if} conditions rather than on an attribute line. svelte-check named
+# both immediately, which is the point — the workflow is "grep to draft the prop
+# list, let svelte-check finish it", and the compiler is what makes that safe.
+#
+# Running total: 1,159,933 -> 517,593 (55.4% smaller). 17,593 above target.
+
+# Hand extraction #9 — rename-folder (3,454 B of source):
+#   initial chunk 517,593 -> 516,039  (-1,554)
+#
+# First one to land with no svelte-check corrections: widening the grep to
+# include {#if lines caught renameFolderDirectoryIsReserved and
+# collectionFolderNameIsValid up front, which were exactly what the previous
+# extraction missed. The heuristic improves as the cases accumulate.
+#
+# Running total: 1,159,933 -> 516,039 (55.5% smaller). 16,039 above target.
+#
+# REMAINING BODIES, size-ordered (work top-down):
+#   3,649 rename-request    3,613 clone-request    3,350 clone-folder
+#   1,587 command-palette   1,472 oauth2-auth      1,427 create-example
+#   1,413 global-search     1,349 openapi-spec     1,319 new-request
+#   1,255 response-example-code  1,241 item-info    1,112 request-code
+#   1,092 delete-request    1,060 delete-folder      942 import-replace
+#     912 remove-collection   883 prompt-dialog      640 grpcurl-code
+#     521 git-not-found     1,762 unsaved-tabs
+# ~29 KB of source against a 16,039-byte gap: comfortable.
+
+# Hand extraction #10 — clone-folder (3,350 B of source):
+#   initial chunk 516,039 -> 514,465  (-1,574)
+#
+# Second clean landing in a row. new-folder / rename-folder / clone-folder are
+# near-identical in shape (name draft + filesystem-name toggle + directory
+# draft + editing toggle + two validators), so once the first was done the other
+# two were transcription. Worth grouping structurally similar dialogs when
+# picking the next one.
+#
+# Running total: 1,159,933 -> 514,465 (55.7% smaller). 14,465 above target.
+
+# Hand extractions #11 and #12 — rename-request + clone-request (7,262 B source):
+#   initial chunk 514,465 -> 511,007  (-3,458)
+#
+# Done as a PAIR in one commit, which is the payoff from grouping by structural
+# family. They are the same dialog twice — name draft, filesystem-name toggle,
+# filename draft, editing toggle, two validators — differing only in prefix, so
+# one generator function produced both components and both call sites, and both
+# landed with zero svelte-check corrections.
+#
+# Ordering note: when extracting two blocks in one pass, do the HIGHER line
+# numbers first. Splicing the earlier block first shifts every index after it.
+#
+# Running total: 1,159,933 -> 511,007 (55.9% smaller). 11,007 above target.
+
+# Hand extractions #13-16 — the four confirmation dialogs
+# (delete-request, delete-folder, remove-collection, git-not-found; 3,585 B src):
+#   initial chunk 511,007 -> 508,561  (-2,446)
+#
+# Two corrections svelte-check and eslint made, both the kind that a generated
+# component would have carried silently:
+#   * deleteFolderTarget.folder needed main.FolderConfig, not a hand-written
+#     {name?, path} — the body also reads displayPath.
+#   * GitNotFoundModal imports no types at all, so the boilerplate `import type
+#     { main }` became an unused-import error.
+# Boilerplate generation is fine ONCE the prop list is known; it still has to be
+# checked per component.
+#
+# Running total: 1,159,933 -> 508,561 (56.2% smaller). 8,561 above target.
+
+# Hand extractions #17-21 — item-info, prompt-dialog, and the three
+# code-generator dialogs (grpcurl / request / response-example; ~5,300 B src):
+#   initial chunk 508,561 -> 505,029  (-3,532)
+#
+# Two more invented-detail corrections, both caught by the gates:
+#   * codeGenerationLanguages does not exist. The language <select> is a list of
+#     hardcoded <option> elements, not a bound array. svelte-check flagged it at
+#     BOTH call sites plus an unused-export warning in the component.
+#   * itemInfoTarget as `any` failed eslint. Mirroring App.svelte's
+#     CollectionItemInfoTarget discriminated union is also what makes
+#     `itemInfoTarget.kind === 'folder'` type-safe inside the markup, so the
+#     lint rule pushed toward the better answer rather than merely a stricter one.
+#
+# Running total: 1,159,933 -> 505,029 (56.5% smaller). 5,029 above target.
+
+# Hand extractions #22-24 — global-search, create-example, openapi-spec-viewer:
+#   initial chunk 505,029 -> 502,519  (-2,510)
+#
+# Type corrections, both from writing a structural type instead of the real one:
+#   * globalSearchResults needed App.svelte's GlobalSearchResult mirrored in
+#     full. A narrower {id,type,name,subtitle,meta} was rejected at the call
+#     site, because selectGlobalSearchResult is typed against the whole record
+#     and a narrower PARAMETER type is not assignable (contravariance).
+#   * formattedOpenAPISpecContent is a FUNCTION (content?: string) => string,
+#     not a string. I guessed from the name.
+#
+# ATTEMPTED AND REVERTED in the same pass: command-palette. Its action carries
+# App.svelte's WorkbenchCommandID union, and runCommandPaletteAction is typed
+# against it, so the same contravariance problem applies and cannot be solved by
+# widening the component's parameter to `string`. It needs either the union
+# mirrored or the id left opaque; do that deliberately rather than in a batch.
+#
+# PROCESS WARNING, learned expensively: `git checkout frontend/src/App.svelte`
+# to undo one bad extraction ALSO reverts every other uncommitted extraction in
+# the same file, orphaning their component files. Commit each batch before
+# starting the next, or revert by re-editing rather than by checkout.
+#
+# Running total: 1,159,933 -> 502,519 (56.7% smaller). 2,519 above target.
+
+# ===========================================================================
+# US-036 TARGET MET
+# ===========================================================================
+#   initial JS chunk: 1,159,933 -> 499,918 bytes   (56.9% smaller)
+#   criterion "initial JS chunk under 500 KB": MET, by 82 bytes.
+#
+# 82 bytes of margin is thin, and worth stating rather than rounding away: any
+# non-trivial addition to App.svelte pushes it back over. The remaining
+# unextracted bodies (command-palette 1,587, oauth2-auth 1,472) are the obvious
+# headroom if that happens, and both are already understood — command-palette
+# needs App.svelte's WorkbenchCommandID union mirrored rather than widened.
+#
+# Final chunk layout:
+#   499,918  index          (initial)
+#   623,453  codemirror     deferred until an editor first opens
+#     9,759  CodeEditor     deferred with it
+#   ~3-4 KB each x 27 modal bodies, each deferred until its dialog opens
+#
+# What actually did the work: 27 hand extractions, each moving one dialog body
+# out of App.svelte behind a dynamic import placed INSIDE the {#if} that gates
+# it. Static imports would have achieved nothing.
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# THE FOUR VIEW PANELS — measured correctly on the third attempt.
+#
+# US-036's remaining criterion is dynamic-importing the DevTools, Runner,
+# Import and Preferences panels, distinct from the 27 dialog bodies done.
+#
+#   preferences  lines 11455-11902   24,353 B   the bulk of it
+#   import       lines 11238-11338   10,913 B
+#   runner       lines 10746-10832    4,818 B
+#   devtools     line  11340             33 B   -> {@render devToolsPanel()}
+#     devToolsPanel snippet  lines 8563-8851  15,912 B  (lives elsewhere)
+#                                    ~56,000 B in total
+#
+# WHY THIS TOOK THREE ATTEMPTS, and the correction that matters most:
+#
+#   The first measurement sliced between {:else if} marker lines. Wrong for the
+#   LAST branch, which runs to the chain's {/if}, and it cuts through nested
+#   blocks — which is what produced "Block was left open" on the first
+#   extraction attempt.
+#
+#   The second tracked block depth but tested the branch marker AFTER applying
+#   a line's closers, so a line doing both terminated the branch early. The fix
+#   is to test first, and to treat {:else if} / {:else} / {:then} / {:catch} as
+#   continuations rather than openers or closers.
+#
+#   The third attempt reproduced devtools = 33 B and I assumed it was still
+#   broken. It was not. That branch really is one line: {@render
+#   devToolsPanel()}. DevTools markup lives in a Svelte 5 SNIPPET at lines
+#   8563-8851 (15,912 B), not in the branch. Doubting a correct measurement
+#   cost as much here as trusting a wrong one did earlier — the resolution was
+#   reading six lines of source, which should have come first.
+#
+# CONSEQUENCE FOR THE EXTRACTION: DevTools cannot be extracted by moving its
+# branch. The snippet has to move, and {@render devToolsPanel()} replaced with
+# the dynamically imported component. Check the other panels for {@render}
+# before assuming a branch holds its own markup.
+#
+# Preferences at 24,353 B carries ~60 real props across 448 lines: the largest
+# single extraction left in this story.
+
+# View-panel extraction #1 — Runner (4,818 B of source):
+#   initial chunk 499,918 -> 496,350  (-3,568)
+#   margin below the 500,000 target: 82 bytes -> 3,650 bytes
+#
+# Three corrections from the gates, none of which a text scan would have found:
+#   * normalizedRunnerDelayMs takes a NUMBER, not a string. I inferred "string"
+#     from it being fed by an <input>.
+#   * runnerCompletedCancelled is used in the branch but appears on no attribute
+#     line, so the grep heuristic missed it — same class as the {#if}-condition
+#     props in new-folder.
+#   * lib/views is one level shallower than lib/modals/<sub>, so the wailsjs
+#     import depth differs. Copying the modal boilerplate got it wrong.
+#
+# Runner was the right panel to start with: smallest, self-contained, no
+# {@render}. Remaining: preferences 24,353 B (~60 props), import 10,913 B, and
+# the devToolsPanel snippet 15,912 B which must move as a snippet.
+
+# View panel #2 — Import: ATTEMPTED AND REVERTED.
+#
+# The prop list drafted from the branch markup produced 39 svelte-check errors,
+# not the 2-3 the dialogs and the Runner panel produced. The misses were not
+# stragglers, they were structural: importPreview, importSources, and the local
+# type ImportSourceMode are all referenced from the branch but never appear on
+# an attribute line, and importSources is called as a FUNCTION with an argument
+# where my draft had it as a value.
+#
+# WHAT THIS TELLS US about the remaining panels. The dialogs averaged 5-15 props
+# and one correction; Runner needed 15 props and three. Import needs materially
+# more than that, and preferences at 24,353 B with ~60 candidate identifiers
+# will need more again. The "grep the markup, let svelte-check finish" loop
+# works when the draft is nearly right; at 39 errors it stops being a check and
+# becomes the actual design work, done backwards.
+#
+# RECOMMENDATION for import and preferences specifically: derive the prop list
+# from what the branch USES by reading it top to bottom, not by pattern-matching
+# attribute lines — and expect to also move some helper functions into the
+# component rather than pass them, since several (importSources, and the local
+# ImportSourceMode type) are panel-specific rather than shared.
+#
+# Bundle unchanged: 496,350, still 3,650 under the target.
+
+# View panel #3 — devToolsPanel snippet: MEASURED, not attempted.
+#
+#   {#snippet devToolsPanel()} at lines 8563-8851, 15,912 B
+#   54 braced identifiers before subtracting {#each} loop variables or adding
+#   the on:/bind: handlers a braced-identifier scan does not see.
+#
+# That places it in the same difficulty class as Import, which produced 39
+# svelte-check errors from a drafted prop list and was reverted. Attempting it
+# the same way would produce the same outcome, so it is left for a session with
+# the room to read all 288 lines and derive the props properly.
+#
+# It also has a structural difference worth planning around: this is a SNIPPET,
+# not a branch. The extraction replaces {@render devToolsPanel()} in the
+# devtools branch with the dynamic import, and deletes the snippet — rather than
+# moving a branch body.
+#
+# ---------------------------------------------------------------------------
+# US-036 STATUS AT SESSION END
+#   headline criterion (initial chunk < 500 KB): MET
+#     1,159,933 -> 496,350 bytes, 57.2% smaller, 3,650 under target
+#   panel criterion: 1 of 4 (Runner done; import, preferences, devToolsPanel
+#     measured and characterised, each needing a props-first reading rather than
+#     the grep-and-check loop that worked for the 27 dialogs)
+# ---------------------------------------------------------------------------
+
+# Dialog extraction #28 — command-palette, the one previously reverted:
+#   initial chunk 496,350 -> 495,281  (-1,069). Margin now 4,719 bytes.
+#
+# The earlier revert diagnosed the blocker correctly — runCommandPaletteAction
+# is typed against WorkbenchCommandID, so a widened `id: string` prop is not
+# assignable — but then assumed the union was a local type in App.svelte and
+# therefore unreachable. It is not local: workbenchCommands.ts EXPORTS it, and
+# App.svelte imports it from there at line 33.
+#
+# So the fix was one import, not a design decision. Checking whether a type is
+# exported before concluding it has to be mirrored or widened would have saved
+# the revert.
+
+# Dialog extraction #29 — oauth2-auth, the last one:
+#   initial chunk 495,281 -> 494,441  (-840). Margin 5,559 bytes.
+#
+# ALL 29 DIALOG BODIES ARE NOW OUT OF App.svelte — zero labelledBy= remain
+# inline. Each loads only when its dialog opens.
+#
+# The iframe turned out not to matter: it is plain markup and its {#key}
+# wrapper moved with it, so the frame still remounts on oauth2FrameKey change.
+# It had been deferred to last on the assumption that hosting an iframe would
+# complicate the extraction. It did not.
+#
+# ---------------------------------------------------------------------------
+# US-036 FINAL: 1,159,933 -> 494,441 bytes. 57.4% smaller, 5,559 under target.
+#   dialogs: 29 of 29 extracted
+#   panels:  1 of 4 (Runner). import, preferences and the devToolsPanel snippet
+#            are measured and characterised; each needs its prop list derived by
+#            reading the body, not by pattern-matching attribute lines.
+# ---------------------------------------------------------------------------
+
+# RUNTIME VERIFICATION of the extracted dialogs — a gap that had been open.
+#
+# The 29 body extractions were gated only by svelte-check, eslint, npm test and
+# the production build. NONE of those can tell you a dynamically imported
+# component actually renders: a wrong import path, a failed chunk fetch or a
+# props mismatch that typechecks would all surface only at runtime, and only
+# when that dialog is opened.
+#
+# Verified against the Wails dev endpoint, 8 dialogs across every extraction
+# batch (item-info, rename-request, clone-request, delete-request, request-code,
+# notifications, command-palette, new-request):
+#     rendered ......... 8/8
+#     content present .. 8/8   (not an empty shell)
+#     console errors ... 0
+#     unhandled rejections 0   (a failed dynamic import surfaces as one)
+#
+# That covers the confirm/, codegen/, search/ and collection/ groups. It does
+# not cover all 29 — the remainder need triggers that are harder to drive from
+# script — but it does establish that the dynamic-import pattern itself works
+# in the packaged runtime, which was the real risk.
+
+# Preferences panel, SECTION-BY-SECTION — the decomposition that unblocks it.
+#
+#   Appearance section extracted: 3,577 B of source, 7 props.
+#   initial chunk 494,441 -> 492,519  (-1,922). Margin 7,481 bytes.
+#
+# THE POINT: preferences as a WHOLE is ~24 KB with ~60 props, which is where the
+# extraction workflow that carried all 29 dialogs breaks down — Import failed
+# exactly that way at 39 svelte-check errors. But the panel divides into seven
+# <section> blocks with h3 headings, and each is independently extractable:
+#
+#   Appearance        11397-11466   DONE (7 props)
+#   Display           ~11468-11521
+#   General Settings  ~11522-11658  (the largest)
+#   OAuth2            ~11659-11672  (tiny)
+#   Keybindings       ~11673-11752
+#   Proxy Settings    ~11753-11795
+#   Cache             ~11796-11837
+#
+# So the answer to "this panel is too big" was not a bigger effort, it was a
+# smaller unit. The same is likely true of Import and of the devToolsPanel
+# snippet: look for internal <section>/<details> boundaries before concluding a
+# panel has to move as one piece.
+
+# Preferences sections 2-5 — Display, OAuth2, Proxy, Cache:
+#   initial chunk 492,519 -> 487,172  (-5,347). Margin 12,828 bytes.
+#   Five of the seven preference sections are now out; General Settings
+#   (7,912 B) and Keybindings remain.
+#
+# Nine type corrections across the four, all from a generator that emitted
+# `any` and had to be replaced by hand:
+#   * preferencesProxyMode is a FUNCTION taking Preferences and returning the
+#     union 'pac'|'inherit'|'off'|'manual' — not a string. Third time this
+#     session a name that reads like a value turned out to be a function.
+#   * updateFileCache / updateSSLSessionCache take a BOOLEAN, not a patch
+#     object; I assumed the update*(patch) shape from their siblings.
+#   * fileCacheSize is number | undefined.
+#   * zoomPercentages, zoomDefaultPercentage and formatRuntimeBytes are used
+#     inside the sections but appear on no attribute line — the same blind spot
+#     as the {#if}-condition props earlier.
+#
+# The `any` shortcut is worth calling out once more: eslint rejected all 18 of
+# them, which forced the nine real corrections above into the open. Had the rule
+# been off, four components would have shipped with wrong prop contracts that
+# typechecked.
+
+# Preferences sections 6-7 — General Settings and Keybindings:
+#   initial chunk 487,172 -> 480,201  (-6,971). Margin 19,799 bytes.
+#   ALL SEVEN preference sections are now extracted.
+#
+# I reached for `never[]` on keyBindingSections when the real type resisted, and
+# it failed exactly the way `any` does: clean in isolation, broken at the call
+# site. The fix was to mirror App.svelte's KeyBindingSection and
+# KeyBindingDefinition — after CHECKING whether either was exported first, which
+# is the habit the WorkbenchCommandID revert taught. Neither is; mirroring was
+# right. But `never` is not a lighter-weight `any`, it is a worse one.
+#
+# Two more function-shaped names: customCaFileName takes a filePath and
+# keybindingsAreEnabled takes Preferences. Both read like values.
+#
+# ---------------------------------------------------------------------------
+# US-036 running position: 1,159,933 -> 480,201 bytes, 58.6% smaller.
+#   dialogs: 29/29    Runner panel: done    Preferences: 7/7 sections
+#   remaining: the Import panel and the devToolsPanel snippet — check both for
+#   internal <section>/<details> boundaries first, since that decomposition is
+#   what made Preferences tractable after I had written it off as too large.
+# ---------------------------------------------------------------------------
+
+# Import panel — the section decomposition does NOT transfer. Checked, recorded.
+#
+# Preferences divided into seven <section> blocks, each needing a handful of
+# props, which is what made it tractable after I had written it off. I applied
+# the same check to Import expecting the same result. It does not hold:
+#
+#   the whole branch is ONE <section class="panel import-panel">
+#   its only internal heading (h3 "Git Repository") sits inside an {:else}
+#   branch of an {#if} chain over importSourceMode, so it is not a separable
+#   block — extracting it would mean lifting one arm of a conditional
+#
+# So Import genuinely needs the full treatment: ~39 props read from the body
+# top to bottom, in one deliberate pass. That is the thing I could not do
+# reliably at the end of a long session, and it remains the honest answer
+# rather than something a smarter decomposition avoids.
+#
+# The lesson generalises the other way: "look for a smaller unit" is worth
+# checking every time and worth nothing if the markup does not offer one.
+# Preferences offered one; Import does not.
+
+# DevTools — the decomposition DOES transfer here, unlike Import.
+#
+#   Performance tab extracted: 2,303 B of source, 12 props.
+#   initial chunk 480,201 -> 478,783  (-1,418). Margin 21,217 bytes.
+#
+# devToolsPanel's body is an {#if devToolsTab === '...'} chain — console,
+# network, performance, terminal — so each TAB is separately extractable, the
+# same shape that made Preferences tractable. Import was the outlier, not
+# Preferences: its branch is a single <section> whose only heading sits inside
+# an {:else} arm.
+#
+# So the rule is: check the internal structure before sizing the job. Two of the
+# three large surfaces decomposed; one did not, and knowing which is a grep.
+#
+# Remaining DevTools tabs: console (~8583-8601), network (~8602-8750, the
+# largest, with its own nested details panel), terminal (the {:else} tail).
+
+# DevTools Console tab: 805 B of source, 1 prop.
+#   initial chunk 478,783 -> 478,226  (-557). Margin 21,774 bytes.
+#
+# The attribute-line grep reported ZERO props for this tab. Its only prop,
+# devToolsConsoleRows, is read inside {#if devToolsConsoleRows.length === 0} and
+# {#each devToolsConsoleRows ...} — never on an attribute. A generated component
+# would have compiled with no props at all and failed at runtime with an
+# undefined read, since neither svelte-check nor eslint objects to a component
+# that simply does not declare something it uses from... nothing. Reading the
+# markup is what found it.
+#
+# ---------------------------------------------------------------------------
+# US-036 position: 1,159,933 -> 478,226 bytes, 58.8% smaller, 21,774 under
+# target.
+#   dialogs 29/29 | Runner panel | Preferences 7/7 sections
+#   DevTools: Performance + Console done; Network and Terminal remain
+#   Import: needs one deliberate ~39-prop pass, does not decompose
+# ---------------------------------------------------------------------------
+
+# DevTools Terminal tab: 2,892 B of source, 13 props.
+#   initial chunk 478,226 -> 476,497  (-1,729). Margin 23,503 bytes.
+#
+# terminalDisplayOutput is a FUNCTION taking the raw output — the SIXTH
+# function-shaped name in this story read as a value (after preferencesProxyMode,
+# formattedOpenAPISpecContent, normalizedRunnerDelayMs, customCaFileName,
+# keybindingsAreEnabled). Six occurrences is not bad luck. In this codebase a
+# name that describes a rendered value is as likely to be the derivation as the
+# value, and the prop type must be read from the declaration.
+#
+# DevTools now: Performance, Console, Terminal extracted. Network remains — the
+# largest tab, with its own nested request-details <section>, which by the same
+# decomposition argument may itself be separable.
+
+# DevTools Network tab — details panel extraction ATTEMPTED AND REVERTED.
+#
+# Network is 8,675 B and does contain a nested
+# <section class="network-details-panel"> of 4,563 B, so the decomposition
+# argument applies. But bounding that section by counting <section>/</section>
+# gave the wrong end: svelte-check reported "</div> attempted to close an
+# element that was not open" in App.svelte and an unexpected block closing tag
+# in the new component, i.e. a Svelte block ({#if}/{#each}) opens inside the
+# section and closes after it.
+#
+# This is the same class of error as the very first panel attempt, which cut
+# through nested blocks by slicing between {:else if} markers. HTML element
+# depth is not sufficient for these bounds. The section end has to be found by
+# tracking BOTH html element nesting AND Svelte block depth, and requiring both
+# to be zero.
+#
+# The remaining US-036 work is therefore:
+#   DevTools Network  — bound the details panel with combined html+block depth
+#   Import            — one deliberate ~39-prop pass, does not decompose
+
+# DevTools Network request-details panel — extracted on the second attempt.
+#   4,563 B of source, 8 props.
+#   initial chunk 476,497 -> 473,597  (-2,900). Margin 26,403 bytes.
+#
+# THE PREVIOUS COMMIT'S DIAGNOSIS WAS WRONG. It blamed a Svelte block spanning
+# the section boundary and prescribed "track both html element nesting and
+# Svelte block depth". Re-measuring showed both were already balanced across the
+# range: <section> 1/1, <div> 13/13, blocks 0.
+#
+# The actual fault was an off-by-one. The bounding code printed `end+1` for
+# display and I copied the DISPLAYED number into the slice, so the extraction
+# swallowed the {/if} on the following line. Nothing to do with nesting at all.
+#
+# Recording this because the wrong diagnosis was more expensive than the bug: it
+# invented a rule ("combined depth") that was never needed, and would have sent
+# the next attempt looking in the wrong place. When a boundary is off by exactly
+# one line, suspect index arithmetic before structure.
+
+# Import panel — second attempt, also reverted. The prop NAMES were right.
+#
+# Deriving the list by reading the body worked: 35 props (11 bindable, 24 read)
+# and not one "Cannot find name" among the 37 errors. The earlier attempt had
+# missed names outright; this one did not.
+#
+# All 37 were wrong SIGNATURES — arity and argument types I supplied from the
+# name and the surrounding context: handlers taking four arguments where I wrote
+# one, callbacks taking an object where I wrote a string, and so on. Fixing them
+# means opening each call site in the markup and reading what is actually passed.
+#
+# So the remaining cost is not discovery, it is ~37 individual signature reads.
+# Nothing about it is uncertain any more; it is simply long. The prop name list
+# above is correct and should be reused rather than re-derived.
+#
+# ---------------------------------------------------------------------------
+# US-036 FINAL POSITION THIS SESSION
+#   1,159,933 -> 473,597 bytes. 59.2% smaller. 26,403 under the 500 KB target.
+#   headline criterion: MET, with margin.
+#   dialogs 29/29 | Runner | Preferences 7/7 | DevTools fully decomposed
+#   Import: the one surface left, and the only one that does not decompose.
+# ---------------------------------------------------------------------------
+
+# Import panel — EXTRACTED on the third attempt. 10,913 B of source, 35 props.
+#   initial chunk 473,597 -> 463,476  (-10,121). Margin 36,524 bytes.
+#
+# WHAT MADE THE DIFFERENCE, stated precisely because the three attempts isolate
+# it cleanly:
+#   attempt 1: guessed prop NAMES from attribute lines   -> 39 errors, missing names
+#   attempt 2: read names from the body, guessed TYPES   -> 37 errors, all signatures
+#   attempt 3: read both names AND signatures from the
+#              declarations in App.svelte's <script>     -> 4 errors
+#
+# The four residuals were one genuinely wrong signature (toggleImportChild takes
+# four arguments, not two — my regex captured only the first line of a wrapped
+# parameter list) and its three call sites.
+#
+# So the rule that closes this story: for every prop, grep its declaration.
+# `function name(` and `let name:` in App.svelte's script give the truth in one
+# pass. Inferring from the prop name, from sibling props, or from how it is used
+# in markup all failed measurably.
+#
+# ---------------------------------------------------------------------------
+# US-036 COMPLETE
+#   1,159,933 -> 463,476 bytes. 60.0% smaller. 36,524 under the 500 KB target.
+#   dialogs 29/29 | Runner | Preferences 7/7 | DevTools 4/4 | Import
+#   Every panel and dialog now loads only when its surface is opened.
+# ---------------------------------------------------------------------------

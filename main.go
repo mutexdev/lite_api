@@ -1,47 +1,24 @@
+// Command liteapi is the LiteAPI desktop application.
+//
+// This file is deliberately the ONLY Go file in the repository root. Wails
+// builds the main package in the project directory, and //go:embed resolves
+// its paths relative to the declaring file and cannot escape that directory —
+// so the embedded frontend bundle pins this one file here. Everything else
+// lives under internal/, where it can be organised by domain.
 package main
 
 import (
 	"embed"
+	"os"
 
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	"github.com/wailsapp/wails/v2/pkg/options/mac"
+	"github.com/mutexdev/lite_api/internal/core"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
 
 func main() {
-	// Create an instance of the app structure
-	app := NewApp()
-
-	// Create application with options
-	err := wails.Run(&options.App{
-		Title:  "LiteAPI",
-		Width:  1024,
-		Height: 768,
-		AssetServer: &assetserver.Options{
-			Assets: assets,
-		},
-		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
-		OnStartup:        app.startup,
-		OnShutdown:       app.shutdown,
-		SingleInstanceLock: &options.SingleInstanceLock{
-			UniqueId: "com.wails.LiteAPI",
-			OnSecondInstanceLaunch: func(secondInstanceData options.SecondInstanceData) {
-				app.handleSecondInstanceArgs(secondInstanceData.Args)
-			},
-		},
-		Mac: &mac.Options{
-			OnUrlOpen: app.handleOpenURL,
-		},
-		Bind: []interface{}{
-			app,
-		},
-	})
-
-	if err != nil {
+	if err := core.Run(assets, os.Args[1:]); err != nil {
 		println("Error:", err.Error())
 	}
 }

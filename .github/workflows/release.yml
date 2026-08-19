@@ -1,0 +1,442 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "24"
+  WAILS_VERSION: "v2.12.0"
+  RELEASE_VERSION: "0.1.${{ github.run_number }}"
+  RELEASE_TAG: "v0.1.${{ github.run_number }}"
+
+jobs:
+  build-macos:
+    name: Build macOS
+    runs-on: macos-15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Check frontend
+        working-directory: frontend
+        run: |
+          npm run check
+          npm run build
+
+      - name: Test Go code
+        run: |
+          go test ./...
+          go vet ./...
+
+      - name: Install pinned Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}
+
+      - name: Set release version
+        run: node .github/scripts/set-release-version.mjs "${RELEASE_VERSION}"
+
+      - name: Build universal macOS application
+        run: |
+          wails build -clean -platform darwin/universal -trimpath
+          ARCHITECTURES="$(lipo -archs build/bin/LiteAPI.app/Contents/MacOS/LiteAPI)"
+          echo "Built architectures: ${ARCHITECTURES}"
+          [[ " ${ARCHITECTURES} " == *" arm64 "* ]]
+          [[ " ${ARCHITECTURES} " == *" x86_64 "* ]]
+
+      - name: Sign, package, and notarize macOS application
+        env:
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+
+          : "${MACOS_CERTIFICATE_P12_BASE64:?MACOS_CERTIFICATE_P12_BASE64 is not configured}"
+          : "${MACOS_CERTIFICATE_PASSWORD:?MACOS_CERTIFICATE_PASSWORD is not configured}"
+          : "${APPLE_API_KEY_P8_BASE64:?APPLE_API_KEY_P8_BASE64 is not configured}"
+          : "${APPLE_API_KEY_ID:?APPLE_API_KEY_ID is not configured}"
+          : "${APPLE_API_ISSUER_ID:?APPLE_API_ISSUER_ID is not configured}"
+
+          CERTIFICATE_PATH="${RUNNER_TEMP}/liteapi-developer-id.p12"
+          API_KEY_PATH="${RUNNER_TEMP}/AuthKey_${APPLE_API_KEY_ID}.p8"
+          KEYCHAIN_PATH="${RUNNER_TEMP}/liteapi-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          DMG_ROOT="${RUNNER_TEMP}/liteapi-dmg-root"
+          DMG_PATH="dist/LiteAPI-${RELEASE_TAG}-macOS-universal.dmg"
+
+          printf '%s' "${MACOS_CERTIFICATE_P12_BASE64}" | base64 -D > "${CERTIFICATE_PATH}"
+          printf '%s' "${APPLE_API_KEY_P8_BASE64}" | base64 -D > "${API_KEY_PATH}"
+
+          security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security set-keychain-settings -lut 21600 "${KEYCHAIN_PATH}"
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security import "${CERTIFICATE_PATH}" \
+            -k "${KEYCHAIN_PATH}" \
+            -P "${MACOS_CERTIFICATE_PASSWORD}" \
+            -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "${KEYCHAIN_PASSWORD}" \
+            "${KEYCHAIN_PATH}"
+
+          SIGNING_IDENTITY="$(security find-identity -v -p codesigning "${KEYCHAIN_PATH}" | awk -F '"' '/Developer ID Application/ { print $2; exit }')"
+          if [[ -z "${SIGNING_IDENTITY}" ]]; then
+            echo "No Developer ID Application identity was found in the imported certificate." >&2
+            exit 1
+          fi
+
+          codesign \
+            --force \
+            --deep \
+            --options runtime \
+            --timestamp \
+            --keychain "${KEYCHAIN_PATH}" \
+            --sign "${SIGNING_IDENTITY}" \
+            build/bin/LiteAPI.app
+          codesign --verify --deep --strict --verbose=2 build/bin/LiteAPI.app
+
+          mkdir -p dist "${DMG_ROOT}"
+          ditto build/bin/LiteAPI.app "${DMG_ROOT}/LiteAPI.app"
+          ln -s /Applications "${DMG_ROOT}/Applications"
+          hdiutil create \
+            -volname "LiteAPI ${RELEASE_VERSION}" \
+            -srcfolder "${DMG_ROOT}" \
+            -ov \
+            -format UDZO \
+            "${DMG_PATH}"
+
+          codesign \
+            --force \
+            --timestamp \
+            --keychain "${KEYCHAIN_PATH}" \
+            --sign "${SIGNING_IDENTITY}" \
+            "${DMG_PATH}"
+          codesign --verify --strict --verbose=2 "${DMG_PATH}"
+
+          xcrun notarytool submit "${DMG_PATH}" \
+            --key "${API_KEY_PATH}" \
+            --key-id "${APPLE_API_KEY_ID}" \
+            --issuer "${APPLE_API_ISSUER_ID}" \
+            --wait \
+            --timeout 30m
+          xcrun stapler staple "${DMG_PATH}"
+          xcrun stapler validate "${DMG_PATH}"
+          spctl --assess \
+            --type open \
+            --context context:primary-signature \
+            --verbose=4 \
+            "${DMG_PATH}"
+
+      - name: Clean signing material
+        if: always()
+        run: |
+          security delete-keychain "${RUNNER_TEMP}/liteapi-signing.keychain-db" 2>/dev/null || true
+          rm -f \
+            "${RUNNER_TEMP}/liteapi-developer-id.p12" \
+            "${RUNNER_TEMP}/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8"
+          rm -rf "${RUNNER_TEMP}/liteapi-dmg-root"
+
+      - name: Upload macOS package
+        uses: actions/upload-artifact@v7
+        with:
+          name: liteapi-macos
+          path: dist/LiteAPI-${{ env.RELEASE_TAG }}-macOS-universal.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-2025
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Check frontend
+        working-directory: frontend
+        run: |
+          npm run check
+          if ($LASTEXITCODE -ne 0) {
+            throw "Frontend checks failed with exit code $LASTEXITCODE."
+          }
+          npm run build
+          if ($LASTEXITCODE -ne 0) {
+            throw "Frontend build failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Test Go code
+        run: |
+          go test ./...
+          if ($LASTEXITCODE -ne 0) {
+            throw "Go tests failed with exit code $LASTEXITCODE."
+          }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) {
+            throw "Go vet failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Install packaging tools
+        run: |
+          go install github.com/wailsapp/wails/v2/cmd/wails@$env:WAILS_VERSION
+          if ($LASTEXITCODE -ne 0) {
+            throw "Wails installation failed with exit code $LASTEXITCODE."
+          }
+          choco install nsis --no-progress -y
+          if ($LASTEXITCODE -ne 0) {
+            throw "NSIS installation failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Set release version
+        run: node .github/scripts/set-release-version.mjs "$env:RELEASE_VERSION"
+
+      - name: Build Windows installer
+        run: wails build -clean -platform windows/amd64 -nsis -trimpath -webview2 embed
+
+      - name: Verify and stage Windows installer
+        run: |
+          $installer = Get-ChildItem -Path build/bin -Filter "*-installer.exe" | Select-Object -First 1
+          if ($null -eq $installer) {
+            throw "Wails did not produce an NSIS installer."
+          }
+
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $destination = "dist/LiteAPI-$env:RELEASE_TAG-windows-amd64-installer.exe"
+          Move-Item -Path $installer.FullName -Destination $destination
+
+          $signature = Get-AuthenticodeSignature -FilePath $destination
+          if ($signature.Status -ne "NotSigned") {
+            throw "The Windows installer was expected to be unsigned, but its signature status is $($signature.Status)."
+          }
+
+          $install = Start-Process -FilePath $destination -ArgumentList "/S" -Wait -PassThru
+          if ($install.ExitCode -ne 0) {
+            throw "Silent installation failed with exit code $($install.ExitCode)."
+          }
+
+          $installDirectory = Join-Path $env:ProgramFiles "mutexdev\LiteAPI"
+          $installedExecutable = Join-Path $installDirectory "LiteAPI.exe"
+          $uninstaller = Join-Path $installDirectory "uninstall.exe"
+          if (-not (Test-Path $installedExecutable)) {
+            throw "Silent installation did not create $installedExecutable."
+          }
+          if (-not (Test-Path $uninstaller)) {
+            throw "Silent installation did not create $uninstaller."
+          }
+
+          $uninstall = Start-Process -FilePath $uninstaller -ArgumentList "/S" -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) {
+            throw "Silent uninstallation failed with exit code $($uninstall.ExitCode)."
+          }
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v7
+        with:
+          name: liteapi-windows
+          path: dist/LiteAPI-${{ env.RELEASE_TAG }}-windows-amd64-installer.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            pkg-config
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Check frontend
+        working-directory: frontend
+        run: |
+          npm run check
+          npm run build
+
+      - name: Test Go code
+        run: |
+          go test -tags webkit2_41 ./...
+          go vet -tags webkit2_41 ./...
+
+      - name: Install pinned Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}
+
+      - name: Set release version
+        run: node .github/scripts/set-release-version.mjs "${RELEASE_VERSION}"
+
+      - name: Build Linux application
+        run: wails build -clean -platform linux/amd64 -tags webkit2_41 -trimpath
+
+      - name: Verify and package Linux application
+        run: |
+          set -euo pipefail
+
+          file build/bin/LiteAPI | tee "${RUNNER_TEMP}/liteapi-file.txt"
+          grep -q "ELF 64-bit.*x86-64" "${RUNNER_TEMP}/liteapi-file.txt"
+
+          ldd build/bin/LiteAPI | tee "${RUNNER_TEMP}/liteapi-ldd.txt"
+          if grep -q "not found" "${RUNNER_TEMP}/liteapi-ldd.txt"; then
+            echo "The Linux binary has unresolved shared-library dependencies." >&2
+            exit 1
+          fi
+
+          PACKAGE_NAME="LiteAPI-${RELEASE_TAG}-linux-amd64"
+          PACKAGE_DIRECTORY="${RUNNER_TEMP}/${PACKAGE_NAME}"
+          mkdir -p dist "${PACKAGE_DIRECTORY}"
+          install -m 0755 build/bin/LiteAPI "${PACKAGE_DIRECTORY}/LiteAPI"
+          install -m 0644 LICENSE "${PACKAGE_DIRECTORY}/LICENSE"
+          printf '%s\n' \
+            'LiteAPI for Linux (AMD64)' \
+            '' \
+            'Runtime requirements:' \
+            '- GTK 3' \
+            '- WebKit2GTK 4.1' \
+            '' \
+            'On Ubuntu 24.04 or Debian-compatible systems, install the runtime packages supplied by your distribution, then run ./LiteAPI.' \
+            > "${PACKAGE_DIRECTORY}/README-Linux.txt"
+
+          tar \
+            -C "${RUNNER_TEMP}" \
+            -czf "dist/${PACKAGE_NAME}.tar.gz" \
+            "${PACKAGE_NAME}"
+          tar -tzf "dist/${PACKAGE_NAME}.tar.gz"
+
+      - name: Upload Linux package
+        uses: actions/upload-artifact@v7
+        with:
+          name: liteapi-linux
+          path: dist/LiteAPI-${{ env.RELEASE_TAG }}-linux-amd64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub release
+    runs-on: ubuntu-24.04
+    needs:
+      - build-macos
+      - build-windows
+      - build-linux
+    permissions:
+      contents: write
+    steps:
+      - name: Download platform packages
+        uses: actions/download-artifact@v8
+        with:
+          pattern: liteapi-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify packages and generate checksums
+        run: |
+          set -euo pipefail
+
+          cd dist
+          expected=(
+            "LiteAPI-${RELEASE_TAG}-macOS-universal.dmg"
+            "LiteAPI-${RELEASE_TAG}-windows-amd64-installer.exe"
+            "LiteAPI-${RELEASE_TAG}-linux-amd64.tar.gz"
+          )
+
+          for package in "${expected[@]}"; do
+            if [[ ! -f "${package}" ]]; then
+              echo "Missing release package: ${package}" >&2
+              exit 1
+            fi
+          done
+
+          package_count="$(find . -maxdepth 1 -type f | wc -l | tr -d ' ')"
+          if [[ "${package_count}" != "3" ]]; then
+            echo "Expected exactly three platform packages, found ${package_count}." >&2
+            find . -maxdepth 1 -type f -print
+            exit 1
+          fi
+
+          sha256sum "${expected[@]}" > SHA256SUMS.txt
+          sha256sum --check SHA256SUMS.txt
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${RELEASE_TAG}" \
+            dist/LiteAPI-${RELEASE_TAG}-macOS-universal.dmg \
+            dist/LiteAPI-${RELEASE_TAG}-windows-amd64-installer.exe \
+            dist/LiteAPI-${RELEASE_TAG}-linux-amd64.tar.gz \
+            dist/SHA256SUMS.txt \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" \
+            --title "LiteAPI ${RELEASE_TAG}" \
+            --generate-notes \
+            --latest

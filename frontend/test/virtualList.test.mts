@@ -1,0 +1,329 @@
+// US-032 — tests for the virtual list windowing.
+//
+// Every failure mode here is arithmetic that renders as a visual glitch, so the
+// tests assert the INVARIANTS rather than specific indices wherever possible.
+// A test pinning "startIndex is 12" locks in today's overscan; a test asserting
+// the total height is conserved catches the class of bug that makes the
+// scrollbar drift under the cursor.
+
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import {
+  computeWindow,
+  sidebarGroupWindow,
+  keepIndexVisible,
+  sidebarGroupOffset,
+  type SidebarOffsetInput,
+  type OffsetGroup
+} from '../src/lib/virtualList.ts'
+
+const ROW = 24
+const VIEWPORT = 480
+
+// THE load-bearing invariant. If the total height is not conserved, the scroll
+// height changes as the user scrolls and the thumb moves under their cursor.
+test('total rendered height is conserved at every scroll position', () => {
+  const total = 500
+  for (let scrollTop = 0; scrollTop <= total * ROW; scrollTop += 37) {
+    const w = computeWindow({ total, rowHeight: ROW, viewportHeight: VIEWPORT, scrollTop })
+    const rendered = (w.endIndex - w.startIndex) * ROW
+    assert.equal(
+      w.topPadding + rendered + w.bottomPadding,
+      total * ROW,
+      `height not conserved at scrollTop ${scrollTop}`
+    )
+  }
+})
+
+test('the window always covers the visible range', () => {
+  const total = 500
+  for (let scrollTop = 0; scrollTop <= total * ROW; scrollTop += 53) {
+    const w = computeWindow({ total, rowHeight: ROW, viewportHeight: VIEWPORT, scrollTop })
+    const clamped = Math.min(scrollTop, Math.max(0, total * ROW - VIEWPORT))
+    const firstVisible = Math.floor(clamped / ROW)
+    const lastVisible = Math.min(total - 1, Math.floor((clamped + VIEWPORT - 1) / ROW))
+
+    assert.ok(w.startIndex <= firstVisible, `startIndex ${w.startIndex} misses first visible ${firstVisible}`)
+    assert.ok(w.endIndex > lastVisible, `endIndex ${w.endIndex} misses last visible ${lastVisible}`)
+  }
+})
+
+// The bug a filter produces: the row count shrinks while scrollTop stays where
+// it was, pointing past the end of the new list.
+test('a scrollTop left over from a longer list still renders rows', () => {
+  const w = computeWindow({ total: 5, rowHeight: ROW, viewportHeight: VIEWPORT, scrollTop: 9000 })
+  assert.equal(w.startIndex, 0, 'the window should clamp back to the start')
+  assert.equal(w.endIndex, 5, 'every remaining row should render')
+  assert.equal(w.topPadding, 0)
+  assert.equal(w.bottomPadding, 0)
+})
+
+test('padding is never negative', () => {
+  for (const total of [0, 1, 3, 500]) {
+    for (const scrollTop of [-100, 0, 1, 99999]) {
+      const w = computeWindow({ total, rowHeight: ROW, viewportHeight: VIEWPORT, scrollTop })
+      assert.ok(w.topPadding >= 0, `negative topPadding for total ${total} at ${scrollTop}`)
+      assert.ok(w.bottomPadding >= 0, `negative bottomPadding for total ${total} at ${scrollTop}`)
+    }
+  }
+})
+
+test('indices stay inside the list at both ends', () => {
+  const total = 40
+  for (let scrollTop = -500; scrollTop <= total * ROW + 500; scrollTop += 17) {
+    const w = computeWindow({ total, rowHeight: ROW, viewportHeight: VIEWPORT, scrollTop })
+    assert.ok(w.startIndex >= 0, `startIndex ${w.startIndex}`)
+    assert.ok(w.endIndex <= total, `endIndex ${w.endIndex} past total ${total}`)
+    assert.ok(w.startIndex <= w.endIndex, 'startIndex must not pass endIndex')
+  }
+})
+
+// A measured row height of zero is reachable: the height comes from the DOM,
+// and a hidden or not-yet-laid-out table measures zero. Dividing by it gives
+// Infinity indices and an {#each} over an infinite range.
+test('a zero or negative row height renders nothing instead of dividing by zero', () => {
+  for (const rowHeight of [0, -24]) {
+    const w = computeWindow({ total: 500, rowHeight, viewportHeight: VIEWPORT, scrollTop: 100 })
+    assert.deepEqual(w, { startIndex: 0, endIndex: 0, topPadding: 0, bottomPadding: 0 })
+  }
+})
+
+test('an empty list renders nothing and asks for no spacer', () => {
+  const w = computeWindow({ total: 0, rowHeight: ROW, viewportHeight: VIEWPORT, scrollTop: 0 })
+  assert.deepEqual(w, { startIndex: 0, endIndex: 0, topPadding: 0, bottomPadding: 0 })
+})
+
+test('a list shorter than the viewport renders entirely with no padding', () => {
+  const w = computeWindow({ total: 3, rowHeight: ROW, viewportHeight: VIEWPORT, scrollTop: 0 })
+  assert.equal(w.startIndex, 0)
+  assert.equal(w.endIndex, 3)
+  assert.equal(w.topPadding, 0)
+  assert.equal(w.bottomPadding, 0)
+})
+
+// The point of the story: a 500-row list must not put 500 rows in the DOM.
+test('a 500-row list renders a bounded window, not the whole list', () => {
+  const w = computeWindow({ total: 500, rowHeight: ROW, viewportHeight: VIEWPORT, scrollTop: 0 })
+  const rendered = w.endIndex - w.startIndex
+  const fitInViewport = Math.ceil(VIEWPORT / ROW)
+  assert.ok(rendered < 60, `${rendered} rows rendered for a 500-row list`)
+  assert.ok(rendered >= fitInViewport, `${rendered} rows is not enough to fill a ${VIEWPORT}px viewport`)
+})
+
+test('a fractional scroll offset still covers the partly visible first and last rows', () => {
+  // Scrolled half a row: the row above and the row below the viewport edge are
+  // both partly on screen and must both be rendered.
+  const w = computeWindow({ total: 500, rowHeight: ROW, viewportHeight: VIEWPORT, scrollTop: ROW * 10 + ROW / 2, overscan: 0 })
+  assert.ok(w.startIndex <= 10, 'the partly visible top row must be included')
+  const lastVisible = Math.floor((ROW * 10 + ROW / 2 + VIEWPORT - 1) / ROW)
+  assert.ok(w.endIndex > lastVisible, 'the partly visible bottom row must be included')
+})
+
+test('overscan widens the window without breaking the invariant', () => {
+  const base = computeWindow({ total: 500, rowHeight: ROW, viewportHeight: VIEWPORT, scrollTop: 2400, overscan: 0 })
+  const wide = computeWindow({ total: 500, rowHeight: ROW, viewportHeight: VIEWPORT, scrollTop: 2400, overscan: 10 })
+
+  assert.ok(wide.startIndex <= base.startIndex)
+  assert.ok(wide.endIndex >= base.endIndex)
+  assert.equal(wide.topPadding + (wide.endIndex - wide.startIndex) * ROW + wide.bottomPadding, 500 * ROW)
+})
+
+test('keepIndexVisible leaves the scroll alone when the row is already on screen', () => {
+  const scrollTop = 240
+  const unchanged = keepIndexVisible(12, { total: 500, rowHeight: ROW, viewportHeight: VIEWPORT, scrollTop })
+  assert.equal(unchanged, scrollTop, 'an on-screen row must not yank the list')
+})
+
+test('keepIndexVisible scrolls up to a row above the viewport', () => {
+  const result = keepIndexVisible(2, { total: 500, rowHeight: ROW, viewportHeight: VIEWPORT, scrollTop: 1000 })
+  assert.equal(result, 2 * ROW, 'the row should end up at the top edge')
+})
+
+test('keepIndexVisible scrolls down just enough to reveal a row below', () => {
+  const index = 40
+  const result = keepIndexVisible(index, { total: 500, rowHeight: ROW, viewportHeight: VIEWPORT, scrollTop: 0 })
+  // Just enough: the row sits at the bottom edge rather than the top, so a
+  // down-arrow walk moves one row at a time instead of jumping a page.
+  assert.equal(result, (index + 1) * ROW - VIEWPORT)
+})
+
+test('keepIndexVisible clamps an out-of-range index instead of scrolling past the end', () => {
+  const total = 10
+  const result = keepIndexVisible(999, { total, rowHeight: ROW, viewportHeight: VIEWPORT, scrollTop: 0 })
+  assert.ok(result >= 0)
+  assert.ok(result <= total * ROW, 'must not scroll past the content')
+  assert.equal(keepIndexVisible(-5, { total, rowHeight: ROW, viewportHeight: VIEWPORT, scrollTop: 100 }), 0)
+})
+
+test('keepIndexVisible is inert for an empty list or an unmeasured row height', () => {
+  assert.equal(keepIndexVisible(3, { total: 0, rowHeight: ROW, viewportHeight: VIEWPORT, scrollTop: 55 }), 55)
+  assert.equal(keepIndexVisible(3, { total: 10, rowHeight: 0, viewportHeight: VIEWPORT, scrollTop: 55 }), 55)
+})
+
+// sidebarGroupWindow — computeWindow for one group inside a shared scroller.
+//
+// The sidebar renders a separate {#each} per collection and folder but scrolls
+// as one container, so each group translates the shared scrollTop through its
+// own row offset. Getting that wrong renders the wrong slice of the wrong
+// group, which reads as requests appearing under the wrong folder.
+
+test('a group at the top renders from its first row', () => {
+  const w = sidebarGroupWindow(50, 0, 20, 400, 0)
+  assert.equal(w.start, 0)
+  assert.ok(w.end >= 20, 'the viewport holds 20 rows plus overscan')
+  assert.equal(w.padTop, 0)
+})
+
+// The padding invariant: spacers plus rendered rows must equal the full content
+// height, or the group's height changes as it scrolls and everything below it
+// jumps.
+test('padding plus rendered rows always equals the full height', () => {
+  for (const scrollTop of [0, 137, 400, 1000, 5000]) {
+    for (const offset of [0, 5, 40]) {
+      const count = 60
+      const rowHeight = 20
+      const w = sidebarGroupWindow(count, offset, rowHeight, 400, scrollTop)
+      const total = w.padTop + (w.end - w.start) * rowHeight + w.padBottom
+      assert.equal(total, count * rowHeight, `scrollTop=${scrollTop} offset=${offset}`)
+    }
+  }
+})
+
+// A group scrolled far above the viewport should render nothing, not its tail.
+test('a group entirely above the viewport renders nothing', () => {
+  const w = sidebarGroupWindow(10, 0, 20, 400, 100000)
+  assert.equal(w.start, w.end, 'start and end collapse')
+  assert.equal(w.end, 10, 'collapsed at the end of the group')
+  assert.equal(w.padBottom, 0)
+})
+
+test('a group entirely below the viewport renders nothing', () => {
+  const w = sidebarGroupWindow(10, 5000, 20, 400, 0)
+  assert.equal(w.start, w.end, 'start and end collapse')
+  assert.equal(w.start, 0, 'collapsed at the start of the group')
+  assert.equal(w.padTop, 0)
+})
+
+// The offset is what places a group in the shared scroll space. Ignoring it
+// would render every group the same slice.
+test('the offset shifts which rows are visible', () => {
+  const atTop = sidebarGroupWindow(100, 0, 20, 400, 2000)
+  const shifted = sidebarGroupWindow(100, 50, 20, 400, 2000)
+  assert.notDeepEqual([atTop.start, atTop.end], [shifted.start, shifted.end])
+  assert.ok(shifted.start < atTop.start, 'a group further down sees an earlier slice of itself')
+})
+
+// Row height is measured from the DOM and is zero before layout. Dividing by it
+// would produce Infinity indices.
+test('an unmeasured row height renders everything rather than nothing', () => {
+  const w = sidebarGroupWindow(30, 0, 0, 400, 0)
+  assert.deepEqual([w.start, w.end], [0, 30], 'a list that renders nothing looks broken; too much is one slow frame')
+
+  const noViewport = sidebarGroupWindow(30, 0, 20, 0, 0)
+  assert.deepEqual([noViewport.start, noViewport.end], [0, 30])
+})
+
+test('an empty group is an empty window', () => {
+  const w = sidebarGroupWindow(0, 0, 20, 400, 0)
+  assert.deepEqual([w.start, w.end, w.padTop, w.padBottom], [0, 0, 0, 0])
+})
+
+// A stale scrollTop is what filtering leaves behind — the search box shortens
+// the list while the container keeps its position. Every group must still
+// produce a coherent window rather than negative padding or inverted indices.
+test('a scroll position left over from a longer list stays coherent', () => {
+  for (const offset of [0, 10, 100]) {
+    const w = sidebarGroupWindow(3, offset, 20, 400, 9999)
+    assert.ok(w.start >= 0 && w.end >= w.start, `offset=${offset}: indices inverted`)
+    assert.ok(w.padTop >= 0 && w.padBottom >= 0, `offset=${offset}: negative padding`)
+    assert.equal(w.padTop + (w.end - w.start) * 20 + w.padBottom, 60, `offset=${offset}: height changed`)
+  }
+})
+
+
+// sidebarGroupOffset is what sidebarGroupWindow slices the viewport out of, and
+// it had no test at all while it lived inline in App.svelte. Its comment there
+// claimed it "walks the same order the markup renders in, so the two cannot
+// disagree" -- an assertion nothing checked.
+//
+// Miscount by one and every request below draws at the wrong scroll position:
+// the list looks right until it is scrolled, and then a click lands on a
+// different request than the one under the pointer.
+
+const offsetKey = (collectionId: string, folder: string) => collectionId + '/' + folder
+
+function offsetInput(over: Partial<SidebarOffsetInput> = {}): SidebarOffsetInput {
+  const groups: Record<string, OffsetGroup[]> = {
+    a: [
+      { folder: '', items: [{}, {}] },
+      { folder: 'auth', items: [{}, {}, {}] }
+    ],
+    b: [{ folder: '', items: [{}] }]
+  }
+  return {
+    collections: [{ id: 'a' }, { id: 'b' }],
+    groupsFor: (id: string) => groups[id] ?? [],
+    collapsedCollections: {},
+    collapsedFolders: {},
+    searchQuery: '',
+    folderKey: offsetKey,
+    ...over
+  }
+}
+
+test('the offset counts headers and requests in render order', () => {
+  const input = offsetInput()
+  assert.equal(sidebarGroupOffset(input, 'a', ''), 1)
+  assert.equal(sidebarGroupOffset(input, 'a', 'auth'), 4)
+  assert.equal(sidebarGroupOffset(input, 'b', ''), 8)
+})
+
+// A collapsed collection contributes its header and nothing else. Counting its
+// contents would push every later row down by the number of requests hidden.
+test('a collapsed collection contributes only its header', () => {
+  assert.equal(sidebarGroupOffset(offsetInput({ collapsedCollections: { a: true } }), 'b', ''), 2)
+})
+
+// THE RULE THE OLD HELPER LACKS. A collection whose directory is missing draws
+// its header and nothing under it, so its groups must not be counted.
+test('a collection with a missing directory contributes only its header', () => {
+  const input = offsetInput({ collections: [{ id: 'a', notFoundLocally: true }, { id: 'b' }] })
+  assert.equal(sidebarGroupOffset(input, 'b', ''), 2)
+})
+
+// A collapsed FOLDER still draws its own header -- unlike a collapsed
+// collection, the folder row is inside the list -- but not its requests.
+test('a collapsed folder keeps its header and drops its requests', () => {
+  const input = offsetInput({ collapsedFolders: { [offsetKey('a', 'auth')]: true } })
+  assert.equal(sidebarGroupOffset(input, 'a', 'auth'), 4, 'the folder header is still drawn')
+  assert.equal(sidebarGroupOffset(input, 'b', ''), 5, 'but its three requests are not counted')
+})
+
+// A search overrides every collapse, because a result inside a collapsed folder
+// has to be reachable. If the offset kept honouring collapse while the markup
+// expanded, every row below would be misplaced.
+test('a search overrides both kinds of collapse', () => {
+  const input = offsetInput({
+    searchQuery: 'token',
+    collapsedCollections: { a: true },
+    collapsedFolders: { [offsetKey('a', 'auth')]: true }
+  })
+  assert.equal(sidebarGroupOffset(input, 'a', 'auth'), 4)
+  assert.equal(sidebarGroupOffset(input, 'b', ''), 8)
+})
+
+// An unknown target returns the total row count rather than -1 or a throw: the
+// caller feeds it straight to the window arithmetic, where a negative offset
+// would produce a negative slice.
+test('an unknown target yields the total row count', () => {
+  assert.equal(sidebarGroupOffset(offsetInput(), 'missing', ''), 9)
+})
+
+// The offset feeds sidebarGroupWindow directly, so the two must agree about
+// what a row index means.
+test('the offset lines up with the window it feeds', () => {
+  const input = offsetInput()
+  const offset = sidebarGroupOffset(input, 'a', 'auth')
+  const window = sidebarGroupWindow(3, offset, ROW, ROW * 4, offset * ROW)
+  assert.equal(window.start, 0, 'scrolled exactly to the group, its first item is the first visible')
+})

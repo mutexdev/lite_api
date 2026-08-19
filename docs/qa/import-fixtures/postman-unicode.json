@@ -1,0 +1,29 @@
+{
+  "info": {
+    "name": "Unicode 集合"
+  },
+  "item": [
+    {
+      "name": "Café request",
+      "request": {
+        "method": "POST",
+        "url": "https://example.test/こんにちは",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"message\":\"مرحبا\"}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    }
+  ]
+}
