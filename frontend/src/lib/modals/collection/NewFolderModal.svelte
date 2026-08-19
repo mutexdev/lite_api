@@ -29,7 +29,7 @@
         <div class="prompt-fields">
           <label>
             <span>Folder Name</span>
-            <input
+            <input data-modal-autofocus
               id="folder-name"
               name="folderName"
               aria-label="Folder Name"

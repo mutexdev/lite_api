@@ -37,6 +37,7 @@
         <button type="button" class="icon-button" title="Close" on:click={closeGlobalSearch}>x</button>
       </header>
       <input
+        data-modal-autofocus
         class="global-search-input"
         aria-label="Global search"
         placeholder="Search collections and requests"

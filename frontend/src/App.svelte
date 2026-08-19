@@ -19,9 +19,25 @@
   import { memoized, KeyedMemo, type Memo } from './lib/memo'
   import {
     computeWindow,
-    sidebarGroupOffset as sidebarGroupOffsetOf,
+    keepIndexVisible,
     sidebarGroupWindow
   } from './lib/virtualList'
+  import {
+    sidebarGroupOffset as sidebarGroupOffsetOf,
+    walkSidebar,
+    type SidebarRow
+  } from './lib/sidebar/sidebarRows'
+  import {
+    sidebarActionsFor,
+    sidebarObjectForRow,
+    type SidebarAction,
+    type SidebarActionID
+  } from './lib/sidebar/sidebarActions'
+  import {
+    extendTypeAhead,
+    isTypeAheadKey,
+    resolveSidebarKey
+  } from './lib/sidebar/sidebarNavigation'
   import {
     networkSortAriaValue as devToolsNetworkSortAriaValue,
     networkSortLabel as devToolsNetworkSortLabel,
@@ -158,6 +174,7 @@
   import CodeEditor from './lib/workbench/LazyCodeEditor.svelte'
   import Modal from './lib/modals/Modal.svelte'
   import SidebarHeader from './lib/SidebarHeader.svelte'
+  import SidebarActionMenu from './lib/sidebar/SidebarActionMenu.svelte'
   import SidebarSearch from './lib/SidebarSearch.svelte'
   import RequestSettingsPanel from './lib/workbench/RequestSettingsPanel.svelte'
   import ProtocolRequestLine from './lib/workbench/ProtocolRequestLine.svelte'
@@ -216,7 +233,7 @@
     CreateGlobalEnvironment,
     CreateTerminalSession,
     CreateResponseExample,
-    CreateRequest,
+    CreateRequestInFolder,
     CreateWorkspace,
 		CreateCollectionGitBranch,
     CopyGlobalEnvironment,
@@ -659,6 +676,8 @@
   let responseSplit = $state(DEFAULT_RESPONSE_SPLIT)
 	let workbenchStorageScope = $state('')
   let creationOpen = $state(false)
+  /** Which folder a newly created request lands in; '' is the collection root. */
+  let creationFolderPath = $state('')
   let creationReturnFocus = $state<HTMLElement | null>(null)
   let commandPaletteOpen = $state(false)
   let commandPaletteQuery = $state('')
@@ -1793,20 +1812,18 @@
   function closeVariableTooltipOnOutside(event: MouseEvent) {
     const target = event.target as HTMLElement | null
     if (!target) return
-    if (!target.closest('.request-actions')) closeRequestActionMenus()
     if (target.closest('.variable-chip-wrapper, .url-variable-token-wrapper, .inline-variable-token-wrapper, .CodeMirror-brunoVarInfo, .variable-tooltip')) return
     variableTooltips.close()
   }
 
+  /**
+   * Kept under its old name because lib/shortcuts.ts resolves Escape to the
+   * string 'closeRequestActionMenus', and that module is pure and tested. The
+   * <details> menus it used to sweep out of the DOM are gone; there is now one
+   * menu, and closing it is a single assignment.
+   */
   function closeRequestActionMenus() {
-    document.querySelectorAll<HTMLDetailsElement>('details.request-actions[open]').forEach((menu) => {
-      menu.open = false
-    })
-    // Clearing the record as well, rather than trusting the toggle event to
-    // propagate back through bind:open. The record is what the {#if} reads, so
-    // a menu whose buttons stayed mounted after closing would quietly undo the
-    // saving this change exists for.
-    openRequestMenus = {}
+    closeSidebarRowMenu(false)
   }
 
   function patchURLField(event: Event) {
@@ -2016,7 +2033,16 @@
   async function createRequest() {
     if (!activeCollection) return
     await runAction('create request', async () => {
-      workspaceStore.appState = await CreateRequest(activeCollection.id, requestType, requestName)
+      // CreateRequestInFolder rather than CreateRequest: the three-argument call
+      // always created at the collection root, so a folder could be made and
+      // then never filled. An empty path means the root, which is what every
+      // caller outside the sidebar still passes.
+      workspaceStore.appState = await CreateRequestInFolder(
+        activeCollection.id,
+        requestType,
+        requestName,
+        creationFolderPath
+      )
       workspaceStore.selectedCollectionId = activeCollection.id
       activeView = 'request'
     })
@@ -5782,14 +5808,26 @@
     window.addEventListener('mouseup', finish)
   }
 
-  function openCreationFlow(invoker: HTMLElement | null = document.activeElement instanceof HTMLElement ? document.activeElement : null) {
+  /**
+   * Opens the new-request flow, optionally aimed at a folder.
+   *
+   * The folder is remembered here rather than read back off the sidebar at
+   * submit time: the user can move the cursor, collapse a branch or filter the
+   * tree while the modal is open, and the request must still land where they
+   * asked for it.
+   */
+  function openCreationFlow(
+    invoker: HTMLElement | null = document.activeElement instanceof HTMLElement ? document.activeElement : null,
+    folderPath = ''
+  ) {
     creationReturnFocus = invoker
+    creationFolderPath = folderPath
     creationOpen = true
-    void tick().then(() => document.querySelector<HTMLInputElement>('[data-new-request-name]')?.focus())
   }
 
   async function closeCreationFlow() {
     creationOpen = false
+    creationFolderPath = ''
     await tick()
     if (creationReturnFocus?.isConnected) creationReturnFocus.focus({ preventScroll: true })
     creationReturnFocus = null
@@ -5902,15 +5940,91 @@
     }
   }
 
-  const commandPaletteActions = commandPaletteCommandIDs.map((id) => ({ id, ...workbenchCommandMetadata(id) }))
-  const commandPaletteActionsByID = Object.fromEntries(commandPaletteActions.map((action) => [action.id, action])) as Record<string, typeof commandPaletteActions[number]>
+  /**
+   * One entry in ⌘⇧P.
+   *
+   * `sidebarAction` is what makes an entry OBJECT-SCOPED. Until now every one of
+   * the fifteen commands here was global, which is why an app with 38 shortcuts
+   * still needed three clicks to rename a request: the palette could open a
+   * panel but could not touch the thing you were looking at.
+   */
+  type CommandPaletteEntry = {
+    id: string
+    label: string
+    shortcut?: string
+    /** Present only on entries that act on paletteScopeRow. */
+    sidebarAction?: SidebarActionID
+    rowKey?: string
+  }
+
+  const globalCommandPaletteActions: CommandPaletteEntry[] =
+    commandPaletteCommandIDs.map((id) => ({ id, ...workbenchCommandMetadata(id) }))
+
+  /**
+   * The object ⌘⇧P acts on.
+   *
+   * The sidebar cursor when there is one, and otherwise the request in the
+   * active tab — so the palette is scoped to something useful even for a user
+   * who never touches the tree. THE SPLIT WITH ⌘K IS PRESERVED: ⌘K still finds
+   * things, ⌘⇧P still runs commands. This adds a scope to the commands, it does
+   * not turn the palette into a second search.
+   */
+  // A function rather than a $derived because the sidebar row model is declared
+  // further down the script, and a const would be a use-before-declaration. The
+  // body only runs during render, by which point everything it reads exists.
+  function paletteScopeRow(): SidebarRow | undefined {
+    return focusedSidebarRow
+      ?? sidebarTreeRows.find((row) =>
+        row.kind === 'request'
+        && row.collectionId === activeCollection?.id
+        && row.itemId === activeRequest?.id)
+  }
+
+  const scopedCommandPaletteActions = $derived.by<CommandPaletteEntry[]>(() => {
+    const row = paletteScopeRow()
+    const object = row ? sidebarObjectForRow(row) : undefined
+    if (!row || !object) return []
+    const item = row.kind === 'request'
+      ? sidebarItemFor(sidebarCollectionFor(row.collectionId), row.itemId)
+      : undefined
+    return sidebarActionsFor(object, {
+      revealLabel: revealInFolderLabel(),
+      supportsGenerateCode: requestSupportsGenerateCode(item),
+      shortcutFor: (binding) => formatKeyBinding(keyBindingValue(binding))
+    }).map((action) => ({
+      // Namespaced so an object action can never collide with a workbench
+      // command id, and so the runner can tell them apart without a lookup.
+      id: `sidebar:${action.id}`,
+      // The object is named in the label rather than only in a section header,
+      // because the label is what the fuzzy filter matches: typing the request's
+      // name brings up the things you can do to it.
+      label: `${action.label} — ${object.label}`,
+      shortcut: action.shortcut,
+      sidebarAction: action.id,
+      rowKey: row.key
+    }))
+  })
+
+  // Scoped entries first: they are the ones that depend on where the user
+  // already is, so an empty query offers them before the fifteen global ones.
+  const commandPaletteActions = $derived<CommandPaletteEntry[]>(
+    [...scopedCommandPaletteActions, ...globalCommandPaletteActions]
+  )
+  const commandPaletteActionsByID = $derived(
+    Object.fromEntries(commandPaletteActions.map((action) => [action.id, action])) as Record<string, CommandPaletteEntry>
+  )
 
   // US-055. Ranked rather than a bare substring filter. `includes` cannot tell
   // an exact title from an incidental containment, so typing "send request"
   // left the ordering to however the command list happened to be declared —
   // and the first row is what Enter runs.
   const visibleCommandPaletteActions = $derived(filterCommands(
-    commandPaletteActions.map((action) => ({ id: action.id, title: action.label, section: 'Commands', shortcut: action.shortcut })),
+    commandPaletteActions.map((action) => ({
+      id: action.id,
+      title: action.label,
+      section: action.sidebarAction ? 'This item' : 'Commands',
+      shortcut: action.shortcut
+    })),
     commandPaletteQuery
   ).map((match) => commandPaletteActionsByID[match.command.id]))
   $effect(() => {
@@ -5922,8 +6036,14 @@
     commandPaletteOpen = true
     commandPaletteQuery = ''
     commandPaletteActiveIndex = 0
-    void tick().then(() => commandPaletteInput?.focus())
   }
+
+  // Initial focus is Modal's job, via data-modal-autofocus on the input. It used
+  // to be `tick().then(() => input?.focus())` here, which could not work: these
+  // modals are dynamically imported from inside their own {#if}, so on the first
+  // open the `await import()` has not settled when tick() resolves and the bound
+  // input is still null. Even once it did resolve, Modal's own mount focus ran
+  // afterwards and moved focus to the close button.
 
   async function closeCommandPalette() {
     commandPaletteOpen = false
@@ -5933,12 +6053,21 @@
     commandPaletteReturnFocus = null
   }
 
-  function runCommandPaletteAction(action: typeof commandPaletteActions[number]) {
+  function runCommandPaletteAction(action: CommandPaletteEntry) {
     const returnFocus = commandPaletteReturnFocus
     commandPaletteOpen = false
     commandPaletteQuery = ''
     commandPaletteReturnFocus = null
-    void runWorkbenchCommand(action.id, returnFocus)
+
+    if (action.sidebarAction && action.rowKey) {
+      // Resolved at RUN time, not capture time: the tree may have been rewalked
+      // while the palette was open, and a stale row object would act on a
+      // request that no longer exists.
+      const row = sidebarRowByKey(action.rowKey)
+      if (row) runSidebarAction(row, action.sidebarAction)
+      return
+    }
+    void runWorkbenchCommand(action.id as WorkbenchCommandID, returnFocus)
   }
 
 
@@ -6817,26 +6946,15 @@
   /**
    * The flat row index of a group's first request.
    *
-   * The walk lives in lib/virtualList beside the window arithmetic it feeds,
-   * where it is tested — including the rule that a collection whose directory
-   * is missing contributes only its header.
+   * Now a lookup rather than a walk. It used to re-walk every collection and
+   * folder on EVERY call, and it is called once per group per render, so a
+   * workspace with n groups did n walks of the whole tree per frame. The walk
+   * it reads is derived once and shared with keyboard navigation, which is the
+   * point: two consumers that must agree about what is drawn now cannot
+   * disagree.
    */
   function sidebarGroupOffset(targetCollectionId: string, targetFolder: string): number {
-    return sidebarGroupOffsetOf(
-      {
-        collections: visibleSidebarCollections,
-        groupsFor: (id) => {
-          const collection = visibleSidebarCollections.find((candidate) => candidate.id === id)
-          return collection ? groupedItems(collection, searchQuery) : []
-        },
-        collapsedCollections: collapsedSidebarCollections,
-        collapsedFolders: collapsedSidebarFolders,
-        searchQuery,
-        folderKey: sidebarFolderKey
-      },
-      targetCollectionId,
-      targetFolder
-    )
+    return sidebarGroupOffsetOf(sidebarWalk, targetCollectionId, targetFolder)
   }
 
   /** Which of a group's items fall inside the viewport, plus the padding. */
@@ -6852,15 +6970,337 @@
     )
   }
 
-  // US-031: which per-row disclosure menus are open, keyed collection:item.
-  // Only an open menu renders its buttons; see the note at the <details>.
-  let openRequestMenus = $state<Record<string, boolean>>({})
 
   const groupedItemsMemo = new KeyedMemo<{ folder: string; items: types.RequestItem[] }[]>()
 
   function groupedItems(collection: types.Collection, query = '') {
     const revision = appState?.revision ?? 0
     return groupedItemsMemo.get(`${collection.id}:${revision}:${query}`, () => computeGroupedItems(collection, query))
+  }
+
+  // ── SIDEBAR KEYBOARD NAVIGATION ────────────────────────────────────────────
+  //
+  // The sidebar had no keyboard model at all: no roles, no arrow keys, and no
+  // notion of a selected thing. Eight per-object actions — rename, clone,
+  // delete, reveal, info, generate code, open in terminal, new folder — existed
+  // only as buttons under a pointer, while the command palette carried fifteen
+  // commands that were every one of them GLOBAL. Nothing in the app meant "the
+  // object I have selected", which is why renaming a request cost three clicks
+  // in an application that ships 38 keyboard shortcuts.
+  //
+  // WHY aria-activedescendant AND NOT ROVING TABINDEX. This list is virtualised.
+  // Roving tabindex works by moving DOM focus to the next item, and the next
+  // item is frequently not in the document — it is inside the spacer div that
+  // stands in for every row outside the window. DOM focus therefore stays on the
+  // container and a virtual cursor moves through the row model instead, which is
+  // the case aria-activedescendant exists for.
+  //
+  // EVERYTHING HERE IS ADDITIVE. The hover menus, the chevrons and every click
+  // target behave exactly as they did; this adds a second way in, it does not
+  // replace the first.
+
+  const sidebarWalk = $derived(walkSidebar({
+    collections: visibleSidebarCollections,
+    groupsFor: (id) => {
+      const collection = visibleSidebarCollections.find((candidate) => candidate.id === id)
+      return collection ? groupedItems(collection, searchQuery) : []
+    },
+    collapsedCollections: collapsedSidebarCollections,
+    collapsedFolders: collapsedSidebarFolders,
+    searchQuery,
+    folderKey: sidebarFolderKey,
+    examplesFor: (item) => ((item as types.RequestItem).examples ?? []).map((example) => ({
+      id: responseExampleIdentifier(example),
+      name: example.name
+    }))
+  }))
+
+  const sidebarTreeRows = $derived(sidebarWalk.rows)
+
+  /**
+   * The cursor, stored as a row KEY rather than an index.
+   *
+   * An index shifts the moment a folder above the cursor collapses or the filter
+   * box takes a keystroke, and would then point at a different request with
+   * nothing on screen appearing to have moved. A key survives all of it, and
+   * resolves to -1 when the row it names stops being drawn.
+   */
+  let focusedSidebarRowKey = $state('')
+  const focusedSidebarIndex = $derived(sidebarTreeRows.findIndex((row) => row.key === focusedSidebarRowKey))
+  const focusedSidebarRow = $derived(focusedSidebarIndex >= 0 ? sidebarTreeRows[focusedSidebarIndex] : undefined)
+
+  /** Which row's keyboard action menu is open; '' for none. */
+  let sidebarMenuRowKey = $state('')
+  let sidebarTypeAhead = $state('')
+  let sidebarTypeAheadTimer: ReturnType<typeof setTimeout> | undefined
+  let sidebarScroller = $state<HTMLElement | undefined>(undefined)
+
+  /**
+   * HTML5 ids may contain colons, so the row key is used verbatim.
+   *
+   * That matters because aria-activedescendant matches by exact string, and any
+   * sanitising pass risks mapping two distinct keys — say a folder literally
+   * named with a colon — onto one id.
+   */
+  const sidebarRowDomId = (key: string) => `sidebar-row-${key}`
+
+  /**
+   * How deep a folder path sits: 0 at the collection root, 1 for "api", 2 for
+   * "api/v2". Drives both the indentation and the announced aria-level, so the
+   * two cannot disagree about the shape of the tree.
+   */
+  function sidebarFolderDepth(folder: string) {
+    return folder ? folder.split('/').length : 0
+  }
+
+  /** A folder row shows its own name; the path is what the indent conveys. */
+  function sidebarFolderLabel(folder: string) {
+    return folder.split('/').at(-1) ?? folder
+  }
+
+  function sidebarRowIsExpanded(row: SidebarRow): boolean {
+    // A search overrides every collapse, exactly as the row walk does.
+    if (searchQuery) return true
+    if (row.kind === 'collection') return !collapsedSidebarCollections[row.collectionId]
+    if (row.kind === 'folder') return !collapsedSidebarFolders[sidebarFolderKey(row.collectionId, row.folder)]
+    return false
+  }
+
+  function sidebarCollectionFor(collectionId: string) {
+    return visibleSidebarCollections.find((collection) => collection.id === collectionId)
+  }
+
+  function sidebarItemFor(collection: types.Collection | undefined, itemId: string) {
+    return (collection?.items ?? []).find((item) => item.id === itemId)
+  }
+
+  /**
+   * Moves the cursor, scrolling the target into view first.
+   *
+   * The order is forced by the virtualisation: aria-activedescendant has to name
+   * an element that EXISTS, and the row may currently be inside a spacer. So the
+   * container is scrolled, the scroll position is written back synchronously —
+   * the scroll listener would not fire until the next frame, and the window has
+   * to be right before the tick — and only then does the cursor land.
+   */
+  async function moveSidebarFocus(index: number) {
+    const row = sidebarTreeRows[index]
+    if (!row) return
+    focusedSidebarRowKey = row.key
+
+    if (sidebarScroller) {
+      const next = keepIndexVisible(row.windowIndex, {
+        total: sidebarWalk.totalOffset,
+        rowHeight: sidebarRowHeight,
+        viewportHeight: sidebarViewportHeight,
+        scrollTop: sidebarScroller.scrollTop
+      })
+      if (next !== sidebarScroller.scrollTop) {
+        sidebarScroller.scrollTop = next
+        sidebarScrollTop = next
+      }
+    }
+    await tick()
+  }
+
+  /** Opens whatever the row points at, the same way clicking it would. */
+  function activateSidebarRow(row: SidebarRow) {
+    const collection = sidebarCollectionFor(row.collectionId)
+    if (row.kind === 'collection') { selectCollection(row.collectionId); return }
+    if (row.kind === 'folder') {
+      if (collection) selectFolderSettings(collection, row.folder)
+      return
+    }
+    if (row.kind === 'request') { void openRequestTab(row.collectionId, row.itemId); return }
+    if (row.kind === 'example') {
+      const item = sidebarItemFor(collection, row.itemId)
+      const example = (item?.examples ?? []).find((candidate) => responseExampleIdentifier(candidate) === row.exampleId)
+      if (example) void openResponseExampleTabFor(row.collectionId, row.itemId, example)
+    }
+  }
+
+  /**
+   * Runs one action on one row, through the handlers the pointer menus already
+   * call. Nothing new happens here — this is the second door onto the same room.
+   */
+  function runSidebarAction(row: SidebarRow, action: SidebarActionID) {
+    const collection = sidebarCollectionFor(row.collectionId)
+    if (!collection) return
+
+    // The creating actions read the same on a collection and on a folder: make
+    // the new thing HERE, where "here" is the row's own path. A collection row
+    // carries no folder, so its path is '' — the collection root.
+    if (action === 'new-request' || action === 'new-folder') {
+      if (collection.notFoundLocally) return
+      workspaceStore.selectedCollectionId = collection.id
+      const parent = row.kind === 'folder' ? row.folder : ''
+      if (action === 'new-folder') openNewFolderModal(parent, collection)
+      else openCreationFlow(null, parent)
+      return
+    }
+
+    if (row.kind === 'folder') {
+      if (action === 'reveal') { void revealFolderInFolder(collection, row.folder); return }
+      if (action === 'info') { openFolderInfoModal(collection, row.folder); return }
+      if (action === 'open-terminal') { void openFolderInTerminal(collection, row.folder); return }
+      if (action === 'rename') { openRenameFolderModal(collection, row.folder); return }
+      if (action === 'clone') { openCloneFolderModal(collection, row.folder); return }
+      if (action === 'delete') { openDeleteFolderModal(collection, row.folder); return }
+      return
+    }
+
+    if (row.kind !== 'request') return
+    const item = sidebarItemFor(collection, row.itemId)
+    if (!item) return
+    if (action === 'reveal') { void revealRequestInFolder(collection, item); return }
+    if (action === 'generate-code') { void beginGenerateRequestCode(collection, item); return }
+    if (action === 'info') { openRequestInfoModal(collection, item); return }
+    if (action === 'rename') { openRenameRequestModal(collection, item); return }
+    if (action === 'clone') { openCloneRequestModal(collection, item); return }
+    if (action === 'delete') { openDeleteRequestModal(collection, item); return }
+  }
+
+  /** The actions the focused row offers, for the keyboard menu. */
+  const focusedSidebarActions = $derived.by(() => {
+    const row = sidebarTreeRows.find((candidate) => candidate.key === sidebarMenuRowKey)
+    const object = row ? sidebarObjectForRow(row) : undefined
+    if (!row || !object) return []
+    const item = row.kind === 'request'
+      ? sidebarItemFor(sidebarCollectionFor(row.collectionId), row.itemId)
+      : undefined
+    return sidebarActionsFor(object, {
+      revealLabel: revealInFolderLabel(),
+      supportsGenerateCode: requestSupportsGenerateCode(item),
+      shortcutFor: (binding) => formatKeyBinding(keyBindingValue(binding))
+    })
+  })
+
+  function openSidebarRowMenu(row: SidebarRow) {
+    focusedSidebarRowKey = row.key
+    sidebarMenuRowKey = row.key
+  }
+
+  /**
+   * The ⋯ button on every row: opens this row's menu, or closes it if it is
+   * already the open one.
+   *
+   * Addressed by key so the three call sites — collection, folder and request —
+   * are the same line with a different key, rather than three variants.
+   */
+  function toggleSidebarRowMenu(key: string) {
+    if (sidebarMenuRowKey === key) { closeSidebarRowMenu(false); return }
+    const row = sidebarRowByKey(key)
+    if (row) openSidebarRowMenu(row)
+  }
+
+  function closeSidebarRowMenu(restoreFocus = true) {
+    if (!sidebarMenuRowKey) return
+    sidebarMenuRowKey = ''
+    if (restoreFocus) sidebarScroller?.focus()
+  }
+
+  /**
+   * Tracks the type-ahead buffer.
+   *
+   * The growth rule lives in the navigation module beside the resolver that
+   * reads it, so the two cannot disagree about what a repeated letter means.
+   */
+  function noteSidebarTypeAhead(event: KeyboardEvent) {
+    if (!isTypeAheadKey(event)) { sidebarTypeAhead = ''; return }
+    sidebarTypeAhead = extendTypeAhead(sidebarTypeAhead, event.key)
+    clearTimeout(sidebarTypeAheadTimer)
+    sidebarTypeAheadTimer = setTimeout(() => { sidebarTypeAhead = '' }, 700)
+  }
+
+  function sidebarTreeKeydown(event: KeyboardEvent) {
+    // An open action menu owns its own keys.
+    if (sidebarMenuRowKey) return
+    // Typing in the filter box, or in any control that lives inside the tree,
+    // is not tree navigation.
+    const target = event.target as HTMLElement | null
+    if (target && target !== sidebarScroller && target.closest('input, textarea, [contenteditable="true"]')) return
+
+    const resolved = resolveSidebarKey(event, {
+      rows: sidebarTreeRows,
+      index: focusedSidebarIndex,
+      isExpanded: sidebarRowIsExpanded,
+      matches: (candidate) =>
+        keybindingsAreEnabled(appState?.preferences) && keyBindingEventMatches(event, candidate),
+      typeAhead: sidebarTypeAhead
+    })
+    if (!resolved) return
+
+    event.preventDefault()
+    // Stops the window-level dispatcher seeing the same key. Without this a
+    // ⌘R aimed at the focused row would also run whatever ⌘R means globally.
+    event.stopPropagation()
+    noteSidebarTypeAhead(event)
+
+    if (resolved.kind === 'exit') {
+      focusedSidebarRowKey = ''
+      requestSearchInput?.focus()
+      return
+    }
+
+    const row = sidebarTreeRows[resolved.index]
+    if (resolved.kind === 'focus') { void moveSidebarFocus(resolved.index); return }
+    if (!row) return
+    if (resolved.kind === 'activate') { focusedSidebarRowKey = row.key; activateSidebarRow(row); return }
+    if (resolved.kind === 'expand' || resolved.kind === 'collapse') {
+      if (row.kind === 'collection') toggleSidebarCollection(row.collectionId)
+      else if (row.kind === 'folder') toggleSidebarFolder(row.collectionId, row.folder)
+      return
+    }
+    if (resolved.kind === 'menu') { openSidebarRowMenu(row); return }
+    if (resolved.kind === 'action') { focusedSidebarRowKey = row.key; runSidebarAction(row, resolved.action); return }
+  }
+
+  /**
+   * Entering the tree with Tab.
+   *
+   * Focus lands on the container, which then has no cursor. Rather than leave
+   * the user pressing an arrow key to discover where they are, the cursor snaps
+   * to the active request if one is on screen and to the first row otherwise.
+   */
+  function sidebarTreeFocus(event: FocusEvent) {
+    if (event.target !== sidebarScroller) return
+    if (focusedSidebarIndex >= 0) return
+    const active = activeRequest
+      ? sidebarTreeRows.findIndex((row) => row.kind === 'request' && row.itemId === activeRequest?.id)
+      : -1
+    void moveSidebarFocus(active >= 0 ? active : 0)
+  }
+
+  /** Clicking a row moves the keyboard cursor to it, so the two never disagree. */
+  function markSidebarRowFocused(key: string) {
+    focusedSidebarRowKey = key
+  }
+
+  /** Runs the chosen entry and closes, which is what every menu item does. */
+  function runSidebarMenuAction(action: SidebarAction) {
+    const row = sidebarRowByKey(sidebarMenuRowKey)
+    // Closed BEFORE the action runs: several of these open a modal, and a menu
+    // still on screen behind it would keep the tree's cursor ambiguous.
+    closeSidebarRowMenu(false)
+    if (row) runSidebarAction(row, action.id)
+  }
+
+  function sidebarRowByKey(key: string): SidebarRow | undefined {
+    return sidebarTreeRows.find((row) => row.key === key)
+  }
+
+  /**
+   * Right-click opens the same menu the Menu key does.
+   *
+   * Addressed by key rather than by a row object so the markup does not have to
+   * reconstruct one; a context menu is rare enough that the lookup is free.
+   */
+  function sidebarRowContextMenu(event: MouseEvent, key: string) {
+    const row = sidebarRowByKey(key)
+    if (!row || !sidebarObjectForRow(row)) return
+    event.preventDefault()
+    sidebarScroller?.focus()
+    openSidebarRowMenu(row)
   }
 
 
@@ -6886,7 +7326,6 @@
     globalSearchOpen = true
     globalSearchQuery = ''
     globalSearchIndex = 0
-    void tick().then(() => globalSearchInput?.focus())
   }
 
   function closeGlobalSearch() {
@@ -6906,6 +7345,44 @@
     } else {
       workspaceStore.selectedCollectionId = result.collectionId
       activeView = 'collection'
+    }
+  }
+
+  /**
+   * Arrow and Enter handling for ⌘⇧P.
+   *
+   * THE PALETTE HAD NONE. commandPaletteActiveIndex existed, was rendered as the
+   * highlighted row, and was moved by exactly one thing: the mouse, via
+   * on:mouseenter. So the command palette — the app's keyboard surface — could
+   * not be driven from the keyboard, while ⌘K next door had had
+   * handleGlobalSearchKeydown all along. Arrowing to a command and pressing
+   * Enter did nothing.
+   *
+   * Deliberately the same shape as the ⌘K handler rather than shared with it:
+   * the two palettes stay separate surfaces, which is the whole premise, and the
+   * lists they walk hold different things.
+   */
+  function handleCommandPaletteKeydown(event: KeyboardEvent) {
+    const total = visibleCommandPaletteActions.length
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      void closeCommandPalette()
+    } else if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      commandPaletteActiveIndex = total ? (commandPaletteActiveIndex + 1) % total : 0
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      commandPaletteActiveIndex = total ? (commandPaletteActiveIndex - 1 + total) % total : 0
+    } else if (event.key === 'Home') {
+      event.preventDefault()
+      commandPaletteActiveIndex = 0
+    } else if (event.key === 'End') {
+      event.preventDefault()
+      commandPaletteActiveIndex = Math.max(0, total - 1)
+    } else if (event.key === 'Enter') {
+      event.preventDefault()
+      const action = visibleCommandPaletteActions[commandPaletteActiveIndex]
+      if (action) runCommandPaletteAction(action)
     }
   }
 
@@ -7059,11 +7536,13 @@
   function shortcut(event: KeyboardEvent) {
     const action = resolveShortcut(event, {
       commandPaletteOpen,
-      // Getters, not values: the dispatcher runs on every keystroke including
-      // ordinary typing, and these two selectors only matter on Escape. Reading
-      // them eagerly would put two document-wide queries in the path of every
+      // modalOpen stays a GETTER: the dispatcher runs on every keystroke
+      // including ordinary typing, and that selector only matters on Escape.
+      // Reading it eagerly would put a document-wide query in the path of every
       // character the user types.
-      get requestActionMenuOpen() { return Boolean(document.querySelector('details.request-actions[open]')) },
+      // Was a document-wide querySelector on every keystroke. The open menu is
+      // now a single piece of state, so Escape can ask it directly.
+      requestActionMenuOpen: Boolean(sidebarMenuRowKey),
       get modalOpen() { return Boolean(document.querySelector('[role="dialog"][aria-modal="true"]')) },
       activeView,
       canCancel: requestCommand.canCancel || hasActiveHTTPTransport || Boolean(activeCollectionRun),
@@ -7133,7 +7612,20 @@
 
       <SidebarSearch bind:value={requestSearch} bind:input={requestSearchInput} matchCount={sidebarSearchCount} />
 
-      <section class="collections" use:measureSidebarViewport>
+      <!-- role=tree with a container-level cursor: see the SIDEBAR KEYBOARD
+           NAVIGATION note in the script. DOM focus stays here because the rows
+           are virtualised and the next one is often not in the document. -->
+      <div
+        class="collections"
+        use:measureSidebarViewport
+        bind:this={sidebarScroller}
+        role="tree"
+        tabindex="0"
+        aria-label="Collections"
+        aria-activedescendant={focusedSidebarRow ? sidebarRowDomId(focusedSidebarRow.key) : undefined}
+        onkeydown={sidebarTreeKeydown}
+        onfocus={sidebarTreeFocus}
+      >
         {#if visibleSidebarCollections.length === 0}
           <div class="sidebar-empty">No matching requests</div>
         {/if}
@@ -7150,7 +7642,36 @@
                 aria-label={`${collectionCollapsed ? 'Expand' : 'Collapse'} ${collection.name}`}
                 onclick={() => toggleSidebarCollection(collection.id)}
               >▾</button>
-              <button class="collection-title" onclick={() => selectCollection(collection.id)}>{collection.name}</button>
+              <button
+                class="collection-title"
+                id={sidebarRowDomId(`c:${collection.id}`)}
+                role="treeitem"
+                aria-level="1"
+                aria-expanded={!collectionCollapsed}
+                aria-selected={focusedSidebarRowKey === `c:${collection.id}`}
+                class:row-cursor={focusedSidebarRowKey === `c:${collection.id}`}
+                tabindex="-1"
+                oncontextmenu={(event) => sidebarRowContextMenu(event, `c:${collection.id}`)}
+                onclick={() => { markSidebarRowFocused(`c:${collection.id}`); selectCollection(collection.id) }}
+              >{collection.name}</button>
+              <button
+                class="row-menu-button"
+                type="button"
+                data-testid="collection-actions-menu-toggle"
+                aria-haspopup="menu"
+                aria-expanded={sidebarMenuRowKey === `c:${collection.id}`}
+                aria-label={`More actions for ${collection.name}`}
+                title={`More actions for ${collection.name}`}
+                onclick={(event) => { event.stopPropagation(); toggleSidebarRowMenu(`c:${collection.id}`) }}
+              >⋯</button>
+              {#if sidebarMenuRowKey === `c:${collection.id}`}
+                <SidebarActionMenu
+                  actions={focusedSidebarActions}
+                  label={collection.name}
+                  onrun={runSidebarMenuAction}
+                  onclose={() => closeSidebarRowMenu()}
+                />
+              {/if}
               <span class="collection-badges">
                 {#if collectionIsScratch(collection)}<small>Scratch</small>{/if}
                 {#if collection.remote}<small>Git</small>{/if}
@@ -7174,7 +7695,7 @@
               {#each groups as group (group.folder)}
                 {@const folderCollapsed = Boolean(group.folder) && !searchQuery && Boolean(collapsedSidebarFolders[sidebarFolderKey(collection.id, group.folder)])}
                 {#if group.folder}
-                  <div class="folder-row-shell">
+                  <div class="folder-row-shell" style={`--row-depth: ${sidebarFolderDepth(group.folder)}`}>
                     <button
                       class="tree-chevron"
                       class:collapsed={folderCollapsed}
@@ -7183,139 +7704,99 @@
                       aria-label={`${folderCollapsed ? 'Expand' : 'Collapse'} folder ${group.folder}`}
                       onclick={() => toggleSidebarFolder(collection.id, group.folder)}
                     >▾</button>
-                    <button class="folder-row" title={`${group.folder} settings`} onclick={() => selectFolderSettings(collection, group.folder)}>{group.folder}</button>
                     <button
-                      class="folder-action"
-                      type="button"
-                      title={revealInFolderLabel()}
-                      aria-label={`${revealInFolderLabel()} ${group.folder}`}
-                      data-testid="collection-item-menu-show-in-folder"
-                      onclick={() => revealFolderInFolder(collection, group.folder)}
-                    >F</button>
+                      class="folder-row"
+                      id={sidebarRowDomId(`f:${collection.id}:${group.folder}`)}
+                      role="treeitem"
+                      aria-level={sidebarFolderDepth(group.folder) + 1}
+                      aria-expanded={!folderCollapsed}
+                      aria-selected={focusedSidebarRowKey === `f:${collection.id}:${group.folder}`}
+                      class:row-cursor={focusedSidebarRowKey === `f:${collection.id}:${group.folder}`}
+                      tabindex="-1"
+                      title={`${group.folder} settings`}
+                      oncontextmenu={(event) => sidebarRowContextMenu(event, `f:${collection.id}:${group.folder}`)}
+                      onclick={() => { markSidebarRowFocused(`f:${collection.id}:${group.folder}`); selectFolderSettings(collection, group.folder) }}
+                    >{sidebarFolderLabel(group.folder)}</button>
+                    <!-- Was seven always-visible buttons labelled F i T + ✎ C x:
+                         the same actions this menu renders, spelled as single
+                         letters nobody could read, taking seven grid tracks from
+                         every folder row. -->
                     <button
-                      class="folder-action"
+                      class="row-menu-button"
                       type="button"
-                      title="Info"
-                      aria-label="Info"
-                      data-testid="collection-item-menu-info"
-                      onclick={() => openFolderInfoModal(collection, group.folder)}
-                    >i</button>
-                    <button
-                      class="folder-action"
-                      type="button"
-                      title="Open in Terminal"
-                      aria-label={`Open ${group.folder} in Terminal`}
-                      data-testid="collection-item-menu-open-terminal"
-                      onclick={() => openFolderInTerminal(collection, group.folder)}
-                    >T</button>
-                    <button
-                      class="folder-action"
-                      type="button"
-                      title="New Folder"
-                      data-testid="collection-item-menu-new-folder"
-                      onclick={() => openNewFolderModal(group.folder, collection)}
-                    >+</button>
-                    <button
-                      class="folder-action"
-                      type="button"
-                      title="Rename"
-                      aria-label="Rename"
-                      data-testid="collection-item-menu-rename"
-                      onclick={() => openRenameFolderModal(collection, group.folder)}
-                    >✎</button>
-                    <button
-                      class="folder-action"
-                      type="button"
-                      title="Clone"
-                      aria-label="Clone"
-                      data-testid="collection-item-menu-clone"
-                      onclick={() => openCloneFolderModal(collection, group.folder)}
-                    >C</button>
-                    <button
-                      class="folder-action"
-                      type="button"
-                      title="Delete"
-                      aria-label="Delete"
-                      data-testid="collection-item-menu-delete"
-                      onclick={() => openDeleteFolderModal(collection, group.folder)}
-                    >x</button>
+                      data-testid="folder-actions-menu-toggle"
+                      aria-haspopup="menu"
+                      aria-expanded={sidebarMenuRowKey === `f:${collection.id}:${group.folder}`}
+                      aria-label={`More actions for ${group.folder}`}
+                      title={`More actions for ${group.folder}`}
+                      onclick={(event) => { event.stopPropagation(); toggleSidebarRowMenu(`f:${collection.id}:${group.folder}`) }}
+                    >⋯</button>
+                    {#if sidebarMenuRowKey === `f:${collection.id}:${group.folder}`}
+                      <SidebarActionMenu
+                        actions={focusedSidebarActions}
+                        label={group.folder}
+                        onrun={runSidebarMenuAction}
+                        onclose={() => closeSidebarRowMenu()}
+                      />
+                    {/if}
                   </div>
                 {/if}
                 {#if !folderCollapsed}
                 {@const win = sidebarItemWindow(collection.id, group.folder, group.items.length)}
                 {#if win.padTop > 0}<div class="sidebar-spacer" style={`height:${win.padTop}px`} aria-hidden="true"></div>{/if}
                 {#each group.items.slice(win.start, win.end) as item (item.id)}
-                  <div class="request-row-shell" class:in-folder={Boolean(group.folder)}>
+                  <div class="request-row-shell" class:in-folder={Boolean(group.folder)} style={`--row-depth: ${sidebarFolderDepth(group.folder)}`}>
                     <button
                       class="request-row"
                       class:item-active={item.id === activeRequest?.id}
+                      class:row-cursor={focusedSidebarRowKey === `r:${collection.id}:${item.id}`}
+                      id={sidebarRowDomId(`r:${collection.id}:${item.id}`)}
+                      role="treeitem"
+                      aria-level={sidebarFolderDepth(group.folder) + 2}
+                      aria-selected={focusedSidebarRowKey === `r:${collection.id}:${item.id}`}
+                      tabindex="-1"
                       title={group.folder ? `${group.folder} · ${item.url}` : item.url}
-                      onclick={() => openRequestTab(collection.id, item.id)}
+                      oncontextmenu={(event) => sidebarRowContextMenu(event, `r:${collection.id}:${item.id}`)}
+                      onclick={() => { markSidebarRowFocused(`r:${collection.id}:${item.id}`); openRequestTab(collection.id, item.id) }}
                     >
                       <span class="method" data-method={item.method}>{methodLabel(item.method)}</span>
                       <span>{item.name}</span>
-                      {#if requestIsTransient(collection, item)}<em>temp</em>{/if}
-                      {#if item.draft}<em>draft</em>{/if}
+                      <!-- BOTH BADGES IN ONE CELL. The row is a three-column grid,
+                           and these were two separate children — so a request that
+                           is transient AND a draft supplied a fourth child, which
+                           the grid wrapped onto a second line, under the name and
+                           behind the menu button. Every other request looked fine,
+                           which is why it read as a stray "draft" floating in the
+                           sidebar rather than as a layout bug. -->
+                      <span class="row-badges">
+                        {#if requestIsTransient(collection, item)}<em>temp</em>{/if}
+                        {#if item.draft}<em>draft</em>{/if}
+                      </span>
                     </button>
-                    <!-- US-031: the menu body renders only while the disclosure is
-                         open. <details> keeps its children in the DOM when closed, so a
-                         500-request collection was carrying ~3,000 buttons nobody could
-                         see. bind:open is what makes the {#if} track the real state. -->
-                    <details class="request-actions" data-testid="request-actions-menu" bind:open={openRequestMenus[`${collection.id}:${item.id}`]}>
-                      <summary data-testid="request-actions-menu-toggle" aria-label={`More actions for ${item.name}`} title={`More actions for ${item.name}`}>More</summary>
-                    {#if openRequestMenus[`${collection.id}:${item.id}`]}
+                    <!-- One compact toggle, not a popover full of buttons. The
+                         old disclosure reserved a 40px gutter and then drew a
+                         ~50px wide, 39px tall "More" control into a 28px row, so
+                         it overlapped the draft badge and spilled onto the row
+                         below. It also carried a second copy of the action list
+                         that sidebarActionsFor now owns. -->
                     <button
-                      class="request-action"
+                      class="row-menu-button"
                       type="button"
-                      title={revealInFolderLabel()}
-                      aria-label={`${revealInFolderLabel()} ${item.name}`}
-                      data-testid="collection-item-menu-show-in-folder"
-                      onclick={() => { closeRequestActionMenus(); void revealRequestInFolder(collection, item) }}
-                    >Reveal</button>
-                    {#if requestSupportsGenerateCode(item)}
-                      <button
-                        class="request-action"
-                        type="button"
-                        title="Generate Code"
-                        aria-label={`Generate Code ${item.name}`}
-                        data-testid="collection-item-menu-generate-code"
-                        onclick={() => { closeRequestActionMenus(); void beginGenerateRequestCode(collection, item) }}
-                      >Code</button>
+                      data-testid="request-actions-menu-toggle"
+                      aria-haspopup="menu"
+                      aria-expanded={sidebarMenuRowKey === `r:${collection.id}:${item.id}`}
+                      aria-label={`More actions for ${item.name}`}
+                      title={`More actions for ${item.name}`}
+                      onclick={(event) => { event.stopPropagation(); toggleSidebarRowMenu(`r:${collection.id}:${item.id}`) }}
+                    >⋯</button>
+                    {#if sidebarMenuRowKey === `r:${collection.id}:${item.id}`}
+                      <SidebarActionMenu
+                        actions={focusedSidebarActions}
+                        label={item.name}
+                        onrun={runSidebarMenuAction}
+                        onclose={() => closeSidebarRowMenu()}
+                      />
                     {/if}
-                    <button
-                      class="request-action"
-                      type="button"
-                      title="Info"
-                      aria-label={`Info ${item.name}`}
-                      data-testid="collection-item-menu-info"
-                      onclick={() => { closeRequestActionMenus(); openRequestInfoModal(collection, item) }}
-                    >Info</button>
-                    <button
-                      class="request-action"
-                      type="button"
-                      title="Rename"
-                      aria-label={`Rename ${item.name}`}
-                      data-testid="collection-item-menu-rename"
-                      onclick={() => { closeRequestActionMenus(); openRenameRequestModal(collection, item) }}
-                    >Rename</button>
-                    <button
-                      class="request-action"
-                      type="button"
-                      title="Clone"
-                      aria-label={`Clone ${item.name}`}
-                      data-testid="collection-item-menu-clone"
-                      onclick={() => { closeRequestActionMenus(); openCloneRequestModal(collection, item) }}
-                    >Clone</button>
-                    <button
-                      class="request-action danger-inline"
-                      type="button"
-                      title="Delete"
-                      aria-label={`Delete ${item.name}`}
-                      data-testid="collection-item-menu-delete"
-                      onclick={() => { closeRequestActionMenus(); openDeleteRequestModal(collection, item) }}
-                    >Delete</button>
-                    {/if}
-                    </details>
                   </div>
                   {#if (item.examples ?? []).length > 0}
                     <div class="sidebar-examples" aria-label={`Response examples for ${item.name}`}>
@@ -7323,8 +7804,14 @@
                         <button
                           class="sidebar-example-row"
                           class:item-active={responseExampleIsActive(collection.id, item.id, example)}
+                          class:row-cursor={focusedSidebarRowKey === `e:${collection.id}:${item.id}:${responseExampleIdentifier(example)}`}
+                          id={sidebarRowDomId(`e:${collection.id}:${item.id}:${responseExampleIdentifier(example)}`)}
+                          role="treeitem"
+                          aria-level={sidebarFolderDepth(group.folder) + 3}
+                          aria-selected={focusedSidebarRowKey === `e:${collection.id}:${item.id}:${responseExampleIdentifier(example)}`}
+                          tabindex="-1"
                           title={example.description || example.request?.url || example.name}
-                          onclick={() => openResponseExampleTabFor(collection.id, item.id, example)}
+                          onclick={() => { markSidebarRowFocused(`e:${collection.id}:${item.id}:${responseExampleIdentifier(example)}`); openResponseExampleTabFor(collection.id, item.id, example) }}
                         >
                           <span class="example-glyph">Ex</span>
                           <span>{example.name}</span>
@@ -7340,7 +7827,7 @@
             {/if}
           </article>
         {/each}
-      </section>
+      </div>
 
     </aside>
     <input
@@ -10320,6 +10807,7 @@
       bind:requestName
       bind:requestType
       {activeCollection}
+      destinationFolder={creationFolderPath}
       {submitCreationFlow}
       {closeCreationFlow}
     />
@@ -10334,6 +10822,7 @@
       bind:commandPaletteActiveIndex
       bind:commandPaletteInput
       {visibleCommandPaletteActions}
+      {handleCommandPaletteKeydown}
       {runCommandPaletteAction}
       {closeCommandPalette}
     />

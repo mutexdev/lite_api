@@ -6,6 +6,8 @@
   // handlers): the child owns no state here, it just reports a click. The
   // invoker element is passed up because the creation flow returns focus to
   // whatever opened it, and only the child knows which element that was.
+  import BrandMark from './BrandMark.svelte'
+
   type Props = {
     onNew: (invoker: HTMLElement | null) => void
   }
@@ -14,7 +16,7 @@
 </script>
 
 <div class="brand">
-  <div class="brand-mark">LA</div>
+  <div class="brand-mark"><BrandMark /></div>
   <div>
     <h1>LiteAPI</h1>
     <p>Local-first API workbench</p>

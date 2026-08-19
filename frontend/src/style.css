@@ -685,15 +685,15 @@ pre {
   gap: var(--space-10);
 }
 
+/* Sizes the icon and nothing else. The mark supplies its own background and
+   corner radius (see BrandMark.svelte), so painting --accent here would show
+   through as a coloured fringe behind it. Kept at 38px so swapping the text
+   placeholder for the real icon did not move the heading beside it. */
 .brand-mark {
   display: grid;
   place-items: center;
   width: 38px;
   height: 38px;
-  border-radius: var(--radius-8);
-  background: var(--accent);
-  color: var(--on-accent);
-  font-weight: 800;
 }
 
 .brand h1,
@@ -829,7 +829,11 @@ pre {
   padding-right: var(--space-2);
 }
 
-.collections:has(.request-actions[open]) {
+/* Both menus have to escape the clipping, not just the pointer one. The
+   keyboard menu opened correctly and was then cut off mid-list by the
+   `overflow: hidden` below, which is the sort of failure that looks like a
+   rendering bug rather than a missing selector. */
+.collections:has(.sidebar-action-menu) {
   overflow: visible;
 }
 
@@ -845,7 +849,7 @@ pre {
   border-left-color: var(--rail-active);
 }
 
-.collections article:has(.request-actions[open]) {
+.collections article:has(.sidebar-action-menu) {
   position: relative;
   z-index: 5;
   isolation: isolate;
@@ -853,6 +857,7 @@ pre {
 }
 
 .collections header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -923,12 +928,82 @@ pre {
 }
 
 .folder-row-shell {
+  /* Positioned so the keyboard action menu can anchor to the row, the way the
+     request row's disclosure already anchors to its own shell. */
+  position: relative;
+  /* One step of indent per path segment. --row-depth is 1 for a top-level
+     folder, so the first level sits flush and only nesting moves right. */
+  padding-left: calc((var(--row-depth, 1) - 1) * 12px);
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) repeat(7, 32px);
+  grid-template-columns: 20px minmax(0, 1fr) 24px;
   align-items: stretch;
   width: 100%;
   border-top: 0;
   background: transparent;
+}
+
+/* ── The row menu button ─────────────────────────────────────────────────────
+   One control on every row — collection, folder and request — replacing a
+   seven-button letter strip on folders and a "More" disclosure on requests.
+   Sized to sit INSIDE the row rather than over it: the old disclosure was 39px
+   tall in a 28px row, which is why it spilled onto the row below. */
+.row-menu-button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-4);
+  background: transparent;
+  color: var(--rail-muted);
+  font-size: var(--font-size-13);
+  line-height: 1;
+  cursor: pointer;
+}
+.request-row-shell .row-menu-button {
+  /* Vertically centred in the 28px row, in the gutter the row reserves. */
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  z-index: 4;
+}
+.row-menu-button:hover,
+.row-menu-button[aria-expanded="true"] {
+  background: var(--rail-hover-2);
+  color: var(--rail-text);
+}
+.row-menu-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Right-clicking a row to open its menu was selecting the word under the
+   pointer, so the row ended up with a blue text-selection smear across it. Rows
+   are controls rather than prose — the label is a target, not something anyone
+   drags across — so selection is turned off on the row buttons only, and the
+   collection path and URL text elsewhere in the app stay selectable. */
+.collections .collection-title,
+.collections .folder-row,
+.collections .request-row,
+.collections .sidebar-example-row {
+  user-select: none;
+}
+
+/* ── The keyboard cursor in the collections tree ──────────────────────────────
+   Focus stays on the scroll container (see aria-activedescendant in App.svelte),
+   so the browser paints no focus ring on the row itself and the cursor has to be
+   drawn. It is deliberately NOT the same treatment as .item-active: the active
+   request is which tab is open, the cursor is where the keyboard is, and the two
+   are frequently different rows. Shown only while the tree — or the action menu
+   inside it — actually holds focus, so a pointer user never sees it. */
+.collections:focus {
+  outline: none;
+}
+.collections:focus-within .row-cursor {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--radius-4);
 }
 
 .folder-row {
@@ -953,25 +1028,6 @@ pre {
   color: var(--rail-text);
 }
 
-.folder-action {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  min-height: 28px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--rail-muted);
-  font-size: var(--font-size-16);
-  font-weight: 800;
-}
-
-.folder-action:hover {
-  background: var(--rail-hover-2);
-  color: var(--rail-text);
-}
-
 .collections header + .folder-row-shell {
   border-top: 0;
 }
@@ -982,7 +1038,9 @@ pre {
 }
 
 .request-row-shell.in-folder .request-row {
-  padding-left: 22px;
+  /* The base inset that marks a request as living in a folder, plus the same
+     step per level of nesting the folder rows use. */
+  padding-left: calc(22px + (var(--row-depth, 1) - 1) * 12px);
 }
 
 .collections article .request-row {
@@ -996,112 +1054,37 @@ pre {
   border-radius: var(--radius-4);
   background: transparent;
   color: var(--rail-text);
-  padding-right: 40px;
+  /* Just the ⋯ button's width plus breathing room. It was 40px, reserved for
+     a control that actually drew about 50px wide, which is why the draft badge
+     and the menu toggle sat on top of each other. */
+  padding-right: 26px;
   font-size: 12.5px;
   text-align: left;
 }
 
-.collections article .request-row span:not(.method) {
+/* The NAME truncates; the badges must not. Excluding .row-badges here matters:
+   with the badges inside a span they would otherwise inherit the ellipsis rule
+   meant for the request name and clip themselves to nothing. */
+.collections article .request-row span:not(.method):not(.row-badges) {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.collections article .request-row .row-badges {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  white-space: nowrap;
+}
+.collections article .request-row .row-badges:empty {
+  display: none;
+}
+
 .collections article .request-row:hover,
 .collections article .request-row.item-active {
   background: var(--rail-hover);
-}
-
-.request-action {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  min-height: 32px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--rail-muted);
-  font-size: var(--font-size-13);
-  font-weight: 800;
-}
-
-.request-actions {
-  position: absolute;
-  top: 3px;
-  right: 4px;
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  margin: 0;
-  padding: var(--space-3);
-  border: 1px solid var(--rail-divider);
-  border-radius: var(--radius-7);
-  background: var(--rail-bg);
-  box-shadow: 0 8px 20px var(--shadow-medium);
-}
-
-.request-actions:not([open]) {
-  border-color: transparent;
-  background: transparent;
-  box-shadow: none;
-}
-
-.request-actions summary {
-  display: grid;
-  place-items: center;
-  width: auto;
-  min-height: 30px;
-  padding: 0 var(--space-8);
-  list-style: none;
-  cursor: pointer;
-  border-radius: var(--radius-5);
-  color: var(--rail-muted);
-  font-size: var(--font-size-11);
-  font-weight: 800;
-}
-
-.request-actions summary::-webkit-details-marker {
-  display: none;
-}
-
-.request-actions[open] {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  width: 188px;
-}
-
-.request-actions[open] summary {
-  grid-column: 1 / -1;
-}
-
-.request-actions .request-action {
-  width: auto;
-  min-height: 30px;
-  padding: 0 var(--space-8);
-  border-radius: var(--radius-5);
-  font-size: var(--font-size-11);
-}
-
-.request-actions:not([open]) .request-action {
-  display: none;
-}
-
-.request-actions summary:hover,
-.request-actions[open] summary {
-  background: var(--rail-hover-2);
-  color: var(--rail-text);
-}
-
-.request-action:hover {
-  background: var(--rail-hover-2);
-  color: var(--rail-text);
-}
-
-.request-action.danger-inline:hover {
-  color: #dc2626;
 }
 
 .sidebar-examples {

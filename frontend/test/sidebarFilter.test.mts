@@ -153,3 +153,59 @@ test('a request whose folder did not match still gets a group', () => {
   assert.deepEqual(groups.map((g) => g.folder), [''])
   assert.deepEqual(groups[0].items.map((i) => i.id), ['r3'])
 })
+
+// ── Folder ordering ─────────────────────────────────────────────────────────
+//
+// Creating a folder inside a folder put the child ABOVE its own parent in the
+// sidebar: new folders take the next sequence number within their parent, so a
+// nested "Api/V2" with seq 1 sorted ahead of a root "Api" with seq 2. The tree
+// was correct on disk and wrong on screen.
+
+test('a folder is drawn after the folder that contains it', () => {
+  const collection = {
+    folders: [
+      { path: 'api/v2', displayPath: 'api/v2', name: 'v2' },
+      { path: 'api', displayPath: 'api', name: 'api' },
+      { path: 'auth', displayPath: 'auth', name: 'auth' }
+    ],
+    items: []
+  } as unknown as types.Collection
+
+  assert.deepEqual(
+    computeGroupedItems(collection).map((group) => group.folder),
+    ['api', 'api/v2', 'auth']
+  )
+})
+
+// THE CASE A PLAIN STRING SORT GETS WRONG. '-' sorts before '/', so sorting the
+// raw paths would place "api-v1" between "api" and "api/v2" and tear the child
+// away from its parent.
+test('a sibling whose name sorts near the separator does not split a branch', () => {
+  const collection = {
+    folders: [
+      { path: 'api/v2', displayPath: 'api/v2', name: 'v2' },
+      { path: 'api-v1', displayPath: 'api-v1', name: 'api-v1' },
+      { path: 'api', displayPath: 'api', name: 'api' }
+    ],
+    items: []
+  } as unknown as types.Collection
+
+  assert.deepEqual(
+    computeGroupedItems(collection).map((group) => group.folder),
+    ['api', 'api/v2', 'api-v1']
+  )
+})
+
+test('the collection’s own loose requests stay last, after every folder', () => {
+  const collection = {
+    folders: [{ path: 'api', displayPath: 'api', name: 'api' }],
+    items: [
+      { id: 'r1', name: 'Health', folderPath: '' },
+      { id: 'r2', name: 'Login', folderPath: 'api' }
+    ]
+  } as unknown as types.Collection
+
+  const groups = computeGroupedItems(collection)
+  assert.deepEqual(groups.map((group) => group.folder), ['api', ''])
+  assert.deepEqual(groups.at(-1)?.items.map((item) => item.name), ['Health'])
+})

@@ -42,6 +42,7 @@ CreateFolder(collectionID, parentFolderPath, folderName, directoryName string) (
 CreateGlobalEnvironment(workspaceID, name string) (AppState, error)
 CreateRequest(collectionID, requestType, name string) (AppState, error)
 CreateRequestFromHistory(collectionID, historyID string) (AppState, error)
+CreateRequestInFolder(collectionID, requestType, name, folderPath string) (AppState, error)
 CreateResponseExample(collectionID, itemID, name, description string) (AppState, error)
 CreateTerminalSession(cwd string) (TerminalSession, error)
 CreateWorkspace(name string) (AppState, error)

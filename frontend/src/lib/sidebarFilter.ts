@@ -48,6 +48,27 @@ export function filteredFolders(collection: types.Collection, query = '') {
   return folders.filter((folder) => folderMatches(folder, query))
 }
 
+/**
+ * Orders two folder paths so that a parent always comes immediately before its
+ * own children, and siblings stay together.
+ *
+ * A PLAIN STRING SORT IS WRONG HERE, which is the whole reason this exists.
+ * '/' is 0x2F, so '-' and '.' sort before it: with folders "api", "api-v1" and
+ * "api/v2", a lexicographic sort yields api, api-v1, api/v2 — the child torn
+ * away from its parent by an unrelated sibling. Comparing segment by segment
+ * puts the separator where it belongs, above every character.
+ */
+export function compareFolderPaths(a: string, b: string): number {
+  const left = a.split('/')
+  const right = b.split('/')
+  const shared = Math.min(left.length, right.length)
+  for (let index = 0; index < shared; index += 1) {
+    if (left[index] !== right[index]) return left[index].localeCompare(right[index])
+  }
+  // A prefix is the ancestor, and an ancestor is drawn first.
+  return left.length - right.length
+}
+
 export function computeGroupedItems(collection: types.Collection, query = '') {
   const groups: { folder: string; items: types.RequestItem[] }[] = []
   const indexByFolder = new Map<string, number>()
@@ -68,7 +89,14 @@ export function computeGroupedItems(collection: types.Collection, query = '') {
     const index = addGroup(folder)
     groups[index].items.push(item)
   }
-  return groups
+  // Folders in hierarchical order, then the collection's own loose requests.
+  // The root group was already last — it is only created when the first
+  // unfoldered item is met, after every folder has been added — and keeping it
+  // there deliberately preserves that.
+  const foldered = groups.filter((group) => group.folder !== '')
+  const root = groups.filter((group) => group.folder === '')
+  foldered.sort((a, b) => compareFolderPaths(a.folder, b.folder))
+  return [...foldered, ...root]
 }
 
 /**

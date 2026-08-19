@@ -106,7 +106,17 @@
     appShell?.setAttribute('inert', '')
     await tick()
     const items = focusableItems()
-    ;(items[0] ?? dialog)?.focus({ preventScroll: true })
+    // A DIALOG MAY NAME ITS OWN FIRST FIELD. Without this the initial focus is
+    // simply the first focusable element in DOM order, and in every dialog here
+    // that is the header's close button — the heading and its × sit above the
+    // form. So the command palette opened with focus on ×: typing went nowhere
+    // and the arrow keys never reached the command list, which read as the
+    // palette ignoring the keyboard entirely.
+    //
+    // Opt-in and falling back to the old behaviour, so the 29 dialogs that do
+    // not mark a field keep focusing exactly what they focused before.
+    const preferred = dialog?.querySelector<HTMLElement>('[data-modal-autofocus]')
+    ;(preferred ?? items[0] ?? dialog)?.focus({ preventScroll: true })
   })
 
   onDestroy(() => {

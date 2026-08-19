@@ -62,6 +62,10 @@ export const keyBindingSections: KeyBindingSection[] = [
       pasteItem: { mac: 'command+bind+v', windows: 'ctrl+bind+v', name: 'Paste Item' },
       cloneItem: { mac: 'command+bind+d', windows: 'ctrl+bind+d', name: 'Clone Item' },
       renameItem: { mac: 'command+bind+r', windows: 'ctrl+bind+r', name: 'Rename Item' },
+      // Command-Delete is "move to trash" on macOS, which is what this does.
+      // Added alongside cloneItem and renameItem when the sidebar tree gained a
+      // keyboard focus for them to act on; see lib/sidebar/sidebarActions.ts.
+      deleteItem: { mac: 'command+bind+backspace', windows: 'ctrl+bind+backspace', name: 'Delete Item' },
       collapseSidebar: { mac: 'command+bind+\\', windows: 'ctrl+bind+\\', name: 'Collapse Sidebar' }
     }
   },

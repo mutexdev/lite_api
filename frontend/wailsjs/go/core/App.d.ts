@@ -96,6 +96,8 @@ export function CreateRequest(arg1:string,arg2:string,arg3:string):Promise<types
 
 export function CreateRequestFromHistory(arg1:string,arg2:string):Promise<types.AppState>;
 
+export function CreateRequestInFolder(arg1:string,arg2:string,arg3:string,arg4:string):Promise<types.AppState>;
+
 export function CreateResponseExample(arg1:string,arg2:string,arg3:string,arg4:string):Promise<types.AppState>;
 
 export function CreateTerminalSession(arg1:string):Promise<types.TerminalSession>;
