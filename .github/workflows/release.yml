@@ -112,7 +112,18 @@ jobs:
 
           SIGNING_IDENTITY="$(security find-identity -v -p codesigning "${KEYCHAIN_PATH}" | awk -F '"' '/Developer ID Application/ { print $2; exit }')"
           if [[ -z "${SIGNING_IDENTITY}" ]]; then
+            # Say what WAS imported, not just what was missing. The first time
+            # this fired, the secret held an "Apple Development" certificate and
+            # the only clue was a raw keychain attribute dump further up the log.
+            # Identity names are not secret — they are embedded in every signed
+            # binary we ship.
             echo "No Developer ID Application identity was found in the imported certificate." >&2
+            echo "Identities the imported .p12 actually provided:" >&2
+            security find-identity -v -p codesigning "${KEYCHAIN_PATH}" >&2 || true
+            echo >&2
+            echo "MACOS_CERTIFICATE_P12_BASE64 must hold a 'Developer ID Application'" >&2
+            echo "certificate exported WITH its private key. An 'Apple Development'" >&2
+            echo "certificate cannot be notarized and cannot be used for distribution." >&2
             exit 1
           fi
 
