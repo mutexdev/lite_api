@@ -685,15 +685,15 @@ pre {
   gap: var(--space-10);
 }
 
+/* Sizes the icon and nothing else. The mark supplies its own background and
+   corner radius (see BrandMark.svelte), so painting --accent here would show
+   through as a coloured fringe behind it. Kept at 38px so swapping the text
+   placeholder for the real icon did not move the heading beside it. */
 .brand-mark {
   display: grid;
   place-items: center;
   width: 38px;
   height: 38px;
-  border-radius: var(--radius-8);
-  background: var(--accent);
-  color: var(--on-accent);
-  font-weight: 800;
 }
 
 .brand h1,
