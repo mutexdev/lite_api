@@ -112,7 +112,18 @@ jobs:
 
           SIGNING_IDENTITY="$(security find-identity -v -p codesigning "${KEYCHAIN_PATH}" | awk -F '"' '/Developer ID Application/ { print $2; exit }')"
           if [[ -z "${SIGNING_IDENTITY}" ]]; then
+            # Say what WAS imported, not just what was missing. The first time
+            # this fired, the secret held an "Apple Development" certificate and
+            # the only clue was a raw keychain attribute dump further up the log.
+            # Identity names are not secret — they are embedded in every signed
+            # binary we ship.
             echo "No Developer ID Application identity was found in the imported certificate." >&2
+            echo "Identities the imported .p12 actually provided:" >&2
+            security find-identity -v -p codesigning "${KEYCHAIN_PATH}" >&2 || true
+            echo >&2
+            echo "MACOS_CERTIFICATE_P12_BASE64 must hold a 'Developer ID Application'" >&2
+            echo "certificate exported WITH its private key. An 'Apple Development'" >&2
+            echo "certificate cannot be notarized and cannot be used for distribution." >&2
             exit 1
           fi
 
@@ -179,6 +190,17 @@ jobs:
     name: Build Windows
     runs-on: windows-2025
     timeout-minutes: 60
+    # Windows is knowingly excluded from the release for now. 61 tests fail on
+    # it, and 35 of those are one unmade decision: the workspace migration
+    # rejects its own artifacts because it requires 0600 and Windows reports
+    # 0666, so the app does not start there at all. That is product work, not a
+    # release-pipeline problem.
+    #
+    # The job still runs and still reports, so the failure stays visible and the
+    # count stays measurable — it just no longer holds macOS and Linux hostage.
+    # Remove this line, and restore build-windows to the release job's needs,
+    # once the permission model has a Windows answer.
+    continue-on-error: true
     steps:
       - name: Check out source
         uses: actions/checkout@v7
@@ -289,7 +311,7 @@ jobs:
   build-linux:
     name: Build Linux
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Check out source
         uses: actions/checkout@v7
@@ -297,20 +319,29 @@ jobs:
           persist-credentials: false
 
       - name: Install Linux build dependencies
-        timeout-minutes: 12
+        timeout-minutes: 25
         run: |
           set -euo pipefail
 
-          # apt-get update stalled here for 10.5 minutes on run 32207260312 —
-          # it printed its last line fetching noble-security InRelease from
-          # archive.ubuntu.com and then went silent until a person killed it. A
-          # stall is worse than an error: with no timeout the job holds a runner
-          # for the six-hour default while producing nothing. Bound each attempt
-          # so a stall becomes a retry, and fail loudly if the mirror is really
-          # down rather than installing against stale package lists.
+          # Two different apt failures have cost runs here, and they need
+          # different treatment.
+          #
+          # Run 32207260312: apt-get update went silent fetching noble-security
+          # InRelease and sat there for 10.5 minutes until a person killed it. A
+          # stall needs a bound and a retry — with no timeout at all the job
+          # holds a runner for GitHub's six-hour default producing nothing.
+          #
+          # Run 32209615608: nothing stalled. archive.ubuntu.com simply served
+          # 56.1 MB at 79.9 kB/s, the download took 11m42s, and a 12-minute step
+          # bound killed it ten seconds into unpacking. A slow mirror is not an
+          # error and must not be retried into one — it just needs room. Hence
+          # 25 minutes here, and Acquire::Retries so apt itself rides out a
+          # dropped connection mid-download rather than failing the whole step.
+          APT_OPTIONS=(-o Acquire::Retries=3)
+
           updated=false
           for attempt in 1 2 3; do
-            if timeout 240 sudo apt-get update; then
+            if timeout 240 sudo apt-get "${APT_OPTIONS[@]}" update; then
               updated=true
               break
             fi
@@ -322,11 +353,26 @@ jobs:
             exit 1
           fi
 
-          sudo apt-get install --yes --no-install-recommends \
-            build-essential \
-            libgtk-3-dev \
-            libwebkit2gtk-4.1-dev \
-            pkg-config
+          # No timeout wrapper on the install: the step bound above is the only
+          # limit that should apply, so a slow-but-progressing download is
+          # allowed to finish instead of being cut off and restarted from zero.
+          installed=false
+          for attempt in 1 2; do
+            if sudo apt-get "${APT_OPTIONS[@]}" install --yes --no-install-recommends \
+                 build-essential \
+                 libgtk-3-dev \
+                 libwebkit2gtk-4.1-dev \
+                 pkg-config; then
+              installed=true
+              break
+            fi
+            echo "apt-get install attempt ${attempt} failed; retrying." >&2
+            sleep 15
+          done
+          if [[ "${installed}" != true ]]; then
+            echo "apt-get install did not succeed in two attempts." >&2
+            exit 1
+          fi
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -413,7 +459,6 @@ jobs:
     timeout-minutes: 20
     needs:
       - build-macos
-      - build-windows
       - build-linux
     permissions:
       contents: write
@@ -430,9 +475,9 @@ jobs:
           set -euo pipefail
 
           cd dist
+          # Two, not three: see the note on build-windows above.
           expected=(
             "LiteAPI-${RELEASE_TAG}-macOS-universal.dmg"
-            "LiteAPI-${RELEASE_TAG}-windows-amd64-installer.exe"
             "LiteAPI-${RELEASE_TAG}-linux-amd64.tar.gz"
           )
 
@@ -443,9 +488,13 @@ jobs:
             fi
           done
 
+          # Still an exact count rather than a floor. If the Windows job starts
+          # passing again its artifact would appear here, and that should be a
+          # deliberate re-inclusion rather than a package quietly joining the
+          # release without its checksum being listed above.
           package_count="$(find . -maxdepth 1 -type f | wc -l | tr -d ' ')"
-          if [[ "${package_count}" != "3" ]]; then
-            echo "Expected exactly three platform packages, found ${package_count}." >&2
+          if [[ "${package_count}" != "2" ]]; then
+            echo "Expected exactly two platform packages, found ${package_count}." >&2
             find . -maxdepth 1 -type f -print
             exit 1
           fi
@@ -457,13 +506,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # A reader who finds no .exe here should learn why from the release
+          # itself rather than from the workflow file.
+          cat > "${RUNNER_TEMP}/platform-note.md" <<'NOTE'
+          ## Platforms in this release
+
+          macOS (universal, signed and notarized) and Linux (amd64).
+
+          **Windows is not included yet.** LiteAPI does not currently start on
+          Windows: the workspace migration requires owner-only file permissions
+          that Windows does not express as POSIX modes, and rejects its own
+          artifacts on startup. A Windows build will ship once that has a proper
+          answer.
+          NOTE
+
           gh release create "${RELEASE_TAG}" \
             dist/LiteAPI-${RELEASE_TAG}-macOS-universal.dmg \
-            dist/LiteAPI-${RELEASE_TAG}-windows-amd64-installer.exe \
             dist/LiteAPI-${RELEASE_TAG}-linux-amd64.tar.gz \
             dist/SHA256SUMS.txt \
             --repo "${GITHUB_REPOSITORY}" \
             --target "${GITHUB_SHA}" \
             --title "LiteAPI ${RELEASE_TAG}" \
+            --notes-file "${RUNNER_TEMP}/platform-note.md" \
             --generate-notes \
             --latest
