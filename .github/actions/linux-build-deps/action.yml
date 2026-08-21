@@ -1,0 +1,305 @@
+name: Install Linux build dependencies
+description: >
+  Installs the GTK3 and WebKit2GTK development headers that Wails links against
+  on Linux, from a warm cache when there is one and from apt when there is not.
+
+# Why this is an action and not three copies of a shell block.
+#
+# ci.yml runs this twice (go, go-lint) and release.yml once, and until now all
+# three carried the same fifty-odd lines verbatim. Every apt incident since has
+# therefore been fixed three times, or — more often — fixed once and left to rot
+# in the other two. The failure this action was written for is a good example:
+# the retry loop it replaces could not retry, and could not retry in triplicate.
+
+inputs:
+  packages:
+    description: >
+      The packages to install, space separated. Also the cache key, so changing
+      this list invalidates the archives from the previous list automatically.
+    required: false
+    default: build-essential libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config
+
+runs:
+  using: composite
+  steps:
+    # The cache key binds to two things: the package list, and the runner image.
+    #
+    # The image matters because the fast path below installs from cached .debs
+    # without refreshing the package index, which is only sound while the index
+    # the image shipped with still names those exact versions. A new image is a
+    # new index, so it must be a new cache entry.
+    - name: Derive the archive cache key
+      id: key
+      shell: bash
+      # The input arrives through env rather than a ${{ }} expression spliced
+      # into the script text, so a package list can never be shell.
+      env:
+        INPUT_PACKAGES: ${{ inputs.packages }}
+      run: |
+        set -euo pipefail
+        digest=$(printf '%s\n%s\n' "${INPUT_PACKAGES}" "${ImageVersion:-unknown}" \
+          | sha256sum | cut -c1-16)
+        echo "value=linux-build-deps-v3-${digest}" >> "${GITHUB_OUTPUT}"
+
+    # Note on scope: a cache saved on a feature branch is readable only from
+    # that branch, while one saved on the default branch is readable from
+    # everywhere. So the first Release run on main after this lands pays full
+    # price, populates main's cache, and every run afterwards — pull requests
+    # included — reads it.
+    #
+    # The restore-keys prefix matters roughly weekly. The exact key carries the
+    # runner image version, so a new image misses; the prefix then restores the
+    # previous image's archives, and apt downloads only what actually changed
+    # instead of all 56 MB again. A prefix restore does NOT set cache-hit, so it
+    # cannot reach the index-free fast path below — which is correct, because
+    # the index those archives were resolved against is the one that just went
+    # away.
+    - name: Restore the Debian archive cache
+      id: archives
+      uses: actions/cache@v6
+      with:
+        path: ${{ runner.temp }}/apt-cache
+        key: ${{ steps.key.outputs.value }}
+        restore-keys: linux-build-deps-v3-
+
+    - name: Install
+      shell: bash
+      env:
+        INPUT_PACKAGES: ${{ inputs.packages }}
+        CACHE_HIT: ${{ steps.archives.outputs.cache-hit }}
+      run: |
+        set -euo pipefail
+
+        # Deliberate word splitting: the input is a space-separated list.
+        # shellcheck disable=SC2206
+        packages=(${INPUT_PACKAGES})
+
+        # All three live inside the cached directory, and that is the point.
+        #
+        # Caching the .debs alone is not enough to make the fast path below
+        # deterministic. The archives get downloaded against a REFRESHED index,
+        # which carries noble-updates versions; the index the runner image
+        # shipped with names older ones. Restore only the archives and the next
+        # run resolves against the shipped index, asks for versions that are not
+        # in the cache, and downloads them — a cache that reports a hit and
+        # still pays for the network.
+        #
+        # So the index the archives were resolved against is cached with them,
+        # and the fast path installs against that pair. Then every filename apt
+        # computes is one that is already on disk, by construction.
+        cache="${RUNNER_TEMP}/apt-cache"
+        archives="${cache}/archives"
+        lists="${cache}/lists"
+        sources="${cache}/sources"
+        keyring=/usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+        mkdir -p "${archives}/partial" "${lists}/partial" "${sources}"
+        chmod -R 0777 "${cache}" || true
+
+        # Acquire::http::Timeout is the setting this whole file turns on.
+        #
+        # Run 32294725801 failed three identical times: apt reached
+        # archive.ubuntu.com, started the Packages indices, and went silent for
+        # 200 seconds until the step's own `timeout 240` killed it. It was never
+        # going to survive, because apt's DEFAULT timeout is 120s and the old
+        # step also set Acquire::Retries=3 — so a single stalled fetch could
+        # occupy 480 seconds inside a 240 second bound. The outer retry loop
+        # existed, ran three times, and could not possibly have helped: every
+        # attempt was killed mid-way through apt's first internal retry.
+        #
+        # A retry budget is only a retry budget if it is smaller than the thing
+        # retrying it. Fifteen seconds per connection, one internal retry, and
+        # the ladder below gets to make the real decisions.
+        apt_options=(
+          -o Dir::Cache::archives="${archives}"
+          -o APT::Keep-Downloaded-Packages=true
+          -o APT::Sandbox::User=root
+          -o Acquire::http::Timeout=15
+          -o Acquire::https::Timeout=15
+          -o Acquire::ftp::Timeout=15
+          -o Acquire::Retries=1
+          -o Acquire::Languages=none
+        )
+
+        # Which sources the *install* resolves against, kept in step with which
+        # sources the index was refreshed from.
+        #
+        # This pairing is load-bearing and easy to get wrong. apt names each
+        # list file in /var/lib/apt/lists after the host it came from, and it
+        # loads the ones its configured sources point at. Refresh from
+        # archive.ubuntu.com and then install against the system configuration
+        # — which points at the mirrorlist, and so at azure.archive.ubuntu.com
+        # — and apt looks for lists that were never written, silently falling
+        # back to whatever the image shipped. The refresh would be wasted work
+        # that still looked like it succeeded.
+        scope_options=()
+
+        # The sources-plus-index pair the cache was built from, if it is here.
+        cached_scope=(
+          -o Dir::Etc::sourcelist=/dev/null
+          -o Dir::Etc::sourceparts="${sources}"
+          -o Dir::State::lists="${lists}"
+        )
+
+        install_packages() {
+          local bound="$1"
+          timeout "${bound}" sudo apt-get "${apt_options[@]}" "${scope_options[@]+"${scope_options[@]}"}" \
+            install --yes --no-install-recommends "${packages[@]}"
+        }
+
+        # The fast path: resolve against the cached index, which is the one
+        # these exact .debs were downloaded for, so every file apt asks for is
+        # already on disk. No refresh, no mirror, no network at all. On a good
+        # day the step this replaces spent 2m20s and 67.5 MB getting here.
+        #
+        # The guard checks the index is present too, not just that the cache
+        # reported a hit: a restore that produced archives but no lists must
+        # fall through to a refresh rather than install against a mismatched
+        # index.
+        if [[ "${CACHE_HIT}" == "true" && -s "${sources}/ubuntu.sources" ]] \
+           && compgen -G "${lists}/*_Packages*" > /dev/null; then
+          scope_options=("${cached_scope[@]}")
+          echo "::group::Installing from the cached archives"
+          if install_packages 300; then
+            echo "::endgroup::"
+            sudo chmod -R a+rX "${cache}" || true
+            echo "Installed from cache without refreshing the package index."
+            exit 0
+          fi
+          echo "::endgroup::"
+          scope_options=()
+          echo "The cached archives did not satisfy the request; refreshing the index." >&2
+        fi
+
+        # Scope the index refresh to the three suites our packages actually come
+        # from. The unscoped update the runner is configured for also reaches
+        # the Microsoft, azure-cli and Google Chrome repositories, and all four
+        # Ubuntu components — each one another host that can hang, for indices
+        # we will never read.
+        #
+        # Scoping was adopted for reliability, and it took two corrections to
+        # stop it costing more than it saved. Measured, in order:
+        #
+        #   11.4 MB  the unscoped update this replaces
+        #   35.0 MB  scoped, run 32501588538 — an empty index directory has no
+        #            deltas to fetch against, so apt pulled every file whole
+        #   27.5 MB  scoped, run 32502125569 — translations off
+        #    6.0 MB  scoped, run 32502434725 — index seeded, 67 files, all four
+        #            InRelease files a Hit
+        #
+        # The middle two rows are why the seeding below is not an optimisation
+        # but a correction: without it, scoping triples the cold path on exactly
+        # the slow-mirror day this file exists to survive.
+        write_sources() {
+          cat > "${sources}/ubuntu.sources" <<EOF
+        Types: deb
+        URIs: $1
+        Suites: noble noble-updates noble-security
+        Components: main universe
+        Signed-By: ${keyring}
+        EOF
+        }
+
+        scoped_update() {
+          local uris="$1"
+          write_sources "${uris}"
+          timeout 180 sudo apt-get "${apt_options[@]}" "${cached_scope[@]}" update
+        }
+
+        # Three attempts that differ from each other.
+        #
+        # The step this replaces retried by running the identical command again,
+        # which against a mirror that is down is just a way of failing later.
+        # Each rung here changes the thing that failed:
+        #
+        #   1. the runner's own mirrorlist — azure.archive.ubuntu.com first,
+        #      which is genuinely the fastest option when it is up;
+        #   2. archive.ubuntu.com directly, which drops the mirrorlist and the
+        #      30-second-per-index connect timeout a dead Azure mirror costs;
+        #   3. no refresh at all — install against the index the runner image
+        #      was built with. Stale, but stale beats absent, and it needs
+        #      nothing from the archive hosts to decide what to download.
+        # Seed the scoped index from the one the runner image shipped with, so
+        # apt updates it by delta rather than fetching it whole. The copied
+        # files are the ones apt wrote itself and are signature-checked on use
+        # exactly as they would be after any other run, so this buys the delta
+        # without lowering the bar on what is trusted.
+        #
+        # Matched by exclusion rather than by hostname, because apt names a list
+        # file after the SOURCE URI and not the host it ended up talking to. The
+        # runner's source is `mirror+file:/etc/apt/apt-mirrors.txt`, so its files
+        # are named after the mirrorlist — an earlier version of this copied
+        # `*archive.ubuntu.com_*`, matched nothing at all, and silently seeded
+        # nothing while still reporting success (run 32502125569, 27.5 MB
+        # fetched with no Hit: line anywhere in it).
+        #
+        # The third-party repositories are excluded by name: the scoping above
+        # just took them out of the refresh, and copying their lists in would
+        # put them straight back into the cache saved at the end of the job.
+        if ! compgen -G "${lists}/*_Packages*" > /dev/null; then
+          seeded=$(sudo find /var/lib/apt/lists -maxdepth 1 -type f \
+            ! -name 'lock' \
+            ! -name '*packages.microsoft.com*' \
+            ! -name '*dl.google.com*' \
+            -exec cp -a {} "${lists}/" \; -print | wc -l | tr -d ' ')
+          echo "Seeded the scoped index with ${seeded} file(s) from the image's lists."
+        fi
+
+        refreshed=false
+        if [[ -r "${keyring}" ]]; then
+          for uris in \
+            "mirror+file:/etc/apt/apt-mirrors.txt" \
+            "http://archive.ubuntu.com/ubuntu"; do
+            echo "::group::apt-get update via ${uris}"
+            if scoped_update "${uris}"; then
+              refreshed=true
+              scope_options=("${cached_scope[@]}")
+              echo "::endgroup::"
+              break
+            fi
+            echo "::endgroup::"
+            echo "Index refresh via ${uris} failed; trying the next source." >&2
+            sleep 5
+          done
+        else
+          # Without the archive keyring we cannot write a trusted scoped source,
+          # so fall back to the system configuration rather than to no signature
+          # checking. This is not expected to happen on a GitHub runner image.
+          echo "::group::apt-get update via the system sources"
+          if timeout 180 sudo apt-get "${apt_options[@]}" update; then
+            refreshed=true
+          fi
+          echo "::endgroup::"
+        fi
+
+        if [[ "${refreshed}" != true ]]; then
+          echo "No index refresh succeeded; installing against the image's shipped index." >&2
+        fi
+
+        # The install gets room rather than a tight bound. Run 32209615608 was
+        # not a stall: archive.ubuntu.com served 56.1 MB at 79.9 kB/s and the
+        # download honestly took 11m42s. A slow mirror is not an error and must
+        # not be retried into one — restarting a download that is progressing
+        # only throws away the progress.
+        echo "::group::apt-get install"
+        if ! install_packages 900; then
+          echo "::endgroup::"
+          echo "First install attempt failed; retrying once." >&2
+          sleep 15
+          echo "::group::apt-get install (retry)"
+          if ! install_packages 600; then
+            echo "::endgroup::"
+            echo "apt-get install did not succeed in two attempts." >&2
+            exit 1
+          fi
+        fi
+        echo "::endgroup::"
+
+        # A prefix restore can hand us archives for versions that are no longer
+        # in any index, and without this they would be saved again forever and
+        # the cache would only ever grow. autoclean drops exactly those.
+        sudo apt-get "${apt_options[@]}" "${scope_options[@]+"${scope_options[@]}"}" autoclean --yes || true
+
+        # The post-job cache save runs as the runner user and has to be able to
+        # read what apt wrote here as root.
+        sudo chmod -R a+rX "${cache}" || true
