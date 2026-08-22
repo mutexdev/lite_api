@@ -13,6 +13,8 @@
 package core
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -200,7 +202,7 @@ func (a *App) ReadDiscoveredCollections(client string) ([]DiscoveredCollection, 
 		for index, entry := range found {
 			collections = append(collections, DiscoveredCollection{
 				Client:       entry.Client,
-				ID:           discoveredCollectionID(entry.Client, index),
+				ID:           discoveredCollectionID(entry.Client, index, entry),
 				Name:         entry.Name,
 				Kind:         entry.Kind,
 				SourcePath:   entry.SourcePath,
@@ -366,10 +368,15 @@ func (a *App) discoveryCADirsForTest(directories ...string) {
 
 // discoveredCollectionID identifies one discovered collection within a read.
 //
-// The position is the only thing that separates two collections a client has
-// given the same name, so the position is what the id is built from. Detection
-// sorts its results, so the same machine reads back the same ids, which is what
-// lets the modal show one and the import receive the same one.
-func discoveredCollectionID(client string, index int) string {
-	return fmt.Sprintf("%s:%d", strings.TrimSpace(client), index)
+// The position separates two collections a client has given the same name, and
+// the digest ties the id to what was at that position. Both are needed. The
+// modal reads, the user chooses, and ImportDiscoveredCollections reads again --
+// so if the other client gained or lost a workspace in between, a purely
+// positional id would still parse and would point at a different collection
+// than the one that was ticked. With the digest, a stale selection stops
+// matching and the import refuses, which is the right way to lose: the user
+// re-opens the list rather than receiving something nobody chose.
+func discoveredCollectionID(client string, index int, entry discovery.Discovered) string {
+	digest := sha256.Sum256([]byte(entry.Name + "\x00" + entry.SourcePath + "\x00" + entry.Content))
+	return fmt.Sprintf("%s:%d:%s", strings.TrimSpace(client), index, hex.EncodeToString(digest[:4]))
 }

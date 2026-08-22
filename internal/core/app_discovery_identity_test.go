@@ -116,3 +116,57 @@ func TestDiscoveredIdentitiesAreStableAcrossReads(t *testing.T) {
 		}
 	}
 }
+
+// The modal reads, the user chooses, and the import reads again. If the other
+// client gained or lost a workspace in between, a purely positional id would
+// point at a different collection than the one that was ticked -- and the
+// import would go through, silently, because the id still parses.
+//
+// The id carries what it identifies, so a stale selection stops matching and
+// the import refuses instead of importing something nobody chose.
+func TestAStaleSelectionIsRefusedRatherThanImportingSomethingElse(t *testing.T) {
+	app := newAppForTest(t)
+	state, err := app.GetState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	base := filepath.Join(root, "config", "Insomnia")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fixture := filepath.Join(base, "insomnia.Workspace.db")
+	if err := os.WriteFile(fixture, []byte(`{"_id":"wrk_1","type":"Workspace","name":"Payments"}
+{"_id":"req_1","type":"Request","parentId":"wrk_1","name":"List","method":"GET","url":"https://first.test/"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app.discoveryRootsForTest(root)
+
+	found, err := app.ReadDiscoveredCollections("insomnia")
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleID := found[0].ID
+
+	// The other client changes underneath: a workspace is added ahead of the
+	// one that was chosen, so position 0 is now a different collection.
+	if err := os.WriteFile(fixture, []byte(`{"_id":"wrk_0","type":"Workspace","name":"Added First"}
+{"_id":"req_0","type":"Request","parentId":"wrk_0","name":"Other","method":"GET","url":"https://other.test/"}
+{"_id":"wrk_1","type":"Workspace","name":"Payments"}
+{"_id":"req_1","type":"Request","parentId":"wrk_1","name":"List","method":"GET","url":"https://first.test/"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := app.ImportDiscoveredCollections(state.Workspaces[0].ID, "insomnia", []string{staleID})
+	if err != nil {
+		return // Refused, which is the safe outcome.
+	}
+	// If it did import, it must be the collection that was actually chosen.
+	if len(result.Applied) != 1 {
+		t.Fatalf("a stale selection imported %d collections", len(result.Applied))
+	}
+	imported := result.State.Workspaces[0].Collections[len(result.State.Workspaces[0].Collections)-1]
+	if imported.Name != "Payments" {
+		t.Fatalf("a stale selection imported %q, which is not the collection that was chosen", imported.Name)
+	}
+}
