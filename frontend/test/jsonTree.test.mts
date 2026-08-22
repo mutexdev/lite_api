@@ -77,3 +77,12 @@ test('a primitive body yields no entries', () => {
   assert.deepEqual(boundedJsonTree(42 as unknown as Record<string, unknown>).entries, [])
   assert.deepEqual(boundedJsonTree('text' as unknown as Record<string, unknown>).entries, [])
 })
+
+// A single root field larger than the whole budget yields no entries AND
+// truncation at once. The panel renders a message for each state, so it has to
+// know this pair is reachable or it renders both and contradicts itself.
+test('a first field larger than the budget reports empty and truncated together', () => {
+  const tree = boundedJsonTree({ blob: 'x'.repeat(JSON_TREE_BUDGET + 1000) })
+  assert.deepEqual(tree.entries, [])
+  assert.equal(tree.truncated, true)
+})

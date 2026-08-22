@@ -356,8 +356,9 @@
         {#each jsonTree.entries as entry (entry.name)}
           <details><summary>{entry.name} <small>{Array.isArray(entry.value) ? `Array (${entry.value.length})` : typeof entry.value}</small></summary><pre>{entry.text}</pre></details>
         {/each}
-        {#if jsonTree.entries.length === 0}<small>This response has no fields to expand.</small>{/if}
-        {#if jsonTree.truncated}<small>Tree render is bounded to {JSON_TREE_MAX_ENTRIES} root items and {Math.round(JSON_TREE_BUDGET / 1024)} KB.</small>{/if}
+        {#if jsonTree.entries.length === 0 && jsonTree.truncated}<small>The first field alone is larger than the {Math.round(JSON_TREE_BUDGET / 1024)} KB this view renders. Use the Pretty or Raw view to read it.</small>
+        {:else if jsonTree.entries.length === 0}<small>This response has no fields to expand.</small>
+        {:else if jsonTree.truncated}<small>Tree render is bounded to {JSON_TREE_MAX_ENTRIES} root items and {Math.round(JSON_TREE_BUDGET / 1024)} KB.</small>{/if}
       </div>
     {:else}
       <pre class="response-body" bind:this={bodyElement} data-match-index={matches[matchIndex] ?? -1}>{#each markedParts(safeDisplay) as part, index (index)}<span>{#if part.match}<mark class:current-match={part.index === matchIndex}>{part.text}</mark>{:else}{part.text}{/if}</span>{/each}</pre>
