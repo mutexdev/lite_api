@@ -5716,7 +5716,13 @@
         } as types.KeepDefaultCaCertificatesPreferences,
         storeCookies: updates.storeCookies ?? current.storeCookies ?? appState.preferences.storeCookies ?? true,
         sendCookies: updates.sendCookies ?? current.sendCookies ?? true,
-        timeout: normalizedRequestTimeout(updates.timeout ?? current.timeout)
+        timeout: normalizedRequestTimeout(updates.timeout ?? current.timeout),
+        // Carried through rather than rebuilt. UpdatePreferences replaces the
+        // whole block, and maxResponseBytes is omitempty, so a field this
+        // function forgets is a field the backend reads back as 0 -- which it
+        // treats as "use the default". Every General-section control routes
+        // through here, so forgetting it resets the response cap on any of them.
+        maxResponseBytes: updates.maxResponseBytes ?? current.maxResponseBytes
       } as types.RequestPreferences
       workspaceStore.appState = await UpdatePreferences({
         ...appState.preferences,
