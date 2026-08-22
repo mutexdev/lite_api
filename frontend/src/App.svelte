@@ -181,6 +181,7 @@
   import ProtocolRequestLine from './lib/workbench/ProtocolRequestLine.svelte'
   import WorkspaceCommandBar from './lib/workbench/WorkspaceCommandBar.svelte'
   import WorkspaceWindowPicker from './lib/workbench/WorkspaceWindowPicker.svelte'
+  import { suggestHeaderNames, suggestHeaderValues } from './lib/httpHeaders'
   import {
     defaultImportDecision,
     hasReplaceImportSelection,
@@ -8329,6 +8330,8 @@
 	                {/if}
 	              {:else if requestPaneTab === 'headers'}
                 <KeyValueTable
+                  nameSuggestions={suggestHeaderNames}
+                  valueSuggestions={suggestHeaderValues}
                   showBulkEdit={true}
                   bulkLabel="Request headers bulk edit"
                   rows={activeRequest.headers}
