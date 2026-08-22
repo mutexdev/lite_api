@@ -132,16 +132,30 @@ func (a *App) writeCollectionFilesLocked(collection *Collection) error {
 	if err := a.writeCollectionFileLocked(filepath.Join(collection.Path, "collection.bru"), []byte(bru.StringifyBruCollection(*collection))); err != nil {
 		return err
 	}
+	// US-060. Folder metadata used to exist only in app state: no folder.bru was
+	// ever written, so a folder's auth and scripts were lost the moment the
+	// collection was reopened from its folder, cloned, or shared through git --
+	// and every request set to inherit that auth quietly inherited nothing.
+	for _, folder := range collection.Folders {
+		if !folderConfigHasContent(folder) {
+			continue
+		}
+		if err := a.writeFolderConfigLocked(collection, folder); err != nil {
+			return err
+		}
+	}
 	if len(collection.Environments) > 0 {
 		envPath := filepath.Join(collection.Path, "environments")
 		if err := os.MkdirAll(envPath, 0o755); err != nil {
 			return err
 		}
+		// US-060. Names are deduplicated the way request paths are. Two
+		// environments named "Prod", or "a/b" and "a-b", sanitise to one
+		// filename, and the second used to overwrite the first with nothing
+		// said about it.
+		usedNames := make(map[string]bool, len(collection.Environments))
 		for _, env := range collection.Environments {
-			filename := sanitizeFilename(env.Name)
-			if filename == "" {
-				filename = env.ID
-			}
+			filename := uniqueEnvironmentFileName(sanitizeFilename(env.Name), env.ID, usedNames)
 			if err := a.writeCollectionFileLocked(filepath.Join(envPath, filename+".bru"), []byte(bru.StringifyBruEnvironment(env))); err != nil {
 				return err
 			}
@@ -159,6 +173,37 @@ func (a *App) writeCollectionFilesLocked(collection *Collection) error {
 	}
 	a.seedCollectionWatchFingerprintLocked(collection.Path)
 	return nil
+}
+
+// folderConfigHasContent reports whether a folder carries anything worth a
+// file. Folders that exist only to hold requests are left alone: writing an
+// empty folder.bru into every directory of every collection would add noise to
+// the working tree of everyone using git, for nothing.
+func folderConfigHasContent(folder FolderConfig) bool {
+	return folder.Auth.Mode != "" ||
+		len(folder.Headers) > 0 ||
+		len(folder.Variables) > 0 ||
+		len(folder.ResVariables) > 0 ||
+		strings.TrimSpace(folder.PreScript) != "" ||
+		strings.TrimSpace(folder.PostScript) != "" ||
+		strings.TrimSpace(folder.Tests) != "" ||
+		strings.TrimSpace(folder.Docs) != ""
+}
+
+func uniqueEnvironmentFileName(name, fallbackID string, used map[string]bool) string {
+	base := name
+	if base == "" {
+		base = sanitizeFilename(fallbackID)
+	}
+	if base == "" {
+		base = "environment"
+	}
+	candidate := base
+	for ordinal := 2; used[strings.ToLower(candidate)]; ordinal++ {
+		candidate = sanitizeFilename(fmt.Sprintf("%s %d", base, ordinal))
+	}
+	used[strings.ToLower(candidate)] = true
+	return candidate
 }
 
 func (a *App) writeCollectionNameMetadataLocked(collection *Collection) error {

@@ -78,13 +78,19 @@ func postmanV1Document(raw map[string]interface{}) bool {
 
 // postmanDumpDocument reports whether this is a workspace dump: the envelope
 // Postman writes when exporting everything at once.
+//
+// A list of collections is required, not merely an "environments" key. A Bruno
+// JSON collection carries its environments the same way, and treating one as a
+// dump would split it into rows that are not collections at all.
 func postmanDumpDocument(raw map[string]interface{}) bool {
 	if _, hasItem := raw["item"]; hasItem {
 		return false
 	}
-	_, hasCollections := raw["collections"]
-	_, hasEnvironments := raw["environments"]
-	return hasCollections || hasEnvironments
+	if _, hasItems := raw["items"]; hasItems {
+		return false
+	}
+	collections, ok := raw["collections"].([]interface{})
+	return ok && len(collections) > 0
 }
 
 // collectionFromPostmanEnvironment reads an environment or globals file into a
