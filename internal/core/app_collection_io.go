@@ -521,6 +521,14 @@ func collectionRequestFilesystemPath(collection *Collection, item RequestItem) (
 }
 
 func collectionFromImport(payload ImportPayload) (Collection, error) {
+	collection, _, err := collectionFromImportDetailed(payload)
+	return collection, err
+}
+
+// collectionFromImportDetailed also returns the warnings an importer raised.
+// US-054: a Postman collection can now import with a request skipped or a URL
+// reconstructed, and the preview row has to be able to say so.
+func collectionFromImportDetailed(payload ImportPayload) (Collection, []string, error) {
 	now := time.Now()
 	name := strings.TrimSpace(payload.Name)
 	if name == "" {
@@ -540,7 +548,7 @@ func collectionFromImport(payload ImportPayload) (Collection, error) {
 	case "bruno-json", "json", "bruno":
 		var imported Collection
 		if err := json.Unmarshal([]byte(payload.Content), &imported); err != nil {
-			return Collection{}, err
+			return Collection{}, nil, err
 		}
 		imported.ID = collection.ID
 		if imported.Name == "" {
@@ -549,33 +557,36 @@ func collectionFromImport(payload ImportPayload) (Collection, error) {
 		imported.SecurityConfig = normalizeCollectionSecurityConfig(imported.SecurityConfig)
 		imported.CreatedAt = now
 		imported.UpdatedAt = now
-		return imported, nil
+		return imported, nil, nil
 	case "bru":
 		item, err := bru.Parse(payload.Content)
 		if err != nil {
-			return Collection{}, err
+			return Collection{}, nil, err
 		}
 		collection.Items = []RequestItem{item}
-		return collection, nil
+		return collection, nil, nil
 	case "postman":
 		return importers.ImportPostman(payload.Content, name, payload.TranslatePostmanScripts)
 	case "har":
-		collection, _, err := importers.ImportHAR(payload.Content, name)
-		return collection, err
+		collection, warnings, err := importers.ImportHAR(payload.Content, name)
+		return collection, warnings, err
 	case "insomnia":
-		return importers.ImportInsomnia(payload.Content, name)
+		collection, err := importers.ImportInsomnia(payload.Content, name)
+		return collection, nil, err
 	case "swagger-2", "swagger2", "swagger":
 		converted, err := importers.ConvertSwagger2ToOpenAPI3(payload.Content)
 		if err != nil {
-			return Collection{}, err
+			return Collection{}, nil, err
 		}
-		return importers.ImportOpenAPI(converted, name, payload.GroupBy)
+		collection, err := importers.ImportOpenAPI(converted, name, payload.GroupBy)
+		return collection, nil, err
 	case "openapi":
-		return importers.ImportOpenAPI(payload.Content, name, payload.GroupBy)
+		collection, err := importers.ImportOpenAPI(payload.Content, name, payload.GroupBy)
+		return collection, nil, err
 	case "curl":
-		collection, _, err := collectionFromCurlImport(payload.Content, name)
-		return collection, err
+		collection, warnings, err := collectionFromCurlImport(payload.Content, name)
+		return collection, warnings, err
 	default:
-		return Collection{}, fmt.Errorf("unsupported import kind %q", payload.Kind)
+		return Collection{}, nil, fmt.Errorf("unsupported import kind %q", payload.Kind)
 	}
 }
