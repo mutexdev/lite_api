@@ -235,6 +235,17 @@ func (a *App) applyImportedGlobalEnvironmentsLocked(workspace *Workspace, enviro
 	if len(environments) == 0 {
 		return errors.New("no environments found to import")
 	}
+	// workspace points into a.state, so everything below is live the moment it
+	// is appended. The write can still fail -- a read-only directory, a full
+	// disk -- and an import that reports failure while leaving the environment
+	// in memory is worse than one that fails cleanly: it shows up in the
+	// Environments panel, and the next unrelated save writes it out, quietly
+	// completing the import the user was told had not happened.
+	restoreEnvironments := workspace.GlobalEnvironments
+	restoreUpdatedAt := workspace.UpdatedAt
+	// Appending to a fresh slice rather than in place, so the rollback cannot
+	// be defeated by an append that wrote into shared backing array capacity.
+	workspace.GlobalEnvironments = append([]Environment{}, workspace.GlobalEnvironments...)
 	for _, environment := range environments {
 		environment.ID = newID("global-env")
 		environment.Name = scripting.UniqueEnvironmentName(workspace.GlobalEnvironments, environment.Name)
@@ -246,7 +257,12 @@ func (a *App) applyImportedGlobalEnvironmentsLocked(workspace *Workspace, enviro
 		workspace.GlobalEnvironments = append(workspace.GlobalEnvironments, environment)
 	}
 	workspace.UpdatedAt = time.Now()
-	return a.writeWorkspaceGlobalEnvironmentFilesLocked(workspace)
+	if err := a.writeWorkspaceGlobalEnvironmentFilesLocked(workspace); err != nil {
+		workspace.GlobalEnvironments = restoreEnvironments
+		workspace.UpdatedAt = restoreUpdatedAt
+		return err
+	}
+	return nil
 }
 
 func cloneCollectionImportState(state AppState) (AppState, error) {
