@@ -85,6 +85,7 @@ type App struct {
 	workspaceRuntime       *workspaceWindowRuntime
 	workspaceProcessStart  func(string, []string) error
 	collectionImportHooks  *collectionImportHooks
+	discoveryOverride      *discoveryOverrides
 	gitWorkbenchExecutable string
 	gitWorkbenchPersist    func() error
 

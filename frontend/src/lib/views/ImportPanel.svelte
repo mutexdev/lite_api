@@ -39,6 +39,8 @@
   export let gitCloneRoot: string
   export let importApplyButton: HTMLButtonElement | null = null
   export let importPickerButton: HTMLButtonElement | null = null
+  export let discoveredClientCount = 0
+  export let onOpenDiscovery: () => void = () => {}
 
   export let state: types.AppState
   export let busy: string
@@ -86,6 +88,13 @@
               <div class="import-file-actions">
                 <button class="primary" bind:this={importPickerButton} type="button" on:click={chooseImportFiles} disabled={busy !== ''}>Choose files…</button>
                 <button type="button" on:click={chooseImportFolder} disabled={busy !== ''}>Choose collection folder…</button>
+                <!-- US-064. Dismissing the first-run offer hides the interruption, not the
+                     feature, so it stays reachable from the place people go to import. -->
+                {#if discoveredClientCount > 0}
+                  <button type="button" data-testid="import-open-discovery" on:click={onOpenDiscovery} disabled={busy !== ''}>
+                    Import from another app ({discoveredClientCount})
+                  </button>
+                {/if}
               </div>
               <button type="button" class="import-drop-target" style="--wails-drop-target: drop" aria-label="Drop collection import files or folders here" on:click={chooseImportFiles}>
                 Drop files or a Bruno/OpenCollection folder here. Press Enter to choose files.

@@ -359,6 +359,124 @@ export namespace core {
 	
 	
 	
+	export class DiscoveredCACertificate {
+	    path: string;
+	    subject: string;
+	    issuer: string;
+	    fingerprint: string;
+	    notAfter: string;
+	    expired: boolean;
+	    alreadyTrusted: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiscoveredCACertificate(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.subject = source["subject"];
+	        this.issuer = source["issuer"];
+	        this.fingerprint = source["fingerprint"];
+	        this.notAfter = source["notAfter"];
+	        this.expired = source["expired"];
+	        this.alreadyTrusted = source["alreadyTrusted"];
+	    }
+	}
+	export class DiscoveredClient {
+	    client: string;
+	    displayName: string;
+	    path: string;
+	    readable: boolean;
+	    guidance?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiscoveredClient(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.client = source["client"];
+	        this.displayName = source["displayName"];
+	        this.path = source["path"];
+	        this.readable = source["readable"];
+	        this.guidance = source["guidance"];
+	    }
+	}
+	export class DiscoveredCollection {
+	    client: string;
+	    name: string;
+	    kind: string;
+	    sourcePath?: string;
+	    requestCount: number;
+	    warnings?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DiscoveredCollection(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.client = source["client"];
+	        this.name = source["name"];
+	        this.kind = source["kind"];
+	        this.sourcePath = source["sourcePath"];
+	        this.requestCount = source["requestCount"];
+	        this.warnings = source["warnings"];
+	    }
+	}
+	export class DiscoveryProxyReport {
+	    detected: boolean;
+	    description?: string;
+	    inUse: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiscoveryProxyReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.detected = source["detected"];
+	        this.description = source["description"];
+	        this.inUse = source["inUse"];
+	    }
+	}
+	export class DiscoveryReport {
+	    installations: DiscoveredClient[];
+	    caCertificates: DiscoveredCACertificate[];
+	    proxy: DiscoveryProxyReport;
+	    shouldPrompt: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiscoveryReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.installations = this.convertValues(source["installations"], DiscoveredClient);
+	        this.caCertificates = this.convertValues(source["caCertificates"], DiscoveredCACertificate);
+	        this.proxy = this.convertValues(source["proxy"], DiscoveryProxyReport);
+	        this.shouldPrompt = source["shouldPrompt"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class RequestMutation {
 	    revision: number;
 	    collectionId: string;

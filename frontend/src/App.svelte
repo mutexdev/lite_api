@@ -274,6 +274,11 @@
     GitVersion,
 		InitializeCollectionGit,
     ImportCollection,
+    DiscoverImportSources,
+    ReadDiscoveredCollections,
+    ImportDiscoveredCollections,
+    DismissDiscoveryPrompt,
+    AdoptDiscoveredCACertificate,
 	    ApplyCollectionImport,
 	    ChooseCollectionImportFiles,
 	    ChooseCollectionImportFolder,
@@ -763,6 +768,13 @@
   let generateDocsSelectAllInput = $state<HTMLInputElement | undefined>()
   let gitCloneProgress = $state<GitCloneProgress[]>([])
   let gitNotFoundMessage = $state('')
+  // US-064. The first-run offer to bring another client's collections across
+  // and to trust a corporate CA. Undefined until a launch has looked.
+  let discoveryReport = $state<core.DiscoveryReport | undefined>()
+  let discoveryOpen = $state(false)
+  let discoveryCollections = $state<Record<string, core.DiscoveredCollection[]>>({})
+  let discoveryBusy = $state(false)
+  let discoveryError = $state('')
 	let gitWorkbenchSnapshot = $state<gitworkbench.CollectionGitSnapshot | undefined>()
 	let gitWorkbenchCollectionID = $state('')
 	let gitWorkbenchLoading = $state(false)
@@ -1552,6 +1564,8 @@
 	  let stopNativeMenuCommands: (() => void) | undefined
 
 	  onMount(() => {
+	    // US-064. Offered once, on a launch that finds something to offer.
+	    void loadDiscoveryReport(true)
 	    compactWorkbenchMedia = window.matchMedia('(max-width: 960px)')
 	    const updateCompactWorkbench = () => {
 	      compactWorkbench = compactWorkbenchMedia?.matches ?? false
@@ -3299,6 +3313,71 @@
   async function previewImportPaths(paths: string[], focusFirst = true) {
     const sources = paths.map((path, index) => ({ id: `path-${Date.now()}-${index}`, path } as core.CollectionImportSource))
     await previewImportSources(sources, focusFirst)
+  }
+
+  // US-064. Asks the backend what this machine has. Presence only: nothing
+  // inside another application's store is read by this call.
+  async function loadDiscoveryReport(openWhenOffered: boolean) {
+    try {
+      const report = await DiscoverImportSources()
+      discoveryReport = report
+      if (openWhenOffered && report.shouldPrompt) discoveryOpen = true
+    } catch {
+      // A machine we cannot inspect is a machine with nothing to offer. There
+      // is no action for the user here, and a startup error box for a feature
+      // nobody asked for is worse than silence.
+    }
+  }
+
+  async function loadDiscoveredCollections(client: string) {
+    discoveryError = ''
+    try {
+      discoveryCollections = { ...discoveryCollections, [client]: await ReadDiscoveredCollections(client) }
+    } catch (err) {
+      discoveryError = err instanceof Error ? err.message : String(err)
+      discoveryCollections = { ...discoveryCollections, [client]: [] }
+    }
+  }
+
+  async function importDiscoveredCollections(client: string, names: string[]) {
+    if (!activeWorkspace || names.length === 0) return
+    discoveryBusy = true
+    discoveryError = ''
+    try {
+      const result = await ImportDiscoveredCollections(activeWorkspace.id, client, names)
+      workspaceStore.appState = result.state
+      importStatus = importOutcomeSummary(result)
+      await closeDiscovery()
+    } catch (err) {
+      discoveryError = err instanceof Error ? err.message : String(err)
+    } finally {
+      discoveryBusy = false
+    }
+  }
+
+  async function adoptDiscoveredCACertificate(path: string) {
+    discoveryBusy = true
+    discoveryError = ''
+    try {
+      workspaceStore.appState = await AdoptDiscoveredCACertificate(path)
+      await loadDiscoveryReport(false)
+    } catch (err) {
+      discoveryError = err instanceof Error ? err.message : String(err)
+    } finally {
+      discoveryBusy = false
+    }
+  }
+
+  // Closing is also the record that the offer was made: a prompt that returns
+  // every launch is one people learn to dismiss without reading.
+  async function closeDiscovery() {
+    discoveryOpen = false
+    try {
+      workspaceStore.appState = await DismissDiscoveryPrompt()
+    } catch {
+      // Failing to record the dismissal costs one repeated prompt, which is not
+      // worth an error in front of somebody who just closed a dialog.
+    }
   }
 
   async function chooseImportFiles() {
@@ -10481,6 +10560,8 @@
         {#await import('./lib/views/ImportPanel.svelte') then ImportPanel}
           {@const ImportPanelComponent = ImportPanel.default}
           <ImportPanelComponent
+            discoveredClientCount={discoveryReport?.installations?.length ?? 0}
+            onOpenDiscovery={() => (discoveryOpen = true)}
             bind:importSourceMode
             bind:importTranslatePostmanScripts
             bind:importURL
@@ -11208,6 +11289,22 @@
       {updatePromptValue}
       {submitPromptDialog}
       {cancelPromptDialog}
+    />
+  {/await}
+{/if}
+
+{#if discoveryOpen && discoveryReport}
+  {#await import('./lib/modals/DiscoveryModal.svelte') then DiscoveryModal}
+    {@const DiscoveryModalComponent = DiscoveryModal.default}
+    <DiscoveryModalComponent
+      report={discoveryReport}
+      collectionsByClient={discoveryCollections}
+      busy={discoveryBusy}
+      error={discoveryError}
+      onLoadCollections={loadDiscoveredCollections}
+      onImport={importDiscoveredCollections}
+      onAdoptCA={adoptDiscoveredCACertificate}
+      onClose={closeDiscovery}
     />
   {/await}
 {/if}

@@ -6,6 +6,10 @@ export function AddCookieFromHeader(arg1, arg2) {
   return window['go']['core']['App']['AddCookieFromHeader'](arg1, arg2);
 }
 
+export function AdoptDiscoveredCACertificate(arg1) {
+  return window['go']['core']['App']['AdoptDiscoveredCACertificate'](arg1);
+}
+
 export function ApplyCollectionImport(arg1) {
   return window['go']['core']['App']['ApplyCollectionImport'](arg1);
 }
@@ -250,6 +254,14 @@ export function DisconnectWebSocket(arg1, arg2) {
   return window['go']['core']['App']['DisconnectWebSocket'](arg1, arg2);
 }
 
+export function DiscoverImportSources() {
+  return window['go']['core']['App']['DiscoverImportSources']();
+}
+
+export function DismissDiscoveryPrompt() {
+  return window['go']['core']['App']['DismissDiscoveryPrompt']();
+}
+
 export function DocsServerStatusFor(arg1) {
   return window['go']['core']['App']['DocsServerStatusFor'](arg1);
 }
@@ -354,6 +366,10 @@ export function ImportCollection(arg1, arg2) {
   return window['go']['core']['App']['ImportCollection'](arg1, arg2);
 }
 
+export function ImportDiscoveredCollections(arg1, arg2, arg3) {
+  return window['go']['core']['App']['ImportDiscoveredCollections'](arg1, arg2, arg3);
+}
+
 export function ImportGlobalEnvironment(arg1, arg2) {
   return window['go']['core']['App']['ImportGlobalEnvironment'](arg1, arg2);
 }
@@ -452,6 +468,10 @@ export function PullCollectionGit(arg1, arg2, arg3) {
 
 export function PushCollectionGit(arg1, arg2, arg3, arg4) {
   return window['go']['core']['App']['PushCollectionGit'](arg1, arg2, arg3, arg4);
+}
+
+export function ReadDiscoveredCollections(arg1) {
+  return window['go']['core']['App']['ReadDiscoveredCollections'](arg1);
 }
 
 export function ReadResponseBody(arg1, arg2, arg3) {
