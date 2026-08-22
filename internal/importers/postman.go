@@ -32,10 +32,10 @@ func ImportPostman(content, name string, translateScripts bool) (types.Collectio
 	}
 	trimmed := trimJSONPrefix(content)
 	if err := postmanCollectionShapeError([]byte(trimmed)); err != nil {
-		return types.Collection{}, nil, err
+		return types.Collection{}, nil, PostmanJSONError(trimmed, err)
 	}
 	if err := json.Unmarshal([]byte(trimmed), &raw); err != nil {
-		return types.Collection{}, nil, err
+		return types.Collection{}, nil, PostmanJSONError(trimmed, err)
 	}
 	if raw.Info.Name.String() != "" {
 		name = raw.Info.Name.String()

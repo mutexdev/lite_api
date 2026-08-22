@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -227,4 +228,56 @@ func describePostmanJSONError(err error) string {
 		return "field " + strconv.Quote(field) + " is a " + typeError.Value + " where a " + typeError.Type.String() + " is required"
 	}
 	return err.Error()
+}
+
+// PostmanJSONError restates an encoding/json failure with the line and column a
+// person can navigate to. json.SyntaxError reports a byte offset, which is of
+// no use to anyone looking at the file in an editor.
+//
+// US-055. The alternative -- reporting only "could not be read safely" -- sent
+// every malformed-collection question to the console of a packaged desktop
+// build, where there is no console.
+func PostmanJSONError(content string, err error) error {
+	if err == nil {
+		return nil
+	}
+	var syntaxError *json.SyntaxError
+	if errors.As(err, &syntaxError) {
+		line, column := jsonPosition(content, syntaxError.Offset)
+		return fmt.Errorf("invalid JSON at line %d, column %d: %s", line, column, syntaxError.Error())
+	}
+	var typeError *json.UnmarshalTypeError
+	if errors.As(err, &typeError) {
+		field := strings.TrimPrefix(typeError.Field, ".")
+		if field == "" {
+			field = "value"
+		}
+		line, column := jsonPosition(content, typeError.Offset)
+		return fmt.Errorf("field %q is a %s where a %s is required, at line %d, column %d", field, typeError.Value, typeError.Type.String(), line, column)
+	}
+	return err
+}
+
+// jsonPosition converts a byte offset into the 1-based line and column of the
+// original document, counting runes so a column in a file with non-ASCII text
+// matches what an editor shows.
+func jsonPosition(content string, offset int64) (int, int) {
+	if offset < 0 {
+		return 1, 1
+	}
+	if offset > int64(len(content)) {
+		offset = int64(len(content))
+	}
+	line, column := 1, 1
+	for index, symbol := range content {
+		if int64(index) >= offset {
+			break
+		}
+		if symbol == '\n' {
+			line, column = line+1, 1
+			continue
+		}
+		column++
+	}
+	return line, column
 }

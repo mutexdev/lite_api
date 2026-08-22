@@ -12,7 +12,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mutexdev/lite_api/internal/importers"
 	"github.com/mutexdev/lite_api/internal/openapisync"
@@ -643,14 +645,31 @@ func collectionImportRequestSelectionID(sourceID string, request RequestItem, in
 	return collectionImportSelectionID(sourceID, "request", request.Name, request.Type, request.Method, request.URL, request.FolderPath, fmt.Sprint(index))
 }
 
+// collectionImportDiagnosticMaxBytes bounds what reaches the preview row. A
+// parser handed a 16 MiB file can produce an error carrying a large excerpt of
+// it, and the row is one line of a table.
+const collectionImportDiagnosticMaxBytes = 240
+
+// collectionImportDiagnostic renders an import failure for the preview row.
+//
+// US-055. This used to allow-list about twenty authored strings and collapse
+// everything else -- every JSON syntax error, every type mismatch, every
+// filesystem failure -- into "selected import could not be read safely". The
+// redaction it was protecting is real: WalkDir, os.Open and parser errors all
+// embed the path the user selected, and an import row is a place a screenshot
+// gets taken. But redacting a path is not the same thing as discarding the
+// diagnosis, and discarding it left the console as the only place to look --
+// which for a packaged desktop build is nowhere at all.
+//
+// So the authored messages still pass through verbatim, and everything else is
+// scrubbed of anything path-shaped and then kept.
 func collectionImportDiagnostic(err error) string {
 	if err == nil {
 		return ""
 	}
 	message := err.Error()
 	// These messages are authored by this importer and contain no source
-	// content or filesystem paths. Everything else is intentionally collapsed:
-	// WalkDir, open, and parser errors can otherwise disclose a selected path.
+	// content or filesystem paths.
 	for _, safe := range []string{
 		"ZIP imports are not supported yet",
 		"WSDL imports are not supported yet",
@@ -678,5 +697,80 @@ func collectionImportDiagnostic(err error) string {
 			return safe
 		}
 	}
-	return "selected import could not be read safely"
+	if described := describeCollectionImportError(err); described != "" {
+		message = described
+	}
+	scrubbed := scrubCollectionImportDiagnostic(message)
+	if strings.TrimSpace(scrubbed) == "" {
+		return "selected import could not be read safely"
+	}
+	return scrubbed
+}
+
+// describeCollectionImportError turns a machine error into the sentence the
+// person importing the file can act on. Positions come from the importer, which
+// still has the document; here only the shape of the failure is known.
+func describeCollectionImportError(err error) string {
+	var typeError *json.UnmarshalTypeError
+	if errors.As(err, &typeError) {
+		field := strings.TrimPrefix(typeError.Field, ".")
+		if field == "" {
+			field = "value"
+		}
+		return fmt.Sprintf("field %q is a %s where a %s is required", field, typeError.Value, typeError.Type.String())
+	}
+	var syntaxError *json.SyntaxError
+	if errors.As(err, &syntaxError) {
+		return "invalid JSON: " + syntaxError.Error()
+	}
+	var yamlTypeError *yaml.TypeError
+	if errors.As(err, &yamlTypeError) && len(yamlTypeError.Errors) > 0 {
+		return "invalid YAML: " + yamlTypeError.Errors[0]
+	}
+	if errors.Is(err, syscall.ENAMETOOLONG) {
+		return "a request or folder name is too long for this filesystem"
+	}
+	if errors.Is(err, syscall.ENOSPC) {
+		return "there is no space left on the destination disk"
+	}
+	if errors.Is(err, os.ErrPermission) {
+		return "the destination is not writable"
+	}
+	return ""
+}
+
+// scrubCollectionImportDiagnostic removes anything path-shaped. Tokens holding
+// a path separator, a home marker or a drive letter are replaced wholesale
+// rather than trimmed, because a partially redacted path is still a path.
+func scrubCollectionImportDiagnostic(message string) string {
+	message = strings.Join(strings.Fields(message), " ")
+	fields := strings.Split(message, " ")
+	kept := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if collectionImportFieldLooksLikeAPath(field) {
+			kept = append(kept, "[path]")
+			continue
+		}
+		kept = append(kept, field)
+	}
+	scrubbed := strings.Join(kept, " ")
+	if len(scrubbed) > collectionImportDiagnosticMaxBytes {
+		cut := collectionImportDiagnosticMaxBytes - len("\u2026")
+		for cut > 0 && !utf8.RuneStart(scrubbed[cut]) {
+			cut--
+		}
+		scrubbed = strings.TrimSpace(scrubbed[:cut]) + "\u2026"
+	}
+	return scrubbed
+}
+
+func collectionImportFieldLooksLikeAPath(field string) bool {
+	if strings.ContainsAny(field, "/\\~") {
+		return true
+	}
+	// A bare Windows drive reference, "C:" or "C:x".
+	if len(field) >= 2 && field[1] == ':' && ((field[0] >= 'A' && field[0] <= 'Z') || (field[0] >= 'a' && field[0] <= 'z')) {
+		return true
+	}
+	return false
 }

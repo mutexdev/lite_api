@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   defaultImportDecision,
   hasReplaceImportSelection,
+  importOutcomeSummary,
   importSelectionFor,
   reconcileImportDecision,
   selectedImportRows,
@@ -240,4 +241,32 @@ test('reconciling against a row with no child lists drops every id', () => {
   const next = reconcileImportDecision(prior, { candidateId: 'c1', sourceId: 's1' } as ImportPreviewRowDetail)
   assert.deepEqual(next.requests, [])
   assert.deepEqual(next.environments, [])
+})
+
+test('importOutcomeSummary mentions only what happened', () => {
+  assert.equal(importOutcomeSummary({ applied: [{ candidateId: 'a' }] }), '1 collection imported')
+  assert.equal(
+    importOutcomeSummary({ applied: [{ candidateId: 'a' }, { candidateId: 'b' }], skipped: [{ candidateId: 'c' }] }),
+    '2 collections imported, 1 skipped'
+  )
+})
+
+test('importOutcomeSummary counts importer warnings so they are not missed', () => {
+  assert.equal(
+    importOutcomeSummary({ applied: [{ candidateId: 'a', warnings: ['skipped "bad"'] }] }),
+    '1 collection imported, 1 warning'
+  )
+})
+
+test('importOutcomeSummary names the first failure instead of only counting it', () => {
+  const summary = importOutcomeSummary({
+    applied: [],
+    errors: [{ candidateId: 'x', sourceName: 'broken.json', error: 'invalid JSON at line 3, column 9' }]
+  })
+  assert.match(summary, /broken\.json: invalid JSON at line 3, column 9/)
+  assert.match(summary, /1 failure/)
+})
+
+test('importOutcomeSummary handles an empty result', () => {
+  assert.equal(importOutcomeSummary(undefined), 'Nothing was imported.')
 })

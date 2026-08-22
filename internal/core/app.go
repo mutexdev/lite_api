@@ -748,7 +748,7 @@ func (a *App) ImportCollection(workspaceID string, payload ImportPayload) (AppSt
 	}
 	mutations := []collectionImportMutation{}
 	rollback := func() {
-		rollbackCollectionImportMutations(a, mutations)
+		_ = rollbackCollectionImportMutations(a, mutations)
 		a.state = before
 		a.collectionWatchFingerprints = watchFingerprints
 		if payload.OpenAPISync && strings.EqualFold(strings.TrimSpace(payload.Kind), "openapi") && collection.Path != "" {

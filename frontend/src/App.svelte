@@ -184,6 +184,7 @@
   import {
     defaultImportDecision,
     hasReplaceImportSelection,
+    importOutcomeSummary,
     importSelectionFor as importSelectionOf,
     reconcileImportDecision,
     selectedImportRows,
@@ -1973,15 +1974,21 @@
     recoveryBusyEntryID = ''
   }
 
-  async function runAction(label: string, action: () => Promise<void>) {
+  // Returns the failure message, or '' when the action succeeded. The banner
+  // this sets is cleared by the next action of any kind, so a caller whose
+  // failure has to stay on screen -- an import, whose panel is the only place
+  // the user can act on it -- keeps the message somewhere of its own.
+  async function runAction(label: string, action: () => Promise<void>): Promise<string> {
     const actionID = ++nextActionID
     activeActions.set(actionID, label)
     busy = label
     error = ''
     try {
       await action()
+      return ''
     } catch (err) {
       error = err instanceof Error ? err.message : String(err)
+      return error
     } finally {
       activeActions.delete(actionID)
       busy = Array.from(activeActions.values()).at(-1) ?? ''
@@ -3254,7 +3261,14 @@
 	  }
 
 	  async function previewImportSources(sources: core.CollectionImportSource[], focusFirst = false, resetDecisions = false) {
-	    if (!importDestinationWorkspaceID || sources.length === 0) return
+	    if (!importDestinationWorkspaceID) {
+	      importStatus = 'Choose a destination workspace before importing.'
+	      return
+	    }
+	    if (sources.length === 0) {
+	      importStatus = 'No import source was provided.'
+	      return
+	    }
 	    const priorDecisions = importDecisions
 	    importSources = []
 	    importPreview = undefined
@@ -3262,7 +3276,7 @@
 	    importExpanded = {}
 	    clearImportAttemptResults()
 	    let previewSucceeded = false
-	    await runAction('preview import', async () => {
+	    const previewFailure = await runAction('preview import', async () => {
 	      const preview = await PreviewCollectionImport({ workspaceId: importDestinationWorkspaceID, destinationRoot: importDestinationRoot, sources } as core.CollectionImportPreviewRequest)
       importSources = sources
       importPreview = preview
@@ -3278,7 +3292,7 @@
 	      previewSucceeded = true
       if (focusFirst) await tick().then(() => document.querySelector<HTMLElement>('[data-import-preview-row]')?.focus())
     })
-	    if (!previewSucceeded) importStatus = 'Import preview could not be prepared. Check the source and try again.'
+	    if (!previewSucceeded) importStatus = previewFailure ? `Import preview failed: ${previewFailure}` : 'Import preview could not be prepared. Check the source and try again.'
   }
 
   async function previewImportPaths(paths: string[], focusFirst = true) {
@@ -3390,20 +3404,21 @@
 	  importApplyInFlight = true
 	  clearImportAttemptResults()
 	  let applySucceeded = false
+	  let applyFailure = ''
     try {
-      await runAction('apply import', async () => {
+      applyFailure = await runAction('apply import', async () => {
 	        const result = await ApplyCollectionImport({ workspaceId: importDestinationWorkspaceID, destinationRoot: importDestinationRoot, sources: importSources, selections: importReadyRows.map(importSelectionFor), translatePostmanScripts: importTranslatePostmanScripts } as core.CollectionImportApplyRequest)
         importApplyResult = result
 	        workspaceStore.appState = result.state
         const completed = new Set([...(result.applied ?? []), ...(result.skipped ?? [])].map((row) => row.candidateId))
 	        importDecisions = Object.fromEntries(Object.entries(importDecisions).map(([id, decision]) => [id, completed.has(id) ? { ...decision, selected: false } : decision]))
-        importStatus = `${result.applied?.length ?? 0} imported, ${result.skipped?.length ?? 0} skipped, ${result.errors?.length ?? 0} errors`
+        importStatus = importOutcomeSummary(result)
 	        applySucceeded = true
       })
     } finally {
 	    importApplyInFlight = false
     }
-	  if (!applySucceeded) importStatus = 'Import could not be applied. Review the current preview and try again.'
+	  if (!applySucceeded) importStatus = applyFailure ? `Import failed: ${applyFailure}` : 'Import could not be applied. Review the current preview and try again.'
   }
 
 	  function openAPISyncOptions(): types.OpenAPISyncOptions {

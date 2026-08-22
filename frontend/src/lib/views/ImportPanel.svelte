@@ -167,7 +167,17 @@
                   Rewrite pm.* to bru.*
                 </label><button class="primary" bind:this={importApplyButton} data-testid="import-apply-selected" type="button" on:click={requestPlannedImport} disabled={busy !== '' || importApplyInFlight || importReadyRows.length === 0}>Apply selected imports</button></footer>
             {/if}
-            {#if importApplyResult}<div class="import-results" aria-live="polite"><strong>{importStatus}</strong>{#each [...(importApplyResult.applied ?? []), ...(importApplyResult.skipped ?? []), ...(importApplyResult.errors ?? [])] as row, index (index)}<p>{row.sourceName}: {row.error || (importApplyResult.skipped?.some((entry) => entry.candidateId === row.candidateId) ? 'Skipped' : 'Imported')}</p>{/each}</div>{/if}
+            {#if importApplyResult}
+              <div class="import-results" aria-live="polite">
+                <strong>{importStatus}</strong>
+                {#each [...(importApplyResult.applied ?? []), ...(importApplyResult.skipped ?? []), ...(importApplyResult.errors ?? [])] as row, index (index)}
+                  <p class:import-row-error={Boolean(row.error)}>{row.sourceName}: {row.error || (importApplyResult.skipped?.some((entry) => entry.candidateId === row.candidateId) ? 'Skipped' : 'Imported')}</p>
+                  {#each row.warnings ?? [] as warning, warningIndex (warningIndex)}
+                    <p class="import-row-warning">{row.sourceName}: {warning}</p>
+                  {/each}
+                {/each}
+              </div>
+            {/if}
             <p class="import-live" aria-live="polite">{importStatus}</p>
           </div>
         </section>

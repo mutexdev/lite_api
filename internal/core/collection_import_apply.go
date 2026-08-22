@@ -132,10 +132,10 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 			if errors.Is(err, errCollectionImportSkipped) {
 				result.Skipped = append(result.Skipped, candidate.row)
 			} else {
-				rollbackCollectionImportMutations(a, mutations)
+				restoreErr := rollbackCollectionImportMutations(a, mutations)
 				a.collectionWatchFingerprints = watchFingerprints
 				a.state = before
-				return CollectionImportApplyResult{}, errors.New("selected imports could not be committed")
+				return CollectionImportApplyResult{}, collectionImportCommitError(err, restoreErr)
 			}
 			continue
 		}
@@ -148,10 +148,10 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 			persist = func() error { return a.collectionImportHooks.persist(a) }
 		}
 		if err := persist(); err != nil {
-			rollbackCollectionImportMutations(a, mutations)
+			restoreErr := rollbackCollectionImportMutations(a, mutations)
 			a.collectionWatchFingerprints = watchFingerprints
 			a.state = before
-			return CollectionImportApplyResult{}, err
+			return CollectionImportApplyResult{}, collectionImportCommitError(err, restoreErr)
 		}
 		for _, mutation := range mutations {
 			if mutation.backup != "" {
@@ -159,8 +159,45 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 			}
 		}
 	}
+	notifyCollectionImportOutcome(a, result)
 	result.State = a.state
 	return result, nil
+}
+
+// notifyCollectionImportOutcome puts the outcome somewhere that survives the
+// user navigating away from the Import view.
+//
+// US-055. Applying an import used to write its outcome only into an aria-live
+// line inside the panel; ImportGlobalEnvironment, on the other side of the same
+// app, has always raised a notification. Anyone who started an import and
+// switched tabs learned nothing about how it went.
+func notifyCollectionImportOutcome(app *App, result CollectionImportApplyResult) {
+	parts := []string{fmt.Sprintf("%d imported", len(result.Applied))}
+	if len(result.Skipped) > 0 {
+		parts = append(parts, fmt.Sprintf("%d skipped", len(result.Skipped)))
+	}
+	if len(result.Errors) > 0 {
+		parts = append(parts, fmt.Sprintf("%d failed", len(result.Errors)))
+	}
+	warnings := 0
+	for _, row := range result.Applied {
+		warnings += len(row.Warnings)
+	}
+	if warnings > 0 {
+		parts = append(parts, fmt.Sprintf("%d warning%s", warnings, map[bool]string{true: "", false: "s"}[warnings == 1]))
+	}
+	level := "success"
+	if len(result.Errors) > 0 {
+		level = "warning"
+	}
+	if len(result.Applied) == 0 && len(result.Errors) > 0 {
+		level = "error"
+	}
+	message := "Import: " + strings.Join(parts, ", ")
+	if len(result.Errors) > 0 && result.Errors[0].Error != "" {
+		message += ". First failure: " + result.Errors[0].Error
+	}
+	app.notify(level, message)
 }
 
 func cloneCollectionImportState(state AppState) (AppState, error) {
@@ -175,20 +212,47 @@ func cloneCollectionImportState(state AppState) (AppState, error) {
 	return clone, nil
 }
 
-func rollbackCollectionImportMutations(app *App, mutations []collectionImportMutation) {
+func rollbackCollectionImportMutations(app *App, mutations []collectionImportMutation) error {
 	rename := os.Rename
 	if app.collectionImportHooks != nil && app.collectionImportHooks.rename != nil {
 		rename = app.collectionImportHooks.rename
 	}
+	var restoreErr error
 	for index := len(mutations) - 1; index >= 0; index-- {
 		mutation := mutations[index]
 		if err := removeCollectionImportPath(app, mutation.target); err != nil {
+			if mutation.backup != "" && restoreErr == nil {
+				restoreErr = err
+			}
 			continue
 		}
-		if mutation.backup != "" {
-			_ = rename(mutation.backup, mutation.target)
+		if mutation.backup == "" {
+			continue
+		}
+		if err := rename(mutation.backup, mutation.target); err != nil && restoreErr == nil {
+			restoreErr = err
 		}
 	}
+	return restoreErr
+}
+
+// collectionImportCommitError explains a failed commit.
+//
+// US-055. This used to be a bare "selected imports could not be committed",
+// which told the user neither what went wrong nor -- more seriously -- when the
+// rollback had failed to put their existing collection back. A replace that
+// cannot restore its backup leaves the original under a .liteapi-import-backup-
+// suffix, and saying nothing about that is how a collection gets given up for
+// lost.
+func collectionImportCommitError(cause, restoreErr error) error {
+	message := "selected imports could not be committed"
+	if diagnosis := collectionImportDiagnostic(cause); diagnosis != "" {
+		message += ": " + diagnosis
+	}
+	if restoreErr != nil {
+		message += ". The previous collection could not be restored and is kept beside it with a .liteapi-import-backup- suffix"
+	}
+	return errors.New(message)
 }
 
 func removeCollectionImportPath(app *App, path string) error {
