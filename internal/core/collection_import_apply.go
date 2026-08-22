@@ -51,6 +51,7 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 		return CollectionImportApplyResult{}, err
 	}
 	mutations := []collectionImportMutation{}
+	globalEnvironmentsWritten := false
 	watchFingerprints := map[string]string{}
 	for key, value := range a.collectionWatchFingerprints {
 		watchFingerprints[key] = value
@@ -112,6 +113,10 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 				candidate.row.Error = collectionImportDiagnostic(err)
 				result.Errors = append(result.Errors, candidate.row)
 			} else {
+				// Recorded so a later failure in this batch can put the
+				// environment files back. They are not tracked as path
+				// mutations: the directory is written whole, not file by file.
+				globalEnvironmentsWritten = true
 				result.Applied = append(result.Applied, candidate.row)
 			}
 			continue
@@ -147,6 +152,9 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 				restoreErr := rollbackCollectionImportMutations(a, mutations)
 				a.collectionWatchFingerprints = watchFingerprints
 				a.state = before
+				if envErr := a.restoreGlobalEnvironmentFilesLocked(globalEnvironmentsWritten, request.WorkspaceID); envErr != nil && restoreErr == nil {
+					restoreErr = envErr
+				}
 				return CollectionImportApplyResult{}, collectionImportCommitError(err, restoreErr)
 			}
 			continue
@@ -163,6 +171,9 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 			restoreErr := rollbackCollectionImportMutations(a, mutations)
 			a.collectionWatchFingerprints = watchFingerprints
 			a.state = before
+			if envErr := a.restoreGlobalEnvironmentFilesLocked(globalEnvironmentsWritten, request.WorkspaceID); envErr != nil && restoreErr == nil {
+				restoreErr = envErr
+			}
 			return CollectionImportApplyResult{}, collectionImportCommitError(err, restoreErr)
 		}
 		for _, mutation := range mutations {
@@ -565,4 +576,25 @@ func remapImportedRequestPaths(collection *Collection, staging, destination stri
 			collection.Items[index].FilePath = filepath.Join(destination, relative)
 		}
 	}
+}
+
+// restoreGlobalEnvironmentFilesLocked rewrites a workspace's environment files
+// from state that has just been rolled back, so disk agrees with memory again.
+//
+// The batch rollback restores a.state, which is enough for everything tracked
+// as a path mutation. Global environments are not: they are written as a whole
+// directory, so nothing in the mutation list describes them, and the files an
+// aborted batch wrote would otherwise stay. The next workspace load merges
+// whatever is in that directory back into the state, so leaving them means an
+// import reported as failed reappears at the next launch, which is exactly the
+// outcome the rollback exists to prevent.
+func (a *App) restoreGlobalEnvironmentFilesLocked(written bool, workspaceID string) error {
+	if !written {
+		return nil
+	}
+	workspace, err := a.findWorkspaceLocked(workspaceID)
+	if err != nil {
+		return err
+	}
+	return a.writeWorkspaceGlobalEnvironmentFilesLocked(workspace)
 }

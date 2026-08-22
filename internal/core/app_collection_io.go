@@ -489,18 +489,46 @@ func (a *App) writeWorkspaceGlobalEnvironmentFilesLocked(workspace *Workspace) e
 	if err := os.MkdirAll(envPath, 0o755); err != nil {
 		return err
 	}
+	// The directory is cleared and rewritten, which is several operations, and
+	// any of them can fail. Whatever is on disk when one does is merged back
+	// into the workspace on the next load, so a half-finished write is not a
+	// write that failed -- it is a different set of environments than either
+	// the one that was there or the one that was asked for.
+	//
+	// The previous contents are held until the rewrite is complete, so a
+	// failure part way puts the directory back rather than leaving a state
+	// nobody chose: no environment the user had is lost to a failed save, and
+	// no environment from a failed import survives to reappear at the next
+	// launch.
+	previous := map[string][]byte{}
 	entries, err := os.ReadDir(envPath)
 	if err == nil {
 		for _, entry := range entries {
-			if entry.IsDir() {
+			if entry.IsDir() || !environmentFileName(entry.Name()) {
 				continue
 			}
-			ext := strings.ToLower(filepath.Ext(entry.Name()))
-			if ext == ".yml" || ext == ".yaml" {
-				if err := os.Remove(filepath.Join(envPath, entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
-					return err
-				}
+			path := filepath.Join(envPath, entry.Name())
+			contents, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return readErr
 			}
+			previous[entry.Name()] = contents
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+	}
+
+	written := []string{}
+	restore := func() {
+		// Best effort by necessity: this runs because the filesystem already
+		// refused something, so there is nothing useful to do with a second
+		// failure but leave the original error to be reported.
+		for _, name := range written {
+			_ = os.Remove(filepath.Join(envPath, name))
+		}
+		for name, contents := range previous {
+			_ = os.WriteFile(filepath.Join(envPath, name), contents, 0o600)
 		}
 	}
 	for _, env := range workspace.GlobalEnvironments {
@@ -508,11 +536,24 @@ func (a *App) writeWorkspaceGlobalEnvironmentFilesLocked(workspace *Workspace) e
 		if filename == "" {
 			filename = env.ID
 		}
-		if err := os.WriteFile(filepath.Join(envPath, filename+".yml"), []byte(bru.StringifyYAMLEnvironment(env)), 0o600); err != nil {
+		filename += ".yml"
+		if err := os.WriteFile(filepath.Join(envPath, filename), []byte(bru.StringifyYAMLEnvironment(env)), 0o600); err != nil {
+			restore()
 			return err
 		}
+		written = append(written, filename)
 	}
 	return nil
+}
+
+// environmentFileName reports whether a directory entry is one of the
+// environment files this writer owns, and is therefore its to replace.
+func environmentFileName(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".yml", ".yaml":
+		return true
+	}
+	return false
 }
 
 func collectionFolderFilesystemPath(collection *Collection, folderPath string) (string, error) {
