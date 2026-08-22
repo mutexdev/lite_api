@@ -386,6 +386,7 @@
 	                  role={valueSuggestions ? 'combobox' : undefined}
 	                  aria-autocomplete={valueSuggestions ? 'list' : undefined}
 	                  aria-expanded={valueSuggestions ? suggestionsOpenFor(index, 'value') : undefined}
+	                  aria-controls={valueSuggestions ? `kv-${index}-value-listbox` : undefined}
 	                  aria-activedescendant={suggestionsOpenFor(index, 'value') && suggestionActive >= 0 ? `kv-${index}-value-option-${suggestionActive}` : undefined}
 	                  oninput={(event) => { changeValue(index, event); openSuggestions(index, 'value', event.currentTarget.value, event.currentTarget) }}
 	                  onkeydown={(event) => suggestionKeydown(event, index, 'value')}
@@ -436,6 +437,7 @@
                 role={valueSuggestions && !row.secret ? 'combobox' : undefined}
                 aria-autocomplete={valueSuggestions && !row.secret ? 'list' : undefined}
                 aria-expanded={valueSuggestions && !row.secret ? suggestionsOpenFor(index, 'value') : undefined}
+                aria-controls={valueSuggestions && !row.secret ? `kv-${index}-value-listbox` : undefined}
                 aria-activedescendant={suggestionsOpenFor(index, 'value') && suggestionActive >= 0 ? `kv-${index}-value-option-${suggestionActive}` : undefined}
                 oninput={(event) => { onChange(index, 'value', event.currentTarget.value); if (!row.secret) openSuggestions(index, 'value', event.currentTarget.value, event.currentTarget) }}
                 onkeydown={(event) => { if (!row.secret) suggestionKeydown(event, index, 'value') }}
