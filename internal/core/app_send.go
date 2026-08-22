@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -547,15 +548,15 @@ func networkLogRequestBody(body RequestBody, vars map[string]string) string {
 	case "text", "sparql":
 		return truncateNetworkLogBody(interpolate(body.Text, vars))
 	case "graphql":
-		payload := map[string]string{
-			"query":     interpolate(body.GraphQLQuery, vars),
-			"variables": interpolate(body.GraphQLVariables, vars),
+		// Indented from the same bytes the request carries, rather than
+		// re-encoded from the parts: a log built by a second encoder is a log
+		// that can disagree with the request it claims to describe.
+		var indented bytes.Buffer
+		payload := graphQLRequestPayload(body, vars)
+		if err := json.Indent(&indented, []byte(payload), "", "  "); err != nil {
+			return truncateNetworkLogBody(payload)
 		}
-		data, err := json.MarshalIndent(payload, "", "  ")
-		if err != nil {
-			return ""
-		}
-		return truncateNetworkLogBody(string(data))
+		return truncateNetworkLogBody(indented.String())
 	case "formUrlEncoded":
 		values := url.Values{}
 		for _, field := range body.FormURLEncoded {

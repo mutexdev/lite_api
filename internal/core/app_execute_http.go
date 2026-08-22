@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptrace"
@@ -74,12 +73,7 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 	}
 	if item.Type == "graphql" && bodyReader == nil {
 		method = http.MethodPost
-		payload := map[string]string{
-			"query":     interpolate(item.Body.GraphQLQuery, vars),
-			"variables": interpolate(item.Body.GraphQLVariables, vars),
-		}
-		b, _ := json.Marshal(payload)
-		bodyReader = strings.NewReader(string(b))
+		bodyReader = strings.NewReader(graphQLRequestPayload(item.Body, vars))
 		contentType = "application/json"
 	}
 	req, err := http.NewRequestWithContext(ctx, method, targetURL, bodyReader)
