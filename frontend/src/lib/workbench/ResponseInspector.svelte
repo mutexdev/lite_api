@@ -8,6 +8,7 @@
   import { automaticPreviewLimit, base64ByteLength, compareHeaders, compareJsonStructure, contentDispositionFilename, contentType, embeddedPreviewLimit, findMatches, formatResponseBody, fullRenderLimit, lineDiff, normalizeResponseView, previewKind, responseTextForView, sliceBase64Bytes, sliceUtf8, utf8ByteLength } from './response'
   import { resolveLiveSessionEvents, type LiveSessionLog } from '../liveSessionEvents'
   import { parseTLSFailure } from '../tlsErrors'
+  import { JSON_TREE_BUDGET, JSON_TREE_MAX_ENTRIES, boundedJsonTree } from './jsonTree'
 
   // US-028 — runes. None of these are bound by the parent.
   type Props = {
@@ -77,7 +78,6 @@
   let headerSearch = $state('')
   let responseScrollKey = $state('')
   let restoredScrollKey = $state('')
-  const jsonTreeBudget = 96 * 1024
 
   const response = $derived(request.response)
   const headers = $derived(response?.headers ?? {})
@@ -244,23 +244,9 @@
 
   function parsedJson(response: types.Response | undefined, size: number) {
     if (size > fullRenderLimit) return null
-    try { return JSON.parse(response?.body ?? '') as Record<string, unknown> } catch { return null }
+    try { return JSON.parse(response?.body ?? '') as unknown } catch { return null }
   }
 
-  function boundedJsonTree(value: Record<string, unknown> | null) {
-    if (!value || Array.isArray(value)) return { entries: [] as Array<{ name: string; value: unknown; text: string }>, truncated: false }
-    const entries: Array<{ name: string; value: unknown; text: string }> = []
-    let used = 0
-    for (const [name, child] of Object.entries(value)) {
-      if (entries.length >= 100) return { entries, truncated: true }
-      let text = ''
-      try { text = JSON.stringify(child, null, 2) } catch { text = '[Unserializable value]' }
-      if (used + text.length > jsonTreeBudget) return { entries, truncated: true }
-      entries.push({ name, value: child, text })
-      used += text.length
-    }
-    return { entries, truncated: false }
-  }
 
   function timelineMatchesFilter(entry: types.TimelineItem, filter: string) {
     return filter === 'all' || `${entry.phase || ''} ${entry.kind || ''} ${entry.source || ''}`.toLowerCase().includes(filter)
@@ -370,7 +356,8 @@
         {#each jsonTree.entries as entry (entry.name)}
           <details><summary>{entry.name} <small>{Array.isArray(entry.value) ? `Array (${entry.value.length})` : typeof entry.value}</small></summary><pre>{entry.text}</pre></details>
         {/each}
-        {#if jsonTree.truncated}<small>Tree render is bounded to 100 root items and {Math.round(jsonTreeBudget / 1024)} KB.</small>{/if}
+        {#if jsonTree.entries.length === 0}<small>This response has no fields to expand.</small>{/if}
+        {#if jsonTree.truncated}<small>Tree render is bounded to {JSON_TREE_MAX_ENTRIES} root items and {Math.round(JSON_TREE_BUDGET / 1024)} KB.</small>{/if}
       </div>
     {:else}
       <pre class="response-body" bind:this={bodyElement} data-match-index={matches[matchIndex] ?? -1}>{#each markedParts(safeDisplay) as part, index (index)}<span>{#if part.match}<mark class:current-match={part.index === matchIndex}>{part.text}</mark>{:else}{part.text}{/if}</span>{/each}</pre>
