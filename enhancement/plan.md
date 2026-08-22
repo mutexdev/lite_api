@@ -1,7 +1,9 @@
 # Enhancement plan: Postman import reliability, import error messages, header autocomplete, TLS errors
 
-Status: researched 2026-08-22 against `main` (bedd544). Every defect below was **reproduced with code**, not
-inferred. Work items are ordered; each lands as its own commit with tests written first (TDD). Run
+Status: **implemented 2026-08-22** on `feat/import-reliability-and-header-suggestions` (7 commits on top of
+bedd544). All seven work items are done, with tests written first; see "Outcome" at the foot of this file for
+what changed against the plan. Researched against `main` (bedd544); every defect below was **reproduced with
+code**, not inferred. Work items are ordered; each lands as its own commit with tests written first (TDD). Run
 `go test ./...` and `cd frontend && npm test && npm run check` before every commit.
 
 Conventions you must follow
@@ -206,3 +208,38 @@ Files: `internal/core/app_execute_http.go`, `internal/importers/postman.go` (don
 - Typing in a header name cell offers suggestions; Enter fills it; value suggestions follow for Content-Type.
 - A self-signed HTTPS request shows the actionable TLS message with working one-click remedies.
 - `go test ./...`, `npm test`, `npm run check`, `npm run build` green; `qa/bindings.sh` green if bindings changed.
+
+---
+
+## Outcome (2026-08-22)
+
+All seven items implemented and validated. `go test ./internal/...`, `npm test` (892 tests), `npm run check`
+and `npm run build` are green. The header completion was additionally driven in a browser against the real
+`KeyValueTable` component: typing `content-ty`, Enter, Enter produced `Content-Type: application/json` without
+the mouse.
+
+Where the work departed from the plan, and why:
+
+- **The TOCTOU concern (item 7, bullet 3) was not real.** The manual-override path re-reads the file, but the
+  candidate it compares against is *also* rebuilt at apply time, so a swapped file fails the hash comparison
+  already. `TestOverrideRereadStillHonoursTheContentHash` now records that, since the reasoning is not local
+  to either function.
+- **Folder metadata (item 7, bullet 1) was less severe than described.** Folder auth and scripts do survive a
+  normal relaunch, because app state is persisted separately from the collection files. They were lost on
+  reopen-from-folder, clone, and git — which is what the fix addresses.
+- **`json.SyntaxError` positions** had to be computed in the importer rather than in `collectionImportDiagnostic`,
+  because only the importer still holds the document the byte offset refers to.
+- **ZIP detection keys off content, not the extension**, after the existing
+  `TestCollectionImportManualOverrideRescuesDetectionError` caught the first attempt: a Postman collection that
+  someone had named `.zip` must stay rescuable by the manual override.
+- **The dump detector had to be tightened** during item 7: a Bruno JSON collection carries `environments` under
+  the same key a Postman dump does, and the first version would have split one into rows that are not
+  collections.
+- **`x509.HostnameError.Error()` nil-dereferences its certificate field.** Found while testing item 6; rendering
+  the underlying error is now defensive, since a diagnostic string is no place to crash.
+- **One pre-existing problem was left alone**: `qa/bindings.sh` fails identically at bedd544, before any of this
+  work. The diff is pure reordering — a `sort` collation mismatch between the machine that generated
+  `qa/baseline/bindings.txt` and this one. The bound-method count is unchanged at 189, and no bound method was
+  added or altered here. Worth fixing (pin `LC_ALL=C` in the script), but it is not this branch's to fix.
+- `TestMockServerLifecycleThroughTheBindings` is flaky under the full-package run (a port-rebind race); it
+  passes in isolation and on repeated full runs, at this branch and at the base.
