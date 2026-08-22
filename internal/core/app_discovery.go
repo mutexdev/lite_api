@@ -50,7 +50,13 @@ type DiscoveredCACertificate struct {
 
 // DiscoveredCollection is one collection found inside an installed client.
 type DiscoveredCollection struct {
-	Client       string   `json:"client"`
+	Client string `json:"client"`
+	// ID identifies this collection within one read, because a name does not.
+	// Two workspaces in another client can share a name -- two Insomnia
+	// workspaces both left at the default is the ordinary case -- and selecting
+	// by name meant one tick box chose both, importing a collection the user
+	// never saw.
+	ID           string   `json:"id"`
 	Name         string   `json:"name"`
 	Kind         string   `json:"kind"`
 	SourcePath   string   `json:"sourcePath,omitempty"`
@@ -191,9 +197,10 @@ func (a *App) ReadDiscoveredCollections(client string) ([]DiscoveredCollection, 
 			return nil, errors.New("this client's collections could not be read")
 		}
 		collections := make([]DiscoveredCollection, 0, len(found))
-		for _, entry := range found {
+		for index, entry := range found {
 			collections = append(collections, DiscoveredCollection{
 				Client:       entry.Client,
+				ID:           discoveredCollectionID(entry.Client, index),
 				Name:         entry.Name,
 				Kind:         entry.Kind,
 				SourcePath:   entry.SourcePath,
@@ -231,18 +238,22 @@ func (collection DiscoveredCollection) Source(index int) CollectionImportSource 
 // application's requests out to the UI so it can send them straight back is a
 // copy of somebody's data taking a trip for no reason. The frontend chooses by
 // name; the bytes stay here.
-func (a *App) ImportDiscoveredCollections(workspaceID, client string, names []string) (CollectionImportApplyResult, error) {
+func (a *App) ImportDiscoveredCollections(workspaceID, client string, ids []string) (CollectionImportApplyResult, error) {
 	found, err := a.ReadDiscoveredCollections(client)
 	if err != nil {
 		return CollectionImportApplyResult{}, err
 	}
+	// Selections arrive as the ids handed out by ReadDiscoveredCollections.
+	// Matching on the display name instead would import every collection
+	// sharing the chosen one's name, which is how a user asking for one of two
+	// identically-named workspaces got both.
 	wanted := map[string]bool{}
-	for _, name := range names {
-		wanted[strings.TrimSpace(name)] = true
+	for _, id := range ids {
+		wanted[strings.TrimSpace(id)] = true
 	}
 	sources := []CollectionImportSource{}
 	for index, collection := range found {
-		if len(wanted) > 0 && !wanted[strings.TrimSpace(collection.Name)] {
+		if len(wanted) > 0 && !wanted[collection.ID] {
 			continue
 		}
 		sources = append(sources, collection.Source(index))
@@ -351,4 +362,14 @@ func (a *App) discoveryCADirsForTest(directories ...string) {
 		a.discoveryOverride = &discoveryOverrides{}
 	}
 	a.discoveryOverride.caDirectories = directories
+}
+
+// discoveredCollectionID identifies one discovered collection within a read.
+//
+// The position is the only thing that separates two collections a client has
+// given the same name, so the position is what the id is built from. Detection
+// sorts its results, so the same machine reads back the same ids, which is what
+// lets the modal show one and the import receive the same one.
+func discoveredCollectionID(client string, index int) string {
+	return fmt.Sprintf("%s:%d", strings.TrimSpace(client), index)
 }

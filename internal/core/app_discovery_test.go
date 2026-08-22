@@ -312,7 +312,17 @@ func TestImportDiscoveredCollectionsImportsTheChosenOnes(t *testing.T) {
 	writeDiscoveryFixture(t, root)
 	app.discoveryRootsForTest(root)
 
-	result, err := app.ImportDiscoveredCollections(state.Workspaces[0].ID, "insomnia", []string{"Payments API"})
+	// Selected by the id ReadDiscoveredCollections handed out. This used to pass
+	// the display name, which is what let a name shared by two collections
+	// import both; see app_discovery_identity_test.go.
+	found, err := app.ReadDiscoveredCollections("insomnia")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 1 {
+		t.Fatalf("found = %#v", found)
+	}
+	result, err := app.ImportDiscoveredCollections(state.Workspaces[0].ID, "insomnia", []string{found[0].ID})
 	if err != nil {
 		t.Fatal(err)
 	}

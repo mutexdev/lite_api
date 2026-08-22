@@ -405,6 +405,7 @@ export namespace core {
 	}
 	export class DiscoveredCollection {
 	    client: string;
+	    id: string;
 	    name: string;
 	    kind: string;
 	    sourcePath?: string;
@@ -418,6 +419,7 @@ export namespace core {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.client = source["client"];
+	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.kind = source["kind"];
 	        this.sourcePath = source["sourcePath"];

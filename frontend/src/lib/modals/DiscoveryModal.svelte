@@ -44,17 +44,20 @@
   let expanded = $state<Record<string, boolean>>({})
   let selected = $state<Record<string, boolean>>({})
 
-  const selectionKey = (client: string, name: string) => `${client}:${name}`
 
   function toggleClient(client: string) {
     expanded = { ...expanded, [client]: !expanded[client] }
     if (expanded[client] && !collectionsByClient[client]) void onLoadCollections(client)
   }
 
+  // Returns ids, not names. Two of another client's collections can share a
+  // name -- two Insomnia workspaces both left at the default is the ordinary
+  // case -- and selecting by name meant one tick box drove both, importing a
+  // collection the user never chose.
   function chosenFor(client: string): string[] {
     return (collectionsByClient[client] ?? [])
-      .map((entry) => entry.name)
-      .filter((name) => selected[selectionKey(client, name)])
+      .map((entry) => entry.id)
+      .filter((id) => selected[id])
   }
 
   function formatExpiry(value: string): string {
@@ -106,17 +109,14 @@
               <p class="discovery-guidance">No collections found.</p>
             {:else}
               <ul class="discovery-collections">
-                {#each collectionsByClient[installation.client] as entry, index (index)}
+                {#each collectionsByClient[installation.client] as entry (entry.id)}
                   <li>
                     <label>
                       <input
                         type="checkbox"
-                        checked={selected[selectionKey(installation.client, entry.name)] ?? false}
+                        checked={selected[entry.id] ?? false}
                         onchange={(event) =>
-                          (selected = {
-                            ...selected,
-                            [selectionKey(installation.client, entry.name)]: event.currentTarget.checked
-                          })}
+                          (selected = { ...selected, [entry.id]: event.currentTarget.checked })}
                       />
                       {entry.name}
                       <span class="discovery-count">{entry.requestCount} request{entry.requestCount === 1 ? '' : 's'}</span>

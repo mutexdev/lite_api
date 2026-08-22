@@ -89,7 +89,7 @@ GetTerminalSession(sessionID string) (TerminalSession, error)
 GetWebStorageScope() (string, error)
 GitVersion() (string, error)
 ImportCollection(workspaceID string, payload ImportPayload) (AppState, error)
-ImportDiscoveredCollections(workspaceID, client string, names []string) (CollectionImportApplyResult, error)
+ImportDiscoveredCollections(workspaceID, client string, ids []string) (CollectionImportApplyResult, error)
 ImportGlobalEnvironment(workspaceID, content string) (AppState, error)
 InitializeCollectionGit(collectionID string) (gitworkbench.CollectionGitOperationResult, error)
 KillTerminalSession(sessionID string) error
