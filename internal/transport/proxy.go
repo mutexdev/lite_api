@@ -126,6 +126,13 @@ func SystemProxyURLForRequest(rawURL string) (*url.URL, error) {
 	if goruntime.GOOS == "darwin" {
 		return macOSSystemProxyURLForRequest(rawURL)
 	}
+	// US-061. Windows and Linux read their own settings. Reached only after the
+	// environment variables above: exporting HTTPS_PROXY is a deliberate act by
+	// whoever launched the app, and has to win over a value the machine was
+	// handed by whoever set it up.
+	if settings, ok := readOSProxySettings(); ok {
+		return ProxyURLFromOSSettings(settings, rawURL)
+	}
 	return nil, nil
 }
 
