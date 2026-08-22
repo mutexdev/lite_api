@@ -34,6 +34,20 @@ type collectionImportCandidate struct {
 	row        CollectionImportPreviewRow
 	collection Collection
 	source     CollectionImportSource
+	// content is set only for a candidate that came from inside a multi-document
+	// source -- one collection out of a Postman data dump or ZIP export. Those
+	// cannot be re-read from the source path on their own, so the bytes they
+	// were parsed from travel with them.
+	content string
+	// child marks such a candidate, so the apply step does not try to re-read
+	// the enclosing archive when a manual kind override is chosen.
+	child bool
+}
+
+// collectionImportChild is one document found inside a multi-document source.
+type collectionImportChild struct {
+	name    string
+	content string
 }
 
 type collectionImportHooks struct {
@@ -98,10 +112,68 @@ func previewCollectionImport(request CollectionImportPreviewRequest) (Collection
 	}
 	preview := CollectionImportPreview{Rows: make([]CollectionImportPreviewRow, 0, len(request.Sources))}
 	for index, source := range request.Sources {
-		candidate := previewCollectionImportSource(source, index)
-		preview.Rows = append(preview.Rows, candidate.row)
+		for _, candidate := range previewCollectionImportCandidates(source, index) {
+			preview.Rows = append(preview.Rows, candidate.row)
+		}
 	}
 	return preview, nil
+}
+
+// previewCollectionImportCandidates reads one selected source. It usually
+// yields one candidate, but a Postman data dump or a ZIP export holds several
+// collections and environments, and each becomes a row the user can select or
+// leave behind independently.
+//
+// US-058. Both preview and apply call this, so a candidate's ID and content
+// hash are computed the same way in both places; that is what lets apply detect
+// that a file changed underneath a preview.
+func previewCollectionImportCandidates(source CollectionImportSource, index int) []collectionImportCandidate {
+	source.ID = firstNonEmpty(strings.TrimSpace(source.ID), fmt.Sprintf("source-%d", index+1))
+	content, sourceName, _, folder, err := readCollectionImportSource(source)
+	if err != nil || folder || strings.TrimSpace(source.KindOverride) != "" {
+		return []collectionImportCandidate{previewCollectionImportSource(source, index)}
+	}
+	children, expandErr := expandCollectionImportSource(content, sourceName)
+	if expandErr != nil {
+		row := CollectionImportPreviewRow{
+			SourceID:     source.ID,
+			CandidateID:  source.ID + ":collection",
+			SourcePath:   strings.TrimSpace(source.Path),
+			SourceName:   sourceName,
+			ContentHash:  hashCollectionImportBytes([]byte(content)),
+			DetectedKind: "archive",
+			Confidence:   "none",
+			Error:        collectionImportDiagnostic(expandErr),
+		}
+		return []collectionImportCandidate{{row: row, source: source}}
+	}
+	if children == nil {
+		return []collectionImportCandidate{previewCollectionImportSource(source, index)}
+	}
+	candidates := make([]collectionImportCandidate, 0, len(children))
+	for childIndex, child := range children {
+		candidates = append(candidates, previewCollectionImportChild(source, child, childIndex))
+	}
+	return candidates
+}
+
+func previewCollectionImportChild(source CollectionImportSource, child collectionImportChild, index int) collectionImportCandidate {
+	row := CollectionImportPreviewRow{
+		SourceID:    source.ID,
+		CandidateID: fmt.Sprintf("%s:child-%d", source.ID, index+1),
+		SourcePath:  strings.TrimSpace(source.Path),
+		SourceName:  child.name,
+		ContentHash: hashCollectionImportBytes([]byte(child.content)),
+	}
+	kind, collection, warnings, err := detectCollectionImport(child.content, child.name, "")
+	if err != nil {
+		row.DetectedKind, row.Confidence, row.Error = kind, "none", collectionImportDiagnostic(err)
+		return collectionImportCandidate{row: row, source: source, content: child.content, child: true}
+	}
+	row = collectionImportRow(row, collection, kind, "high")
+	row.Warnings = warnings
+	row.DefaultSelect = true
+	return collectionImportCandidate{row: row, collection: collection, source: source, content: child.content, child: true}
 }
 
 func previewCollectionImportSource(source CollectionImportSource, index int) collectionImportCandidate {
@@ -258,6 +330,14 @@ func collectionImportFolderLooksSupported(path string) bool {
 	return false
 }
 
+// trimImportJSONPrefix removes a UTF-8 byte order mark. Postman on Windows
+// writes one, and both encoding/json and yaml.v3 refuse a document that starts
+// with it -- which used to be reported as "not a supported JSON or YAML
+// import", a sentence that sends the user looking for the wrong problem.
+func trimImportJSONPrefix(content string) string {
+	return strings.TrimPrefix(content, "\ufeff")
+}
+
 func hashCollectionImportBytes(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
@@ -331,6 +411,10 @@ func detectCollectionImport(content, name, override string) (string, Collection,
 			collection, warnings, err := collectionFromCurlImport(content, strings.TrimSuffix(name, filepath.Ext(name)))
 			return kind, collection, warnings, err
 		}
+		if kind == "postman-environment" {
+			collection, err := collectionFromPostmanEnvironment(content, strings.TrimSuffix(name, filepath.Ext(name)))
+			return kind, collection, nil, err
+		}
 		collection, warnings, err := collectionFromImportDetailed(ImportPayload{Kind: kind, Name: strings.TrimSuffix(name, filepath.Ext(name)), Content: content})
 		return kind, collection, warnings, err
 	}
@@ -339,8 +423,10 @@ func detectCollectionImport(content, name, override string) (string, Collection,
 		return "curl", collection, warnings, err
 	}
 	lowerName := strings.ToLower(name)
-	if strings.HasSuffix(lowerName, ".zip") {
-		return "zip", Collection{}, nil, errors.New("ZIP imports are not supported yet")
+	if strings.HasSuffix(lowerName, ".zip") || looksLikeZipArchive(content) {
+		// Reached only when expandCollectionImportSource could not open the
+		// archive; a readable one is split into rows before detection runs.
+		return "zip", Collection{}, nil, errors.New("this ZIP could not be read")
 	}
 	if strings.HasSuffix(lowerName, ".wsdl") {
 		return "wsdl", Collection{}, nil, errors.New("WSDL imports are not supported yet")
@@ -357,7 +443,7 @@ func detectCollectionImport(content, name, override string) (string, Collection,
 		return "har", collection, warnings, err
 	}
 	var raw map[string]interface{}
-	if err := yaml.Unmarshal([]byte(content), &raw); err != nil || raw == nil {
+	if err := yaml.Unmarshal([]byte(trimImportJSONPrefix(content)), &raw); err != nil || raw == nil {
 		return "unknown", Collection{}, nil, errors.New("source is not a supported JSON or YAML import")
 	}
 	// US-051. Shape detection as well as extension: HAR files are routinely
@@ -394,6 +480,18 @@ func detectCollectionImport(content, name, override string) (string, Collection,
 	}
 	if _, ok := raw["opencollection"]; ok {
 		return "opencollection-bundle", Collection{}, nil, errors.New("bundled OpenCollection YAML is ambiguous; open its collection folder instead")
+	}
+	if postmanEnvironmentDocument(raw) {
+		collection, err := collectionFromPostmanEnvironment(content, strings.TrimSuffix(name, filepath.Ext(name)))
+		return "postman-environment", collection, nil, err
+	}
+	if postmanV1Document(raw) {
+		return "postman-v1", Collection{}, nil, errors.New("this is a Postman v1 collection; open it in Postman and export it again as Collection v2.1")
+	}
+	if postmanDumpDocument(raw) {
+		// Reached only when the dump held nothing importable; a dump with
+		// contents is split into one row per collection before detection runs.
+		return "postman-dump", Collection{}, nil, errors.New("this Postman data dump holds no collections or environments")
 	}
 	if _, ok := raw["resources"]; ok {
 		collection, err := collectionFromImport(ImportPayload{Kind: "insomnia", Name: strings.TrimSuffix(name, filepath.Ext(name)), Content: content})
@@ -594,6 +692,16 @@ func collectionImportRow(row CollectionImportPreviewRow, collection Collection, 
 
 func enrichCollectionImportDestination(row *CollectionImportPreviewRow, workspace *Workspace, root string) {
 	if row == nil || workspace == nil || row.Error != "" {
+		return
+	}
+	if strings.EqualFold(strings.TrimSpace(row.DetectedKind), "postman-environment") {
+		// A standalone environment file belongs to no collection, so it goes to
+		// the workspace globals -- the same place the Environments panel's
+		// paste box has always put one. Saying so in the destination column is
+		// the only chance the user has to notice before applying.
+		row.DestinationPath = "Workspace global environments"
+		row.OpenSemantics = "import-workspace-global-environments"
+		row.Conflict = "none"
 		return
 	}
 	if row.ExistingFolder {

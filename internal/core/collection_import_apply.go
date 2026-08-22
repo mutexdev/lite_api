@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/mutexdev/lite_api/internal/scripting"
 )
 
 func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (CollectionImportApplyResult, error) {
@@ -39,8 +41,9 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 	}
 	candidates := make(map[string]collectionImportCandidate, len(request.Sources))
 	for index, source := range request.Sources {
-		candidate := previewCollectionImportSource(source, index)
-		candidates[candidate.row.CandidateID] = candidate
+		for _, candidate := range previewCollectionImportCandidates(source, index) {
+			candidates[candidate.row.CandidateID] = candidate
+		}
 	}
 	result := CollectionImportApplyResult{State: a.state}
 	before, err := cloneCollectionImportState(a.state)
@@ -70,7 +73,7 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 		// nothing for every normally-detected file, leaving the toggle
 		// apparently working and demonstrably ineffective.
 		if request.TranslatePostmanScripts && strings.EqualFold(strings.TrimSpace(candidate.row.DetectedKind), "postman") && strings.TrimSpace(selection.KindOverride) == "" {
-			content, _, _, folder, readErr := readCollectionImportSource(candidate.source)
+			content, _, _, folder, readErr := readCollectionImportCandidate(candidate)
 			if readErr == nil && !folder {
 				if translated, translateErr := collectionFromImport(ImportPayload{
 					Kind:                    "postman",
@@ -86,7 +89,7 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 			}
 		}
 		if strings.TrimSpace(selection.KindOverride) != "" {
-			content, _, _, folder, readErr := readCollectionImportSource(candidate.source)
+			content, _, _, folder, readErr := readCollectionImportCandidate(candidate)
 			if readErr != nil || folder {
 				candidate.row.Error = "manual import kind could not read the selected source"
 				result.Errors = append(result.Errors, candidate.row)
@@ -102,6 +105,15 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 			candidate.row = collectionImportRow(candidate.row, collection, strings.ToLower(strings.TrimSpace(selection.KindOverride)), "manual")
 		} else if candidate.row.Error != "" {
 			result.Errors = append(result.Errors, candidate.row)
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(candidate.row.DetectedKind), "postman-environment") {
+			if err := a.applyImportedGlobalEnvironmentsLocked(workspace, collection.Environments); err != nil {
+				candidate.row.Error = collectionImportDiagnostic(err)
+				result.Errors = append(result.Errors, candidate.row)
+			} else {
+				result.Applied = append(result.Applied, candidate.row)
+			}
 			continue
 		}
 		if candidate.row.ExistingFolder {
@@ -198,6 +210,43 @@ func notifyCollectionImportOutcome(app *App, result CollectionImportApplyResult)
 		message += ". First failure: " + result.Errors[0].Error
 	}
 	app.notify(level, message)
+}
+
+// readCollectionImportCandidate reads the bytes a candidate was parsed from.
+//
+// US-058. A candidate that came out of a data dump or a ZIP cannot be re-read
+// from its source path -- that path is the archive, not the document -- so the
+// document travels with the candidate and is returned here instead.
+func readCollectionImportCandidate(candidate collectionImportCandidate) (string, string, string, bool, error) {
+	if candidate.child {
+		return candidate.content, candidate.row.SourceName, candidate.row.ContentHash, false, nil
+	}
+	return readCollectionImportSource(candidate.source)
+}
+
+// applyImportedGlobalEnvironmentsLocked puts imported environments where a
+// standalone Postman environment file belongs: the workspace's globals, the
+// same destination the Environments panel's paste box has always used.
+//
+// Names are made unique rather than replaced. Importing the same file twice is
+// a thing people do while working out whether the first one took, and silently
+// overwriting the earlier one would destroy any edit made in between.
+func (a *App) applyImportedGlobalEnvironmentsLocked(workspace *Workspace, environments []Environment) error {
+	if len(environments) == 0 {
+		return errors.New("no environments found to import")
+	}
+	for _, environment := range environments {
+		environment.ID = newID("global-env")
+		environment.Name = scripting.UniqueEnvironmentName(workspace.GlobalEnvironments, environment.Name)
+		for index := range environment.Variables {
+			if environment.Variables[index].ID == "" {
+				environment.Variables[index].ID = newID("var")
+			}
+		}
+		workspace.GlobalEnvironments = append(workspace.GlobalEnvironments, environment)
+	}
+	workspace.UpdatedAt = time.Now()
+	return a.writeWorkspaceGlobalEnvironmentFilesLocked(workspace)
 }
 
 func cloneCollectionImportState(state AppState) (AppState, error) {
