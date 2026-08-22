@@ -7,6 +7,7 @@
   import type { types } from '../../../wailsjs/go/models'
   import { automaticPreviewLimit, base64ByteLength, compareHeaders, compareJsonStructure, contentDispositionFilename, contentType, embeddedPreviewLimit, findMatches, formatResponseBody, fullRenderLimit, lineDiff, normalizeResponseView, previewKind, responseTextForView, sliceBase64Bytes, sliceUtf8, utf8ByteLength } from './response'
   import { resolveLiveSessionEvents, type LiveSessionLog } from '../liveSessionEvents'
+  import { parseTLSFailure } from '../tlsErrors'
 
   // US-028 — runes. None of these are bound by the parent.
   type Props = {
@@ -27,6 +28,10 @@
     onCopy: (value: string) => Promise<boolean>
     onDownloadBody: () => void | Promise<void>
     onExportTimeline: () => void | Promise<void>
+    // US-059. A certificate failure is the one send error with a remedy inside
+    // the app, so the pane offers it rather than describing where to find it.
+    onDisableTLSVerification?: () => void | Promise<void>
+    onOpenRequestPreferences?: () => void
   }
 
   let {
@@ -41,8 +46,15 @@
     onViewChange,
     onCopy,
     onDownloadBody,
-    onExportTimeline
+    onExportTimeline,
+    onDisableTLSVerification = undefined,
+    onOpenRequestPreferences = undefined
   }: Props = $props()
+
+  // US-059. Split so the explanation reads as a sentence and the Go error sits
+  // underneath it, where it is available for a bug report without being the
+  // first thing the eye meets.
+  const tlsFailure = $derived(parseTLSFailure(request.response?.error))
 
   // US-028 — every one of these is written from a handler or an effect and read
   // by the template, so all of them must be $state. As plain lets the search
@@ -284,7 +296,28 @@
 
 <div class="response-inspector">
   {#if selectedTab === 'response'}
-    {#if response?.error}<div class="response-warning" role="alert">{response.error}</div>{:else if response?.cancelled}<div class="response-warning" role="status">Request cancelled.</div>{/if}
+    {#if response?.error}
+      {#if tlsFailure}
+        <div class="response-warning response-tls-warning" role="alert">
+          <p>{tlsFailure.summary}</p>
+          <div class="response-tls-actions">
+            {#if onDisableTLSVerification}
+              <button type="button" data-testid="response-disable-tls" onclick={() => void onDisableTLSVerification?.()}>
+                Turn off Verify TLS for this request and resend
+              </button>
+            {/if}
+            {#if onOpenRequestPreferences && tlsFailure.suggestsCustomCA}
+              <button type="button" data-testid="response-open-tls-preferences" onclick={() => onOpenRequestPreferences?.()}>
+                Open request preferences
+              </button>
+            {/if}
+          </div>
+          {#if tlsFailure.detail}<pre class="response-tls-detail">{tlsFailure.detail}</pre>{/if}
+        </div>
+      {:else}
+        <div class="response-warning" role="alert">{response.error}</div>
+      {/if}
+    {:else if response?.cancelled}<div class="response-warning" role="status">Request cancelled.</div>{/if}
     {#if !response}
       <section class="response-empty-state" aria-live="polite">
         <strong>Ready for a response</strong>
@@ -441,4 +474,22 @@
   .json-tree pre { max-height:clamp(220px, 38vh, 400px); }
 }
   @media (max-width: 720px) { .timeline-entry > button { grid-template-columns:54px minmax(0,1fr); } .timeline-entry > button small { grid-column:1 / -1; } }
+  .response-tls-warning {
+    display: grid;
+    gap: 8px;
+  }
+
+  .response-tls-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .response-tls-detail {
+    margin: 0;
+    font-size: 0.78rem;
+    opacity: 0.75;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
 </style>

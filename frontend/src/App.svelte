@@ -5194,6 +5194,20 @@
     patchRequest({ settings: { ...activeRequest.settings, ...updates } } as types.RequestPatch)
   }
 
+  // US-059. The response pane's remedy for a certificate failure. Turning the
+  // switch off and resending is two screens away otherwise, and the Settings
+  // tab it lives on is not where anyone looks after a failed send.
+  async function disableTLSVerificationAndResend() {
+    if (!activeRequest) return
+    updateSettings({ verifyTls: false })
+    await tick()
+    await sendRequest()
+  }
+
+  function openRequestPreferences() {
+    activeView = 'preferences'
+  }
+
   function updateKeyValue(kind: 'params' | 'pathParams' | 'headers', index: number, field: keyof types.KeyValue, value: string | boolean) {
     if (!activeRequest) return
     const rows = [...(activeRequest[kind] ?? [])]
@@ -8797,6 +8811,8 @@
                   liveLog={activeLiveSessionLog}
                   onDownloadBody={saveActiveResponseBody}
                   onExportTimeline={saveActiveResponseTimeline}
+                  onDisableTLSVerification={disableTLSVerificationAndResend}
+                  onOpenRequestPreferences={openRequestPreferences}
                 />
               {:else}
                 <div class="examples-toolbar">
