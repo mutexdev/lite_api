@@ -807,8 +807,24 @@ func ShouldUseManualProxy(rawURL, bypass string) bool {
 			}
 			continue
 		}
+		// A rule beginning with `*` names a domain, not a substring. Stripping
+		// the star and matching the remainder as a suffix made `*example.com`
+		// match `fooexample.com` too, sending an unrelated host direct instead
+		// of through the proxy it was configured to use -- on a managed
+		// machine, traffic leaving by a route the operator did not choose.
+		//
+		// The dot-prefixed forms already carried their own boundary in the `.`
+		// and are matched unchanged.
 		ruleHost = strings.TrimPrefix(ruleHost, "*")
-		if strings.HasSuffix(strings.ToLower(hostname), strings.ToLower(ruleHost)) {
+		lowerHost := strings.ToLower(hostname)
+		lowerRule := strings.ToLower(ruleHost)
+		if strings.HasPrefix(lowerRule, ".") {
+			if strings.HasSuffix(lowerHost, lowerRule) {
+				return false
+			}
+			continue
+		}
+		if lowerHost == lowerRule || strings.HasSuffix(lowerHost, "."+lowerRule) {
 			return false
 		}
 	}
