@@ -1,6 +1,7 @@
 # Enhancement plan 2: first-run discovery — other API clients, corporate proxy, corporate CA
 
-Status: researched 2026-08-22 against `feat/import-reliability-and-header-suggestions` (e269e21). Companion to
+Status: **implemented 2026-08-22** on `feat/import-reliability-and-header-suggestions` (4 commits on top of
+e269e21). All four items are done; see "Outcome" at the foot of this file. Researched against e269e21. Companion to
 [plan.md](plan.md), which is implemented. Findings below come from vendor docs, upstream source, and checks run
 on this machine; the two conclusions that shape everything are stated first because they cancel most of the
 obvious design.
@@ -191,3 +192,41 @@ already complete and cache-keyed on both path and content.
 Done means: `go test ./...`, `npm test`, `npm run check`, `npm run build` green; `GOOS=windows` and
 `GOOS=darwin` cross-builds green; every discovery path exercised against a synthetic fixture tree rather than
 an installed client; and no code path reads a file from another application before an explicit user action.
+
+---
+
+## 4. Outcome (2026-08-22)
+
+All four items implemented, tests first. `go test ./internal/...`, `npm test` (892), `npm run check`,
+`npm run build`, `qa/bindings.sh` and `GOOS=windows|darwin|linux` builds are all green.
+
+What the work confirmed, changed, or found that the plan did not say:
+
+- **The Import button bug.** The first version of the dialog used `export let`, which puts a Svelte component
+  in legacy mode, where the compiler tracks the *variables an expression names*. `disabled={chosenFor(...)
+  .length === 0}` therefore never re-evaluated when the tick box feeding `chosenFor` changed, and the button
+  stayed disabled after selecting a collection. `svelte-check` and the unit suite were both green; driving the
+  real component in a browser is what found it. Rewritten in runes.
+- **Per-scheme proxy strictness is now a documented decision.** A GNOME machine with only the HTTP proxy filled
+  in gets no HTTPS proxy, matching what GNOME's own applications do and what the macOS reader beside it already
+  did. Borrowing the HTTP proxy for HTTPS would route traffic somewhere the user never listed. SOCKS is the
+  exception because it is protocol-agnostic. There is a test saying so, so it cannot be "fixed" by accident.
+- **The Postman conclusion held up.** Nothing in the implementation made its store any more readable, and the
+  presence-detection-plus-guidance path is what shipped.
+- **Yaak is detected but not read.** Its SQLite store is plain and unencrypted, but adding a SQLite driver is a
+  dependency that cannot be fetched offline here. Presence detection now; reading it is a follow-up.
+- **Bindings were hand-written**, since no `wails` CLI is available on this machine. The new types mirror the
+  `discovery` ones into the `core` namespace rather than introducing a hand-made `discovery` namespace, so a
+  real `wails generate module` reproduces the same surface. `qa/bindings.sh --update` also settled the
+  pre-existing sort-collation failure noted at the foot of [plan.md](plan.md) — that gate now passes.
+- **An extra binding beyond the plan**: `ImportDiscoveredCollections`, so the converted documents never cross
+  to the frontend and back. Five bound methods were added in total, 189 → 194.
+- **The proxy section states rather than asks.** There is nothing to adopt, because `system` was already the
+  default mode; after item 1 it simply reads more.
+
+Still open, deliberately:
+
+- Reading Yaak (needs a SQLite driver).
+- Hoppscotch desktop, and globbing for `.http`/`.rest` files, both listed in item 2 and neither implemented.
+- No end-to-end test drives the modal against a real backend; the flow was verified by hand in a browser and
+  the layers are unit-tested on both sides of the binding.
