@@ -85,6 +85,7 @@ type App struct {
 	workspaceRuntime       *workspaceWindowRuntime
 	workspaceProcessStart  func(string, []string) error
 	collectionImportHooks  *collectionImportHooks
+	discoveryOverride      *discoveryOverrides
 	gitWorkbenchExecutable string
 	gitWorkbenchPersist    func() error
 
@@ -748,7 +749,7 @@ func (a *App) ImportCollection(workspaceID string, payload ImportPayload) (AppSt
 	}
 	mutations := []collectionImportMutation{}
 	rollback := func() {
-		rollbackCollectionImportMutations(a, mutations)
+		_ = rollbackCollectionImportMutations(a, mutations)
 		a.state = before
 		a.collectionWatchFingerprints = watchFingerprints
 		if payload.OpenAPISync && strings.EqualFold(strings.TrimSpace(payload.Kind), "openapi") && collection.Path != "" {

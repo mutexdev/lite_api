@@ -495,10 +495,16 @@ func TestCollectionImportRetriesBackupCleanup(t *testing.T) {
 	assertNoImportScratchDirs(t, filepath.Dir(collection.Path))
 }
 
+// US-055 changed what this asserts. It used to require the exact string
+// "selected import could not be read safely", which pinned not just the
+// redaction -- which is the point, and still holds -- but also the decision to
+// throw the diagnosis away with the path. The property being protected is that
+// no path reaches the row; see collection_import_diagnostics_test.go for the
+// wider set of path shapes and for what the row is now allowed to say.
 func TestCollectionImportDiagnosticsDoNotExposePathTokens(t *testing.T) {
 	const token = "super-secret-path-token"
 	message := collectionImportDiagnostic(errors.New("walk /tmp/" + token + ": permission denied"))
-	if strings.Contains(message, token) || message != "selected import could not be read safely" {
+	if strings.Contains(message, token) || strings.ContainsAny(message, "/\\~") {
 		t.Fatalf("unsafe diagnostic %q", message)
 	}
 }

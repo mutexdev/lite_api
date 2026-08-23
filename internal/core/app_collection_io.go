@@ -132,16 +132,30 @@ func (a *App) writeCollectionFilesLocked(collection *Collection) error {
 	if err := a.writeCollectionFileLocked(filepath.Join(collection.Path, "collection.bru"), []byte(bru.StringifyBruCollection(*collection))); err != nil {
 		return err
 	}
+	// US-060. Folder metadata used to exist only in app state: no folder.bru was
+	// ever written, so a folder's auth and scripts were lost the moment the
+	// collection was reopened from its folder, cloned, or shared through git --
+	// and every request set to inherit that auth quietly inherited nothing.
+	for _, folder := range collection.Folders {
+		if !folderConfigHasContent(folder) {
+			continue
+		}
+		if err := a.writeFolderConfigLocked(collection, folder); err != nil {
+			return err
+		}
+	}
 	if len(collection.Environments) > 0 {
 		envPath := filepath.Join(collection.Path, "environments")
 		if err := os.MkdirAll(envPath, 0o755); err != nil {
 			return err
 		}
+		// US-060. Names are deduplicated the way request paths are. Two
+		// environments named "Prod", or "a/b" and "a-b", sanitise to one
+		// filename, and the second used to overwrite the first with nothing
+		// said about it.
+		usedNames := make(map[string]bool, len(collection.Environments))
 		for _, env := range collection.Environments {
-			filename := sanitizeFilename(env.Name)
-			if filename == "" {
-				filename = env.ID
-			}
+			filename := uniqueEnvironmentFileName(sanitizeFilename(env.Name), env.ID, usedNames)
 			if err := a.writeCollectionFileLocked(filepath.Join(envPath, filename+".bru"), []byte(bru.StringifyBruEnvironment(env))); err != nil {
 				return err
 			}
@@ -159,6 +173,37 @@ func (a *App) writeCollectionFilesLocked(collection *Collection) error {
 	}
 	a.seedCollectionWatchFingerprintLocked(collection.Path)
 	return nil
+}
+
+// folderConfigHasContent reports whether a folder carries anything worth a
+// file. Folders that exist only to hold requests are left alone: writing an
+// empty folder.bru into every directory of every collection would add noise to
+// the working tree of everyone using git, for nothing.
+func folderConfigHasContent(folder FolderConfig) bool {
+	return folder.Auth.Mode != "" ||
+		len(folder.Headers) > 0 ||
+		len(folder.Variables) > 0 ||
+		len(folder.ResVariables) > 0 ||
+		strings.TrimSpace(folder.PreScript) != "" ||
+		strings.TrimSpace(folder.PostScript) != "" ||
+		strings.TrimSpace(folder.Tests) != "" ||
+		strings.TrimSpace(folder.Docs) != ""
+}
+
+func uniqueEnvironmentFileName(name, fallbackID string, used map[string]bool) string {
+	base := name
+	if base == "" {
+		base = sanitizeFilename(fallbackID)
+	}
+	if base == "" {
+		base = "environment"
+	}
+	candidate := base
+	for ordinal := 2; used[strings.ToLower(candidate)]; ordinal++ {
+		candidate = sanitizeFilename(fmt.Sprintf("%s %d", base, ordinal))
+	}
+	used[strings.ToLower(candidate)] = true
+	return candidate
 }
 
 func (a *App) writeCollectionNameMetadataLocked(collection *Collection) error {
@@ -444,18 +489,46 @@ func (a *App) writeWorkspaceGlobalEnvironmentFilesLocked(workspace *Workspace) e
 	if err := os.MkdirAll(envPath, 0o755); err != nil {
 		return err
 	}
+	// The directory is cleared and rewritten, which is several operations, and
+	// any of them can fail. Whatever is on disk when one does is merged back
+	// into the workspace on the next load, so a half-finished write is not a
+	// write that failed -- it is a different set of environments than either
+	// the one that was there or the one that was asked for.
+	//
+	// The previous contents are held until the rewrite is complete, so a
+	// failure part way puts the directory back rather than leaving a state
+	// nobody chose: no environment the user had is lost to a failed save, and
+	// no environment from a failed import survives to reappear at the next
+	// launch.
+	previous := map[string][]byte{}
 	entries, err := os.ReadDir(envPath)
 	if err == nil {
 		for _, entry := range entries {
-			if entry.IsDir() {
+			if entry.IsDir() || !environmentFileName(entry.Name()) {
 				continue
 			}
-			ext := strings.ToLower(filepath.Ext(entry.Name()))
-			if ext == ".yml" || ext == ".yaml" {
-				if err := os.Remove(filepath.Join(envPath, entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
-					return err
-				}
+			path := filepath.Join(envPath, entry.Name())
+			contents, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return readErr
 			}
+			previous[entry.Name()] = contents
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+	}
+
+	written := []string{}
+	restore := func() {
+		// Best effort by necessity: this runs because the filesystem already
+		// refused something, so there is nothing useful to do with a second
+		// failure but leave the original error to be reported.
+		for _, name := range written {
+			_ = os.Remove(filepath.Join(envPath, name))
+		}
+		for name, contents := range previous {
+			_ = os.WriteFile(filepath.Join(envPath, name), contents, 0o600)
 		}
 	}
 	for _, env := range workspace.GlobalEnvironments {
@@ -463,11 +536,24 @@ func (a *App) writeWorkspaceGlobalEnvironmentFilesLocked(workspace *Workspace) e
 		if filename == "" {
 			filename = env.ID
 		}
-		if err := os.WriteFile(filepath.Join(envPath, filename+".yml"), []byte(bru.StringifyYAMLEnvironment(env)), 0o600); err != nil {
+		filename += ".yml"
+		if err := os.WriteFile(filepath.Join(envPath, filename), []byte(bru.StringifyYAMLEnvironment(env)), 0o600); err != nil {
+			restore()
 			return err
 		}
+		written = append(written, filename)
 	}
 	return nil
+}
+
+// environmentFileName reports whether a directory entry is one of the
+// environment files this writer owns, and is therefore its to replace.
+func environmentFileName(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".yml", ".yaml":
+		return true
+	}
+	return false
 }
 
 func collectionFolderFilesystemPath(collection *Collection, folderPath string) (string, error) {
@@ -521,6 +607,14 @@ func collectionRequestFilesystemPath(collection *Collection, item RequestItem) (
 }
 
 func collectionFromImport(payload ImportPayload) (Collection, error) {
+	collection, _, err := collectionFromImportDetailed(payload)
+	return collection, err
+}
+
+// collectionFromImportDetailed also returns the warnings an importer raised.
+// US-054: a Postman collection can now import with a request skipped or a URL
+// reconstructed, and the preview row has to be able to say so.
+func collectionFromImportDetailed(payload ImportPayload) (Collection, []string, error) {
 	now := time.Now()
 	name := strings.TrimSpace(payload.Name)
 	if name == "" {
@@ -540,7 +634,7 @@ func collectionFromImport(payload ImportPayload) (Collection, error) {
 	case "bruno-json", "json", "bruno":
 		var imported Collection
 		if err := json.Unmarshal([]byte(payload.Content), &imported); err != nil {
-			return Collection{}, err
+			return Collection{}, nil, err
 		}
 		imported.ID = collection.ID
 		if imported.Name == "" {
@@ -549,33 +643,36 @@ func collectionFromImport(payload ImportPayload) (Collection, error) {
 		imported.SecurityConfig = normalizeCollectionSecurityConfig(imported.SecurityConfig)
 		imported.CreatedAt = now
 		imported.UpdatedAt = now
-		return imported, nil
+		return imported, nil, nil
 	case "bru":
 		item, err := bru.Parse(payload.Content)
 		if err != nil {
-			return Collection{}, err
+			return Collection{}, nil, err
 		}
 		collection.Items = []RequestItem{item}
-		return collection, nil
+		return collection, nil, nil
 	case "postman":
 		return importers.ImportPostman(payload.Content, name, payload.TranslatePostmanScripts)
 	case "har":
-		collection, _, err := importers.ImportHAR(payload.Content, name)
-		return collection, err
+		collection, warnings, err := importers.ImportHAR(payload.Content, name)
+		return collection, warnings, err
 	case "insomnia":
-		return importers.ImportInsomnia(payload.Content, name)
+		collection, err := importers.ImportInsomnia(payload.Content, name)
+		return collection, nil, err
 	case "swagger-2", "swagger2", "swagger":
 		converted, err := importers.ConvertSwagger2ToOpenAPI3(payload.Content)
 		if err != nil {
-			return Collection{}, err
+			return Collection{}, nil, err
 		}
-		return importers.ImportOpenAPI(converted, name, payload.GroupBy)
+		collection, err := importers.ImportOpenAPI(converted, name, payload.GroupBy)
+		return collection, nil, err
 	case "openapi":
-		return importers.ImportOpenAPI(payload.Content, name, payload.GroupBy)
+		collection, err := importers.ImportOpenAPI(payload.Content, name, payload.GroupBy)
+		return collection, nil, err
 	case "curl":
-		collection, _, err := collectionFromCurlImport(payload.Content, name)
-		return collection, err
+		collection, warnings, err := collectionFromCurlImport(payload.Content, name)
+		return collection, warnings, err
 	default:
-		return Collection{}, fmt.Errorf("unsupported import kind %q", payload.Kind)
+		return Collection{}, nil, fmt.Errorf("unsupported import kind %q", payload.Kind)
 	}
 }

@@ -126,6 +126,13 @@ func SystemProxyURLForRequest(rawURL string) (*url.URL, error) {
 	if goruntime.GOOS == "darwin" {
 		return macOSSystemProxyURLForRequest(rawURL)
 	}
+	// US-061. Windows and Linux read their own settings. Reached only after the
+	// environment variables above: exporting HTTPS_PROXY is a deliberate act by
+	// whoever launched the app, and has to win over a value the machine was
+	// handed by whoever set it up.
+	if settings, ok := readOSProxySettings(); ok {
+		return ProxyURLFromOSSettings(settings, rawURL)
+	}
 	return nil, nil
 }
 
@@ -782,30 +789,85 @@ func ShouldUseManualProxy(rawURL, bypass string) bool {
 		if rule == "" {
 			continue
 		}
-		ruleHost := rule
-		rulePort := ""
-		if h, p, err := net.SplitHostPort(rule); err == nil {
-			ruleHost, rulePort = h, p
-		} else if index := strings.LastIndex(rule, ":"); index > 0 && !strings.Contains(rule[index+1:], ":") {
-			if _, err := strconv.Atoi(rule[index+1:]); err == nil {
-				ruleHost, rulePort = rule[:index], rule[index+1:]
-			}
-		}
+		ruleHost, rulePort := splitBypassRuleHostPort(rule)
 		if rulePort != "" && rulePort != port {
 			continue
 		}
+		lowerHost := normalizeBypassHost(hostname)
 		if !strings.HasPrefix(ruleHost, ".") && !strings.HasPrefix(ruleHost, "*") {
-			if strings.EqualFold(hostname, ruleHost) {
+			if lowerHost == normalizeBypassHost(ruleHost) {
 				return false
 			}
 			continue
 		}
-		ruleHost = strings.TrimPrefix(ruleHost, "*")
-		if strings.HasSuffix(strings.ToLower(hostname), strings.ToLower(ruleHost)) {
+		// A rule beginning with `*` names a domain, not a substring. Stripping
+		// the star and matching the remainder as a suffix made `*example.com`
+		// match `fooexample.com` too, sending an unrelated host direct instead
+		// of through the proxy it was configured to use -- on a managed
+		// machine, traffic leaving by a route the operator did not choose.
+		//
+		// The dot-prefixed forms already carried their own boundary in the `.`
+		// and are matched unchanged.
+		lowerRule := normalizeBypassHost(strings.TrimPrefix(ruleHost, "*"))
+		if lowerRule == "" {
+			// A bare `*`, which names every host. It is handled above when it
+			// is the whole list; this is the same rule sharing a list with
+			// others, and it means the same thing.
+			return false
+		}
+		if strings.HasPrefix(lowerRule, ".") {
+			if strings.HasSuffix(lowerHost, lowerRule) {
+				return false
+			}
+			continue
+		}
+		if lowerHost == lowerRule || strings.HasSuffix(lowerHost, "."+lowerRule) {
 			return false
 		}
 	}
 	return true
+}
+
+// splitBypassRuleHostPort separates a bypass rule into host and port.
+//
+// An IPv6 literal is the awkward case. It carries colons of its own, so the
+// "last colon starts the port" shortcut turned a rule of `::1` into host `:`
+// and port `1`, and a bracketed `[::1]` was left with its brackets on -- which
+// no URL hostname ever has, so it matched nothing. A rule is only split on a
+// colon when it has exactly one and no brackets; anything else is an address.
+func splitBypassRuleHostPort(rule string) (string, string) {
+	if host, port, err := net.SplitHostPort(rule); err == nil {
+		return host, port
+	}
+	if strings.HasPrefix(rule, "[") || strings.Count(rule, ":") != 1 {
+		return rule, ""
+	}
+	index := strings.LastIndex(rule, ":")
+	if index <= 0 {
+		return rule, ""
+	}
+	if _, err := strconv.Atoi(rule[index+1:]); err != nil {
+		return rule, ""
+	}
+	return rule[:index], rule[index+1:]
+}
+
+// normalizeBypassHost puts a hostname and a bypass rule into the same form
+// before they are compared.
+//
+// url.Hostname() returns an IPv6 address without brackets, while people write
+// bypass rules with them. A trailing dot is the fully-qualified spelling of the
+// same name, so `example.com.` and `example.com` are one host; treating them as
+// two means the list silently misses whichever form the user did not type.
+func normalizeBypassHost(host string) string {
+	host = strings.TrimSpace(host)
+	if len(host) > 1 && strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		host = host[1 : len(host)-1]
+	}
+	for len(host) > 1 && strings.HasSuffix(host, ".") {
+		host = strings.TrimSuffix(host, ".")
+	}
+	return strings.ToLower(host)
 }
 
 func NormalizeProxyConfig(proxy types.ProxyConfig) types.ProxyConfig {

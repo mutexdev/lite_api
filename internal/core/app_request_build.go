@@ -76,7 +76,7 @@ func buildBody(body RequestBody, vars map[string]string, basePath ...string) (io
 	case "xml":
 		return strings.NewReader(interpolate(body.XML, vars)), "application/xml", nil
 	case "graphql":
-		return strings.NewReader(codegen.GraphQLRequestBodySnapshot(body, vars)), "application/json", nil
+		return strings.NewReader(graphQLRequestPayload(body, vars)), "application/json", nil
 	case "text", "sparql":
 		return strings.NewReader(interpolate(body.Text, vars)), "text/plain", nil
 	case "formUrlEncoded":
@@ -296,4 +296,16 @@ func evaluateAssertions(assertions []Assertion, response Response) []Assertion {
 // Wrapped rather than renamed at 138 call sites in app.go alone.
 func interpolate(input string, vars map[string]string) string {
 	return interp.Interpolate(input, vars)
+}
+
+// graphQLRequestPayload encodes a GraphQL request body.
+//
+// Everything that needs one of these -- the body builder, the fallback in the
+// executor, the Network Log -- goes through here. They used to build the
+// payload themselves, and two of the three built `variables` as a Go string,
+// which encodes as a JSON string holding escaped JSON rather than the object
+// the spec calls for. The log copy diverging from the wire copy was the worse
+// half: it meant the record of a request disagreed with the request.
+func graphQLRequestPayload(body RequestBody, vars map[string]string) string {
+	return codegen.GraphQLRequestBodySnapshot(body, vars)
 }

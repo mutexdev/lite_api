@@ -999,7 +999,7 @@ const postmanScopeCollection = `{
 
 func importedScopeScript(t *testing.T, translate bool) string {
 	t.Helper()
-	collection, err := importers.ImportPostman(postmanScopeCollection, "scope translator", translate)
+	collection, _, err := importers.ImportPostman(postmanScopeCollection, "scope translator", translate)
 	if err != nil {
 		t.Fatalf("importPostman: %v", err)
 	}

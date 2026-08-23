@@ -1,0 +1,145 @@
+{
+  "info": {
+    "_postman_id": "8f0c1c6e-real-world",
+    "name": "Real World Export",
+    "description": { "content": "Every shape a Postman export is allowed to take.", "type": "text/markdown" },
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://api.example.test" },
+    { "key": "retired", "value": "unused", "disabled": true },
+    { "key": "port", "value": 8443 }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+  },
+  "protocolProfileBehavior": { "strictSSL": false },
+  "event": [
+    { "listen": "prerequest", "script": { "exec": ["console.log('collection pre')"] } },
+    { "listen": "test", "script": { "exec": "pm.test('collection', function () {});" } }
+  ],
+  "item": [
+    {
+      "name": "Shorthand string request",
+      "request": "{{base_url}}/shorthand"
+    },
+    {
+      "name": "String header block",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/string-headers",
+        "header": "Accept: application/json\nX-Trace: on"
+      }
+    },
+    {
+      "name": "Scalar header values",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/scalars",
+        "header": [
+          { "key": "X-Retry-Count", "value": 5 },
+          { "key": "X-Enabled", "value": true },
+          { "key": "X-Absent", "value": null },
+          { "key": "X-Disabled", "value": "no", "disabled": true }
+        ]
+      }
+    },
+    {
+      "name": "Object raw body",
+      "request": {
+        "method": "POST",
+        "url": "{{base_url}}/object-raw",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": { "hello": "world", "n": 1 } }
+      }
+    },
+    {
+      "name": "URL object without raw",
+      "request": {
+        "method": "GET",
+        "url": {
+          "protocol": "https",
+          "host": ["api", "example", "test"],
+          "port": "8443",
+          "path": ["v1", "users", ":userId"],
+          "query": [
+            { "key": "page", "value": "2" },
+            { "key": "debug", "value": "1", "disabled": true }
+          ],
+          "variable": [{ "key": "userId", "value": "42" }],
+          "hash": "section"
+        }
+      }
+    },
+    {
+      "name": "File body",
+      "request": {
+        "method": "PUT",
+        "url": "{{base_url}}/upload",
+        "body": { "mode": "file", "file": { "src": "./payloads/report.pdf" } }
+      }
+    },
+    {
+      "name": "Strict SSL on for this one",
+      "protocolProfileBehavior": { "strictSSL": true },
+      "request": { "method": "GET", "url": "{{base_url}}/verified" }
+    },
+    {
+      "name": "Saved examples in odd shapes",
+      "request": { "method": "GET", "url": "{{base_url}}/examples" },
+      "response": [
+        {
+          "name": "String header, string code",
+          "status": "OK",
+          "code": "200",
+          "header": "Content-Type: application/json",
+          "body": "{\"ok\":true}"
+        },
+        {
+          "name": "Null header block",
+          "code": 204,
+          "header": null,
+          "body": null
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "auth": { "type": "apikey", "apikey": [{ "key": "key", "value": "X-Api-Key" }, { "key": "value", "value": "secret" }, { "key": "in", "value": "header" }] },
+      "event": [{ "listen": "prerequest", "script": { "exec": ["console.log('folder pre')"] } }],
+      "item": [
+        { "name": "List", "request": { "method": "GET", "url": "{{base_url}}/users" } },
+        {
+          "name": "Deeper",
+          "item": [
+            { "name": "Nested leaf", "request": { "method": "GET", "url": "{{base_url}}/users/nested" } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [{ "name": "Duplicate sibling folder request", "request": { "method": "GET", "url": "{{base_url}}/users-two" } }]
+    },
+    {
+      "name": "Empty folder",
+      "item": []
+    },
+    {
+      "name": "GraphQL",
+      "request": {
+        "method": "POST",
+        "url": "{{base_url}}/graphql",
+        "body": {
+          "mode": "graphql",
+          "graphql": { "query": "query Q { viewer { id } }", "variables": "{\"a\":1}" }
+        }
+      }
+    },
+    {
+      "name": "Broken item survives its neighbours",
+      "request": { "method": 42, "url": "{{base_url}}/broken" }
+    }
+  ]
+}

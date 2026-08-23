@@ -69,6 +69,10 @@ type GeneralPreferences struct {
 	DefaultLocation      string `json:"defaultLocation,omitempty"`
 	DefaultWorkspacePath string `json:"defaultWorkspacePath,omitempty"`
 	LastImportDirectory  string `json:"lastImportDirectory,omitempty"`
+	// DiscoveryPromptedAt records when the first-run offer to import from
+	// another API client was made (US-064). Set once, so an offer that has been
+	// seen is not made again on every launch.
+	DiscoveryPromptedAt string `json:"discoveryPromptedAt,omitempty"`
 }
 
 type AutoSavePreferences struct {

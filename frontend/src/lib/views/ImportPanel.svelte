@@ -39,6 +39,8 @@
   export let gitCloneRoot: string
   export let importApplyButton: HTMLButtonElement | null = null
   export let importPickerButton: HTMLButtonElement | null = null
+  export let discoveredClientCount = 0
+  export let onOpenDiscovery: () => void = () => {}
 
   export let state: types.AppState
   export let busy: string
@@ -86,6 +88,13 @@
               <div class="import-file-actions">
                 <button class="primary" bind:this={importPickerButton} type="button" on:click={chooseImportFiles} disabled={busy !== ''}>Choose files…</button>
                 <button type="button" on:click={chooseImportFolder} disabled={busy !== ''}>Choose collection folder…</button>
+                <!-- US-064. Dismissing the first-run offer hides the interruption, not the
+                     feature, so it stays reachable from the place people go to import. -->
+                {#if discoveredClientCount > 0}
+                  <button type="button" data-testid="import-open-discovery" on:click={onOpenDiscovery} disabled={busy !== ''}>
+                    Import from another app ({discoveredClientCount})
+                  </button>
+                {/if}
               </div>
               <button type="button" class="import-drop-target" style="--wails-drop-target: drop" aria-label="Drop collection import files or folders here" on:click={chooseImportFiles}>
                 Drop files or a Bruno/OpenCollection folder here. Press Enter to choose files.
@@ -141,7 +150,7 @@
                     {#if (row.warnings?.length ?? 0) > 0 || (row.losses?.length ?? 0) > 0}<p class="import-row-warning">{[...(row.warnings ?? []), ...(row.losses ?? [])].join(' · ')}</p>{/if}
                     {#if importExpanded[row.candidateId]}
                       <div class="import-row-details">
-                        <label>Manual format override <select value={decision.kindOverride} on:change={(event) => { updateImportDecision(row.candidateId, { kindOverride: event.currentTarget.value }); void updateImportOverride(row, event.currentTarget.value) }}><option value="">Automatic</option><option value="postman">Postman</option><option value="insomnia">Insomnia</option><option value="bruno-json">Bruno JSON</option><option value="bru">BRU</option><option value="openapi">OpenAPI</option><option value="swagger-2">Swagger 2</option><option value="har">HAR</option><option value="curl">cURL</option></select></label>
+                        <label>Manual format override <select value={decision.kindOverride} on:change={(event) => { updateImportDecision(row.candidateId, { kindOverride: event.currentTarget.value }); void updateImportOverride(row, event.currentTarget.value) }}><option value="">Automatic</option><option value="postman">Postman</option><option value="insomnia">Insomnia</option><option value="bruno-json">Bruno JSON</option><option value="bru">BRU</option><option value="openapi">OpenAPI</option><option value="swagger-2">Swagger 2</option><option value="har">HAR</option><option value="curl">cURL</option><option value="postman-environment">Postman environment</option></select></label>
                         {#if !row.error}
                           <label>Output name <input value={decision.outputName} on:input={(event) => updateImportDecision(row.candidateId, { outputName: event.currentTarget.value })} /></label>
                           <label>Conflict action <select value={decision.conflictAction} on:change={(event) => updateImportDecision(row.candidateId, { conflictAction: event.currentTarget.value })}><option value="">Default safe rename</option><option value="rename">Rename</option><option value="skip">Skip</option><option value="replace">Replace existing</option></select></label>
@@ -167,7 +176,17 @@
                   Rewrite pm.* to bru.*
                 </label><button class="primary" bind:this={importApplyButton} data-testid="import-apply-selected" type="button" on:click={requestPlannedImport} disabled={busy !== '' || importApplyInFlight || importReadyRows.length === 0}>Apply selected imports</button></footer>
             {/if}
-            {#if importApplyResult}<div class="import-results" aria-live="polite"><strong>{importStatus}</strong>{#each [...(importApplyResult.applied ?? []), ...(importApplyResult.skipped ?? []), ...(importApplyResult.errors ?? [])] as row, index (index)}<p>{row.sourceName}: {row.error || (importApplyResult.skipped?.some((entry) => entry.candidateId === row.candidateId) ? 'Skipped' : 'Imported')}</p>{/each}</div>{/if}
+            {#if importApplyResult}
+              <div class="import-results" aria-live="polite">
+                <strong>{importStatus}</strong>
+                {#each [...(importApplyResult.applied ?? []), ...(importApplyResult.skipped ?? []), ...(importApplyResult.errors ?? [])] as row, index (index)}
+                  <p class:import-row-error={Boolean(row.error)}>{row.sourceName}: {row.error || (importApplyResult.skipped?.some((entry) => entry.candidateId === row.candidateId) ? 'Skipped' : 'Imported')}</p>
+                  {#each row.warnings ?? [] as warning, warningIndex (warningIndex)}
+                    <p class="import-row-warning">{row.sourceName}: {warning}</p>
+                  {/each}
+                {/each}
+              </div>
+            {/if}
             <p class="import-live" aria-live="polite">{importStatus}</p>
           </div>
         </section>
