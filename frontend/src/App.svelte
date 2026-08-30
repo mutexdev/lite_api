@@ -5977,6 +5977,25 @@
     } as types.Preferences)
   }
 
+  /**
+   * Merges a patch into the MCP preference block.
+   *
+   * Merged rather than replaced because UpdatePreferences takes the whole
+   * Preferences value: a patch that sent only `enabled` would write `port: 0`
+   * alongside it, and the backend's normalizer would then rewrite the port to
+   * the default — moving the listener out from under a pairing command the user
+   * had already added to their agent.
+   */
+  async function updateMcpPreferences(updates: Partial<types.MCPPreferences>) {
+    if (!appState) return
+    await updateAppearancePreferences({
+      mcp: {
+        ...(appState.preferences.mcp ?? {}),
+        ...updates
+      } as types.MCPPreferences
+    })
+  }
+
   async function updateThemeMode(mode: ThemeMode) {
     await updateAppearancePreferences({ theme: mode })
   }
@@ -11341,6 +11360,15 @@
               {updateSSLSessionCache}
               {clearFileCache}
               {clearSSLSessionCache}
+            />
+          {/await}
+
+          {#await import('./lib/views/preferences/McpSection.svelte') then McpSection}
+            {@const McpSectionComponent = McpSection.default}
+            <McpSectionComponent
+              state={appState}
+              onUpdateMcp={updateMcpPreferences}
+              onCopyCommand={copyText}
             />
           {/await}
 
