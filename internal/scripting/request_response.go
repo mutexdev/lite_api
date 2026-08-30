@@ -73,9 +73,29 @@ func applyScriptedRequest(item *types.RequestItem, reqObject *goja.Object, state
 		return
 	}
 	bodyValue := reqObject.Get("body")
-	if bodyValue != nil && !goja.IsUndefined(bodyValue) && bodyValue.Export() != nil {
-		applyScriptedBody(item, bodyValue.Export(), state.headers)
+	if bodyValue == nil || goja.IsUndefined(bodyValue) || goja.IsNull(bodyValue) {
+		return
 	}
+	exported := bodyValue.Export()
+	if exported == nil {
+		return
+	}
+	// req.body is seeded with types.RequestBodySnapshot — a FLAT, human-readable
+	// rendering of whatever mode the body is in. Writing that back unconditionally
+	// destroyed the body of every request that merely had a script attached:
+	//
+	//   formUrlEncoded  ->  mode "text", raw "a=value with spaces & symbols"
+	//                       (unencoded, and Content-Type forced on)
+	//   multipart       ->  mode "text", "name=value" lines, no boundary
+	//   none            ->  mode "text", "" plus a Content-Type: text/plain
+	//
+	// A GET with no body acquired a body; `bru.setVar("x", 1)` changed what went
+	// on the wire. The snapshot is only a view, so it is applied only when the
+	// script actually replaced it.
+	if text, ok := exported.(string); ok && text == state.bodySnapshot {
+		return
+	}
+	applyScriptedBody(item, exported, state.headers)
 }
 
 func ScriptErrorResponse(label string, err error) types.Response {
@@ -184,15 +204,49 @@ func installPostmanRequestAPI(runtime *goja.Runtime, pm, reqObject *goja.Object,
 	_ = url.Set("getQueryString", reqObject.Get("getQueryString"))
 	_ = request.Set("url", url)
 
-	_ = request.Set("method", reqObject.Get("method"))
-	_ = request.Set("name", item.Name)
-	_ = request.Set("body", reqObject.Get("body"))
+	// Accessors, not snapshots. The comment above says every member delegates so
+	// that a change made through req is visible through pm.request; these three
+	// were plain values read at construction, so a pre-request script that did
+	// `req.setMethod("POST")` still saw pm.request.method === "GET" — and
+	// pm.request.body kept reporting the body the request had before the script
+	// rewrote it.
+	live := func(name string, read func() goja.Value) {
+		_ = request.DefineAccessorProperty(name, runtime.ToValue(func(goja.FunctionCall) goja.Value {
+			return read()
+		}), nil, goja.FLAG_FALSE, goja.FLAG_TRUE)
+	}
+	live("method", func() goja.Value { return reqObject.Get("method") })
+	live("body", func() goja.Value { return reqObject.Get("body") })
+	live("name", func() goja.Value {
+		if value := reqObject.Get("name"); value != nil && !goja.IsUndefined(value) {
+			return value
+		}
+		return runtime.ToValue(item.Name)
+	})
 	_ = request.Set("getHeaders", reqObject.Get("getHeaders"))
 
+	headerList := reqObject.Get("headerList")
+	headerListObject := (*goja.Object)(nil)
+	if headerList != nil && !goja.IsUndefined(headerList) && !goja.IsNull(headerList) {
+		headerListObject = headerList.ToObject(runtime)
+	}
 	headers := runtime.NewObject()
 	_ = headers.Set("get", reqObject.Get("getHeader"))
-	_ = headers.Set("upsert", reqObject.Get("setHeader"))
-	_ = headers.Set("add", reqObject.Get("setHeader"))
+	// add/upsert are bound to the HEADER LIST, not to req.setHeader(name, value).
+	//
+	// Postman's own idiom is the object form — pm.request.headers.add({key:
+	// "Authorization", value: token}) — and routing that at a two-string Go
+	// function stringified the object into the NAME: every such call produced a
+	// header literally called "[object Object]", which the server ignored and
+	// nothing in the UI explained. The header list already accepts both forms
+	// (scriptHeaderFromArgs), so this is a rebinding, not a new implementation.
+	if headerListObject != nil {
+		_ = headers.Set("add", headerListObject.Get("add"))
+		_ = headers.Set("upsert", headerListObject.Get("upsert"))
+	} else {
+		_ = headers.Set("add", reqObject.Get("setHeader"))
+		_ = headers.Set("upsert", reqObject.Get("setHeader"))
+	}
 	_ = headers.Set("remove", reqObject.Get("deleteHeader"))
 	_ = headers.Set("toObject", reqObject.Get("getHeaders"))
 	// Delegated rather than reading a captured header map: req.setHeader can

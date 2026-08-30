@@ -3,6 +3,7 @@
   // markup is not in the initial chunk. Imported dynamically from inside the
   // {#if} that gates it.
   import Modal from '../Modal.svelte'
+  import type { types } from '../../../../wailsjs/go/models'
 
   // Bindable: the format cards assign to this directly, so it has to write back
   // to App.svelte rather than be a one-way prop. App.svelte binds it, which
@@ -12,6 +13,15 @@
   export let busy: string
   export let shareCollectionProceed: () => void
   export let cancelShareCollectionModal: () => void
+  // The export result, once there is one.
+  //
+  // The backend has been filling in `warning` and `skippedTypes` — dropped
+  // collection and folder headers, assertions Postman cannot express, request
+  // types it has no concept of — and the modal threw the whole result away and
+  // closed. The user got a file that was quietly missing things, and the only
+  // hint was the pre-export guess below, which walks top-level items only and
+  // so misses a gRPC request inside a folder entirely.
+  export let shareCollectionResult: types.CollectionExportResult | undefined = undefined
 </script>
 
 <Modal labelledBy="share-collection-title" onClose={cancelShareCollectionModal} dialogClass="prompt-dialog share-collection-dialog" testId="share-collection-modal">
@@ -84,9 +94,38 @@
               Note: {shareCollectionUnsupportedTypes.join(', ')} requests in this collection will not be exported
             </div>
           {/if}
+
+          {#if shareCollectionResult}
+            <!--
+              Kept on screen instead of closing the dialog. A confirmation the
+              user never sees is the same as no confirmation, and the warnings
+              below are the only place several of these losses are reported at
+              all.
+            -->
+            <div class="share-result" data-testid="share-collection-result">
+              <strong>Exported {shareCollectionResult.filename}</strong>
+              <span>
+                {shareCollectionResult.requestCount} request{shareCollectionResult.requestCount === 1 ? '' : 's'},
+                {shareCollectionResult.folderCount} folder{shareCollectionResult.folderCount === 1 ? '' : 's'},
+                {shareCollectionResult.environmentCount} environment{shareCollectionResult.environmentCount === 1 ? '' : 's'}
+              </span>
+              {#if shareCollectionResult.skippedTypes && shareCollectionResult.skippedTypes.length > 0}
+                <!--
+                  The authoritative list: the backend walks the full nested tree,
+                  so this names types the pre-export guess above cannot see.
+                -->
+                <div class="share-warning" data-testid="share-result-skipped">
+                  Not exported: {shareCollectionResult.skippedTypes.join(', ')} requests
+                </div>
+              {/if}
+              {#if shareCollectionResult.warning}
+                <div class="share-warning" data-testid="share-result-warning">{shareCollectionResult.warning}</div>
+              {/if}
+            </div>
+          {/if}
         </div>
         <div class="button-row modal-footer">
-          <button type="button" on:click={cancelShareCollectionModal}>Cancel</button>
+          <button type="button" on:click={cancelShareCollectionModal}>{shareCollectionResult ? 'Close' : 'Cancel'}</button>
           <button class="primary" type="submit" data-testid="share-collection-proceed" disabled={busy !== ''}>{busy === 'share collection' ? 'Exporting...' : 'Proceed'}</button>
         </div>
       </form>

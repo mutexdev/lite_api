@@ -18,6 +18,13 @@ import (
 
 // Postman v2.1 collections, including its script dialect.
 
+// ImportPostman reads a collection and reports what it could not read.
+//
+// A collection is not all-or-nothing. One item written in a shape this importer
+// cannot decode used to abort the whole file with a raw Go unmarshal error —
+// the user was told "json: cannot unmarshal string into Go struct field" about
+// a hundred-request collection and got none of it. The unreadable item is
+// skipped and named instead, and everything else imports.
 func ImportPostman(content, name string, translateScripts bool) (types.Collection, []string, error) {
 	var raw struct {
 		Info struct {
@@ -50,7 +57,7 @@ func ImportPostman(content, name string, translateScripts bool) (types.Collectio
 	seq := 1
 	walk := &postmanImportWalk{collection: &collection, seq: &seq, translate: translateScripts, folders: map[string]bool{}}
 	walk.warn("", raw.Item.Warnings)
-	walk.appendItems(raw.Item.Items, "", raw.ProtocolProfileBehavior.StrictSSL)
+	walk.appendItems(raw.Item.Items, "", raw.ProtocolProfileBehavior)
 	return collection, walk.warnings, nil
 }
 
@@ -89,7 +96,9 @@ func postmanCollectionShapeError(data []byte) error {
 }
 
 // postmanDescriptionText reads the two shapes a description takes: a string, or
-// the {content, type} object Postman writes for markdown.
+// the {content, type} object Postman writes for markdown. The object form used
+// to fall through to empty, losing the documentation of every collection the
+// Postman app itself wrote.
 func postmanDescriptionText(value interface{}) string {
 	if text, ok := value.(string); ok {
 		return strings.TrimSpace(text)
@@ -120,45 +129,57 @@ func (walk *postmanImportWalk) warn(folderPath string, messages []string) {
 	}
 }
 
-func (walk *postmanImportWalk) appendItems(entries []postmanItem, folderPath string, inheritedStrictSSL *bool) {
+func (walk *postmanImportWalk) appendItems(entries []postmanItem, folderPath string, inherited postmanProtocolProfileBehavior) {
 	for _, entry := range entries {
-		walk.warn(folderPath, entry.Item.Warnings)
-		strictSSL := entry.ProtocolProfileBehavior.StrictSSL
-		if strictSSL == nil {
-			strictSSL = inheritedStrictSSL
-		}
+		behavior := inherited.merge(entry.ProtocolProfileBehavior)
 		request := entry.Request.Request()
 		if request != nil {
-			walk.collection.Items = append(walk.collection.Items, walk.requestItem(entry, request, folderPath, strictSSL))
+			walk.collection.Items = append(walk.collection.Items, walk.requestItem(entry, request, folderPath, behavior))
 			*walk.seq = *walk.seq + 1
 		}
-		if request != nil && len(entry.Item.Items) == 0 {
+		// An absent "item" is a request. An empty "item": [] is a folder with
+		// nothing in it, which the user created deliberately and which used to
+		// be dropped.
+		if request != nil && len(entry.Item.Items) == 0 && len(entry.Item.Warnings) == 0 {
 			continue
 		}
 		childPath, childName := walk.claimFolderPath(folderPath, entry.Name.String())
 		if childPath == folderPath {
-			walk.appendItems(entry.Item.Items, folderPath, strictSSL)
+			walk.warn(folderPath, entry.Item.Warnings)
+			walk.appendItems(entry.Item.Items, folderPath, behavior)
 			continue
 		}
 		walk.appendFolder(entry, childPath, childName)
-		walk.appendItems(entry.Item.Items, childPath, strictSSL)
+		// Warned against the CHILD path: an item this folder could not read is
+		// in this folder, and saying "in folder <parent>" sends the user to the
+		// wrong place.
+		walk.warn(childPath, entry.Item.Warnings)
+		walk.appendItems(entry.Item.Items, childPath, behavior)
 	}
 }
 
-// claimFolderPath reserves a path for a folder. Postman permits two sibling
-// folders with the same name; both used to map to one path, so their requests
-// merged into a single directory and their per-folder auth raced.
+// claimFolderPath reserves a path for a folder.
+//
+// The path used to be a pure function of the parent and the name, which
+// collapsed distinct folders into one path two ways: two siblings with the same
+// name, and two whose names sanitise to the same string ("A/B" and "A-B" both
+// become "A-B"). Either merged unrelated requests into a single directory, made
+// their per-folder auth race, and stayed invisible until someone went looking
+// for a request that was no longer where they had put it.
+//
+// The registry is keyed case-insensitively because the paths become directories
+// and the two filesystems this ships on do not distinguish "Users" from "users".
 func (walk *postmanImportWalk) claimFolderPath(parent, name string) (string, string) {
 	base := postmanFolderPath(parent, name)
 	if base == parent {
 		return parent, ""
 	}
 	candidate, display := base, strings.TrimSpace(scalar.NormalizeWhitespace(name))
-	for ordinal := 2; walk.folders[candidate]; ordinal++ {
+	for ordinal := 2; walk.folders[strings.ToLower(candidate)]; ordinal++ {
 		candidate = fmt.Sprintf("%s %d", base, ordinal)
 		display = path.Base(candidate)
 	}
-	walk.folders[candidate] = true
+	walk.folders[strings.ToLower(candidate)] = true
 	return candidate, display
 }
 
@@ -172,12 +193,16 @@ func (walk *postmanImportWalk) appendFolder(entry postmanItem, folderPath, displ
 	if auth, ok := postmanAuthConfig(entry.Auth); ok {
 		folder.Auth = auth
 	}
+	folder.Docs = postmanDescriptionText(entry.Description)
 	folder.PreScript, folder.PostScript = postmanEventScripts(entry.Event, walk.translate)
 	walk.collection.Folders = append(walk.collection.Folders, folder)
 }
 
 type postmanItem struct {
-	Name                    postmanFlexString              `json:"name"`
+	Name postmanFlexString `json:"name"`
+	// US-053. A folder's description is its documentation; a request that
+	// carries one outside its `request` block is still documented.
+	Description             interface{}                    `json:"description"`
 	Auth                    *postmanAuth                   `json:"auth"`
 	Event                   []postmanEvent                 `json:"event"`
 	Request                 postmanRequestRef              `json:"request"`
@@ -187,12 +212,47 @@ type postmanItem struct {
 }
 
 // postmanProtocolProfileBehavior carries the per-collection, per-folder and
-// per-request switches Postman keeps outside the request document. Only
-// strictSSL is read: it is the reason a collection that sends fine in Postman
-// answers with a certificate error here, because Postman verifies nothing
-// unless told to and this app verifies unless told not to.
+// per-request switches Postman keeps outside the request document. strictSSL is
+// the reason a collection that sends fine in Postman answers with a certificate
+// error here, because Postman verifies nothing unless told to and this app
+// verifies unless told not to.
+//
+// Every field is a pointer, because absence must leave the request defaults
+// alone. Plain values would import every request without the block as
+// strictSSL false and followRedirects false.
 type postmanProtocolProfileBehavior struct {
-	StrictSSL *bool `json:"strictSSL"`
+	StrictSSL       *bool `json:"strictSSL"`
+	FollowRedirects *bool `json:"followRedirects"`
+	MaxRedirects    *int  `json:"maxRedirects"`
+}
+
+// merge layers a folder's or request's own switches over the ones it inherits.
+// Postman resolves these the same way: the nearest setting wins, and anything
+// left unset keeps whatever the collection said.
+func (behavior postmanProtocolProfileBehavior) merge(child postmanProtocolProfileBehavior) postmanProtocolProfileBehavior {
+	merged := behavior
+	if child.StrictSSL != nil {
+		merged.StrictSSL = child.StrictSSL
+	}
+	if child.FollowRedirects != nil {
+		merged.FollowRedirects = child.FollowRedirects
+	}
+	if child.MaxRedirects != nil {
+		merged.MaxRedirects = child.MaxRedirects
+	}
+	return merged
+}
+
+func (behavior postmanProtocolProfileBehavior) applyTo(item *types.RequestItem) {
+	if behavior.StrictSSL != nil {
+		item.Settings.VerifyTLS = *behavior.StrictSSL
+	}
+	if behavior.FollowRedirects != nil {
+		item.Settings.FollowRedirects = *behavior.FollowRedirects
+	}
+	if behavior.MaxRedirects != nil && *behavior.MaxRedirects >= 0 {
+		item.Settings.MaxRedirects = *behavior.MaxRedirects
+	}
 }
 
 type postmanRequest struct {
@@ -274,7 +334,7 @@ type postmanResponse struct {
 	PreviewLanguage postmanFlexString `json:"_postman_previewlanguage"`
 }
 
-func (walk *postmanImportWalk) requestItem(entry postmanItem, request *postmanRequest, folderPath string, strictSSL *bool) types.RequestItem {
+func (walk *postmanImportWalk) requestItem(entry postmanItem, request *postmanRequest, folderPath string, behavior postmanProtocolProfileBehavior) types.RequestItem {
 	item := types.NewRequestItem(entry.Name.String(), "http", *walk.seq)
 	item.FolderPath = folderPath
 	item.Auth = types.AuthConfig{Mode: "inherit", APILocation: "header"}
@@ -286,6 +346,13 @@ func (walk *postmanImportWalk) requestItem(entry postmanItem, request *postmanRe
 	}
 	item.Headers = postmanKeyValues(request.Header, false)
 	item.Params = postmanURLParams(request.URL)
+	// Postman writes the query BOTH ways: inside url.raw and again as url.query.
+	// Keeping both sent every param twice — ?imported=true&imported=true, because
+	// the send path appends the enabled params to whatever the URL already says —
+	// so the structured rows win and the copy in the URL goes.
+	if len(item.Params) > 0 {
+		item.URL = trimPostmanURLQuery(item.URL)
+	}
 	item.PathParams = postmanURLPathParams(request.URL)
 	item.Body = postmanRequestBody(*request, item.Headers)
 	if auth, ok := postmanAuthConfig(request.Auth); ok {
@@ -295,10 +362,8 @@ func (walk *postmanImportWalk) requestItem(entry postmanItem, request *postmanRe
 	if item.Body.Mode == "graphql" {
 		item.Type = "graphql"
 	}
-	if strictSSL != nil {
-		item.Settings.VerifyTLS = *strictSSL
-	}
-	item.Docs = postmanDescriptionText(request.Description)
+	behavior.applyTo(&item)
+	item.Docs = scalar.FirstNonEmpty(postmanDescriptionText(request.Description), postmanDescriptionText(entry.Description))
 	item.Examples = postmanResponseExamples(entry.Response, item)
 	return item
 }
@@ -506,7 +571,9 @@ func postmanVariables(values []postmanVariable) []types.Variable {
 			Value:    scalar.YAMLString(value.Value),
 			Type:     "string",
 			DataType: "string",
-			Enabled:  !value.Disabled,
+			// A disabled collection variable that imports enabled starts
+			// resolving placeholders the user had switched off.
+			Enabled: !value.Disabled,
 		})
 	}
 	return variables
@@ -665,9 +732,13 @@ func TranslateScript(script string) string {
 	return translated
 }
 
+// postmanFolderPath is the path a named folder would claim before collisions
+// are resolved. A folder is never hoisted into its parent: a name that
+// sanitises to "untitled" is still a folder the user made, and folding its
+// requests up one level put them somewhere they had never been.
 func postmanFolderPath(parent, name string) string {
 	cleaned := scalar.SanitizeFilename(scalar.NormalizeWhitespace(name))
-	if cleaned == "" || cleaned == "untitled" {
+	if cleaned == "" {
 		return parent
 	}
 	if parent == "" {
@@ -707,11 +778,13 @@ func rebuildPostmanURL(urlMap map[string]interface{}) string {
 		return ""
 	}
 	var builder strings.Builder
-	if protocol := scalar.YAMLString(urlMap["protocol"]); protocol != "" {
+	// The scheme and port belong to a host. Written without one they produce
+	// "https:///v1/users", which is not the relative URL the parts describe.
+	if protocol := scalar.YAMLString(urlMap["protocol"]); protocol != "" && host != "" {
 		builder.WriteString(protocol + "://")
 	}
 	builder.WriteString(host)
-	if port := scalar.YAMLString(urlMap["port"]); port != "" {
+	if port := scalar.YAMLString(urlMap["port"]); port != "" && host != "" {
 		builder.WriteString(":" + port)
 	}
 	if requestPath != "" {
@@ -730,10 +803,12 @@ func rebuildPostmanURL(urlMap map[string]interface{}) string {
 }
 
 // postmanURLSegments joins a host or path, which Postman writes as a list of
-// segments but which hand-edited collections carry as one string.
+// segments but which hand-edited collections carry as one string. An empty
+// segment is dropped rather than joined, so a stray "" in a path list cannot
+// turn /v1/users into /v1//users -- a different resource that servers answer.
 func postmanURLSegments(value interface{}, separator string) string {
 	if text, ok := value.(string); ok {
-		return text
+		return strings.TrimSpace(text)
 	}
 	values, ok := scalar.ListValue(value)
 	if !ok {
@@ -741,11 +816,14 @@ func postmanURLSegments(value interface{}, separator string) string {
 	}
 	segments := make([]string, 0, len(values))
 	for _, raw := range values {
+		segment := strings.TrimSpace(scalar.YAMLString(raw))
 		if segmentMap, ok := scalar.Map(raw); ok {
-			segments = append(segments, scalar.YAMLString(scalar.FirstMapValue(segmentMap, "value", "key")))
+			segment = strings.TrimSpace(scalar.YAMLString(scalar.FirstMapValue(segmentMap, "value", "key")))
+		}
+		if segment == "" {
 			continue
 		}
-		segments = append(segments, scalar.YAMLString(raw))
+		segments = append(segments, segment)
 	}
 	return strings.Join(segments, separator)
 }
@@ -774,6 +852,19 @@ func postmanURLQuery(value interface{}) string {
 		pairs = append(pairs, key)
 	}
 	return strings.Join(pairs, "&")
+}
+
+// trimPostmanURLQuery removes the query string while keeping any fragment.
+func trimPostmanURLQuery(rawURL string) string {
+	index := strings.Index(rawURL, "?")
+	if index < 0 {
+		return rawURL
+	}
+	trimmed := rawURL[:index]
+	if hash := strings.Index(rawURL[index:], "#"); hash >= 0 {
+		trimmed += rawURL[index+hash:]
+	}
+	return trimmed
 }
 
 func postmanURLParams(value interface{}) []types.KeyValue {
@@ -847,10 +938,13 @@ func postmanRequestBody(request postmanRequest, headers []types.KeyValue) types.
 		body.GraphQLQuery = request.Body.GraphQL.Query.String()
 		body.GraphQLVariables = postmanGraphQLVariablesString(request.Body.GraphQL.Variables)
 	case "file":
-		// US-054. Dropped entirely until now: the request imported with no body
-		// at all and sent nothing, which reads as a server-side problem.
+		// US-054. Postman's binary body, dropped entirely until now: the mode
+		// fell through to "none" and the request imported as one that sends
+		// nothing, which reads as a server-side problem. The mode is set even
+		// when the path is unreadable, so the request says what it is instead
+		// of quietly becoming a bodyless one.
+		body.Mode = "file"
 		if entries := postmanFileBodyEntries(request.Body.File); len(entries) > 0 {
-			body.Mode = "file"
 			body.Files = entries
 			body.FilePath = entries[0].FilePath
 		}
@@ -858,7 +952,9 @@ func postmanRequestBody(request postmanRequest, headers []types.KeyValue) types.
 	return body
 }
 
-// postmanFileBodyEntries reads {"src": "path"} and its list form.
+// postmanFileBodyEntries reads {"src": "path"} and its list form, keeping the
+// declared content type: it is what the request sends the file as, and losing
+// it makes an upload arrive as something the server will not accept.
 func postmanFileBodyEntries(value interface{}) []types.FileBodyEntry {
 	rows := []interface{}{value}
 	if values, ok := scalar.ListValue(value); ok {
@@ -866,16 +962,17 @@ func postmanFileBodyEntries(value interface{}) []types.FileBodyEntry {
 	}
 	entries := make([]types.FileBodyEntry, 0, len(rows))
 	for _, raw := range rows {
-		filePath := ""
+		filePath, contentType := "", ""
 		if rowMap, ok := scalar.Map(raw); ok {
 			filePath = scalar.YAMLString(scalar.FirstMapValue(rowMap, "src", "path"))
+			contentType = scalar.YAMLString(rowMap["contentType"])
 		} else {
 			filePath = scalar.YAMLString(raw)
 		}
 		if strings.TrimSpace(filePath) == "" {
 			continue
 		}
-		entries = append(entries, types.FileBodyEntry{FilePath: filePath, Selected: len(entries) == 0})
+		entries = append(entries, types.FileBodyEntry{FilePath: filePath, ContentType: contentType, Selected: len(entries) == 0})
 	}
 	return entries
 }

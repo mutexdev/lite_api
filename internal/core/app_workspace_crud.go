@@ -230,6 +230,9 @@ func (a *App) RefreshCollection(collectionID string) (AppState, error) {
 			refreshed.NotFoundLocally = false
 			a.state.Workspaces[wi].Collections[ci] = refreshed
 			a.seedCollectionWatchFingerprintLocked(refreshed.Path)
+			// The collection just came off disk wholesale, so a tab naming a
+			// request the file no longer defines is now an orphan.
+			a.pruneOrphanedOpenTabsLocked()
 			a.openFirstCollectionItemLocked(refreshed)
 			a.notify("success", "Refreshed "+refreshed.Name)
 			return a.state, a.markDirty(persistScopeState)
@@ -286,7 +289,14 @@ func (a *App) RefreshChangedCollections() (CollectionWatchRefreshResult, error) 
 				continue
 			}
 			if collectionHasDraftRequests(*collection) {
-				a.collectionWatchFingerprints[collectionPath] = fingerprint
+				// The fingerprint is deliberately NOT advanced. Recording the
+				// new one here marked the external edit as seen while refusing
+				// to read it, so the next poll compared equal, reported nothing
+				// changed, and the edit was never picked up — not after the
+				// draft was saved, not after a restart. Leaving the fingerprint
+				// at the last version actually loaded keeps the collection
+				// reported as dirty-skipped on every poll until the drafts are
+				// resolved, and then it refreshes.
 				result.SkippedDirty = append(result.SkippedDirty, collection.Name)
 				continue
 			}
@@ -310,6 +320,32 @@ func (a *App) RefreshChangedCollections() (CollectionWatchRefreshResult, error) 
 			result.Changed = true
 		}
 	}
+	// removeOpenTabsForDeletedRequestIDsLocked above only covers requests that
+	// were in the previous in-memory copy of the collection. A tab that was
+	// already stale before this refresh — or one whose collection is gone from
+	// state entirely — is caught here.
+	if a.pruneOrphanedOpenTabsLocked() {
+		result.Changed = true
+	}
+	// A collection this refresh could not read, or one whose directory has gone,
+	// was reported only in the result struct — which the poller discards. The
+	// user saw a collection quietly stop tracking its files with nothing said.
+	//
+	// notifyChangedLocked rather than notify: the watcher polls, so a
+	// permanently unreadable collection would otherwise raise one notification
+	// per poll and evict the 20-entry list within a minute.
+	errorMessage := ""
+	if len(result.Errors) > 0 {
+		errorMessage = fmt.Sprintf("Could not refresh %d collection%s from disk: %s",
+			len(result.Errors), cookiejar.PluralSuffix(len(result.Errors)), strings.Join(result.Errors, "; "))
+	}
+	a.notifyChangedLocked("collection-watch-errors", "error", errorMessage)
+	missingMessage := ""
+	if len(result.Missing) > 0 {
+		missingMessage = fmt.Sprintf("%d collection%s no longer on disk: %s",
+			len(result.Missing), cookiejar.PluralSuffix(len(result.Missing)), strings.Join(result.Missing, ", "))
+	}
+	a.notifyChangedLocked("collection-watch-missing", "error", missingMessage)
 	if result.Changed {
 		if err := a.markDirty(persistScopeState); err != nil {
 			return CollectionWatchRefreshResult{}, err

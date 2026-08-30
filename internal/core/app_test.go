@@ -8319,12 +8319,12 @@ await new Promise(function (resolve) {
   expect(typeof setTimeout).to.equal("function");
   expect(typeof globalThis.setTimeout).to.equal("undefined");
   expect(typeof globalThis.__bruSetTimeout).to.equal("undefined");
-  expect(typeof clearTimeout).to.equal("undefined");
-  expect(typeof setInterval).to.equal("undefined");
-  expect(typeof clearInterval).to.equal("undefined");
-  expect(typeof setImmediate).to.equal("undefined");
-  expect(typeof clearImmediate).to.equal("undefined");
-  expect(typeof queueMicrotask).to.equal("undefined");
+  expect(typeof clearTimeout).to.equal("function");
+  expect(typeof setInterval).to.equal("function");
+  expect(typeof clearInterval).to.equal("function");
+  expect(typeof setImmediate).to.equal("function");
+  expect(typeof clearImmediate).to.equal("function");
+  expect(typeof queueMicrotask).to.equal("function");
   const timeoutId = setTimeout(function () {}, 1);
   expect(timeoutId).to.not.be.undefined;
 });
@@ -12529,7 +12529,7 @@ func TestImportPostmanAndBruRoundTrip(t *testing.T) {
 	if !strings.Contains(imported.PreScript, "collection_pre") || !strings.Contains(imported.PostScript, "collection_post") {
 		t.Fatalf("postman collection events not converted: pre=%q post=%q", imported.PreScript, imported.PostScript)
 	}
-	if imported.Items[0].URL != "https://example.test/users/:id?active=true&skip=false" || imported.Items[0].Headers[0].Name != "X-Test" {
+	if imported.Items[0].URL != "https://example.test/users/:id" || imported.Items[0].Headers[0].Name != "X-Test" {
 		t.Fatalf("postman fields not converted: %#v", imported.Items[0])
 	}
 	if len(imported.Items[0].Params) != 2 || imported.Items[0].Params[0].Name != "active" || !imported.Items[0].Params[0].Enabled || imported.Items[0].Params[1].Name != "skip" || imported.Items[0].Params[1].Enabled {
@@ -12575,7 +12575,7 @@ func TestImportPostmanAndBruRoundTrip(t *testing.T) {
 		t.Fatalf("postman response examples not converted: %#v", imported.Items[0].Examples)
 	}
 	example := imported.Items[0].Examples[0]
-	if example.Name != "Success" || example.Request.URL != "https://example.test/users/:id?active=true&skip=false" || example.Response.Status != http.StatusOK || example.Response.StatusText != "OK" || example.Response.BodyType != "json" || example.Response.Body != `{"ok":true}` {
+	if example.Name != "Success" || example.Request.URL != "https://example.test/users/:id" || example.Response.Status != http.StatusOK || example.Response.StatusText != "OK" || example.Response.BodyType != "json" || example.Response.Body != `{"ok":true}` {
 		t.Fatalf("postman response example fields not converted: %#v", example)
 	}
 	if len(example.Response.Headers) != 2 || example.Response.Headers[0].Name != "Content-Type" || example.Response.Headers[1].Name != "x-powered-by" {

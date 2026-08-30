@@ -10,6 +10,13 @@
 // because assigning to a $derived is a compile error. There is no silent
 // half-migrated state available here.
 import type { types } from '../../../wailsjs/go/models'
+import {
+  readEnvironmentSelections,
+  resolveEnvironmentId,
+  withEnvironmentSelection,
+  writeEnvironmentSelections,
+  type EnvironmentSelectionMap
+} from '../environmentSelection'
 
 class WorkspaceStore {
   /**
@@ -51,7 +58,56 @@ class WorkspaceStore {
   // collection a given window is looking at.
 
   selectedCollectionId = $state('')
-  selectedEnvironmentId = $state('')
+
+  /**
+   * Chosen environment per collection, and the window scope it persists under.
+   *
+   * This replaces a single `selectedEnvironmentId = $state('')`. That field was
+   * written once at startup against whichever collection was active THEN, and
+   * nothing recomputed it when the user switched collections — so the id went
+   * stale while three different fallbacks kept displaying plausible-looking
+   * environment names on top of it. Keying by collection is what makes the
+   * switch a non-event: every collection carries its own answer.
+   */
+  environmentSelections = $state<EnvironmentSelectionMap>({})
+  private environmentScope = ''
+
+  /**
+   * Points the store at this window's persisted selections.
+   *
+   * Called once the async GetWebStorageScope() resolves. Until then the scope
+   * is "", persistence is a no-op, and selections behave as unsaved defaults —
+   * see environmentSelectionKey for why an unscoped fallback is not an option.
+   */
+  bindEnvironmentScope(scope: string) {
+    this.environmentScope = scope
+    this.environmentSelections = readEnvironmentSelections(scope)
+  }
+
+  /**
+   * The active environment id for the active collection.
+   *
+   * A getter, not a field: it is derived from the persisted choice and the
+   * collection's current environment list, so it cannot drift out of step with
+   * either. Assignment still works — see the setter — which is what lets the
+   * existing `workspaceStore.selectedEnvironmentId = x` call sites stand.
+   */
+  get selectedEnvironmentId(): string {
+    const collection = this.activeCollection
+    if (!collection) return ''
+    return resolveEnvironmentId(collection.environments, this.environmentSelections[collection.id])
+  }
+
+  set selectedEnvironmentId(environmentId: string) {
+    const collection = this.activeCollection
+    if (!collection) return
+    this.environmentSelections = withEnvironmentSelection(
+      this.environmentSelections,
+      collection.id,
+      environmentId
+    )
+    writeEnvironmentSelections(this.environmentScope, this.environmentSelections)
+  }
 
   get activeTab() {
     return this.appState?.openTabs?.find((tab) => tab.id === this.appState?.activeTabId)
@@ -81,11 +137,21 @@ class WorkspaceStore {
     return this.activeCollection?.items?.find((item) => item.id === this.activeTab?.itemId) ?? this.activeCollection?.items?.[0]
   }
 
+  /**
+   * The active environment object.
+   *
+   * The `?? environments[0]` that used to close this expression is deliberately
+   * gone. It was the visible half of the split-brain: when the id was stale or
+   * empty, this returned the first environment and the command strip displayed
+   * its name, while the <select> showed nothing and the backend was handed the
+   * empty id. The fallback now lives in resolveEnvironmentId, ONE level down,
+   * where it changes the id itself — so the name shown and the id sent are
+   * always the same environment.
+   */
   get selectedEnvironment() {
-    return (
-      this.activeCollection?.environments?.find((env) => env.id === this.selectedEnvironmentId) ??
-      this.activeCollection?.environments?.[0]
-    )
+    const environmentId = this.selectedEnvironmentId
+    if (!environmentId) return undefined
+    return this.activeCollection?.environments?.find((env) => env.id === environmentId)
   }
 
   get activeGlobalEnvironment() {

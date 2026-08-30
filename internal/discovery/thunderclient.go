@@ -14,10 +14,49 @@ package discovery
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 )
+
+// readDistinctFiles reads each of the named files at most once.
+//
+// The name lists below are alternative SPELLINGS of one file, because Thunder
+// Client has capitalised these differently across versions. On a
+// case-insensitive filesystem -- macOS and Windows, where VS Code most often
+// lives -- several spellings resolve to the same file, so trying each one in
+// turn read it once per spelling and imported every request that many times.
+// Identity is settled by os.SameFile rather than by the path text, so genuinely
+// distinct layouts are all still read.
+func readDistinctFiles(directory string, names []string) [][]byte {
+	seen := make([]os.FileInfo, 0, len(names))
+	contents := make([][]byte, 0, len(names))
+	for _, name := range names {
+		path := filepath.Join(directory, name)
+		info, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+		duplicate := false
+		for _, previous := range seen {
+			if os.SameFile(previous, info) {
+				duplicate = true
+				break
+			}
+		}
+		if duplicate {
+			continue
+		}
+		data, err := readBoundedFile(path)
+		if err != nil {
+			continue
+		}
+		seen = append(seen, info)
+		contents = append(contents, data)
+	}
+	return contents
+}
 
 type thunderCollectionFile struct {
 	ID      string `json:"_id"`
@@ -63,20 +102,16 @@ func readThunderClientCollections(directory string) ([]Discovered, error) {
 	// Three layouts have shipped. The .db file is JSON despite its extension,
 	// which is exactly the sort of thing that gets skipped by a glob written
 	// from an assumption.
-	for _, name := range []string{"thunderCollection.json", "ThunderCollection.db", "thunderCollection.db"} {
-		if data, err := readBoundedFile(filepath.Join(directory, name)); err == nil {
-			var parsed []thunderCollectionFile
-			if json.Unmarshal(data, &parsed) == nil {
-				collections = append(collections, parsed...)
-			}
+	for _, data := range readDistinctFiles(directory, []string{"thunderCollection.json", "ThunderCollection.db", "thunderCollection.db"}) {
+		var parsed []thunderCollectionFile
+		if json.Unmarshal(data, &parsed) == nil {
+			collections = append(collections, parsed...)
 		}
 	}
-	for _, name := range []string{"thunderclient.json", "thunderClient.json", "ThunderRequest.db", "thunderActivity.json"} {
-		if data, err := readBoundedFile(filepath.Join(directory, name)); err == nil {
-			var parsed []thunderRequestFile
-			if json.Unmarshal(data, &parsed) == nil {
-				requests = append(requests, parsed...)
-			}
+	for _, data := range readDistinctFiles(directory, []string{"thunderclient.json", "thunderClient.json", "ThunderRequest.db", "thunderActivity.json"}) {
+		var parsed []thunderRequestFile
+		if json.Unmarshal(data, &parsed) == nil {
+			requests = append(requests, parsed...)
 		}
 	}
 	sort.SliceStable(collections, func(left, right int) bool { return collections[left].ID < collections[right].ID })

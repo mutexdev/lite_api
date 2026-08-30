@@ -40,10 +40,14 @@ func (a *App) CreateEnvironment(collectionID, name string) (AppState, error) {
 	}
 	collection.Environments = append(collection.Environments, env)
 	collection.UpdatedAt = time.Now()
-	if collection.Format != "yml" {
-		if err := a.writeCollectionFilesLocked(collection); err != nil {
-			return AppState{}, err
-		}
+	// No format exemption. yml collections were skipped here on the assumption
+	// that opencollection.yml does not carry environments — it does, and
+	// yamlstore.StringifyCollection writes them — so the new environment lived
+	// only in memory until the collection watcher or a restart re-read the file
+	// and replaced Environments with what was still on disk. The environment
+	// then vanished with no error anywhere.
+	if err := a.writeCollectionFilesLocked(collection); err != nil {
+		return AppState{}, err
 	}
 	a.notify("success", "Environment created: "+env.Name)
 	return a.state, a.markDirty(persistScopeState)

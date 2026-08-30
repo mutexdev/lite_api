@@ -441,33 +441,16 @@ func StringifyBru(item types.RequestItem) string {
 	}
 	fmt.Fprintf(&b, "%s {\n  url: %s\n  body: %s\n  auth: %s\n}\n", method, item.URL, item.Body.Mode, item.Auth.Mode)
 	writeBruAuth(&b, item.Auth, false)
-	if len(item.Headers) > 0 {
-		b.WriteString("\nheaders {\n")
-		for _, header := range item.Headers {
-			if header.Enabled {
-				fmt.Fprintf(&b, "  %s: %s\n", header.Name, header.Value)
-			}
-		}
-		b.WriteString("}\n")
-	}
-	if len(item.Params) > 0 {
-		b.WriteString("\nparams:query {\n")
-		for _, param := range item.Params {
-			if param.Enabled {
-				fmt.Fprintf(&b, "  %s: %s\n", param.Name, param.Value)
-			}
-		}
-		b.WriteString("}\n")
-	}
-	if len(item.PathParams) > 0 {
-		b.WriteString("\nparams:path {\n")
-		for _, param := range item.PathParams {
-			if param.Enabled {
-				fmt.Fprintf(&b, "  %s: %s\n", param.Name, param.Value)
-			}
-		}
-		b.WriteString("}\n")
-	}
+	// writeBruKeyValues rather than an inline loop over the enabled rows: a
+	// disabled row is part of the request, not an absent one. The three blocks
+	// here each dropped their unchecked rows on write, so a header the user had
+	// merely unticked was gone from the file and gone from the UI at the next
+	// read — while every other block in this format (metadata, WebSocket
+	// headers, form bodies, vars) already wrote them with the `~` prefix the
+	// parser reads back.
+	writeBruKeyValues(&b, "headers", item.Headers)
+	writeBruKeyValues(&b, "params:query", item.Params)
+	writeBruKeyValues(&b, "params:path", item.PathParams)
 	if item.Body.Mode == "json" && strings.TrimSpace(item.Body.JSON) != "" {
 		b.WriteString("\nbody:json {\n")
 		for _, line := range strings.Split(strings.TrimRight(item.Body.JSON, "\n"), "\n") {

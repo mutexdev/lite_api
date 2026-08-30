@@ -41,10 +41,11 @@ func (a *App) UpdateEnvironmentVariables(collectionID, environmentID string, var
 		}
 		collection.Environments[index].Variables = vars
 		collection.UpdatedAt = time.Now()
-		if collection.Format != "yml" {
-			if err := a.writeCollectionFilesLocked(collection); err != nil {
-				return AppState{}, err
-			}
+		// See CreateEnvironment: opencollection.yml stores environments too, so
+		// exempting yml collections here made every variable edit revert the
+		// moment the file was read back.
+		if err := a.writeCollectionFilesLocked(collection); err != nil {
+			return AppState{}, err
 		}
 		return a.state, a.markDirty(persistScopeState)
 	}

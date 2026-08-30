@@ -16,6 +16,13 @@
   export let networkLogLines: (row: types.NetworkLog | undefined) => string[]
   export let normalizedNetworkMethod: (row: types.NetworkLog) => string
   export let startDevToolsDetailsPanelResize: (event: MouseEvent) => void
+  // The subtab buttons used to assign to `devToolsNetworkDetailTab` directly.
+  // App.svelte passes that prop one-way, so the assignment moved only this
+  // component's local copy: switching to Response and then selecting a
+  // different row snapped back to Request, because the parent's state had never
+  // changed. A callback rather than `bind:` keeps the parent's narrower union
+  // type as the single definition of what a tab id may be.
+  export let onSelectDetailTab: (id: string) => void
 </script>
 
                     <section class="network-details-panel" aria-label="Request Details">
@@ -29,7 +36,7 @@
                       <h3>Request Details</h3>
                       <div class="subtabs">
                         {#each devToolsNetworkDetailTabs as detailTab (detailTab.id)}
-                          <button type="button" class:active={devToolsNetworkDetailTab === detailTab.id} on:click={() => (devToolsNetworkDetailTab = detailTab.id)}>{detailTab.label}</button>
+                          <button type="button" class:active={devToolsNetworkDetailTab === detailTab.id} on:click={() => onSelectDetailTab(detailTab.id)}>{detailTab.label}</button>
                         {/each}
                       </div>
                     </header>

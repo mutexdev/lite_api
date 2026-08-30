@@ -100,7 +100,17 @@ type grpcurlTarget struct {
 	SocketPath string
 }
 
-func GenerateGrpcurlCommand(collection types.Collection, item types.RequestItem, vars map[string]string) (string, error) {
+// GenerateGrpcurlCommand renders the grpcurl equivalent of a request.
+//
+// verifyTLS is the EFFECTIVE verification decision, resolved by the caller,
+// not item.Settings.VerifyTLS. Those two differ whenever the app-level SSL
+// preference is off: the executor turns that preference off into
+// InsecureSkipVerify, but this generator used to read only the per-request
+// flag, so it emitted a command WITHOUT -insecure for a request the app itself
+// would have run insecurely. Copying that command out to debug a handshake
+// then produced a different result from the app, which is the one thing a
+// "copy as grpcurl" feature must never do.
+func GenerateGrpcurlCommand(collection types.Collection, item types.RequestItem, vars map[string]string, verifyTLS bool) (string, error) {
 	targetURL := interp.Interpolate(item.URL, vars)
 	target, err := grpcurlTargetForURL(targetURL)
 	if err != nil {
@@ -115,7 +125,7 @@ func GenerateGrpcurlCommand(collection types.Collection, item types.RequestItem,
 	case "unix", "grpc+unix":
 		parts = append(parts, "-plaintext", "-unix", "-authority localhost")
 	case "grpcs", "https":
-		if !item.Settings.VerifyTLS {
+		if !verifyTLS {
 			parts = append(parts, "-insecure")
 		}
 		if cert, ok := matchingClientCertificateConfig(collection.ClientCertificates, targetURL, vars); ok && strings.EqualFold(scalar.FirstNonEmpty(cert.Type, "cert"), "cert") {

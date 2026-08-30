@@ -10,11 +10,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/mutexdev/lite_api/internal/scripting"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (CollectionImportApplyResult, error) {
@@ -135,7 +138,9 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 			}
 			continue
 		}
-		collection = filterImportedCollection(collection, selection)
+		var filterWarnings []string
+		collection, filterWarnings = filterImportedCollection(collection, selection)
+		candidate.row.Warnings = append(candidate.row.Warnings, filterWarnings...)
 		if strings.TrimSpace(selection.OutputName) != "" {
 			collection.Name = strings.TrimSpace(selection.OutputName)
 		}
@@ -399,7 +404,21 @@ func collectionImportDestinationRoot(value, fallback string) (string, error) {
 	return filepath.Join(resolved, relative), nil
 }
 
-func filterImportedCollection(collection Collection, selection CollectionImportSelection) Collection {
+// filterImportedCollection narrows an import to what the user selected.
+//
+// Requests and folders come from INDEPENDENT selection lists, so the two can
+// disagree: keeping a request while dropping the folder it lives in left the
+// request pointing at a FolderPath no FolderConfig described. Nothing rejected
+// that collection — it wrote to disk, opened in the sidebar, and then exported
+// to Postman as nothing at all, because the export walked folders and never
+// reached it.
+//
+// The selection is therefore reconciled here rather than repaired at each
+// reader: a kept request implies its whole folder chain is kept, and the
+// re-added folders are named in the returned warnings so the user is told the
+// selection was widened rather than finding out later.
+func filterImportedCollection(collection Collection, selection CollectionImportSelection) (Collection, []string) {
+	available := append([]FolderConfig(nil), collection.Folders...)
 	selected := func(ids []string) map[string]bool {
 		out := map[string]bool{}
 		for _, id := range ids {
@@ -437,7 +456,62 @@ func filterImportedCollection(collection Collection, selection CollectionImportS
 		}
 		collection.Folders = folders
 	}
-	return collection
+	if !selection.FilterFolders {
+		return collection, nil
+	}
+	return reconcileImportedFolderChains(collection, available)
+}
+
+// reconcileImportedFolderChains re-adds every folder a kept request or a kept
+// folder still needs. A folder that has to come back is taken from the
+// pre-filter list so it keeps its own scripts, auth and sequence; only a folder
+// that never existed as a config is synthesised.
+func reconcileImportedFolderChains(collection Collection, available []FolderConfig) (Collection, []string) {
+	present := map[string]bool{}
+	for _, folder := range collection.Folders {
+		if key := types.NormalizeFolderPathKey(firstNonEmpty(folder.DisplayPath, folder.Path)); key != "" {
+			present[key] = true
+		}
+	}
+	source := map[string]FolderConfig{}
+	for _, folder := range available {
+		if key := types.NormalizeFolderPathKey(firstNonEmpty(folder.DisplayPath, folder.Path)); key != "" {
+			if _, exists := source[key]; !exists {
+				source[key] = folder
+			}
+		}
+	}
+
+	required := []string{}
+	add := func(path string) {
+		for key := types.NormalizeFolderPathKey(path); key != ""; key = types.NormalizeFolderPathKey(types.ParentFolderDisplayPath(key)) {
+			if !present[key] {
+				present[key] = true
+				required = append(required, key)
+			}
+		}
+	}
+	for _, item := range collection.Items {
+		add(item.FolderPath)
+	}
+	for _, folder := range collection.Folders {
+		add(types.ParentFolderDisplayPath(firstNonEmpty(folder.DisplayPath, folder.Path)))
+	}
+	if len(required) == 0 {
+		return collection, nil
+	}
+
+	sort.Strings(required)
+	warnings := make([]string, 0, len(required))
+	for _, key := range required {
+		folder, ok := source[key]
+		if !ok {
+			folder = FolderConfig{Path: key, DisplayPath: key, Name: path.Base(key)}
+		}
+		collection.Folders = append(collection.Folders, folder)
+		warnings = append(warnings, fmt.Sprintf("Folder %q was kept because a selected request lives inside it", key))
+	}
+	return collection, warnings
 }
 
 func (a *App) applyOpenedImportFolderLocked(workspace *Workspace, collection Collection) error {

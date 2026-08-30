@@ -18,20 +18,24 @@ package core
 
 import (
 	"encoding/json"
+	"fmt"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/mutexdev/lite_api/internal/export"
 	"github.com/mutexdev/lite_api/internal/importers"
 	"github.com/mutexdev/lite_api/internal/scripting"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 const fidelityPostmanCollection = `{
-  "info": {"name": "fidelity", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+  "info": {"name": "fidelity", "description": "The collection the fidelity tests read", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
   "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{collectionToken}}", "type": "string"}]},
   "variable": [
     {"key": "baseUrl", "value": "https://api.example.test"},
-    {"key": "apiVersion", "value": "v3"}
+    {"key": "apiVersion", "value": "v3"},
+    {"key": "legacyUrl", "value": "https://old.example.test", "disabled": true}
   ],
   "event": [
     {"listen": "prerequest", "script": {"type": "text/javascript", "exec": ["pm.environment.set('collectionPre', '1');"]}},
@@ -40,6 +44,7 @@ const fidelityPostmanCollection = `{
   "item": [
     {
       "name": "Reports",
+      "description": "Everything about reports",
       "auth": {"type": "basic", "basic": [{"key": "username", "value": "folderUser", "type": "string"}, {"key": "password", "value": "folderPass", "type": "string"}]},
       "event": [
         {"listen": "prerequest", "script": {"type": "text/javascript", "exec": ["pm.environment.set('folderPre', '1');"]}}
@@ -47,6 +52,17 @@ const fidelityPostmanCollection = `{
       "item": [
         {
           "name": "Get report",
+          "protocolProfileBehavior": {"strictSSL": false, "followRedirects": false, "maxRedirects": 11},
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{"key": "Content-Type", "value": "application/json"}],
+              "body": "{\"id\":42}"
+            }
+          ],
           "event": [
             {"listen": "prerequest", "script": {"type": "text/javascript", "exec": ["pm.environment.set('token', 'abc');", "console.log('two lines');"]}},
             {"listen": "test", "script": {"type": "text/javascript", "exec": ["pm.test('status ok', function () {", "  pm.response.to.have.status(200);", "});"]}}
@@ -87,6 +103,67 @@ const fidelityPostmanCollection = `{
         "url": {"raw": "{{baseUrl}}/graphql"},
         "body": {"mode": "graphql", "graphql": {"query": "query Reports { reports { id } }", "variables": "{\"limit\":5}"}}
       }
+    },
+    {
+      "name": "Credentials",
+      "auth": {"type": "digest", "digest": [{"key": "username", "value": "digestUser", "type": "string"}, {"key": "password", "value": "digestPass", "type": "string"}]},
+      "item": [
+        {
+          "name": "Signed",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "{{baseUrl}}/signed"},
+            "auth": {"type": "awsv4", "awsv4": [
+              {"key": "accessKey", "value": "AKIAEXAMPLE", "type": "string"},
+              {"key": "secretKey", "value": "secret", "type": "string"},
+              {"key": "sessionToken", "value": "session", "type": "string"},
+              {"key": "service", "value": "execute-api", "type": "string"},
+              {"key": "region", "value": "eu-west-1", "type": "string"}
+            ]}
+          }
+        },
+        {
+          "name": "Legacy",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "{{baseUrl}}/legacy"},
+            "auth": {"type": "oauth1", "oauth1": [
+              {"key": "consumerKey", "value": "ck", "type": "string"},
+              {"key": "consumerSecret", "value": "cs", "type": "string"},
+              {"key": "token", "value": "at", "type": "string"},
+              {"key": "tokenSecret", "value": "ats", "type": "string"},
+              {"key": "signatureMethod", "value": "HMAC-SHA256", "type": "string"},
+              {"key": "addParamsToHeader", "value": false, "type": "boolean"}
+            ]}
+          }
+        },
+        {
+          "name": "Modern",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "{{baseUrl}}/modern"},
+            "auth": {"type": "oauth2", "oauth2": [
+              {"key": "grant_type", "value": "password_credentials", "type": "string"},
+              {"key": "accessTokenUrl", "value": "https://auth.example.test/token", "type": "string"},
+              {"key": "clientId", "value": "client", "type": "string"},
+              {"key": "clientSecret", "value": "shhh", "type": "string"},
+              {"key": "username", "value": "someone", "type": "string"},
+              {"key": "password", "value": "somepass", "type": "string"},
+              {"key": "scope", "value": "read write", "type": "string"},
+              {"key": "addTokenTo", "value": "queryParams", "type": "string"},
+              {"key": "client_authentication", "value": "body", "type": "string"}
+            ]}
+          }
+        },
+        {
+          "name": "Public",
+          "request": {
+            "method": "GET",
+            "url": {"raw": "{{baseUrl}}/public"},
+            "auth": {"type": "noauth"}
+          }
+        }
+      ]
     }
   ]
 }`
@@ -113,28 +190,57 @@ func exportFidelityCollection(t *testing.T, collection Collection) string {
 // request DOES, ignoring generated ids and timestamps, which differ on every
 // import by design and would make any comparison vacuously fail.
 func fidelityFingerprint(collection Collection) string {
+	return fidelityFingerprintOf(collection, false)
+}
+
+// fidelityFingerprintByName ignores the ORDER of the requests.
+//
+// Postman's item array interleaves folders and requests freely; this model
+// sorts folders before requests at every level, as the YAML and zip exports do
+// too. A source file that puts a folder after a root request therefore comes
+// back with that request moved once — a single-cycle loss the header describes,
+// and not drift. The exact-order fingerprint is what the later cycles are held
+// to, so a reordering that keeps happening still fails.
+func fidelityFingerprintByName(collection Collection) string {
+	return fidelityFingerprintOf(collection, true)
+}
+
+func fidelityFingerprintOf(collection Collection, ignoreItemOrder bool) string {
+	if ignoreItemOrder {
+		collection.Items = append([]RequestItem(nil), collection.Items...)
+		sort.SliceStable(collection.Items, func(i, j int) bool {
+			return collection.Items[i].Name < collection.Items[j].Name
+		})
+	}
 	var builder strings.Builder
 
 	builder.WriteString("collection " + collection.Name + "\n")
-	builder.WriteString("auth " + collection.Auth.Mode + " " + collection.Auth.Token + collection.Auth.Username + collection.Auth.APIKey + "\n")
+	builder.WriteString("docs " + strings.TrimSpace(collection.Docs) + "\n")
+	builder.WriteString("auth " + fidelityAuth(collection.Auth) + "\n")
 	builder.WriteString("pre " + strings.TrimSpace(collection.PreScript) + "\n")
 	builder.WriteString("post " + strings.TrimSpace(collection.PostScript) + "\n")
 	for _, variable := range collection.Variables {
-		builder.WriteString("var " + variable.Name + "=" + scripting.ScriptVariableString(variable.Value) + "\n")
+		builder.WriteString("var " + variable.Name + "=" + scripting.ScriptVariableString(variable.Value) + " enabled=" + boolText(variable.Enabled) + "\n")
 	}
 	for _, folder := range collection.Folders {
-		builder.WriteString("folder " + folder.Name + " auth=" + folder.Auth.Mode +
+		builder.WriteString("folder " + folder.Name + " path=" + folder.Path +
+			" auth=" + fidelityAuth(folder.Auth) +
+			" docs=" + strings.TrimSpace(folder.Docs) +
 			" pre=" + strings.TrimSpace(folder.PreScript) +
 			" post=" + strings.TrimSpace(folder.PostScript) + "\n")
 	}
 	for _, item := range collection.Items {
-		builder.WriteString("item " + item.Name + " " + item.Type + " " + item.Method + " " + item.URL + "\n")
+		builder.WriteString("item " + item.Name + " " + item.Type + " " + item.Method + " " + item.URL + " in=" + item.FolderPath + "\n")
 		builder.WriteString("  docs " + strings.TrimSpace(item.Docs) + "\n")
-		builder.WriteString("  auth " + item.Auth.Mode + " " + item.Auth.Token + item.Auth.Username + item.Auth.APIKey + item.Auth.APIValue + "\n")
+		builder.WriteString("  auth " + fidelityAuth(item.Auth) + "\n")
 		builder.WriteString("  pre " + strings.TrimSpace(item.PreScript) + "\n")
 		builder.WriteString("  post " + strings.TrimSpace(item.PostScript) + "\n")
 		builder.WriteString("  tests " + strings.TrimSpace(item.Tests) + "\n")
 		builder.WriteString("  body " + item.Body.Mode + " " + item.Body.Text + item.Body.JSON + item.Body.GraphQLQuery + item.Body.GraphQLVariables + "\n")
+		fmt.Fprintf(&builder, "  settings tls=%s redirects=%s max=%d\n", boolText(item.Settings.VerifyTLS), boolText(item.Settings.FollowRedirects), item.Settings.MaxRedirects)
+		for _, file := range types.FileBodyEntriesOf(item.Body) {
+			builder.WriteString("  file " + file.FilePath + " selected=" + boolText(file.Selected) + "\n")
+		}
 		for _, header := range item.Headers {
 			builder.WriteString("  header " + header.Name + "=" + header.Value + "\n")
 		}
@@ -144,8 +250,23 @@ func fidelityFingerprint(collection Collection) string {
 		for _, param := range item.PathParams {
 			builder.WriteString("  pathParam " + param.Name + "=" + param.Value + "\n")
 		}
+		for _, example := range item.Examples {
+			fmt.Fprintf(&builder, "  example %s %d %s %s %s\n", example.Name, example.Response.Status, example.Response.StatusText, example.Response.BodyType, example.Response.Body)
+			for _, header := range example.Response.Headers {
+				builder.WriteString("    exampleHeader " + header.Name + "=" + header.Value + "\n")
+			}
+		}
 	}
 	return builder.String()
+}
+
+// fidelityAuth prints every credential field the exporter is supposed to carry.
+// Printing only the mode would let a round trip keep "oauth2" while losing the
+// client secret, which is the failure the story is about.
+func fidelityAuth(auth AuthConfig) string {
+	return fmt.Sprintf("%s %+v %+v %+v", auth.Mode,
+		[]string{auth.Username, auth.Password, auth.Token, auth.APIKey, auth.APIValue, auth.APILocation},
+		auth.OAuth1, auth.OAuth2) + fmt.Sprintf(" %+v", auth.AWSV4)
 }
 
 func boolText(value bool) string {
@@ -166,7 +287,7 @@ func TestPostmanRoundTripIsIdempotent(t *testing.T) {
 	exported := exportFidelityCollection(t, first)
 	second := importFidelityCollection(t, exported)
 
-	if got, want := fidelityFingerprint(second), fidelityFingerprint(first); got != want {
+	if got, want := fidelityFingerprintByName(second), fidelityFingerprintByName(first); got != want {
 		t.Errorf("the round trip is not idempotent\n--- first import ---\n%s\n--- after export and re-import ---\n%s", want, got)
 	}
 
@@ -197,8 +318,17 @@ func TestPostmanExportCarriesEventBlocks(t *testing.T) {
 		t.Error("the collection auth was dropped; every request inheriting it would start failing")
 	}
 	variables, _ := document["variable"].([]interface{})
-	if len(variables) != 2 {
-		t.Errorf("got %d collection variables, want 2 — {{baseUrl}} would resolve to nothing", len(variables))
+	if len(variables) != 3 {
+		t.Errorf("got %d collection variables, want 3 — {{baseUrl}} would resolve to nothing", len(variables))
+	}
+	disabled := 0
+	for _, value := range variables {
+		if variable, ok := value.(map[string]interface{}); ok && variable["disabled"] == true {
+			disabled++
+		}
+	}
+	if disabled != 1 {
+		t.Errorf("got %d disabled variables, want 1 — one that comes back enabled starts resolving placeholders the user switched off", disabled)
 	}
 
 	if !strings.Contains(exported, "status ok") {
@@ -346,19 +476,80 @@ func TestPostmanExportRoundTripsAuthAtEveryLevel(t *testing.T) {
 		t.Errorf("collection auth = %+v, want bearer with the token", second.Auth)
 	}
 
-	if len(second.Folders) != 1 {
-		t.Fatalf("got %d folders, want 1", len(second.Folders))
+	folders := map[string]FolderConfig{}
+	for _, folder := range second.Folders {
+		folders[folder.Name] = folder
 	}
-	if second.Folders[0].Auth.Mode != "basic" || second.Folders[0].Auth.Username != "folderUser" {
-		t.Errorf("folder auth = %+v, want basic folderUser", second.Folders[0].Auth)
+	if len(folders) != 2 {
+		t.Fatalf("got %d folders, want 2", len(second.Folders))
+	}
+	if folders["Reports"].Auth.Mode != "basic" || folders["Reports"].Auth.Username != "folderUser" {
+		t.Errorf("folder auth = %+v, want basic folderUser", folders["Reports"].Auth)
+	}
+	// The five modes the exporter used to drop entirely, one of them at folder
+	// level, and the noauth that used to come back as inherit.
+	if folders["Credentials"].Auth.Mode != "digest" || folders["Credentials"].Auth.Password != "digestPass" {
+		t.Errorf("folder digest auth = %+v", folders["Credentials"].Auth)
 	}
 
+	items := map[string]RequestItem{}
 	for _, item := range second.Items {
-		if item.Name != "Get report" {
-			continue
+		items[item.Name] = item
+	}
+	if items["Get report"].Auth.Mode != "apikey" || items["Get report"].Auth.APIKey != "X-Key" || items["Get report"].Auth.APIValue != "secret" {
+		t.Errorf("request auth = %+v, want the apikey config", items["Get report"].Auth)
+	}
+	if got := items["Signed"].Auth; got.Mode != "awsv4" || got.AWSV4.SecretAccessKey != "secret" || got.AWSV4.Region != "eu-west-1" {
+		t.Errorf("awsv4 auth = %+v", got)
+	}
+	if got := items["Legacy"].Auth; got.Mode != "oauth1" || got.OAuth1.ConsumerSecret != "cs" || got.OAuth1.SignatureMethod != "HMAC-SHA256" || got.OAuth1.Placement != "query" {
+		t.Errorf("oauth1 auth = %+v", got)
+	}
+	if got := items["Modern"].Auth; got.Mode != "oauth2" || got.OAuth2.GrantType != "password" || got.OAuth2.ClientSecret != "shhh" || got.OAuth2.Password != "somepass" || got.OAuth2.TokenPlacement != "url" || got.OAuth2.CredentialsPlacement != "body" {
+		t.Errorf("oauth2 auth = %+v", got)
+	}
+	// THE DANGEROUS ONE: an absent auth block means inherit, so a request that
+	// opted out came back sending the collection's bearer token.
+	if got := items["Public"].Auth.Mode; got != "none" {
+		t.Errorf("a noauth request came back as %q; it now sends the collection credential", got)
+	}
+	if got := items["Create report"].Auth.Mode; got != "inherit" {
+		t.Errorf("a request with no auth block came back as %q, want inherit", got)
+	}
+}
+
+// The saved examples, per-request settings and descriptions the round trip used
+// to destroy.
+func TestPostmanExportRoundTripsExamplesSettingsAndDescriptions(t *testing.T) {
+	first := importFidelityCollection(t, fidelityPostmanCollection)
+	second := importFidelityCollection(t, exportFidelityCollection(t, first))
+
+	var report RequestItem
+	for _, item := range second.Items {
+		if item.Name == "Get report" {
+			report = item
 		}
-		if item.Auth.Mode != "apikey" || item.Auth.APIKey != "X-Key" || item.Auth.APIValue != "secret" {
-			t.Errorf("request auth = %+v, want the apikey config", item.Auth)
+	}
+	if len(report.Examples) != 1 {
+		t.Fatalf("got %d saved examples, want 1 — the round trip destroyed them", len(report.Examples))
+	}
+	example := report.Examples[0]
+	if example.Name != "Success" || example.Response.Status != 200 || example.Response.StatusText != "OK" || example.Response.Body != `{"id":42}` {
+		t.Errorf("example = %+v", example)
+	}
+	if example.Response.BodyType != "json" || len(example.Response.Headers) != 1 {
+		t.Errorf("example response shape = %+v", example.Response)
+	}
+
+	if report.Settings.VerifyTLS || report.Settings.FollowRedirects || report.Settings.MaxRedirects != 11 {
+		t.Errorf("settings = %+v; a request that opted out of TLS verification came back verifying", report.Settings)
+	}
+	if second.Docs != "The collection the fidelity tests read" {
+		t.Errorf("collection description = %q", second.Docs)
+	}
+	for _, folder := range second.Folders {
+		if folder.Name == "Reports" && folder.Docs != "Everything about reports" {
+			t.Errorf("folder description = %q", folder.Docs)
 		}
 	}
 }

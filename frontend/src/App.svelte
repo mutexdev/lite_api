@@ -169,6 +169,15 @@
     type KeyBindingPresetID
   } from './lib/keybindings'
   import { PatchCoalescer } from './lib/patchQueue'
+  import { unresolvedHeaderVariables, unresolvedVariableMessage } from './lib/unresolvedVariables'
+  import {
+    addBackgroundNotice,
+    backgroundNoticeLabel,
+    dismissBackgroundNotice,
+    errorMessage,
+    type BackgroundNotice,
+    type BackgroundNoticeInput
+  } from './lib/backgroundErrors'
   // US-036: the lazy wrapper, not CodeEditor itself — importing the real one
   // here is what pulled all of CodeMirror into the initial chunk.
   import CodeEditor from './lib/workbench/LazyCodeEditor.svelte'
@@ -568,6 +577,7 @@
   let compactWorkbenchMedia: MediaQueryList | undefined
   let removeCompactWorkbenchListener: (() => void) | undefined
   let removeFlushOnBlurListeners: (() => void) | undefined
+  let removeGlobalFailureListeners: (() => void) | undefined
   // US-021/US-022. Live WebSocket and gRPC events are pushed one at a time
   // rather than re-sent as a whole re-marshalled log on every call, so the
   // accumulated log lives here. Keyed by collection+request because several
@@ -596,7 +606,99 @@
   let busy = $state('')
   let activeActions = $state(new Map<number, string>())
   let nextActionID = $state(0)
+  // The ACTION error channel. Owned by runAction, which clears it when the next
+  // action starts, because a message about the thing you just did is obsolete
+  // the moment you do something else. Background failures must NOT go here —
+  // see backgroundNotices.
   let error = $state('')
+  // The BACKGROUND error channel. Nothing clears it but the user: these come
+  // from work they did not start (auto-save, the collection watcher, devtools
+  // refreshes, history writes, backend notification pushes, failed patch
+  // flushes) and there is no next action that would show them again.
+  let backgroundNotices = $state<BackgroundNotice[]>([])
+
+  /**
+   * Records a background failure where the user can actually see it.
+   *
+   * Every call site that used to write to `error` from a timer or a subscription
+   * calls this instead. The distinction is not stylistic: `runAction` sets
+   * `error = ''` on entry, so a message written there by a 5-second auto-save
+   * timer was erased by whatever the user clicked next — which, on a busy
+   * screen, is usually before they have read it.
+   */
+  function reportBackground(input: BackgroundNoticeInput) {
+    backgroundNotices = addBackgroundNotice(backgroundNotices, input)
+  }
+
+  /** `reportBackground` for the common shape: a caught unknown plus a context line. */
+  function reportBackgroundError(context: string, err: unknown, tone: BackgroundNotice['tone'] = 'error') {
+    reportBackground({ tone, message: context, detail: errorMessage(err, '') || undefined })
+  }
+
+  function dismissBackground(id: string) {
+    backgroundNotices = dismissBackgroundNotice(backgroundNotices, id)
+  }
+
+  /**
+   * Applies a state-returning mutation started from an input event.
+   *
+   * The handlers this replaces were `async` functions called from `oninput` and
+   * `onchange` as `oninput={(e) => updateEnvironmentVariable(...)}`. Svelte
+   * discards the promise a handler returns, so a rejected binding call had
+   * nowhere to go: the variable silently did not save, the row on screen kept
+   * showing the typed value because the DOM had already updated it, and the
+   * only trace was an unhandled rejection in a console the user does not have.
+   *
+   * Not routed through `runAction`, deliberately. `runAction` sets `busy`, and
+   * `busy` disables Send, Save and Run — so putting per-keystroke handlers
+   * through it would grey out the toolbar while the user types. This does the
+   * one thing that was missing, which is to make the failure land somewhere
+   * visible, and it uses the persistent channel because a mutation the user
+   * did not explicitly invoke has no "next action" that would show it again.
+   */
+  function applyStateMutation(description: string, work: Promise<types.AppState>): void {
+    void work.then(
+      (next) => {
+        workspaceStore.appState = next
+      },
+      (err: unknown) => {
+        reportBackgroundError(description, err)
+      }
+    )
+  }
+
+  /** `applyStateMutation` for work that returns nothing. */
+  function runDetached(description: string, work: () => Promise<unknown>): void {
+    void work().catch((err: unknown) => {
+      reportBackgroundError(description, err)
+    })
+  }
+
+  /**
+   * The single place preferences are written.
+   *
+   * Every preference mutator used to end in `workspaceStore.appState = await
+   * UpdatePreferences(...)`, and every one of them is reached from an
+   * `on:change` / `on:input` handler in the preferences views that does not
+   * await the promise it gets back. A failed write therefore turned a toggle
+   * that had already flipped in the DOM into a setting that was not saved, with
+   * nothing on screen to say so — and the deepest of them, the request
+   * preferences queue, explicitly re-threw into a promise nobody held.
+   *
+   * Resolving rather than re-throwing is the point: several of these mutators
+   * await each other (browseCustomCaCertificate → updateRequestPreferences),
+   * and a rejection propagating up that chain would only find another unawaited
+   * caller at the top. Reporting at the write itself is the one place with
+   * both the failure and somewhere to put it.
+   */
+  async function savePreferences(preferences: types.Preferences): Promise<void> {
+    try {
+      workspaceStore.appState = await UpdatePreferences(preferences)
+    } catch (err) {
+      reportBackgroundError('Preferences could not be saved', err)
+    }
+  }
+
   let activeHTTPTransport: { collectionId: string; requestId: string } | undefined
   let httpCancellationRequested = $state(false)
   let activeCollectionRun = $state<{ collectionId: string; collectionName: string } | undefined>()
@@ -724,7 +826,10 @@
   let gitCloneInProgress = $state(false)
   let showShareCollectionModal = $state(false)
   let shareCollectionFormat = $state('zip')
-  let shareCollectionResult: types.CollectionExportResult | undefined
+  // $state, not a plain let. It was neither reactive nor read by the template,
+  // so the export's warnings and confirmation had nowhere to render even if
+  // something had wanted to show them.
+  let shareCollectionResult = $state<types.CollectionExportResult | undefined>(undefined)
   let showGenerateDocsModal = $state(false)
   let renameCollectionTarget = $state<types.Collection | undefined>()
   let renameCollectionDraft = $state('')
@@ -1146,7 +1251,9 @@
     try {
       docsServerStatus = await DocsServerStatusFor(collectionID)
     } catch (err) {
-      error = String(err)
+      // Background: this is a status refresh, not something the user asked for,
+      // so `error` would be wiped by their next click before they read it.
+      reportBackgroundError('Docs preview status is unavailable', err)
     }
   }
 
@@ -1178,7 +1285,7 @@
     try {
       mockServerStatus = await MockServerStatusFor(collectionID)
     } catch (err) {
-      error = String(err)
+      reportBackgroundError('Mock server status is unavailable', err)
     }
   }
 
@@ -1258,7 +1365,9 @@
         onlyFailures: historyOnlyFailures
       } as history.HistoryQuery)
     } catch (err) {
-      error = String(err)
+      // Reached from a 150 ms debounce timer, so the action channel is the
+      // wrong place: `runAction` clears it on the user's very next keystroke.
+      reportBackgroundError('History could not be loaded', err)
     }
   }
 
@@ -1459,6 +1568,40 @@
     tooltipMemo = result.memo
     return result.value
   })())
+  /**
+   * The warning shown when a header references a variable nothing will supply.
+   *
+   * Resolution is delegated to findTooltipVariable, the same lookup the
+   * variable tooltips use, so this cannot disagree with what the inspector
+   * tells the user about the same name. `process.env.*` is checked against the
+   * values the backend supplied rather than the variable scopes, since that is
+   * where those come from.
+   */
+  const unresolvedHeaderWarning = $derived((() => {
+    if (!activeWorkspace || !activeCollection || !activeRequest) return ''
+    const workspace = activeWorkspace
+    const collection = activeCollection
+    const request = activeRequest
+    const environmentId = selectedEnvironmentId
+    const resolves = (name: string) =>
+      name.startsWith('process.env.')
+        ? processEnvTooltipValues[name] !== undefined
+        : Boolean(findTooltipVariable(name, workspace, collection, request, environmentId))
+    return unresolvedVariableMessage(unresolvedHeaderVariables(request.headers, resolves))
+  })())
+  /**
+   * How many test rows on the active response failed.
+   *
+   * Counts assertions as well as script test results because both render in the
+   * Tests tab and both are equally invisible from the status line. A thrown
+   * post-response script now arrives as a failed TestResult row, which is what
+   * makes this the right signal: the HTTP status stays 200 and green, and
+   * nothing else on screen says the script blew up.
+   */
+  const failedResponseTestCount = $derived(
+    (activeRequest?.response?.testResults ?? []).filter((result) => !result.passed).length +
+      (activeRequest?.response?.assertions ?? []).filter((assertion) => !assertion.passed).length
+  )
   const searchQuery = $derived(normalizedSearch(requestSearch))
   const globalSearchResults = $derived(buildGlobalSearchResults(activeWorkspace, globalSearchQuery))
   const visibleNotifications = $derived(notificationsForDisplay(appState?.notifications ?? []))
@@ -1562,6 +1705,7 @@
 	  let stopGitCloneProgress: (() => void) | undefined
 	  let stopOAuth2Authorize: (() => void) | undefined
 	  let stopNativeMenuCommands: (() => void) | undefined
+	  let stopNotificationPush: (() => void) | undefined
 
 	  onMount(() => {
 	    // US-064. Offered once, on a launch that finds something to offer.
@@ -1583,10 +1727,13 @@
     const flushPendingWrites = () => {
       // Drain the in-memory patch queue before asking Go to write: otherwise
       // the write lands without the character typed in the last 120 ms.
-      void flushPendingRequestPatch().then(() => FlushPendingWrites()).catch(() => {
-        // A failed background write is surfaced to the user by the Go side's
-        // notification path on the next mutation; there is nothing useful to
-        // do from a blur handler, and throwing here would be unhandled.
+      void flushPendingRequestPatch().then(() => FlushPendingWrites()).catch((err: unknown) => {
+        // This is the last write before the window loses focus or the machine
+        // sleeps, so a failure here is the one most likely to lose real work.
+        // It used to be swallowed on the grounds that the Go side would raise a
+        // notification on the next mutation — which was true, and useless, in
+        // the case that matters: there may not BE a next mutation.
+        reportBackgroundError('Pending changes could not be written to disk', err)
       })
     }
     const handleVisibilityChange = () => {
@@ -1598,6 +1745,77 @@
       window.removeEventListener('blur', flushPendingWrites)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
+
+    // THE BACKSTOP. Every specific fix in this pass closes one hole where a
+    // failure could reach the console and stop there; this catches the ones
+    // nobody has found yet. It is deliberately last in line and deliberately
+    // vague in wording — it cannot know what failed, only that something did,
+    // and "something failed silently" is still strictly better for a user than
+    // an app that quietly stops working.
+    //
+    // Both events are needed. `unhandledrejection` covers async work whose
+    // promise nobody awaited — the `void someAsync()` pattern this file uses in
+    // dozens of event handlers. `error` covers synchronous throws out of
+    // listeners and callbacks, which never become promises at all.
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      reportBackground({
+        message: 'An operation failed unexpectedly',
+        detail: errorMessage(event.reason, '') || undefined
+      })
+    }
+    const handleGlobalError = (event: ErrorEvent) => {
+      // Resource load failures (a missing image, a chunk that 404s) also fire
+      // `error` on window, but with no `error` object. Reporting those as app
+      // failures would put noise in a channel whose whole value is that its
+      // contents are worth reading.
+      if (!event.error && !event.message) return
+      reportBackground({
+        message: 'An operation failed unexpectedly',
+        detail: errorMessage(event.error ?? event.message, '') || undefined
+      })
+    }
+    window.addEventListener('unhandledrejection', handleUnhandledRejection)
+    window.addEventListener('error', handleGlobalError)
+    removeGlobalFailureListeners = () => {
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection)
+      window.removeEventListener('error', handleGlobalError)
+    }
+    // US — backend notification pushes. The Go side raises error- and
+    // warning-level notifications the moment they happen, but until now the
+    // frontend only learned about them by reading `appState.notifications` off
+    // the return value of the NEXT binding call. A failure in background Go
+    // work — a watcher, a deferred write — produces no binding call at all, so
+    // in the worst case the user was told about it when they happened to click
+    // something unrelated, or never.
+    //
+    // The payload is a single-key envelope around types.Notification. There is
+    // no generated type for the envelope (the Go struct is unexported), so it
+    // is spelled out here.
+    stopNotificationPush = EventsOn('notification', (push: { notification?: types.Notification }) => {
+      const notification = push?.notification
+      if (!notification) return
+      // The backend already filters to error/warn levels before emitting, but
+      // the tone still has to be mapped: this channel has two, and the backend
+      // vocabulary has four spellings across them.
+      const level = (notification.level || '').toLowerCase()
+      const tone = level === 'warning' || level === 'warn' ? 'warning' : 'error'
+      reportBackground({
+        tone,
+        message: notification.title || notification.message || 'Notification',
+        detail: notification.title ? notification.message : notification.description
+      })
+      // And into the notification list, so the unread badge moves now rather
+      // than at the next binding call. The backend has already prepended it to
+      // its own copy, so this mirrors that rather than inventing state: the id
+      // check keeps a later GetState from producing a duplicate row, and the
+      // cap of 20 is the one notify() applies on the Go side.
+      if (appState && !(appState.notifications ?? []).some((existing) => existing.id === notification.id)) {
+        workspaceStore.appState = {
+          ...appState,
+          notifications: [notification, ...(appState.notifications ?? [])].slice(0, 20)
+        } as types.AppState
+      }
+    })
 	    stopGitCloneProgress = EventsOn('git:clone:progress', (event: GitCloneProgress) => {
 	      gitCloneProgress = [...gitCloneProgress, event].slice(-24)
 	    })
@@ -1644,6 +1862,8 @@
 	    stopOpenAPISyncPolling()
 	    removeCompactWorkbenchListener?.()
 	    removeFlushOnBlurListeners?.()
+	    removeGlobalFailureListeners?.()
+	    stopNotificationPush?.()
 	    stopGitCloneProgress?.()
 	    stopWebSocketEvents?.()
 	    stopGrpcEvents?.()
@@ -1944,6 +2164,10 @@
       workspaceStore.appState = await GetState()
 	    workbenchStorageScope = await GetWebStorageScope()
 	    restoreWorkbenchLayout()
+	    // Restores the per-collection environment choices from the previous
+	    // session. Bound here, with the scope, because both are scoped to this
+	    // workspace window — see environmentSelectionKey.
+	    workspaceStore.bindEnvironmentScope(workbenchStorageScope)
       loadingStatus = 'Checking recovery'
       recoveryEntries = (await ListRecoveryEntries()) ?? []
       loadingStatus = 'Measuring local cache'
@@ -1951,7 +2175,11 @@
       loadingStatus = 'Preparing workbench'
       applyDevToolsShellPreferences(appState?.preferences?.devTools)
       if (devToolsOpen) await refreshDevToolsSnapshot()
-      workspaceStore.selectedEnvironmentId = activeCollection?.environments?.[0]?.id ?? ''
+      // No environment pick here any more. This line was the origin of the
+      // split-brain: it ran once, against whichever collection happened to be
+      // active during startup, and nothing re-ran it when the active collection
+      // changed a moment later as the open tab was restored. The store now
+      // derives the id per collection from the persisted map bound above.
     })
     loading = false
   }
@@ -2870,7 +3098,7 @@
     const requestId = request.id
     // US-035: drain any patch still inside the debounce window, so Send uses
     // what the user actually typed rather than the last flushed value.
-    await flushPendingRequestPatch()
+    await drainRequestPatchesBeforeAction()
     await runAction('send request', async () => {
       if (cancellableTransport) {
         activeHTTPTransport = { collectionId, requestId }
@@ -3030,7 +3258,11 @@
 
   async function setActiveGlobalEnvironment(environmentId: string) {
     if (!activeWorkspace) return
-    workspaceStore.appState = await SetActiveGlobalEnvironment(activeWorkspace.id, environmentId)
+    try {
+      workspaceStore.appState = await SetActiveGlobalEnvironment(activeWorkspace.id, environmentId)
+    } catch (err) {
+      reportBackgroundError('Active global environment could not be changed', err)
+    }
   }
 
   async function setActiveWorkspace(workspaceId: string) {
@@ -3040,7 +3272,8 @@
       const workspace = nextState.workspaces?.find((candidate) => candidate.id === workspaceId)
       workspaceStore.appState = nextState
       workspaceStore.selectedCollectionId = workspace?.collections?.[0]?.id ?? ''
-      workspaceStore.selectedEnvironmentId = workspace?.collections?.[0]?.environments?.[0]?.id ?? ''
+      // The environment follows the collection now; picking one here would
+      // overwrite whatever the user last chose for it.
     })
   }
 
@@ -3143,7 +3376,11 @@
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     const name = field === 'name' ? value : selectedGlobalEnvironment.name
     const color = field === 'color' ? value : selectedGlobalEnvironment.color
-    workspaceStore.appState = await UpdateGlobalEnvironment(activeWorkspace.id, selectedGlobalEnvironment.id, name, color)
+    try {
+      workspaceStore.appState = await UpdateGlobalEnvironment(activeWorkspace.id, selectedGlobalEnvironment.id, name, color)
+    } catch (err) {
+      reportBackgroundError('Global environment could not be renamed', err)
+    }
   }
 
   function dotEnvFileKey(file: Pick<types.DotEnvFile, 'scope' | 'name'>) {
@@ -3589,8 +3826,33 @@
 	      if (result.changed) {
 	        workspaceStore.appState = result.state
 	      }
-	    } catch {
-	      // Collection files can be briefly unreadable while external editors are writing them.
+	      // The result has always carried these three lists; nothing read them.
+	      // A collection whose file was deleted, or whose reload failed, simply
+	      // stopped updating: the watcher reported it every two seconds to a
+	      // caller that dropped it on the floor.
+	      //
+	      // The background channel's dedupe is what makes this safe to raise
+	      // from a 2-second poll — a collection that stays broken is one row
+	      // with a rising count, not thirty rows.
+	      for (const failure of result.errors ?? []) {
+	        reportBackground({ message: 'A collection could not be reloaded from disk', detail: failure })
+	      }
+	      for (const missing of result.missing ?? []) {
+	        reportBackground({ message: 'A collection file is missing on disk', detail: missing })
+	      }
+	      // Not an error: the watcher declining to clobber unsaved work is it
+	      // behaving correctly. But it is otherwise invisible, and a user
+	      // watching for an external edit that never appears needs to know why.
+	      for (const skipped of result.skippedDirty ?? []) {
+	        reportBackground({ tone: 'warning', message: 'Refresh skipped — unsaved changes', detail: skipped })
+	      }
+	    } catch (err) {
+	      // Collection files can be briefly unreadable while external editors
+	      // are writing them, which is why this poll swallowed everything. It
+	      // still tolerates that — dedupe means a transient failure that clears
+	      // on the next poll leaves one dismissable row rather than a stream —
+	      // but a watcher that has stopped working no longer does so in silence.
+	      reportBackgroundError('Watching collections for external changes failed', err)
 	    } finally {
 	      collectionWatchRefreshInFlight = false
 	    }
@@ -3812,7 +4074,6 @@
   async function resetDemoData() {
     await runAction('reset demo data', async () => {
       workspaceStore.appState = await ResetDemoData()
-      workspaceStore.selectedEnvironmentId = activeCollection?.environments?.[0]?.id ?? ''
       activeView = 'request'
     })
   }
@@ -3893,7 +4154,7 @@
   }
 
   async function setActiveTab(tabId: string) {
-    await flushPendingRequestPatch()
+    await drainRequestPatchesBeforeAction()
     await runAction('switch tab', async () => {
       const result = await SetActiveTabNarrow(tabId)
       await applyNarrow((current, held) => applyTabsMutation(current, held, result))
@@ -4707,7 +4968,10 @@
       shareCollectionResult = result
       if (result.content) exportText = result.content
       downloadCollectionExport(result)
-      showShareCollectionModal = false
+      // The dialog stays open. It used to close here, which discarded the
+      // result's `warning` and `skippedTypes` unseen — the user was told
+      // nothing about the headers, assertions and request types the export
+      // dropped, and nothing confirmed what had been written either.
     })
   }
 
@@ -4734,15 +4998,49 @@
     }
   }
 
+  /**
+   * Runs a response export without freezing the rest of the app.
+   *
+   * These two used `runAction`, which sets the global `busy` string, and `busy`
+   * is what disables Send, Save and Run on EVERY tab. Both of them open a
+   * NATIVE save dialog and do not return until it is dismissed — so clicking
+   * Download left the whole workbench showing "Sending…" and refusing input for
+   * as long as the file picker was open, on every request, not just this one.
+   *
+   * The busy state is therefore scoped to the export itself. It still exists,
+   * because it is what stops a second click stacking a second native dialog;
+   * it just no longer means "the application is busy".
+   */
+  let responseExportBusy = $state('')
+
+  async function runResponseExport(label: string, action: () => Promise<void>) {
+    if (responseExportBusy) return
+    responseExportBusy = label
+    error = ''
+    try {
+      await action()
+    } catch (err) {
+      error = errorMessage(err, `Could not ${label}`)
+    } finally {
+      responseExportBusy = ''
+    }
+  }
+
   async function saveActiveResponseTimeline() {
     if (!activeCollection || !activeRequest) return
-    await runAction('save response timeline', async () => { await SaveResponseTimeline(activeCollection.id, activeRequest.id, '') })
+    const collectionId = activeCollection.id
+    const requestId = activeRequest.id
+    await runResponseExport('export the timeline', async () => {
+      await SaveResponseTimeline(collectionId, requestId, '')
+    })
   }
 
   async function saveActiveResponseBody() {
     if (!activeCollection || !activeRequest) return
-    await runAction('save response body', async () => {
-      await SaveResponseBody(activeCollection.id, activeRequest.id, '')
+    const collectionId = activeCollection.id
+    const requestId = activeRequest.id
+    await runResponseExport('download the response body', async () => {
+      await SaveResponseBody(collectionId, requestId, '')
     })
   }
 
@@ -5047,6 +5345,19 @@
       }
       scheduleRequestAutoSave(collectionId, itemId)
     },
+    {
+      // Without this the failure has nowhere to go. The debounce timer fires
+      // `void flush()`, so a rejected flush was an unhandled rejection in the
+      // console and nothing else — the user kept typing into a request that
+      // had stopped saving, with no indication anything was wrong. The queue
+      // re-queues the patch itself, so this only has to say so.
+      onError: (err) => {
+        reportBackground({
+          message: 'Unsaved edits could not be sent to the workspace',
+          detail: errorMessage(err, 'The edit is still queued and will retry on the next save or send.')
+        })
+      }
+    }
   )
 
   // Applies a patch to the local copy without touching the revision: no server
@@ -5071,6 +5382,32 @@
   // the last keystroke exactly when the user is watching for it.
   function flushPendingRequestPatch(): Promise<void> {
     return requestPatchCoalescer.flush()
+  }
+
+  /**
+   * Drains the patch queue before an action that must not race it, without
+   * letting a failed drain take the action down with it.
+   *
+   * Send and tab-switch both used a bare `await flushPendingRequestPatch()`
+   * sitting outside their `runAction`, which gave the failure two ways to be
+   * wrong at once: the rejection escaped the function (the caller invokes these
+   * as `void sendRequest()`, so it became an unhandled rejection nobody saw),
+   * and the action after it never ran — the Send button did nothing, with no
+   * error on screen to say why.
+   *
+   * The failure is not swallowed here: the coalescer's onError has already put
+   * it in the background channel, where it stays until dismissed, and the patch
+   * is still queued for the next attempt. Reporting it a second time from here
+   * would put two rows on screen for one problem. What this adds is that the
+   * action proceeds — sending a request against a slightly stale server-side
+   * copy is a far better outcome than a button that silently does nothing.
+   */
+  async function drainRequestPatchesBeforeAction(): Promise<void> {
+    try {
+      await flushPendingRequestPatch()
+    } catch {
+      // Already surfaced by requestPatchCoalescer's onError. See above.
+    }
   }
 
   function patchRequestWithURL(url: string) {
@@ -5403,63 +5740,63 @@
     patchRequest({ vars: { ...(activeRequest.vars ?? { req: [], res: [] }), req } } as unknown as types.RequestPatch)
   }
 
-  async function updateCollectionVariable(index: number, field: keyof types.Variable, value: string | boolean) {
+  function updateCollectionVariable(index: number, field: keyof types.Variable, value: string | boolean) {
     if (!activeCollection) return
     const vars = [...(activeCollection.variables ?? [])]
     vars[index] = { ...vars[index], [field]: value }
-    workspaceStore.appState = await UpdateCollectionVariables(activeCollection.id, vars)
+    applyStateMutation('Collection variable could not be saved', UpdateCollectionVariables(activeCollection.id, vars))
   }
 
-  async function addCollectionVariable() {
+  function addCollectionVariable() {
     if (!activeCollection) return
     const vars = [...(activeCollection.variables ?? []), { id: `ui-var-${Date.now()}`, name: '', value: '', type: 'text', dataType: 'string', enabled: true, secret: false }]
-    workspaceStore.appState = await UpdateCollectionVariables(activeCollection.id, vars)
+    applyStateMutation('Collection variable could not be added', UpdateCollectionVariables(activeCollection.id, vars))
   }
 
-  async function updateEnvironmentVariable(index: number, field: keyof types.Variable, value: string | boolean) {
+  function updateEnvironmentVariable(index: number, field: keyof types.Variable, value: string | boolean) {
     if (!activeCollection || !selectedEnvironment) return
     const vars = [...(selectedEnvironment.variables ?? [])]
     vars[index] = field === 'dataType' ? { ...vars[index], dataType: String(value), type: String(value) } : { ...vars[index], [field]: value }
-    workspaceStore.appState = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
+    applyStateMutation('Environment variable could not be saved', UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars))
   }
 
-  async function addEnvironmentVariable() {
+  function addEnvironmentVariable() {
     if (!activeCollection || !selectedEnvironment) return
     const vars = [
       ...(selectedEnvironment.variables ?? []),
       { id: `ui-env-var-${Date.now()}`, name: '', value: '', type: 'text', dataType: 'string', enabled: true, secret: environmentVariableTab === 'secrets' }
     ]
-    workspaceStore.appState = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
+    applyStateMutation('Environment variable could not be added', UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars))
   }
 
-  async function removeEnvironmentVariable(index: number) {
+  function removeEnvironmentVariable(index: number) {
     if (!activeCollection || !selectedEnvironment) return
     const vars = [...(selectedEnvironment.variables ?? [])]
     vars.splice(index, 1)
-    workspaceStore.appState = await UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars)
+    applyStateMutation('Environment variable could not be removed', UpdateEnvironmentVariables(activeCollection.id, selectedEnvironment.id, vars))
   }
 
-  async function updateGlobalEnvironmentVariable(index: number, field: keyof types.Variable, value: string | boolean) {
+  function updateGlobalEnvironmentVariable(index: number, field: keyof types.Variable, value: string | boolean) {
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     const vars = [...(selectedGlobalEnvironment.variables ?? [])]
     vars[index] = field === 'dataType' ? { ...vars[index], dataType: String(value), type: String(value) } : { ...vars[index], [field]: value }
-    workspaceStore.appState = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
+    applyStateMutation('Global environment variable could not be saved', UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars))
   }
 
-  async function addGlobalEnvironmentVariable() {
+  function addGlobalEnvironmentVariable() {
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     const vars = [
       ...(selectedGlobalEnvironment.variables ?? []),
       { id: `ui-global-env-var-${Date.now()}`, name: '', value: '', type: 'text', dataType: 'string', enabled: true, secret: globalEnvironmentVariableTab === 'secrets' }
     ]
-    workspaceStore.appState = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
+    applyStateMutation('Global environment variable could not be added', UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars))
   }
 
-  async function removeGlobalEnvironmentVariable(index: number) {
+  function removeGlobalEnvironmentVariable(index: number) {
     if (!activeWorkspace || !selectedGlobalEnvironment) return
     const vars = [...(selectedGlobalEnvironment.variables ?? [])]
     vars.splice(index, 1)
-    workspaceStore.appState = await UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars)
+    applyStateMutation('Global environment variable could not be removed', UpdateGlobalEnvironmentVariables(activeWorkspace.id, selectedGlobalEnvironment.id, vars))
   }
 
   async function deleteGlobalEnvironment() {
@@ -5542,9 +5879,18 @@
     workspaceStore.appState = await UpdateCollectionHeaders(activeCollection.id, headers)
   }
 
+  // Reached only from `onchange` handlers that discard the promise, so a
+  // rejection here had nowhere to go: the auth field kept the value the DOM had
+  // already applied while the collection on disk kept the old one. Every leaf
+  // writer below is closed the same way — report, and resolve rather than
+  // re-throw, because the caller above is another unawaited handler.
   async function updateCollectionAuth(updates: Partial<types.AuthConfig>) {
     if (!activeCollection) return
-    workspaceStore.appState = await UpdateCollectionAuth(activeCollection.id, authWithOAuth2Defaults(activeCollection.auth, updates))
+    try {
+      workspaceStore.appState = await UpdateCollectionAuth(activeCollection.id, authWithOAuth2Defaults(activeCollection.auth, updates))
+    } catch (err) {
+      reportBackgroundError('Collection auth could not be saved', err)
+    }
   }
 
 
@@ -5556,7 +5902,11 @@
 
   async function updateCollectionProxy(updates: Partial<types.ProxyConfig>) {
     if (!activeCollection) return
-    workspaceStore.appState = await UpdateCollectionProxy(activeCollection.id, normalizedCollectionProxy(updates))
+    try {
+      workspaceStore.appState = await UpdateCollectionProxy(activeCollection.id, normalizedCollectionProxy(updates))
+    } catch (err) {
+      reportBackgroundError('Collection proxy settings could not be saved', err)
+    }
   }
 
   async function updateCollectionProxyMode(mode: string) {
@@ -5594,7 +5944,7 @@
       proxy,
       proxyMode: preferenceProxyModeValue(proxy)
     } as types.Preferences
-    workspaceStore.appState = await UpdatePreferences(preferences)
+    await savePreferences(preferences)
   }
 
   async function updatePreferencesProxyMode(mode: string) {
@@ -5621,7 +5971,7 @@
 
   async function updateAppearancePreferences(updates: Partial<types.Preferences>) {
     if (!appState) return
-    workspaceStore.appState = await UpdatePreferences({
+    await savePreferences({
       ...appState.preferences,
       ...updates
     } as types.Preferences)
@@ -5641,7 +5991,7 @@
 
   async function setResponsePaneOrientation(orientation: ResponsePaneOrientation) {
     if (!appState) return
-    workspaceStore.appState = await UpdatePreferences({
+    await savePreferences({
       ...appState.preferences,
       layout: {
         ...(appState.preferences.layout ?? {}),
@@ -5656,7 +6006,7 @@
 
   async function setZoomPercentage(percentage: number) {
     if (!appState) return
-    workspaceStore.appState = await UpdatePreferences({
+    await savePreferences({
       ...appState.preferences,
       display: {
         ...(appState.preferences.display ?? {}),
@@ -5680,7 +6030,7 @@
       ...updates
     } as types.FontPreferences
     const nextSize = normalizedCodeFontSize(nextFont.codeFontSize ?? appState.preferences.codeFontSize)
-    workspaceStore.appState = await UpdatePreferences({
+    await savePreferences({
       ...appState.preferences,
       font: {
         ...nextFont,
@@ -5724,7 +6074,7 @@
         // through here, so forgetting it resets the response cap on any of them.
         maxResponseBytes: updates.maxResponseBytes ?? current.maxResponseBytes
       } as types.RequestPreferences
-      workspaceStore.appState = await UpdatePreferences({
+      await savePreferences({
         ...appState.preferences,
         request: next,
         storeCookies: next.storeCookies ?? true
@@ -5761,7 +6111,7 @@
       ...(appState.preferences.general ?? {}),
       ...updates
     } as types.GeneralPreferences
-    workspaceStore.appState = await UpdatePreferences({
+    await savePreferences({
       ...appState.preferences,
       general: next,
       defaultCollectionPath: next.defaultLocation ?? ''
@@ -5785,7 +6135,7 @@
       enabled: updates.enabled ?? current.enabled ?? appState.preferences.autosave ?? false,
       interval: normalizedAutoSaveInterval(updates.interval ?? current.interval)
     } as types.AutoSavePreferences
-    workspaceStore.appState = await UpdatePreferences({
+    await savePreferences({
       ...appState.preferences,
       autoSave: next,
       autosave: next.enabled
@@ -5799,7 +6149,7 @@
 
   async function updateSSLSessionCache(enabled: boolean) {
     if (!appState) return
-    workspaceStore.appState = await UpdatePreferences({
+    await savePreferences({
       ...appState.preferences,
       cache: {
         ...(appState.preferences.cache ?? {}),
@@ -5825,7 +6175,7 @@
 
   async function updateFileCache(enabled: boolean) {
     if (!appState) return
-    workspaceStore.appState = await UpdatePreferences({
+    await savePreferences({
       ...appState.preferences,
       cache: {
         ...(appState.preferences.cache ?? {}),
@@ -5868,7 +6218,12 @@
       try {
         workspaceStore.appState = await SaveRequest(target.collectionId, target.requestId)
       } catch (err) {
-        error = err instanceof Error ? err.message : String(err)
+        // The worst instance of the shared-channel bug: a failed AUTO-save,
+        // written to `error` from a timer the user did not start, and erased by
+        // whatever they clicked next. The user goes on editing a request that
+        // is no longer being saved, having been told so for a fraction of a
+        // second, if at all. This one has to persist until dismissed.
+        reportBackgroundError('Auto-save failed — your changes are not on disk', err)
       }
     }, autoSaveDelay())
   }
@@ -6247,7 +6602,7 @@
     devToolsDrawerHeight = normalizedDevToolsDrawerHeight(next.drawerHeight)
     devToolsDetailsPanelWidth = normalizedDevToolsDetailsPanelWidth(next.detailsPanelWidth)
     if (!appState) return
-    workspaceStore.appState = await UpdatePreferences({
+    await savePreferences({
       ...appState.preferences,
       devTools: next
     } as types.Preferences)
@@ -6293,17 +6648,29 @@
         rows[index].pfxFilePath = ''
       }
     }
-    workspaceStore.appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
+    try {
+      workspaceStore.appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
+    } catch (err) {
+      reportBackgroundError('Client certificates could not be saved', err)
+    }
   }
 
   async function updateCollectionPresets(updates: Partial<types.CollectionPresets>) {
     if (!activeCollection) return
-    workspaceStore.appState = await UpdateCollectionPresets(activeCollection.id, { ...(activeCollection.presets ?? {}), ...updates } as types.CollectionPresets)
+    try {
+      workspaceStore.appState = await UpdateCollectionPresets(activeCollection.id, { ...(activeCollection.presets ?? {}), ...updates } as types.CollectionPresets)
+    } catch (err) {
+      reportBackgroundError('Collection presets could not be saved', err)
+    }
   }
 
   async function updateCollectionProtobuf(protobuf: types.CollectionProtobufConfig) {
     if (!activeCollection) return
-    workspaceStore.appState = await UpdateCollectionProtobuf(activeCollection.id, protobuf)
+    try {
+      workspaceStore.appState = await UpdateCollectionProtobuf(activeCollection.id, protobuf)
+    } catch (err) {
+      reportBackgroundError('Protobuf settings could not be saved', err)
+    }
   }
 
   function collectionProtobufConfig() {
@@ -6320,14 +6687,22 @@
       ...(activeCollection.clientCertificates ?? []),
       { domain: '', type: 'cert', certFilePath: '', keyFilePath: '', pfxFilePath: '', passphrase: '' } as types.ClientCertificateConfig
     ]
-    workspaceStore.appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
+    try {
+      workspaceStore.appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
+    } catch (err) {
+      reportBackgroundError('Client certificates could not be saved', err)
+    }
   }
 
   async function removeCollectionClientCertificate(index: number) {
     if (!activeCollection) return
     const rows = [...(activeCollection.clientCertificates ?? [])]
     rows.splice(index, 1)
-    workspaceStore.appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
+    try {
+      workspaceStore.appState = await UpdateCollectionClientCertificates(activeCollection.id, rows)
+    } catch (err) {
+      reportBackgroundError('Client certificates could not be saved', err)
+    }
   }
 
   async function updateCollectionProtoFile(index: number, field: keyof types.CollectionProtoFile, value: string) {
@@ -6412,17 +6787,25 @@
 
   async function updateCollectionDocs(value: string) {
     if (!activeCollection) return
-    workspaceStore.appState = await UpdateCollectionDocs(activeCollection.id, value)
+    try {
+      workspaceStore.appState = await UpdateCollectionDocs(activeCollection.id, value)
+    } catch (err) {
+      reportBackgroundError('Collection docs could not be saved', err)
+    }
   }
 
   async function updateCollectionScript(field: 'preScript' | 'postScript' | 'tests', value: string) {
     if (!activeCollection) return
-    workspaceStore.appState = await UpdateCollectionScripts(
-      activeCollection.id,
-      field === 'preScript' ? value : activeCollection.preScript,
-      field === 'postScript' ? value : activeCollection.postScript,
-      field === 'tests' ? value : activeCollection.tests
-    )
+    try {
+      workspaceStore.appState = await UpdateCollectionScripts(
+        activeCollection.id,
+        field === 'preScript' ? value : activeCollection.preScript,
+        field === 'postScript' ? value : activeCollection.postScript,
+        field === 'tests' ? value : activeCollection.tests
+      )
+    } catch (err) {
+      reportBackgroundError('Collection scripts could not be saved', err)
+    }
   }
 
   function folderAuthWithDefaults(updates: Partial<types.AuthConfig> = {}) {
@@ -6468,7 +6851,14 @@
         selectedFolderPath = nextFolder.path
         folderSettingDrafts = { ...folderSettingDrafts, [nextFolder.path]: nextFolder }
       })
-    await folderSettingsSaveQueue
+    try {
+      await folderSettingsSaveQueue
+    } catch (err) {
+      // The queue already has its own `.catch` so one failure does not stop
+      // later folder saves; this is the half that was missing, since every
+      // caller reaches here from an unawaited `onchange`.
+      reportBackgroundError('Folder settings could not be saved', err)
+    }
   }
 
   async function updateFolderHeader(index: number, field: 'name' | 'value' | 'enabled', value: string | boolean) {
@@ -6625,7 +7015,7 @@
     devToolsNetworkColumnWidths = payload.columnWidths
     devToolsNetworkPreferencesKey = JSON.stringify(payload)
     if (!appState) return
-    workspaceStore.appState = await UpdatePreferences({
+    await savePreferences({
       ...appState.preferences,
       devTools: {
         ...(appState.preferences.devTools ?? {}),
@@ -6728,6 +7118,19 @@
     devToolsNetworkDetailTab = 'request'
   }
 
+  /**
+   * Owns the details-panel subtab, because the panel could not.
+   *
+   * RequestDetailsPanel receives the tab one-way and used to assign to its own
+   * copy of it, so the parent never learned which tab was showing and reset it
+   * to 'request' on the next row selection.
+   */
+  function selectDevToolsNetworkDetailTab(id: string) {
+    if (devToolsNetworkDetailTabs.some((tab) => tab.id === id)) {
+      devToolsNetworkDetailTab = id as DevToolsNetworkDetailTab
+    }
+  }
+
   async function openDevTools(tab: DevToolsTab = devToolsTab) {
     devToolsOpen = true
     devToolsTab = tab
@@ -6750,7 +7153,7 @@
     try {
       devToolsSnapshot = await GetDevToolsSnapshot()
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err)
+      reportBackgroundError('Dev Tools snapshot could not be refreshed', err)
     }
   }
 
@@ -8022,6 +8425,32 @@
         <div class="error-banner" role="alert" aria-live="assertive">{error}</div>
       {/if}
 
+      <!--
+        The background channel. Separate from the banner above because these
+        outlive the next action: nothing but the dismiss button removes them.
+        Rendered as a list rather than one line so two unrelated background
+        failures do not have to compete for the same row.
+      -->
+      {#if backgroundNotices.length > 0}
+        <ul class="background-notices" aria-label="Background problems">
+          {#each backgroundNotices as notice (notice.id)}
+            <li class={`background-notice ${notice.tone}`} role="alert" aria-live="polite">
+              <div class="background-notice-text">
+                <strong>{backgroundNoticeLabel(notice)}</strong>
+                {#if notice.detail}<span>{notice.detail}</span>{/if}
+              </div>
+              <button
+                type="button"
+                class="icon-button"
+                title="Dismiss"
+                aria-label={`Dismiss: ${backgroundNoticeLabel(notice)}`}
+                onclick={() => dismissBackground(notice.id)}
+              >×</button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+
       {#snippet devToolsPanel()}
         <section class="panel devtools-panel" aria-label="Dev Tools">
           <header class="panel-header">
@@ -8114,8 +8543,36 @@
                           <tr aria-hidden="true" class="network-spacer"><td colspan={devToolsNetworkColumns.length} style={`height: ${devToolsNetworkWindow.topPadding}px; padding: 0; border: none;`}></td></tr>
                         {/if}
                         {#each devToolsNetworkVisibleRows as row (row.id)}
-                          <tr data-network-row class:selected={selectedDevToolsNetworkRow?.id === row.id}>
-                            <td><button class="table-link" type="button" onclick={() => selectDevToolsNetworkRow(row)}>{normalizedNetworkMethod(row)}</button></td>
+                          <!--
+                            The whole row selects, not just the Method cell.
+                            Only that one cell was clickable before, so clicking
+                            the path, status or duration of a row did nothing
+                            while the details pane went on showing whichever row
+                            was selected — which reads as the pane showing the
+                            wrong request, not as the click having missed.
+
+                            role/tabindex/keydown rather than a <button> per
+                            cell: a table row cannot contain a button that wraps
+                            its cells, and the details pane is a disclosure of
+                            this row, so `button` is the honest role.
+                          -->
+                          <tr
+                            data-network-row
+                            class:selected={selectedDevToolsNetworkRow?.id === row.id}
+                            role="button"
+                            tabindex="0"
+                            aria-pressed={selectedDevToolsNetworkRow?.id === row.id}
+                            aria-label={`${normalizedNetworkMethod(row)} ${row.url}`}
+                            onclick={() => selectDevToolsNetworkRow(row)}
+                            onkeydown={(event) => {
+                              if (event.key !== 'Enter' && event.key !== ' ') return
+                              // Space scrolls the table otherwise, which moves
+                              // the row out from under the user as they select it.
+                              event.preventDefault()
+                              selectDevToolsNetworkRow(row)
+                            }}
+                          >
+                            <td>{normalizedNetworkMethod(row)}</td>
                             <td>{statusDisplay(row.status)}</td>
                             <td>{devToolsNetworkDomain(row)}</td>
                             <td><code>{devToolsNetworkPath(row)}</code></td>
@@ -8142,6 +8599,7 @@
                   {networkLogLines}
                   {normalizedNetworkMethod}
                   {startDevToolsDetailsPanelResize}
+                  onSelectDetailTab={selectDevToolsNetworkDetailTab}
                 />
               {/await}
                   {/if}
@@ -8310,6 +8768,22 @@
           </RequestCommandStrip>
           <div class="request-side">
             <div class="request-variable-region">
+            <!--
+              Headers were the one place an unresolved {{variable}} was
+              completely silent: the URL path refuses to send, but a header went
+              out as literal braces, came back 401, and left nothing on screen
+              connecting the two. Shown while the header is still being edited
+              rather than raised at send time.
+
+              Inside .request-variable-region rather than as a direct child of
+              .request-workbench: that grid places children by explicit row, so
+              an extra child there shunts the request and response panes into
+              the wrong cells. This region is already an `auto` row and already
+              the home of the variable inspector, which is the same subject.
+            -->
+            {#if unresolvedHeaderWarning}
+              <div class="request-variable-warning" role="status" aria-live="polite">{unresolvedHeaderWarning}</div>
+            {/if}
             {#if requestVariableTooltips.length > 0}
               <div class="variable-inspector" aria-label="Variable inspector">
                 {#each requestVariableTooltips as variableInfo (variableInfo.name)}
@@ -8832,7 +9306,7 @@
               {:else if requestPaneTab === 'app'}
                 <div class="empty-appState">Request app runtime surface</div>
               {:else if requestPaneTab === 'settings'}
-                <RequestSettingsPanel requestType={activeRequest.type} settings={activeRequest.settings} onChange={updateSettings} />
+                <RequestSettingsPanel requestType={activeRequest.type} settings={activeRequest.settings} onChange={updateSettings} globalVerifyTlsEnabled={appState?.preferences?.request?.sslVerification !== false} />
               {/if}
             </div>
           </div>
@@ -8857,6 +9331,19 @@
                 <span>{requestCommand.response.statusText}</span>
                 <span>{requestCommand.response.duration}</span>
                 <span>{requestCommand.response.size}</span>
+                <!--
+                  Next to the status code, because the status code is the thing
+                  it contradicts: a post-response script that threw still leaves
+                  a plain green 200 here, and the failure was only visible to
+                  someone who thought to open the Tests tab.
+                -->
+                {#if failedResponseTestCount > 0}
+                  <a
+                    class="response-test-failures"
+                    href="#response-panel-tests"
+                    onclick={(event) => { event.preventDefault(); selectResponsePaneTab('tests') }}
+                  >{failedResponseTestCount} test{failedResponseTestCount === 1 ? '' : 's'} failed</a>
+                {/if}
               </div>
               <button title="Save response as example" onclick={saveResponseExample} disabled={!activeRequest.response || busy !== ''}>Example</button>
             </div>
@@ -8877,6 +9364,14 @@
                     <span>{activeRequest.response?.metadata?.length}</span>
                   {:else if tab.id === 'trailers' && (activeRequest.response?.trailers?.length ?? 0) > 0}
                     <span>{activeRequest.response?.trailers?.length}</span>
+                  {:else if tab.id === 'tests' && failedResponseTestCount > 0}
+                    <!--
+                      The backend now records a thrown post-response script as a
+                      failed test row. Without a badge here that row was behind a
+                      tab nobody opens after a green 200, which is exactly the
+                      case where the script failing matters most.
+                    -->
+                    <span class="tab-badge-failed">{failedResponseTestCount}</span>
                   {/if}
                 </button>
               {/each}
@@ -8896,6 +9391,7 @@
                   liveLog={activeLiveSessionLog}
                   onDownloadBody={saveActiveResponseBody}
                   onExportTimeline={saveActiveResponseTimeline}
+                  exportBusy={responseExportBusy}
                   onDisableTLSVerification={disableTLSVerificationAndResend}
                   onOpenRequestPreferences={openRequestPreferences}
                 />
@@ -11022,6 +11518,7 @@
       bind:shareCollectionFormat
       {shareCollectionUnsupportedTypes}
       {busy}
+      {shareCollectionResult}
       {shareCollectionProceed}
       {cancelShareCollectionModal}
     />

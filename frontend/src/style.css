@@ -1783,6 +1783,87 @@ em {
   padding: var(--space-8) var(--space-12);
 }
 
+/* Failed-test signals on the response pane. The tab badge borrows the count
+   badge's shape from .subtabs and only changes its colour, so a failing count
+   reads as the same kind of thing as the metadata/trailers counts. */
+.subtabs .tab-badge-failed {
+  color: var(--danger-strong);
+  font-weight: 800;
+}
+
+.response-summary-status .response-test-failures {
+  color: var(--danger-strong);
+  font-weight: 800;
+  white-space: nowrap;
+  /* The sibling rule caps spans at 130px; this is a link, and truncating
+     "3 tests failed" to "3 tests f…" would defeat the point of showing it. */
+  max-width: none;
+}
+
+/* Unresolved {{variables}} in headers. A warning rather than an error: the
+   request is still sendable, it just will not mean what it looks like. */
+.request-variable-warning {
+  color: var(--warning-strong);
+  background: var(--warning-bg);
+  border-bottom: 1px solid color-mix(in srgb, var(--warning-strong) 40%, transparent);
+  font-size: var(--font-size-11);
+  font-weight: 700;
+  padding: var(--space-6) var(--space-12);
+  overflow-wrap: anywhere;
+}
+
+/*
+ * The persistent background-error channel. Deliberately shares the banner's
+ * colour vocabulary rather than inventing one: these are the same severity as
+ * an action error, they just do not expire on their own.
+ */
+.background-notices {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.background-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-12);
+  color: var(--danger);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-border);
+}
+
+/* No --warning-border exists in the palette; --warning-strong at low alpha is
+   what the other warning surfaces here settle for. */
+.background-notice.warning {
+  color: var(--warning-strong);
+  background: var(--warning-bg);
+  border-color: color-mix(in srgb, var(--warning-strong) 40%, transparent);
+}
+
+/* min-width:0 so a long backend message wraps instead of pushing the dismiss
+   button off the end of the row. */
+.background-notice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.background-notice-text span {
+  font-size: 0.85em;
+  opacity: 0.85;
+  overflow-wrap: anywhere;
+}
+
+.background-notice > .icon-button {
+  flex: none;
+}
+
 .request-workbench {
   min-height: 0;
   display: grid;
@@ -2733,6 +2814,23 @@ button.var-value-editable-display {
 
 .devtools-network-table tr.selected td {
   background: var(--selected-bg);
+}
+
+/* The whole row is the click target now, so it has to look like one and take a
+   visible focus ring — it is reachable by Tab. */
+.devtools-network-table tr[data-network-row] {
+  cursor: pointer;
+}
+
+/* No hover token exists in the palette; the selection tint at low alpha keeps
+   hover distinct from selection rather than equal to it. */
+.devtools-network-table tr[data-network-row]:hover td {
+  background: color-mix(in srgb, var(--selected-bg) 55%, transparent);
+}
+
+.devtools-network-table tr[data-network-row]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .devtools-network-table code {
@@ -4857,6 +4955,21 @@ button.var-value-editable-display {
   color: var(--warning-strong);
   font-size: var(--font-size-12);
   font-weight: 800;
+}
+
+/* The export confirmation, and the warnings the backend returned with it. */
+.share-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  margin-top: var(--space-12);
+  padding-top: var(--space-12);
+  border-top: 1px solid var(--border);
+  font-size: var(--font-size-12);
+}
+
+.share-result > span {
+  color: var(--text-muted);
 }
 
 .card-divider {

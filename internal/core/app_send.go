@@ -78,6 +78,7 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 		CollectionName:            collection.Name,
 		CollectionPath:            collection.Path,
 		EnvironmentName:           scripting.SelectedEnvironmentName(collection, environmentID),
+		EnvironmentID:             environmentID,
 		JSSandboxMode:             collectionJSSandboxMode(*collection),
 		Variables:                 scriptVariables,
 		OAuth2CredentialVariables: a.oauth2CredentialVariablesSnapshot,
@@ -108,11 +109,16 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 	preMeta := scriptMeta
 	preMeta.TimelinePhase = "pre-request"
 	preState := (*scripting.RequestState)(nil)
+	// The pre-request phase's own test registry. It used to have none, so a
+	// pm.test there either vanished (passing) or was re-thrown as a script
+	// failure that stopped the send (failing). Both are collected here and
+	// prepended to the response below, in the order the user's scripts ran.
+	preTestResults := []TestResult{}
 	if requestContextCancelled(executionContext) {
 		response = cancelledRequestResponse(requestCopy, vars)
 		response.ScriptLogs = scriptLogs
 	} else {
-		preState, err = scripting.RunPreRequestScriptWithJarStateMeta(scripts.Pre, &requestCopy, vars, scriptCookieJar, preMeta, &scriptLogs)
+		preState, err = scripting.RunPreRequestScriptSourceMeta(scripts.PreLevels, &requestCopy, vars, scriptCookieJar, preMeta, &preTestResults, &scriptLogs)
 		controls.Merge(preState)
 	}
 	if requestContextCancelled(executionContext) {
@@ -147,8 +153,13 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 			} else {
 				postMeta := scriptMeta
 				postMeta.TimelinePhase = "post-response"
-				postState, err := scripting.RunPostResponseScriptWithJarStateMeta(scripts.Post, requestCopy, &response, vars, scriptCookieJar, postMeta, &scriptLogs)
+				// Same registry treatment as the pre-request phase: three
+				// pm.tests in a post-response script used to produce ONE row
+				// (the escaped error), or none at all when they passed.
+				postTestResults := []TestResult{}
+				postState, err := scripting.RunPostResponseScriptSourceMeta(scripts.PostLevels, requestCopy, &response, vars, scriptCookieJar, postMeta, &postTestResults, &scriptLogs)
 				controls.Merge(postState)
+				response.TestResults = append(response.TestResults, postTestResults...)
 				if err != nil {
 					response.TestResults = append(response.TestResults, TestResult{Name: "post-response script", Passed: false, Message: err.Error()})
 				}
@@ -158,7 +169,7 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 				} else {
 					testsMeta := scriptMeta
 					testsMeta.TimelinePhase = "tests"
-					testResults, testState := scripting.EvaluateRuntimeTestsWithJarStateMeta(scripts.Tests, response, requestCopy, vars, scriptCookieJar, testsMeta, &scriptLogs)
+					testResults, testState := scripting.EvaluateRuntimeTestsSourceMeta(scripts.TestsLevels, response, requestCopy, vars, scriptCookieJar, testsMeta, &scriptLogs)
 					controls.Merge(testState)
 					response.TestResults = append(response.TestResults, testResults...)
 					response.ScriptLogs = scriptLogs
@@ -168,6 +179,13 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 				}
 			}
 		}
+	}
+
+	// Pre-request tests come FIRST, whatever else happened: they ran before the
+	// request did, and on the error path they are the only record that they ran
+	// at all.
+	if len(preTestResults) > 0 {
+		response.TestResults = append(append([]TestResult{}, preTestResults...), response.TestResults...)
 	}
 
 	// Close the lifecycle before persistence so cancellation has a single,
@@ -650,6 +668,7 @@ func (a *App) runScriptedCollectionRequest(collectionID, targetRef, environmentI
 		CollectionName:            collectionCopy.Name,
 		CollectionPath:            collectionCopy.Path,
 		EnvironmentName:           scripting.SelectedEnvironmentName(&collectionCopy, environmentID),
+		EnvironmentID:             environmentID,
 		JSSandboxMode:             collectionJSSandboxMode(collectionCopy),
 		Variables:                 nestedVariables,
 		OAuth2CredentialVariables: a.oauth2CredentialVariablesSnapshot,
@@ -664,9 +683,11 @@ func (a *App) runScriptedCollectionRequest(collectionID, targetRef, environmentI
 	var response Response
 	preMeta := nestedMeta
 	preMeta.TimelinePhase = "pre-request"
-	preState, err := scripting.RunPreRequestScriptWithJarStateMeta(scripts.Pre, &requestCopy, nestedVariables.Combined, jar, preMeta, logs)
+	preTestResults := []TestResult{}
+	preState, err := scripting.RunPreRequestScriptSourceMeta(scripts.PreLevels, &requestCopy, nestedVariables.Combined, jar, preMeta, &preTestResults, logs)
 	if err != nil {
 		response = scripting.ScriptErrorResponse("pre-request script", err)
+		response.TestResults = append(append([]TestResult{}, preTestResults...), response.TestResults...)
 		response.RequestedURL = cookiejar.PreviewRequestURL(requestCopy, nestedVariables.Combined)
 		response.ScriptLogs = cloneScriptLogs(logs)
 		scripting.ScriptMergeVariableContext(parentVariables, nestedVariables)
@@ -675,6 +696,7 @@ func (a *App) runScriptedCollectionRequest(collectionID, targetRef, environmentI
 	}
 	if preState != nil && preState.SkipRequest {
 		response = scripting.ScriptSkippedResponse(requestCopy, nestedVariables.Combined)
+		response.TestResults = append(append([]TestResult{}, preTestResults...), response.TestResults...)
 		response.ScriptLogs = cloneScriptLogs(logs)
 		scripting.ScriptMergeVariableContext(parentVariables, nestedVariables)
 		timelineEntry := scriptRunRequestTimelineItem(collectionCopy.Path, requestCopy, response, nestedVariables.Combined)
@@ -690,6 +712,7 @@ func (a *App) runScriptedCollectionRequest(collectionID, targetRef, environmentI
 		defer finishExecution()
 		response = a.executeHTTP(executionContext, collectionID, collectionCopy, requestCopy, nestedVariables.Combined, preState, recordTimeline)
 	}()
+	response.TestResults = append(append([]TestResult{}, preTestResults...), response.TestResults...)
 	if jar != nil {
 		jar.UpsertAll(response.Cookies)
 	}
@@ -700,14 +723,16 @@ func (a *App) runScriptedCollectionRequest(collectionID, targetRef, environmentI
 	}
 	postMeta := nestedMeta
 	postMeta.TimelinePhase = "post-response"
-	postState, err := scripting.RunPostResponseScriptWithJarStateMeta(scripts.Post, requestCopy, &response, nestedVariables.Combined, jar, postMeta, logs)
+	postTestResults := []TestResult{}
+	postState, err := scripting.RunPostResponseScriptSourceMeta(scripts.PostLevels, requestCopy, &response, nestedVariables.Combined, jar, postMeta, &postTestResults, logs)
 	_ = postState
+	response.TestResults = append(response.TestResults, postTestResults...)
 	if err != nil {
 		response.TestResults = append(response.TestResults, TestResult{Name: "post-response script", Passed: false, Message: err.Error()})
 	}
 	testsMeta := nestedMeta
 	testsMeta.TimelinePhase = "tests"
-	testResults, _ := scripting.EvaluateRuntimeTestsWithJarStateMeta(scripts.Tests, response, requestCopy, nestedVariables.Combined, jar, testsMeta, logs)
+	testResults, _ := scripting.EvaluateRuntimeTestsSourceMeta(scripts.TestsLevels, response, requestCopy, nestedVariables.Combined, jar, testsMeta, logs)
 	response.TestResults = append(response.TestResults, testResults...)
 	response.ScriptLogs = cloneScriptLogs(logs)
 	scripting.ScriptMergeVariableContext(parentVariables, nestedVariables)

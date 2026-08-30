@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"sync"
@@ -82,6 +83,11 @@ type Store struct {
 	// the file on every append.
 	lines  int
 	loaded bool
+	// corrupted is how many unreadable lines the last read skipped, and
+	// reportedCorrupt makes the log about them once per store rather than once
+	// per read. See reportCorrupted.
+	corrupted       int
+	reportedCorrupt bool
 }
 
 // RedactHeaders copies rows with credential values withheld.
@@ -162,6 +168,11 @@ func (s *Store) loadCountLocked() error {
 // A malformed line is SKIPPED rather than failing the read. History is a
 // convenience, and one truncated line — the likely result of a crash mid-write
 // — must not make the whole log unreadable.
+//
+// Skipped is not the same as unnoticed. The count of unreadable lines is
+// recorded and logged once per process, because "the entry I was looking for is
+// not in the list" and "the log lost 300 lines to a corrupted file" look
+// identical from the UI, and only one of them is worth clearing the file over.
 func (s *Store) readLocked() ([]HistoryEntry, error) {
 	file, err := os.Open(s.path)
 	if err != nil {
@@ -173,6 +184,7 @@ func (s *Store) readLocked() ([]HistoryEntry, error) {
 	defer func() { _ = file.Close() }()
 
 	var entries []HistoryEntry
+	corrupted := 0
 	scanner := bufio.NewScanner(file)
 	// A long URL or header set can exceed bufio's default 64 KiB line cap, and
 	// the default would silently stop the scan at that point.
@@ -184,15 +196,46 @@ func (s *Store) readLocked() ([]HistoryEntry, error) {
 		}
 		var entry HistoryEntry
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			corrupted++
 			continue
 		}
 		entries = append(entries, entry)
 	}
+	s.corrupted = corrupted
+	s.reportCorrupted(corrupted)
 	if err := scanner.Err(); err != nil {
 		return entries, err
 	}
 	return entries, nil
 }
+
+// CorruptedLines is how many unreadable lines the last read skipped.
+func (s *Store) CorruptedLines() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.corrupted
+}
+
+// reportCorrupted logs the first read that skipped anything.
+//
+// Once per store rather than once per read: List and Get both re-read the whole
+// file, so the history panel alone would log on every keystroke of its search
+// box. s.mu is already held by readLocked's callers.
+func (s *Store) reportCorrupted(corrupted int) {
+	if corrupted == 0 || s.reportedCorrupt {
+		return
+	}
+	s.reportedCorrupt = true
+	suffix := "s"
+	if corrupted == 1 {
+		suffix = ""
+	}
+	logf("liteapi: skipped %d unreadable line%s in %s", corrupted, suffix, s.path)
+}
+
+// logf is the package's log sink, replaceable so a test can assert on what was
+// reported without racing the standard logger.
+var logf = log.Printf
 
 // compactLocked rewrites the file with only the newest Limit entries.
 func (s *Store) compactLocked() error {

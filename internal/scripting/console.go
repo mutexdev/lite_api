@@ -29,6 +29,19 @@ func newScriptConsoleObject(runtime *goja.Runtime, logs *[]types.ScriptLog) *goj
 			return goja.Undefined()
 		})
 	}
+	// console.table and console.clear are not decoration. A missing global is a
+	// ReferenceError, and a ReferenceError in a script aborts the whole request
+	// — so a debugging line the author left in ended the send. There is no
+	// terminal to draw a grid in or to wipe, so table logs its argument as JSON
+	// and clear records that it was called.
+	_ = console.Set("table", func(call goja.FunctionCall) goja.Value {
+		appendScriptLog(logs, "log", call.Arguments)
+		return goja.Undefined()
+	})
+	_ = console.Set("clear", func(goja.FunctionCall) goja.Value {
+		appendScriptLog(logs, "log", []goja.Value{runtime.ToValue("console.clear()")})
+		return goja.Undefined()
+	})
 	return console
 }
 

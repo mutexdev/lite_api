@@ -16,8 +16,12 @@ import (
 )
 
 type RequestState struct {
-	headers                    []types.KeyValue
-	bodySet                    bool
+	headers []types.KeyValue
+	bodySet bool
+	// bodySnapshot is req.body exactly as the runtime seeded it. Compared on the
+	// way out so an untouched body is left alone rather than round-tripped
+	// through its flattened rendering. See applyScriptedRequest.
+	bodySnapshot               string
 	bodyValue                  interface{}
 	timeoutSet                 bool
 	timeoutMs                  int
@@ -83,11 +87,29 @@ func runPreRequestScriptWithJarState(script string, item *types.RequestItem, var
 }
 
 func RunPreRequestScriptWithJarStateMeta(script string, item *types.RequestItem, vars map[string]string, jar *CookieJar, meta ScriptRuntimeMeta, logs ...*[]types.ScriptLog) (*RequestState, error) {
-	if strings.TrimSpace(script) == "" {
+	return RunPreRequestScriptSourceMeta(SingleScriptSource("pre-request script", script), item, vars, jar, meta, nil, logs...)
+}
+
+// RunPreRequestScriptSourceMeta runs the pre-request levels and records every
+// pm.test/test into testResults.
+//
+// testResults is what makes a failing assertion a RESULT rather than a crash.
+// Passing nil here — which the send path used to do for both the pre-request
+// and post-response slots — meant a passing pm.test vanished with nothing to
+// record it into, and a failing one was re-thrown: the rest of the script never
+// ran, and in this phase the request was never sent. The Tests slot always
+// passed a registry, which is why the same three lines behaved like a test
+// framework there and like a landmine everywhere else.
+//
+// An uncaught throw that is NOT a test failure still returns an error, and the
+// caller still refuses to send. That distinction is the point: a broken script
+// stops the request, a failed expectation reports and carries on.
+func RunPreRequestScriptSourceMeta(source ScriptSource, item *types.RequestItem, vars map[string]string, jar *CookieJar, meta ScriptRuntimeMeta, testResults *[]types.TestResult, logs ...*[]types.ScriptLog) (*RequestState, error) {
+	if source.IsEmpty() {
 		return &RequestState{headers: types.CloneKeyValues(item.Headers)}, nil
 	}
-	runtime, reqObject, reqState, _ := NewScriptRuntimeWithMeta(*item, types.Response{}, vars, nil, selectedScriptLogs(logs), jar, meta)
-	if err := runGojaScript(runtime, script, meta.JSSandboxMode); err != nil {
+	runtime, reqObject, reqState, _ := NewScriptRuntimeWithMeta(*item, types.Response{}, vars, testResults, selectedScriptLogs(logs), jar, meta)
+	if err := runGojaScriptLevels(runtime, source, meta.JSSandboxMode); err != nil {
 		return reqState, err
 	}
 	applyScriptedRequest(item, reqObject, reqState)
@@ -108,11 +130,18 @@ func runPostResponseScriptWithJarState(script string, item types.RequestItem, re
 }
 
 func RunPostResponseScriptWithJarStateMeta(script string, item types.RequestItem, response *types.Response, vars map[string]string, jar *CookieJar, meta ScriptRuntimeMeta, logs ...*[]types.ScriptLog) (*RequestState, error) {
-	if strings.TrimSpace(script) == "" {
+	return RunPostResponseScriptSourceMeta(SingleScriptSource("post-response script", script), item, response, vars, jar, meta, nil, logs...)
+}
+
+// RunPostResponseScriptSourceMeta runs the post-response levels, recording every
+// pm.test/test into testResults. See RunPreRequestScriptSourceMeta for why the
+// registry is not optional on the send path.
+func RunPostResponseScriptSourceMeta(source ScriptSource, item types.RequestItem, response *types.Response, vars map[string]string, jar *CookieJar, meta ScriptRuntimeMeta, testResults *[]types.TestResult, logs ...*[]types.ScriptLog) (*RequestState, error) {
+	if source.IsEmpty() {
 		return &RequestState{headers: types.CloneKeyValues(item.Headers)}, nil
 	}
-	runtime, _, reqState, resObject := NewScriptRuntimeWithMeta(item, *response, vars, nil, selectedScriptLogs(logs), jar, meta)
-	err := runGojaScript(runtime, script, meta.JSSandboxMode)
+	runtime, _, reqState, resObject := NewScriptRuntimeWithMeta(item, *response, vars, testResults, selectedScriptLogs(logs), jar, meta)
+	err := runGojaScriptLevels(runtime, source, meta.JSSandboxMode)
 	applyScriptedResponse(response, resObject)
 	return reqState, err
 }
@@ -128,6 +157,12 @@ func RunPostResponseVariables(variables []types.Variable, item types.RequestItem
 		meta.Variables = scriptVars
 	}
 	runtime, reqObject, _, _ := NewScriptRuntimeWithMeta(item, *response, scriptVars.Combined, nil, selectedScriptLogs(logs), jar, meta)
+	// This phase evaluates bare expressions rather than running a script, so it
+	// never reaches runGojaScriptLevels — the one place that releases the event
+	// loop registered for a runtime. Without this the sync.Map keyed by
+	// *goja.Runtime kept every runtime this phase ever built alive, one per
+	// request, for the life of the process.
+	defer scriptRuntimeEventLoops.Delete(runtime)
 	for name, value := range scriptVars.CombinedInterface() {
 		if strings.TrimSpace(name) != "" {
 			_ = runtime.Set(name, value)

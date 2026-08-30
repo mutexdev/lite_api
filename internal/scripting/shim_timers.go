@@ -219,6 +219,14 @@ func (loop *scriptEventLoop) scheduleTimer(callbackValue, delayValue goja.Value,
 	return loop.timerHandle(id, promise)
 }
 
+func (loop *scriptEventLoop) clearRepeatingTimers() {
+	for id, timer := range loop.timers {
+		if timer.repeat {
+			delete(loop.timers, id)
+		}
+	}
+}
+
 func (loop *scriptEventLoop) clearTimer(value goja.Value) {
 	id := scriptTimerID(loop.runtime, value)
 	if id == 0 {

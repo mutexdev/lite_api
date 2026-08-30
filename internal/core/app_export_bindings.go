@@ -72,24 +72,30 @@ func (a *App) ExportCollectionWithOptions(collectionID string, options Collectio
 			EnvironmentCount: len(snapshot.Environments),
 		}, nil
 	case "postman":
-		content, requestCount, skippedTypes, err := export.BuildPostmanCollection(snapshot)
+		postman, err := export.BuildPostmanExport(snapshot)
 		if err != nil {
 			return CollectionExportResult{}, err
 		}
-		warning := ""
-		if len(skippedTypes) > 0 {
-			warning = fmt.Sprintf("Note: %s requests in this collection will not be exported", strings.Join(skippedTypes, ", "))
+		notes := []string{}
+		if len(postman.SkippedTypes) > 0 {
+			notes = append(notes, fmt.Sprintf("Note: %s requests in this collection will not be exported", strings.Join(postman.SkippedTypes, ", ")))
 		}
+		notes = append(notes, postman.Warnings...)
 		return CollectionExportResult{
-			Format:           "postman",
-			Filename:         sanitizeFilename(snapshot.Name) + ".json",
-			Content:          content,
-			MimeType:         "application/json",
-			Warning:          warning,
-			SkippedTypes:     skippedTypes,
-			FolderCount:      len(snapshot.Folders),
-			RequestCount:     requestCount,
-			EnvironmentCount: len(snapshot.Environments),
+			Format:       "postman",
+			Filename:     sanitizeFilename(snapshot.Name) + ".json",
+			Content:      postman.Content,
+			MimeType:     "application/json",
+			Warning:      strings.Join(notes, " "),
+			SkippedTypes: postman.SkippedTypes,
+			// The count comes from the tree the export actually walked, which
+			// includes folders that only exist as a request's FolderPath.
+			FolderCount:  postman.FolderCount,
+			RequestCount: postman.RequestCount,
+			// A Postman collection carries no environments. Reporting the
+			// collection's count told the user something had been exported that
+			// is not in the file.
+			EnvironmentCount: 0,
 		}, nil
 	default:
 		return CollectionExportResult{}, fmt.Errorf("unsupported collection export format %q", options.Format)

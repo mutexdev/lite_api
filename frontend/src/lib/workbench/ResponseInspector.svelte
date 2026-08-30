@@ -29,6 +29,14 @@
     onCopy: (value: string) => Promise<boolean>
     onDownloadBody: () => void | Promise<void>
     onExportTimeline: () => void | Promise<void>
+    /**
+     * Non-empty while an export's native save dialog is open.
+     *
+     * Scoped to these two buttons on purpose. The parent used to mark the whole
+     * app busy for the duration, which disabled Send, Save and Run everywhere
+     * until the file picker was dismissed.
+     */
+    exportBusy?: string
     // US-059. A certificate failure is the one send error with a remedy inside
     // the app, so the pane offers it rather than describing where to find it.
     onDisableTLSVerification?: () => void | Promise<void>
@@ -48,6 +56,7 @@
     onCopy,
     onDownloadBody,
     onExportTimeline,
+    exportBusy = '',
     onDisableTLSVerification = undefined,
     onOpenRequestPreferences = undefined
   }: Props = $props()
@@ -109,6 +118,40 @@
   // UTF-16 length. Larger responses remain governed by the existing bounded
   // preview/full-render safeguards.
   const bodyTruncated = $derived(bytes > automaticPreviewLimit && (!renderFull || !renderableFull))
+  /**
+   * The byte budget currently being rendered.
+   *
+   * This is what the label was missing. "preview truncated" is a constant, so
+   * pressing Load more visibly grew the body while the text above it said
+   * exactly the same thing — leaving no way to tell whether the button had done
+   * anything, or how much of the response was still unseen.
+   *
+   * Derived from the same expression `safeDisplay` slices with, so the number
+   * shown and the number applied cannot drift apart. Byte-encoded views bound
+   * on the source rather than the rendered text, hence the separate branch.
+   */
+  const renderedLimit = $derived(
+    renderFull && renderableFull
+      ? fullRenderLimit
+      : byteEncodedView
+        ? automaticPreviewLimit
+        : Math.min(visibleLimit, fullRenderLimit)
+  )
+  const renderedBytes = $derived(Math.min(bytes, renderedLimit))
+  /**
+   * Why "Render full" is unavailable, in words.
+   *
+   * Lived only in a `title` attribute, which is invisible to touch, invisible
+   * to keyboard users, and invisible to anyone who does not think to hover a
+   * button that is already greyed out — precisely the people wondering why it
+   * is greyed out. The limit is read from the constant rather than spelled "1
+   * MB" in prose, so raising fullRenderLimit cannot leave the sentence lying.
+   */
+  const renderFullDisabledReason = $derived(
+    renderableFull
+      ? ''
+      : `Too large to render: over the ${Math.round(fullRenderLimit / 1024 / 1024)} MB safe limit. Download it instead.`
+  )
   const matches = $derived(findMatches(safeDisplay, search))
   // An EFFECT, not a derivation: it writes matchIndex. A search that narrows
   // the result list must pull the cursor back inside it, or the highlight
@@ -314,11 +357,14 @@
       <select aria-label="Response view" data-testid="response-view-select" value={selectedView} oninput={selectResponseView} onchange={selectResponseView}>
         <option value="pretty">Pretty</option><option value="raw">Raw</option><option value="base64">Base64</option><option value="hex">Hex</option>
       </select>
-      <span aria-live="polite">{bytes.toLocaleString()} bytes{bodyTruncated ? ' · preview truncated' : ''}</span>
+      <span aria-live="polite">{bodyTruncated ? `showing ${renderedBytes.toLocaleString()} of ${bytes.toLocaleString()} bytes` : `${bytes.toLocaleString()} bytes`}</span>
       <button type="button" aria-label="Copy visible response preview" onclick={() => void copyResponse(safeDisplay)}>Copy preview</button><span aria-live="polite">{copyStatus}</span>
-      <button type="button" aria-label="Download exact response body" onclick={() => void onDownloadBody()}>Download</button>
+      <button type="button" aria-label="Download exact response body" disabled={Boolean(exportBusy)} onclick={() => void onDownloadBody()}>{exportBusy ? 'Saving…' : 'Download'}</button>
       {#if canRenderFull}
-        <button type="button" onclick={() => (renderFull = true)} disabled={!renderableFull} title={!renderableFull ? 'This response exceeds the 1 MB safe render limit; download it instead.' : undefined}>Render full</button>
+        <button type="button" onclick={() => (renderFull = true)} disabled={!renderableFull} title={renderFullDisabledReason || undefined}>Render full</button>
+        {#if renderFullDisabledReason}
+          <small class="render-full-reason">{renderFullDisabledReason}</small>
+        {/if}
       {/if}
       {#if canIncrementTextPreview && bodyTruncated && !renderFull && visibleLimit < fullRenderLimit}<button type="button" onclick={() => (visibleLimit = Math.min(fullRenderLimit, visibleLimit + automaticPreviewLimit))}>Load more</button>{/if}
       {#if selectedView === 'pretty' && kind === 'json' && jsonValue}<button type="button" aria-pressed={jsonTreeMode} onclick={() => (jsonTreeMode = !jsonTreeMode)}>JSON tree</button>{/if}
@@ -363,7 +409,7 @@
     {:else}
       <pre class="response-body" bind:this={bodyElement} data-match-index={matches[matchIndex] ?? -1}>{#each markedParts(safeDisplay) as part, index (index)}<span>{#if part.match}<mark class:current-match={part.index === matchIndex}>{part.text}</mark>{:else}{part.text}{/if}</span>{/each}</pre>
     {/if}
-    {#if bodyTruncated}<small>Preview is truncated. {renderFull && bytes > fullRenderLimit ? 'Download the body to inspect all content.' : ''}</small>{/if}
+    {#if bodyTruncated}<small>Showing the first {renderedBytes.toLocaleString()} of {bytes.toLocaleString()} bytes. {renderFull && bytes > fullRenderLimit ? 'Download the body to inspect all content.' : ''}</small>{/if}
     {#if (request.examples ?? []).length > 0}
       <section class="response-compare" aria-label="Response comparison">
         <label>Compare with <select aria-label="Compare response with" bind:value={compareId}>{#each compareOptions as option (option.id)}<option value={option.id}>{option.name}</option>{/each}</select></label>
@@ -386,7 +432,7 @@
     <div class="response-search"><span>{rows.length} {selectedTab}</span><button type="button" onclick={() => void copyResponse(rows.map((row) => `${row.name}: ${row.value}`).join('\n'))} disabled={rows.length === 0}>Copy {selectedTab}</button><span aria-live="polite">{copyStatus}</span></div>
     {#if rows.length === 0}<div class="empty-state">No {selectedTab}</div>{:else}<table><tbody>{#each rows as row, index (index)}<tr><td>{row.name}</td><td>{row.value}</td></tr>{/each}</tbody></table>{/if}
   {:else if selectedTab === 'timeline'}
-    <div class="timeline-tools"><input aria-label="Search timeline" bind:value={timelineSearch} placeholder="Search phase, kind, source, payload, metadata…" /><select aria-label="Timeline phase filter" bind:value={timelineFilter}><option value="all">All ({timelineFilterCounts.all})</option><option value="pre">Pre-request ({timelineFilterCounts.pre})</option><option value="post">Post-response ({timelineFilterCounts.post})</option><option value="oauth">OAuth ({timelineFilterCounts.oauth})</option><option value="main">Request ({timelineFilterCounts.main})</option></select><span aria-live="polite">{filteredTimeline.length} of {timeline.length}</span><button type="button" onclick={() => void copyResponse(JSON.stringify(filteredTimeline, null, 2))}>Copy</button><button type="button" onclick={() => void onExportTimeline()}>Export</button></div>
+    <div class="timeline-tools"><input aria-label="Search timeline" bind:value={timelineSearch} placeholder="Search phase, kind, source, payload, metadata…" /><select aria-label="Timeline phase filter" bind:value={timelineFilter}><option value="all">All ({timelineFilterCounts.all})</option><option value="pre">Pre-request ({timelineFilterCounts.pre})</option><option value="post">Post-response ({timelineFilterCounts.post})</option><option value="oauth">OAuth ({timelineFilterCounts.oauth})</option><option value="main">Request ({timelineFilterCounts.main})</option></select><span aria-live="polite">{filteredTimeline.length} of {timeline.length}</span><button type="button" onclick={() => void copyResponse(JSON.stringify(filteredTimeline, null, 2))}>Copy</button><button type="button" disabled={Boolean(exportBusy)} onclick={() => void onExportTimeline()}>{exportBusy ? 'Saving…' : 'Export'}</button></div>
     {#if filteredTimeline.length === 0}
       <div class="empty-state">No timeline entries match this filter.</div>
     {:else}
@@ -448,8 +494,23 @@
   .response-diff > div { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; padding:3px 5px; border-bottom:1px solid var(--border-subtle); }
   .response-diff > div.changed { background:var(--warning-bg-soft); }
   .response-diff code { overflow-wrap:anywhere; white-space:pre-wrap; }
-  .timeline-entry > button { display:grid; grid-template-columns:60px 80px minmax(0,1fr) auto; width:100%; text-align:left; }
+  /*
+    The status column is fixed-width but its content is not: entry.statusText is
+    "Cancelled" whenever a request is cancelled, which is wider than the track.
+    With no min-width or overflow rule the span simply drew past its column and
+    collided with the method beside it, at every window width. Each cell now
+    clips inside its own track; only the URL column is allowed to take the
+    leftover space.
+
+    `gap` matters as much as the widths — without it the columns touch, so even
+    an ellipsis reads as though it runs into the next value. And the status
+    track is sized to fit "Cancelled" rather than truncating the app's most
+    common non-numeric status to "Cancel…".
+  */
+  .timeline-entry > button { display:grid; grid-template-columns:minmax(72px,auto) minmax(0,80px) minmax(0,1fr) auto; gap:8px; align-items:baseline; width:100%; text-align:left; }
+  .timeline-entry > button > span, .timeline-entry > button > strong, .timeline-entry > button > small { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .timeline-entry > code { display:block; padding:8px; }
+  .render-full-reason { color:var(--warning-strong); }
 .json-tree { max-height:clamp(360px, 54vh, 480px); overflow:auto; padding:10px; }
   .json-tree details { margin-bottom:5px; border:1px solid var(--border-subtle); border-radius:5px; padding:5px; }
   .json-tree summary { cursor:pointer; }
@@ -461,7 +522,9 @@
   .response-diff { max-height:clamp(360px, 50vh, 600px); }
   .json-tree pre { max-height:clamp(220px, 38vh, 400px); }
 }
-  @media (max-width: 720px) { .timeline-entry > button { grid-template-columns:54px minmax(0,1fr); } .timeline-entry > button small { grid-column:1 / -1; } }
+  /* Narrow: the duration drops to its own row rather than being squeezed
+     against the URL, and the status keeps room for its longest real value. */
+  @media (max-width: 720px) { .timeline-entry > button { grid-template-columns:minmax(72px,auto) minmax(0,1fr); } .timeline-entry > button strong { grid-column:1 / -1; } .timeline-entry > button small { grid-column:1 / -1; } }
   .response-tls-warning {
     display: grid;
     gap: 8px;

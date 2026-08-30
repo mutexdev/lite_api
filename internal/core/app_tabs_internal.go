@@ -15,6 +15,75 @@ import (
 
 const closedTabHistoryLimit = 50
 
+// savedItemFlags is everything "save" changes about a request that is not the
+// request's own content: the draft flag, the scratch-collection transient flag,
+// the resolved file path and the modification stamp.
+//
+// It exists so a failed disk write can put them back. Clearing Draft before the
+// write is correct — the file the writer produces is the item as saved — but
+// keeping it cleared after the write failed tells the user their work is on
+// disk when it is not: the unsaved-changes dot disappears, "save all" has
+// nothing left to retry, and the collection watcher is free to replace the item
+// with the stale version still in the file.
+type savedItemFlags struct {
+	draft     bool
+	transient bool
+	filePath  string
+	updatedAt time.Time
+}
+
+func snapshotSavedItemFlags(item *RequestItem) savedItemFlags {
+	return savedItemFlags{
+		draft:     item.Draft,
+		transient: item.Transient,
+		filePath:  item.FilePath,
+		updatedAt: item.UpdatedAt,
+	}
+}
+
+func (flags savedItemFlags) apply(item *RequestItem) {
+	item.Draft = flags.draft
+	item.Transient = flags.transient
+	item.FilePath = flags.filePath
+	item.UpdatedAt = flags.updatedAt
+}
+
+func markItemSaved(collection *Collection, item *RequestItem, now time.Time) {
+	item.Draft = false
+	if collection.Scratch {
+		item.Transient = true
+		if strings.TrimSpace(item.FilePath) == "" || !pathInside(collection.Path, item.FilePath) {
+			item.FilePath = requestFilePath(*collection, *item, requestFileExtensionForCollection(*collection))
+		}
+	} else {
+		item.Transient = false
+	}
+	item.UpdatedAt = now
+}
+
+// savedTabGroup is one collection's worth of the requests "save all" is about
+// to write, with the flags each of them had beforehand.
+type savedTabGroup struct {
+	collection *Collection
+	items      []*RequestItem
+	restore    []savedItemFlags
+}
+
+func (group *savedTabGroup) rollback() {
+	for index, item := range group.items {
+		group.restore[index].apply(item)
+	}
+}
+
+// SaveAllTabs writes one collection at a time and clears the save flags for
+// that collection only, immediately before its own write.
+//
+// The two-pass shape it used to have — flag every tab across every collection,
+// then write the collections — meant a failure writing the second collection
+// left the first collection's requests correctly saved and the second
+// collection's requests marked saved with nothing on disk. Grouping first and
+// flagging per collection keeps a failure confined to the collection that
+// failed, and leaves its requests as the drafts they still are.
 func (a *App) SaveAllTabs(collectionID string) (AppState, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -24,9 +93,8 @@ func (a *App) SaveAllTabs(collectionID string) (AppState, error) {
 	collectionID = strings.TrimSpace(collectionID)
 	now := time.Now()
 	seenItems := map[string]bool{}
-	collections := map[string]*Collection{}
-	collectionOrder := []string{}
-	saved := 0
+	groups := map[string]*savedTabGroup{}
+	groupOrder := []string{}
 	for _, tab := range a.state.OpenTabs {
 		if tab.CollectionID == "" || tab.ItemID == "" {
 			continue
@@ -46,38 +114,111 @@ func (a *App) SaveAllTabs(collectionID string) (AppState, error) {
 		if err != nil {
 			return AppState{}, err
 		}
-		item.Draft = false
-		if collection.Scratch {
-			item.Transient = true
-			if strings.TrimSpace(item.FilePath) == "" || !pathInside(collection.Path, item.FilePath) {
-				item.FilePath = requestFilePath(*collection, *item, requestFileExtensionForCollection(*collection))
-			}
-		} else {
-			item.Transient = false
-		}
-		item.UpdatedAt = now
 		seenItems[key] = true
-		saved++
-		if _, ok := collections[collection.ID]; !ok {
-			collections[collection.ID] = collection
-			collectionOrder = append(collectionOrder, collection.ID)
+		group, ok := groups[collection.ID]
+		if !ok {
+			group = &savedTabGroup{collection: collection}
+			groups[collection.ID] = group
+			groupOrder = append(groupOrder, collection.ID)
 		}
+		group.items = append(group.items, item)
 	}
-	for _, collectionID := range collectionOrder {
-		collection := collections[collectionID]
-		if err := a.writeCollectionFilesLocked(collection); err != nil {
+	saved := 0
+	for _, id := range groupOrder {
+		group := groups[id]
+		group.restore = make([]savedItemFlags, 0, len(group.items))
+		for _, item := range group.items {
+			group.restore = append(group.restore, snapshotSavedItemFlags(item))
+			markItemSaved(group.collection, item, now)
+		}
+		if err := a.writeCollectionFilesLocked(group.collection); err != nil {
+			group.rollback()
 			return AppState{}, err
 		}
-		if collection.Scratch {
-			if err := a.writeScratchCollectionMetadataLocked(collection); err != nil {
+		if group.collection.Scratch {
+			if err := a.writeScratchCollectionMetadataLocked(group.collection); err != nil {
+				group.rollback()
 				return AppState{}, err
 			}
 		}
+		saved += len(group.items)
 	}
 	if saved > 0 {
 		a.notify("success", fmt.Sprintf("Saved %d tab%s", saved, cookiejar.PluralSuffix(saved)))
 	}
 	return a.state, a.markDirty(persistScopeState)
+}
+
+// openTabResolvesLocked reports whether a tab still points at something that
+// exists.
+//
+// Distinct from openTabIsRestorableLocked, which additionally refuses transient
+// tabs: that question is "should reopening this closed tab bring it back", this
+// one is "is this open tab still showing a real request".
+func (a *App) openTabResolvesLocked(tab OpenTab) bool {
+	if tab.CollectionID == "" || tab.ItemID == "" {
+		// Not a request tab. Whatever it is, this is not the function that
+		// decides it is dead.
+		return true
+	}
+	collection, err := a.findCollectionLocked(tab.CollectionID)
+	if err != nil {
+		return false
+	}
+	item, err := findItem(collection, tab.ItemID)
+	if err != nil {
+		return false
+	}
+	// A response-example tab needs its example as well as its request: the
+	// request surviving while the example it renders does not leaves exactly
+	// the same orphan.
+	if tab.Kind == "response-example" {
+		_, _, err := findResponseExample(item, firstNonEmpty(tab.ExampleID, tab.ExampleName))
+		return err == nil
+	}
+	return true
+}
+
+// pruneOrphanedOpenTabsLocked drops open tabs whose request no longer exists,
+// and reports whether it removed any.
+//
+// An open tab is a (collectionId, itemId) pair, and nothing revalidated it. A
+// request deleted outside the app, a collection refreshed from disk with that
+// request gone, a state.json restored next to a collection that has moved on —
+// each left a tab pointing at an id nothing answers to. The frontend resolves a
+// tab by looking the request up and falling back, so the tab did not go blank:
+// it rendered a DIFFERENT request's content under the missing request's tab,
+// and edits made there were saved against whatever it had fallen back to.
+//
+// Run at load and after a collection refresh — the two moments the set of
+// requests can change without any tab bookkeeping having been done.
+func (a *App) pruneOrphanedOpenTabsLocked() bool {
+	if len(a.state.OpenTabs) == 0 {
+		return false
+	}
+	removedActive := false
+	next := a.state.OpenTabs[:0]
+	for _, tab := range a.state.OpenTabs {
+		if a.openTabResolvesLocked(tab) {
+			next = append(next, tab)
+			continue
+		}
+		if tab.ID == a.state.ActiveTabID {
+			removedActive = true
+		}
+	}
+	if len(next) == len(a.state.OpenTabs) {
+		return false
+	}
+	a.state.OpenTabs = next
+	if !removedActive {
+		return true
+	}
+	a.state.ActiveTabID = ""
+	if len(a.state.OpenTabs) > 0 {
+		a.state.ActiveTabID = a.state.OpenTabs[len(a.state.OpenTabs)-1].ID
+	}
+	return true
 }
 
 func (a *App) removeOpenTabsForCollectionLocked(collectionID string) {

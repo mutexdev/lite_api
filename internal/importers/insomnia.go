@@ -96,9 +96,9 @@ func ImportInsomnia(content, fallbackName string) (types.Collection, error) {
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
-	seq := 1
+	context := &insomniaImport{collection: &collection, seq: 1, usedFolderPaths: map[string]bool{}}
 	if strings.HasPrefix(raw.Type, "collection.insomnia.rest/5") || len(raw.Collection) > 0 {
-		appendInsomniaV5Items(&collection, raw.Collection, "", &seq)
+		context.appendV5Items(raw.Collection, "")
 		collection.Environments = insomniaV5Environments(raw.Environments)
 		return collection, nil
 	}
@@ -107,16 +107,48 @@ func ImportInsomnia(content, fallbackName string) (types.Collection, error) {
 		return types.Collection{}, errors.New("collection not found inside Insomnia export")
 	}
 	collection.Name = scalar.FirstNonEmpty(strings.TrimSpace(workspace.Name), collection.Name)
-	appendInsomniaV4Items(&collection, raw.Resources, workspace.ID, "", &seq)
+	context.appendV4Items(raw.Resources, workspace.ID, "")
 	collection.Environments = insomniaV4Environments(raw.Resources, workspace.ID)
 	return collection, nil
 }
 
-func appendInsomniaV4Items(collection *types.Collection, resources []insomniaResource, parentID, folderPath string, seq *int) {
+// insomniaImport carries the per-import folder path registry, the same shape
+// postmanImport uses and for the same reason.
+type insomniaImport struct {
+	collection      *types.Collection
+	seq             int
+	usedFolderPaths map[string]bool
+}
+
+// folderPath allocates ONE path per folder, mirroring postmanImport.folderPath.
+//
+// The shared postmanFolderPath it replaced was a pure function of the parent
+// and the name, and merged distinct folders into one path three ways: two
+// siblings with the same name, two whose names sanitise to the same string
+// ("A/B" and "A-B" both become "A-B"), and an unnamed folder — which sanitises
+// to "untitled" and was hoisted into its parent while appendInsomniaFolder
+// still registered a FolderConfig on the parent's own path, shadowing it. Each
+// of those silently moved requests somewhere other than where the Insomnia
+// export put them.
+func (c *insomniaImport) folderPath(parent, name string) string {
+	cleaned := scalar.SanitizeFilename(scalar.NormalizeWhitespace(name))
+	base := cleaned
+	if parent != "" {
+		base = parent + "/" + cleaned
+	}
+	candidate := base
+	for ordinal := 2; c.usedFolderPaths[strings.ToLower(candidate)]; ordinal++ {
+		candidate = fmt.Sprintf("%s-%d", base, ordinal)
+	}
+	c.usedFolderPaths[strings.ToLower(candidate)] = true
+	return candidate
+}
+
+func (c *insomniaImport) appendV4Items(resources []insomniaResource, parentID, folderPath string) {
 	for _, folder := range insomniaChildFolders(resources, parentID) {
-		childPath := postmanFolderPath(folderPath, folder.Name)
-		appendInsomniaFolder(collection, folder.Name, childPath)
-		appendInsomniaV4Items(collection, resources, folder.ID, childPath, seq)
+		childPath := c.folderPath(folderPath, folder.Name)
+		appendInsomniaFolder(c.collection, folder.Name, childPath)
+		c.appendV4Items(resources, folder.ID, childPath)
 	}
 	for _, request := range insomniaChildRequests(resources, parentID) {
 		item := insomniaRequestItem(insomniaRequestData{
@@ -128,18 +160,18 @@ func appendInsomniaV4Items(collection *types.Collection, resources []insomniaRes
 			PathParameters: request.PathParameters,
 			Authentication: request.Authentication,
 			Body:           request.Body,
-		}, folderPath, *seq)
-		collection.Items = append(collection.Items, item)
-		*seq = *seq + 1
+		}, folderPath, c.seq)
+		c.collection.Items = append(c.collection.Items, item)
+		c.seq++
 	}
 }
 
-func appendInsomniaV5Items(collection *types.Collection, items []insomniaV5Item, folderPath string, seq *int) {
+func (c *insomniaImport) appendV5Items(items []insomniaV5Item, folderPath string) {
 	for _, raw := range items {
 		if len(raw.Children) > 0 {
-			childPath := postmanFolderPath(folderPath, raw.Name)
-			appendInsomniaFolder(collection, raw.Name, childPath)
-			appendInsomniaV5Items(collection, raw.Children, childPath, seq)
+			childPath := c.folderPath(folderPath, raw.Name)
+			appendInsomniaFolder(c.collection, raw.Name, childPath)
+			c.appendV5Items(raw.Children, childPath)
 			continue
 		}
 		if strings.TrimSpace(raw.Method) == "" && strings.TrimSpace(raw.URL) == "" {
@@ -154,9 +186,9 @@ func appendInsomniaV5Items(collection *types.Collection, items []insomniaV5Item,
 			PathParameters: raw.PathParameters,
 			Authentication: raw.Authentication,
 			Body:           raw.Body,
-		}, folderPath, *seq)
-		collection.Items = append(collection.Items, item)
-		*seq = *seq + 1
+		}, folderPath, c.seq)
+		c.collection.Items = append(c.collection.Items, item)
+		c.seq++
 	}
 }
 
