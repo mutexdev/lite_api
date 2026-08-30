@@ -65,6 +65,21 @@ type Backend interface {
 	// wrap ErrDenied for every refusal. ctx bounds the run; cancellation must
 	// cancel the underlying request.
 	RunRequest(ctx context.Context, params RunRequestParams) (RunResult, error)
+	// ListFlows returns the flows of one collection in stored order.
+	ListFlows(collectionID string) ([]FlowSummary, error)
+	// GetFlow returns one flow's full definition. A flow holds no secret
+	// value by construction — a step var that names one travels as the
+	// {{template}} it was written as — so the definition is reported as
+	// authored, exactly like a request's.
+	GetFlow(collectionID, flowID string) (FlowDetail, error)
+	// RunFlow executes a flow: every step goes through the same send path a
+	// single run does, and the new-host guard is enforced BEFORE each step
+	// rather than once for the flow. Implementations wrap ErrDenied for every
+	// refusal, mask known secret values in everything a live response could
+	// have echoed (extractions, assertion details, step errors, outputs), and
+	// return the outcome populated as far as the run got even when the error
+	// is non-nil. ctx bounds the whole flow.
+	RunFlow(ctx context.Context, params RunFlowParams) (FlowRunOutcome, error)
 }
 
 // RunRequestParams identifies what to run and how.
@@ -102,11 +117,14 @@ type RunResult struct {
 	TestResults []TestResult `json:"testResults,omitempty"`
 }
 
-// CollectionSummary names a collection an agent can explore.
+// CollectionSummary names a collection an agent can explore. Both counts are
+// carried because they answer the agent's first question — is there anything
+// here worth a second call — for the two kinds of thing a collection holds.
 type CollectionSummary struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
 	RequestCount int    `json:"requestCount"`
+	FlowCount    int    `json:"flowCount"`
 }
 
 // RequestSummary is one request as a list/search row.
@@ -182,6 +200,128 @@ type EnvironmentSummary struct {
 	CollectionID string                `json:"collectionId,omitempty"`
 	Active       bool                  `json:"active"`
 	Variables    []EnvironmentVariable `json:"variables"`
+}
+
+// RunFlowParams identifies which flow to run and with what.
+type RunFlowParams struct {
+	CollectionID  string
+	FlowID        string
+	EnvironmentID string
+	// Inputs are the flow's DECLARED inputs. An undeclared name is refused by
+	// the implementation rather than ignored: a flow that accepted a typo
+	// would run every step against an empty value and report whatever the API
+	// said about nothing. Inputs are flow scope, not the environment — they
+	// cannot name a secret variable, and a flow that declared one is refused
+	// when it is saved and again when it runs.
+	Inputs map[string]string
+}
+
+// FlowInput is one value a flow's caller supplies.
+type FlowInput struct {
+	Name        string `json:"name"`
+	Required    bool   `json:"required,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// FlowSummary is one flow as a list row: enough to decide whether to run it
+// (what it is called, what it does, how long it is) and what to pass when you
+// do, without a second call for the definition.
+type FlowSummary struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	StepCount   int    `json:"stepCount"`
+	// Inputs are the declared inputs, so the run_flow call can be composed
+	// straight from a list row.
+	Inputs []FlowInput `json:"inputs,omitempty"`
+}
+
+// FlowExtract pulls one value out of a step's response into flow scope. From
+// is "body" (Path is a JSONPath subset), "header" (Path is the header name) or
+// "status" (Path is unused).
+type FlowExtract struct {
+	Name string `json:"name"`
+	From string `json:"from"`
+	Path string `json:"path,omitempty"`
+}
+
+// FlowAssert is one check against a step's response. Type is "status" (Equals
+// or In) or "body" (Path plus Equals, Contains or Exists).
+//
+// Equals is untyped because the schema it mirrors is: {"type":"status",
+// "equals":200} and {"type":"body","equals":"created"} are both legal.
+type FlowAssert struct {
+	Type     string `json:"type"`
+	Equals   any    `json:"equals,omitempty"`
+	In       []int  `json:"in,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Contains string `json:"contains,omitempty"`
+	Exists   bool   `json:"exists,omitempty"`
+}
+
+// FlowStep is one request in the chain, as authored.
+//
+// Vars ARE NOT RESOLVED, and that is a safety property rather than an omission:
+// a step var is interpolated against flow scope alone at run time, so
+// {"token":"{{apiToken}}"} stays those literal braces here and is resolved, if
+// at all, by the send path inside LiteAPI. There is no field on this struct
+// that a secret value could travel in.
+type FlowStep struct {
+	ID        string            `json:"id"`
+	RequestID string            `json:"requestId"`
+	Vars      map[string]string `json:"vars,omitempty"`
+	Extract   []FlowExtract     `json:"extract,omitempty"`
+	Assert    []FlowAssert      `json:"assert,omitempty"`
+}
+
+// FlowOutput names what the flow hands back to its caller. Value is a template
+// resolved against the final flow scope, and travels here unresolved.
+type FlowOutput struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// FlowDetail is one flow's full definition. It embeds the summary for the same
+// reason RequestDetail does: an agent that already listed flows sees the same
+// fields in the same shape, and a step's requestId is accepted by get_request.
+type FlowDetail struct {
+	FlowSummary
+	Steps   []FlowStep   `json:"steps"`
+	Outputs []FlowOutput `json:"outputs,omitempty"`
+}
+
+// FlowAssertionOutcome reports one assertion. Detail reads the same way whether
+// it passed or failed, so a run report can show every check rather than only
+// the broken one.
+type FlowAssertionOutcome struct {
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail"`
+}
+
+// FlowStepOutcome is one step's result. Extracted, Assertions and Error can all
+// carry text taken from a live response body, so every one of them is masked by
+// the implementation before it gets here.
+type FlowStepOutcome struct {
+	StepID     string                 `json:"stepId"`
+	RequestID  string                 `json:"requestId"`
+	Status     int                    `json:"status"`
+	DurationMs int                    `json:"durationMs"`
+	Extracted  map[string]string      `json:"extracted,omitempty"`
+	Assertions []FlowAssertionOutcome `json:"assertions,omitempty"`
+	Error      string                 `json:"error,omitempty"`
+}
+
+// FlowRunOutcome is one execution of a flow.
+//
+// OK is the question a caller asks first: every step ran, every assertion held,
+// every extraction found its path. Steps is as complete as the run got — a
+// fail-fast flow that stopped at step 2 carries two step outcomes and not
+// three, which is itself the report that step 3 never ran.
+type FlowRunOutcome struct {
+	OK      bool              `json:"ok"`
+	Error   string            `json:"error,omitempty"`
+	Steps   []FlowStepOutcome `json:"steps"`
+	Outputs map[string]string `json:"outputs,omitempty"`
 }
 
 // HistoryRun is one recorded execution of a request. Headers arrive already

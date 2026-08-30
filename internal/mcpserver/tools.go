@@ -33,6 +33,13 @@ import (
 // cannot pin a handler goroutine for the life of the process.
 const RunTimeout = 120 * time.Second
 
+// FlowRunTimeout bounds one run_flow call. A flow is SEVERAL requests through
+// the same send path, run one after another, so the budget that fits a single
+// request would fail a perfectly healthy three-step chain against a slow
+// staging host. It is a ceiling on the whole flow rather than per step, because
+// the guarantee worth making to the handler goroutine is that the call ends.
+const FlowRunTimeout = 300 * time.Second
+
 // toolArgs is one call's arguments as decoded from JSON, so values are the
 // usual encoding/json shapes: string, float64, bool, map, slice.
 type toolArgs map[string]any
@@ -103,8 +110,8 @@ var limitProperty = schemaProperty{
 var toolRegistry = []toolEntry{
 	{
 		Name: "list_collections",
-		Description: "Lists every collection currently open in LiteAPI, each with its id, name, and request count. " +
-			"Start here: the collectionId values it returns are exactly what list_requests, get_request, and get_history expect. " +
+		Description: "Lists every collection currently open in LiteAPI, each with its id, name, request count, and flow count. " +
+			"Start here: the collectionId values it returns are exactly what list_requests, get_request, get_history, and list_flows expect. " +
 			"Returns a JSON array, empty when the user has no collections open. Takes no arguments.",
 		InputSchema: objectSchema(nil),
 		Handler:     toolListCollections,
@@ -168,6 +175,31 @@ var toolRegistry = []toolEntry{
 		Handler:     toolListEnvironments,
 	},
 	{
+		Name: "list_flows",
+		Description: "Lists the Flows stored in one collection — a Flow is a named, ordered chain of the collection's own requests with data wired from " +
+			"each response into the next, assertions, and declared outputs. Each row carries id, name, description, stepCount, and the inputs the flow " +
+			"declares (name, whether it is required, what it is for), which is everything run_flow needs. Look here BEFORE stitching several run_request " +
+			"calls together by hand: if the user has already written the chain, running theirs uses their wiring and their assertions instead of your " +
+			"guess at them. Call get_flow for the steps, run_flow to execute one. Returns a JSON array, empty when the collection has no flows.",
+		InputSchema: objectSchema(map[string]schemaProperty{
+			"collectionId": {Type: "string", Description: "Id of the collection whose flows to list, from list_collections."},
+		}, "collectionId"),
+		Handler: toolListFlows,
+	},
+	{
+		Name: "get_flow",
+		Description: "Returns one flow's full definition: its declared inputs, every step in order (step id, the requestId it runs, the vars it sets, what " +
+			"it extracts from the response, what it asserts), and its declared outputs. Everything is as authored, so {{templates}} are NEVER resolved — a " +
+			"step var written as {\"token\":\"{{apiToken}}\"} comes back as exactly that text, and the value it names is resolved only inside LiteAPI at send " +
+			"time, if at all. A flow therefore cannot carry a secret value and this tool cannot reveal one. Each step's requestId is accepted by get_request, " +
+			"which is how to see what a step actually sends. Read this to understand a chain; call run_flow to execute it.",
+		InputSchema: objectSchema(map[string]schemaProperty{
+			"collectionId": {Type: "string", Description: "Id of the collection holding the flow, from list_collections."},
+			"flowId":       {Type: "string", Description: "Id of the flow, from list_flows."},
+		}, "collectionId", "flowId"),
+		Handler: toolGetFlow,
+	},
+	{
 		Name: "get_history",
 		Description: "Returns recent recorded runs of one request, newest first, each with status, duration, response headers, and the response " +
 			"body (bounded — truncated says when it was cut). This is how to learn a real response shape without making a network call. Sensitive " +
@@ -192,7 +224,7 @@ var toolRegistry = []toolEntry{
 			"to approve the host (or to point you at the right one). The result carries status and statusText, response headers, the response body " +
 			"(bounded — truncated says when it was cut), duration, the executedAt timestamp, the resolved URL with any query-string credentials " +
 			"masked, and testResults for the request's scripted tests. Read get_request first if you need to know what the call will send. " +
-			"Chaining several requests together is not this tool's job: run_flow arrives in a later tier.",
+			"Chaining several requests together is not this tool's job: call list_flows, and run_flow to execute a chain the user has already written.",
 		InputSchema: objectSchema(map[string]schemaProperty{
 			"collectionId":  {Type: "string", Description: "Id of the collection holding the request, from list_collections."},
 			"requestId":     {Type: "string", Description: "Id of the request to run, from list_requests or search_requests."},
@@ -201,6 +233,29 @@ var toolRegistry = []toolEntry{
 				"Numbers and booleans must be quoted. Overriding a secret variable is refused."),
 		}, "collectionId", "requestId"),
 		Handler: toolRunRequest,
+	},
+	{
+		Name: "run_flow",
+		Description: "Runs a stored Flow inside LiteAPI: every step is executed through the user's own send path, in order, with each step's response feeding " +
+			"the next exactly as the flow authored it — the same run the user gets from the app's Flow tab. Prefer this over driving the chain yourself with " +
+			"run_request: the flow already carries the wiring, the assertions and the outputs, and reproducing them by hand is where the mistakes are. Pass " +
+			"inputs as an object of string values; every key must be an input the flow DECLARES (call list_flows or get_flow to see them), and an undeclared " +
+			"name is refused with the declared list named — it is not ignored, because a typo would otherwise run the whole chain against an empty value. " +
+			"Flows cannot read secrets: a step var like {{apiToken}} is not resolved into flow scope, it passes through to the send path unresolved and is " +
+			"resolved there, inside LiteAPI, or not at all. The new-host guard applies to EVERY step, so a flow that would send a secret to a host the " +
+			"collection has never sent it to PAUSES for the user's approval and may come back denied: a denial names its reason, and the fix is never to " +
+			"retry or to work around it but to ASK THE USER to approve the host (or to point you at the right one). The result carries ok, per-step outcomes " +
+			"(stepId, requestId, status, durationMs, the values extracted with any secret masked, assertion results, and an error when the step failed) and " +
+			"the flow's declared outputs. Steps run fail-fast, so a run that stopped at step 2 reports two steps and not three — that is the report that " +
+			"step 3 never ran, not a truncated answer.",
+		InputSchema: objectSchema(map[string]schemaProperty{
+			"collectionId":  {Type: "string", Description: "Id of the collection holding the flow, from list_collections."},
+			"flowId":        {Type: "string", Description: "Id of the flow to run, from list_flows."},
+			"environmentId": {Type: "string", Description: "Id of the environment to resolve variables against, from list_environments. Omit it to use whichever environment is active in the app."},
+			"inputs": stringValuedObject("Values for the flow's declared inputs, as an object of string values, e.g. {\"storeCode\":\"DHK-04\"}. " +
+				"Numbers and booleans must be quoted. A name the flow does not declare is refused, and so is a missing required input."),
+		}, "collectionId", "flowId"),
+		Handler: toolRunFlow,
 	},
 }
 
@@ -297,6 +352,40 @@ func toolRunRequest(backend Backend, args toolArgs) (any, error) {
 	return backend.RunRequest(ctx, params)
 }
 
+func toolListFlows(backend Backend, args toolArgs) (any, error) {
+	flows, err := backend.ListFlows(argString(args, "collectionId"))
+	if err != nil {
+		return nil, err
+	}
+	return nonNil(flows), nil
+}
+
+func toolGetFlow(backend Backend, args toolArgs) (any, error) {
+	return backend.GetFlow(argString(args, "collectionId"), argString(args, "flowId"))
+}
+
+// toolRunFlow executes one stored flow.
+//
+// The context is rooted in context.Background() rather than the HTTP request's
+// own, for exactly the reason toolRunRequest sets out — and more so here. A flow
+// is several real requests against real hosts, and a client that disconnects
+// after step 2 has already created whatever step 2 created; cancelling the chain
+// mid-way would leave the user's system in the half-finished state the flow
+// exists to avoid, with nothing recorded about how it got there. A flow that has
+// started should finish and land in history, so cancellation is bounded by
+// FlowRunTimeout alone.
+func toolRunFlow(backend Backend, args toolArgs) (any, error) {
+	params := RunFlowParams{
+		CollectionID:  argString(args, "collectionId"),
+		FlowID:        argString(args, "flowId"),
+		EnvironmentID: argString(args, "environmentId"),
+		Inputs:        argStringMap(args, "inputs"),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), FlowRunTimeout)
+	defer cancel()
+	return backend.RunFlow(ctx, params)
+}
+
 // validate checks one call's arguments against the declared schema.
 //
 // Unknown keys pass: clients attach their own metadata, and a mistyped
@@ -371,10 +460,10 @@ func checkArgType(name string, property schemaProperty, value any) error {
 }
 
 // checkObjectValues enforces an object property's declared value type. Only
-// string values are describable, which is all run_request's variables need: a
-// variable override is substituted into a request as text, so a bare number or
-// boolean is a mistake the agent should fix rather than something to coerce
-// silently. The message names the offending key, since an object of a dozen
+// string values are describable, which is all run_request's variables and
+// run_flow's inputs need: both are substituted into a request as text, so a
+// bare number or boolean is a mistake the agent should fix rather than
+// something to coerce silently. The message names the offending key, since an object of a dozen
 // variables gives an agent nothing to act on otherwise. Keys are checked in
 // sorted order so the same bad call always names the same key — an agent that
 // fixes one and retries must not be handed a different complaint each time.
