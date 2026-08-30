@@ -10,7 +10,8 @@ import {history} from '../models';
 
 export function AddCookieFromHeader(arg1:string,arg2:string):Promise<types.AppState>;
 
-export function AdoptDiscoveredCACertificate(arg1:string):Promise<core.AppState>;
+export function AdoptDiscoveredCACertificate(arg1:string):Promise<types.AppState>;
+
 export function ApplyCollectionImport(arg1:core.CollectionImportApplyRequest):Promise<core.CollectionImportApplyResult>;
 
 export function ApplyOpenAPILocalDrift(arg1:string,arg2:types.OpenAPILocalDriftOptions):Promise<types.AppState>;
@@ -134,7 +135,9 @@ export function DisconnectOpenAPISync(arg1:string):Promise<types.AppState>;
 export function DisconnectWebSocket(arg1:string,arg2:string):Promise<types.AppState>;
 
 export function DiscoverImportSources():Promise<core.DiscoveryReport>;
-export function DismissDiscoveryPrompt():Promise<core.AppState>;
+
+export function DismissDiscoveryPrompt():Promise<types.AppState>;
+
 export function DocsServerStatusFor(arg1:string):Promise<localserver.DocsServerStatus>;
 
 export function EndGRPCStream(arg1:string,arg2:string):Promise<types.AppState>;
@@ -173,6 +176,8 @@ export function GetHistoryBody(arg1:string):Promise<string>;
 
 export function GetHistoryEntry(arg1:string):Promise<history.HistoryEntry>;
 
+export function GetMCPStatus():Promise<types.MCPStatus>;
+
 export function GetOpenAPISyncSpec(arg1:string):Promise<types.OpenAPISyncSpecViewResult>;
 
 export function GetOpenAPISyncSpecDiff(arg1:string,arg2:types.OpenAPISyncOptions):Promise<types.OpenAPISyncSpecDiffResult>;
@@ -188,6 +193,7 @@ export function GitVersion():Promise<string>;
 export function ImportCollection(arg1:string,arg2:types.ImportPayload):Promise<types.AppState>;
 
 export function ImportDiscoveredCollections(arg1:string,arg2:string,arg3:Array<string>):Promise<core.CollectionImportApplyResult>;
+
 export function ImportGlobalEnvironment(arg1:string,arg2:string):Promise<types.AppState>;
 
 export function InitializeCollectionGit(arg1:string):Promise<gitworkbench.CollectionGitOperationResult>;
@@ -239,6 +245,7 @@ export function PullCollectionGit(arg1:string,arg2:string,arg3:string):Promise<g
 export function PushCollectionGit(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<gitworkbench.CollectionGitOperationResult>;
 
 export function ReadDiscoveredCollections(arg1:string):Promise<Array<core.DiscoveredCollection>>;
+
 export function ReadResponseBody(arg1:string,arg2:number,arg3:number):Promise<core.ResponseBodySlice>;
 
 export function RefreshChangedCollections():Promise<types.CollectionWatchRefreshResult>;

@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mutexdev/lite_api/internal/mcpserver"
 	"github.com/mutexdev/lite_api/internal/transport"
 	"github.com/mutexdev/lite_api/internal/types"
 )
@@ -58,6 +59,24 @@ func Normalize(preferences types.Preferences) types.Preferences {
 	preferences.DevTools = NormalizeDevTools(preferences.DevTools)
 	preferences.Proxy = NormalizeProxy(preferences.Proxy, preferences.ProxyMode)
 	preferences.ProxyMode = preferenceProxyMode(preferences.Proxy)
+	preferences.MCP = NormalizeMCP(preferences.MCP)
+	return preferences
+}
+
+// NormalizeMCP settles the port of the embedded MCP server.
+//
+// A port outside [1, 65535] cannot be bound at all, so it has to become
+// something; what it must NOT become is 0. net.Listen accepts 0 and asks the OS
+// for an ephemeral port, which the server supports — but preferences are not
+// allowed to reach it that way. The pairing flow gives the user a `claude mcp
+// add` one-liner with the port written into the URL, and a port that changes on
+// every launch would break that command silently: the agent would keep the
+// stale URL and report a connection failure that says nothing about the port
+// having moved. Coercing to DefaultPort makes the pasted command keep working.
+func NormalizeMCP(preferences types.MCPPreferences) types.MCPPreferences {
+	if preferences.Port < 1 || preferences.Port > 65535 {
+		preferences.Port = mcpserver.DefaultPort
+	}
 	return preferences
 }
 

@@ -19,6 +19,7 @@ import (
 	"github.com/mutexdev/lite_api/internal/grpcexec"
 	"github.com/mutexdev/lite_api/internal/history"
 	"github.com/mutexdev/lite_api/internal/localserver"
+	"github.com/mutexdev/lite_api/internal/mcpserver"
 	"github.com/mutexdev/lite_api/internal/openapisync"
 	"github.com/mutexdev/lite_api/internal/prefs"
 	"github.com/mutexdev/lite_api/internal/responsestore"
@@ -152,6 +153,18 @@ type App struct {
 	docsMu      sync.Mutex
 	docsServers map[string]*localserver.DocsServer
 	responses   *responsestore.Store
+
+	// The MCP agent interface. mcpMu guards the three fields below it and
+	// nothing else; like mockMu and docsMu it is taken WITHOUT a.mu held,
+	// because binding a socket under the state lock is the failure mode
+	// mock_server.go was restructured to avoid. mcpTokenMu is separate from
+	// mcpMu so reading the token — a file read — never happens while the
+	// server lock is held, and so two concurrent readers of a token that does
+	// not exist yet cannot generate two different ones.
+	mcpMu        sync.Mutex
+	mcpServer    *mcpserver.Server
+	mcpLastError string
+	mcpTokenMu   sync.Mutex
 
 	// US-013. Fingerprints of what each auxiliary file last contained, so a
 	// persist that changes nothing in a file does no work for that file.
@@ -353,6 +366,11 @@ func (a *App) startup(ctx context.Context) {
 		a.workspaceRuntime.restoreGeometry(ctx)
 	}
 	_ = a.ensureReady()
+	// After ensureReady, because the preference it reads is only settled once
+	// the state has been loaded and normalised — before that the port would
+	// still be a zero from an unnormalised struct. applyMCPPreferences takes no
+	// state lock of its own, so it must not be called from inside ensureReady.
+	a.applyMCPPreferences(a.mcpPreferencesSnapshot())
 }
 
 func (a *App) handleOpenURL(rawURL string) {
@@ -375,6 +393,9 @@ func (a *App) shutdown(ctx context.Context) {
 	// still holding the socket".
 	a.stopAllMockServers()
 	a.stopAllDocsServers()
+	// Same rationale, same position in the ordering: the MCP listener holds a
+	// fixed port that the next launch will try to bind again.
+	a.stopMCPServer()
 	// Retire the background writer before the flush, not after. It waits out a
 	// write already in flight, so the flush below is the last write of the
 	// process: nothing can land concurrently with — or after — the workspace
@@ -646,11 +667,33 @@ func firstNonZero(values ...int) int {
 
 // Cookie storage rules moved to internal/cookiejar.
 
+// UpdatePreferences stores the normalised preferences and applies the ones that
+// own something outside the state — currently the MCP listener.
+//
+// Split in two because of the lock. The body below holds a.mu for its whole
+// duration, and starting or stopping a listener under the state lock is the
+// failure mode mock_server.go documents; applyMCPPreferences must therefore run
+// after the lock is released, which a `defer a.mu.Unlock()` in one function
+// cannot express.
 func (a *App) UpdatePreferences(preferences Preferences) (AppState, error) {
+	state, mcp, mcpChanged, err := a.storePreferences(preferences)
+	if err != nil {
+		return AppState{}, err
+	}
+	if mcpChanged {
+		a.applyMCPPreferences(mcp)
+	}
+	return state, nil
+}
+
+// storePreferences is the locked half of UpdatePreferences. It reports the new
+// MCP preference and whether it differs from the one that was in force, so the
+// caller only touches the listener when something about it actually changed.
+func (a *App) storePreferences(preferences Preferences) (AppState, types.MCPPreferences, bool, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.ensureReadyLocked(); err != nil {
-		return AppState{}, err
+		return AppState{}, types.MCPPreferences{}, false, err
 	}
 	next := prefs.Normalize(preferences)
 	if tlsSessionPreferencesChanged(a.state.Preferences, next) {
@@ -666,8 +709,9 @@ func (a *App) UpdatePreferences(preferences Preferences) (AppState, error) {
 		// the flush retires sockets opened through the previous proxy.
 		a.transportCache.Flush()
 	}
+	mcpChanged := a.state.Preferences.MCP != next.MCP
 	a.state.Preferences = next
-	return a.state, a.markDirty(persistScopeState)
+	return a.state, next.MCP, mcpChanged, a.markDirty(persistScopeState)
 }
 
 func (a *App) ClearSSLSessionCache() (AppState, error) {
@@ -944,6 +988,10 @@ func defaultState(dir string) AppState {
 			OAuth2UseSystemBrowser: false,
 			ProxyMode:              "system",
 			Proxy:                  prefs.DefaultProxy(),
+			// Off, but with a real port already chosen. The Settings panel shows
+			// the pairing command before the toggle is flipped, and a zero there
+			// would read as "no port yet" to a user who is about to copy it.
+			MCP: prefs.NormalizeMCP(types.MCPPreferences{}),
 		},
 	}
 }

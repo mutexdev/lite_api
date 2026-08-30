@@ -338,6 +338,10 @@ export function GetHistoryEntry(arg1) {
   return window['go']['core']['App']['GetHistoryEntry'](arg1);
 }
 
+export function GetMCPStatus() {
+  return window['go']['core']['App']['GetMCPStatus']();
+}
+
 export function GetOpenAPISyncSpec(arg1) {
   return window['go']['core']['App']['GetOpenAPISyncSpec'](arg1);
 }

@@ -51,9 +51,7 @@ func (s *Server) Start() error {
 	if err != nil {
 		return err
 	}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/mcp", s.handleMCP)
-	server := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	server := &http.Server{Handler: s.handler(), ReadHeaderTimeout: 10 * time.Second}
 	s.listener = listener
 	s.httpSrv = server
 	go func() {
@@ -77,11 +75,17 @@ func (s *Server) Port() int {
 	return 0
 }
 
-// handleMCP is replaced by the protocol implementation in protocol.go; until
-// that lands, the endpoint answers 501 so the lifecycle can be wired and
-// tested independently.
-func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "mcp protocol not yet available", http.StatusNotImplemented)
+// handler builds the routing surface: one endpoint, /mcp, whose handler lives
+// in protocol.go. Anything else is a 404 from the mux, which is the honest
+// answer — this server hosts no other resource, not even a status page, since
+// an unauthenticated page here would leak that LiteAPI is running.
+//
+// Split out of Start so tests can drive the whole stack through httptest
+// without binding a real port.
+func (s *Server) handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/mcp", s.handleMCP)
+	return mux
 }
 
 // Stop shuts down gracefully, escalating to a hard close when in-flight
@@ -89,6 +93,7 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) Stop() {
 	s.mu.Lock()
 	server := s.httpSrv
+	listener := s.listener
 	s.listener = nil
 	s.httpSrv = nil
 	s.mu.Unlock()
@@ -99,5 +104,13 @@ func (s *Server) Stop() {
 	defer cancel()
 	if err := server.Shutdown(ctx); err != nil {
 		_ = server.Close()
+	}
+	// Shutdown only closes listeners Serve has already registered. If Stop
+	// wins the race with the Serve goroutine, Serve later declines to track
+	// the listener and nobody closes it — the port would stay bound and block
+	// the next Start. Closing it here is idempotent and makes release
+	// deterministic, which the control tests rely on.
+	if listener != nil {
+		_ = listener.Close()
 	}
 }

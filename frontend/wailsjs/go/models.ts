@@ -460,7 +460,7 @@ export namespace core {
 	        this.proxy = this.convertValues(source["proxy"], DiscoveryProxyReport);
 	        this.shouldPrompt = source["shouldPrompt"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1236,6 +1236,22 @@ export namespace types {
 		    return a;
 		}
 	}
+	export class MCPPreferences {
+	    enabled: boolean;
+	    port: number;
+	    writeTierEnabled: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MCPPreferences(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.port = source["port"];
+	        this.writeTierEnabled = source["writeTierEnabled"];
+	    }
+	}
 	export class ProxyPACConfig {
 	    source: string;
 	
@@ -1412,6 +1428,7 @@ export namespace types {
 	    defaultLocation?: string;
 	    defaultWorkspacePath?: string;
 	    lastImportDirectory?: string;
+	    discoveryPromptedAt?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new GeneralPreferences(source);
@@ -1422,6 +1439,7 @@ export namespace types {
 	        this.defaultLocation = source["defaultLocation"];
 	        this.defaultWorkspacePath = source["defaultWorkspacePath"];
 	        this.lastImportDirectory = source["lastImportDirectory"];
+	        this.discoveryPromptedAt = source["discoveryPromptedAt"];
 	    }
 	}
 	export class KeepDefaultCaCertificatesPreferences {
@@ -1568,6 +1586,7 @@ export namespace types {
 	    oauth2UseSystemBrowser: boolean;
 	    proxyMode: string;
 	    proxy: ProxyPreferences;
+	    mcp: MCPPreferences;
 	
 	    static createFrom(source: any = {}) {
 	        return new Preferences(source);
@@ -1596,6 +1615,7 @@ export namespace types {
 	        this.oauth2UseSystemBrowser = source["oauth2UseSystemBrowser"];
 	        this.proxyMode = source["proxyMode"];
 	        this.proxy = this.convertValues(source["proxy"], ProxyPreferences);
+	        this.mcp = this.convertValues(source["mcp"], MCPPreferences);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -3557,6 +3577,29 @@ export namespace types {
 	
 	
 	
+	
+	export class MCPStatus {
+	    enabled: boolean;
+	    running: boolean;
+	    port: number;
+	    token: string;
+	    command: string;
+	    lastError?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MCPStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.running = source["running"];
+	        this.port = source["port"];
+	        this.token = source["token"];
+	        this.command = source["command"];
+	        this.lastError = source["lastError"];
+	    }
+	}
 	
 	
 	

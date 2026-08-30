@@ -3,6 +3,7 @@ package prefs
 import (
 	"testing"
 
+	"github.com/mutexdev/lite_api/internal/mcpserver"
 	"github.com/mutexdev/lite_api/internal/types"
 )
 
@@ -170,6 +171,71 @@ func TestNormalizeTurnsAZeroValueIntoUsableDefaults(t *testing.T) {
 	}
 	if got.Request.SSLVerification == nil {
 		t.Error("SSLVerification is nil, so every caller must guess the default")
+	}
+}
+
+// The MCP port is the pairing contract: the user copies a `claude mcp add`
+// command with the port written into a URL, so the port has to be the same on
+// the next launch as it was when they copied it. Zero is the dangerous value —
+// net.Listen accepts it and hands back a different ephemeral port every time,
+// which would break the pasted command silently rather than loudly.
+func TestMCPPortNeverNormalizesToAnEphemeralZero(t *testing.T) {
+	cases := []struct {
+		name string
+		port int
+		want int
+	}{
+		{"zero would be an ephemeral port", 0, mcpserver.DefaultPort},
+		{"negative is not a port", -1, mcpserver.DefaultPort},
+		{"above the 16-bit range", 65536, mcpserver.DefaultPort},
+		{"far above the range", 1 << 20, mcpserver.DefaultPort},
+		{"the lowest real port is kept", 1, 1},
+		{"the highest real port is kept", 65535, 65535},
+		{"a chosen port is kept", 40000, 40000},
+	}
+	for _, testCase := range cases {
+		got := NormalizeMCP(types.MCPPreferences{Port: testCase.port})
+		if got.Port != testCase.want {
+			t.Errorf("%s: port %d normalised to %d, want %d",
+				testCase.name, testCase.port, got.Port, testCase.want)
+		}
+	}
+}
+
+// The two switches are the user's and must survive normalisation untouched.
+// Coercing the port must not become an excuse to reset anything else.
+func TestMCPNormalizationLeavesTheSwitchesAlone(t *testing.T) {
+	got := NormalizeMCP(types.MCPPreferences{Enabled: true, WriteTierEnabled: true, Port: 0})
+	if !got.Enabled {
+		t.Error("Enabled was cleared by normalisation")
+	}
+	if !got.WriteTierEnabled {
+		t.Error("WriteTierEnabled was cleared; the write tier would silently turn itself off")
+	}
+	if got.Port != mcpserver.DefaultPort {
+		t.Errorf("port %d, want the default", got.Port)
+	}
+}
+
+// Normalize must reach MCP too. A normaliser that exists but is never called
+// from the entry point is the same as no normaliser at all — and the zero-value
+// Preferences below is what a fresh install and a corrupted file both produce.
+func TestNormalizeSettlesTheMCPPreferences(t *testing.T) {
+	got := Normalize(types.Preferences{})
+	if got.MCP.Port != mcpserver.DefaultPort {
+		t.Errorf("MCP port is %d after Normalize; NormalizeMCP is not wired into Normalize", got.MCP.Port)
+	}
+	if got.MCP.Enabled {
+		t.Error("MCP defaulted to ENABLED; the server must be opt-in")
+	}
+	if got.MCP.WriteTierEnabled {
+		t.Error("the MCP write tier defaulted to on; it must be an explicit Settings action")
+	}
+	// Idempotence, checked here rather than only in the shared test above,
+	// because a second pass over an already-valid port is exactly where an
+	// off-by-one in the range check would show.
+	if twice := Normalize(got); twice.MCP != got.MCP {
+		t.Errorf("a second Normalize changed the MCP preferences: %+v then %+v", got.MCP, twice.MCP)
 	}
 }
 
