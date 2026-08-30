@@ -12,8 +12,15 @@
   // the user just flipped.
   import { onDestroy, onMount } from 'svelte'
   import type { types } from '../../../../wailsjs/go/models'
-  import { GetMCPStatus } from '../../../../wailsjs/go/core/App'
-  import { DEFAULT_MCP_PORT, maskToken, mcpStatusSummary, normalizeMcpPort } from '../../mcpSettings'
+  import { GetMCPAuditLog, GetMCPStatus } from '../../../../wailsjs/go/core/App'
+  import {
+    DEFAULT_MCP_PORT,
+    MCP_AUDIT_LIMIT,
+    maskToken,
+    mcpAuditRows,
+    mcpStatusSummary,
+    normalizeMcpPort,
+  } from '../../mcpSettings'
 
   export let state: types.AppState
   export let onUpdateMcp: (patch: Partial<types.MCPPreferences>) => Promise<void> | void
@@ -56,8 +63,81 @@
     copyResetTimer = setTimeout(() => { copied = false }, 1500)
   }
 
+  // --- recent activity ----------------------------------------------------
+  //
+  // WHY A LOG BELONGS IN THIS PANEL. Everything above describes what an agent is
+  // ALLOWED to do. Nothing above says what one actually did — and an interface
+  // that grants a capability without ever showing its use is one the user has to
+  // take on trust. This is the only surface where "did something connect, and
+  // what did it ask for?" has an answer.
+  //
+  // The entries arrive newest first from mcpAuditStore.List, so nothing here
+  // sorts them.
+
+  /** The rendered rows. `undefined` until the first fetch settles. */
+  let auditEntries: types.MCPAuditEntry[] | undefined
+  let auditError = ''
+  let auditLoading = false
+  let auditPollTimer: ReturnType<typeof setInterval> | undefined
+
+  // Recomputed on a tick so relative-to-today timestamps do not go stale in a
+  // panel left open across midnight.
+  let auditNow = new Date()
+
+  $: auditRows = mcpAuditRows(auditEntries, auditNow)
+
+  /**
+   * Polls at a cadence set by how the list is read, not by how fast it changes.
+   *
+   * Every call re-reads the whole JSONL file on the Go side, and nobody watches
+   * this panel for a live feed — they open it after an agent did something. Five
+   * seconds is fast enough that a run finishing while the panel is open appears
+   * without the user reaching for Refresh, and slow enough to be free.
+   */
+  const AUDIT_POLL_MS = 5000
+
+  async function refreshAudit(): Promise<void> {
+    // Overlapping fetches would let a slow call land after a fast one and
+    // display the older list.
+    if (auditLoading) return
+    auditLoading = true
+    try {
+      auditEntries = await GetMCPAuditLog(MCP_AUDIT_LIMIT)
+      auditNow = new Date()
+      auditError = ''
+    } catch (err) {
+      // Reported in place rather than through the app's notification channel: a
+      // background poll that raised a toast every five seconds would bury the
+      // notices that matter. The previously loaded rows stay on screen — they
+      // were true when they were read.
+      auditError = err instanceof Error ? err.message : String(err ?? 'unknown error')
+    } finally {
+      auditLoading = false
+    }
+  }
+
   onMount(refreshStatus)
-  onDestroy(() => clearTimeout(copyResetTimer))
+
+  // A SECOND onMount, deliberately. The first is asserted on by
+  // test/mcpSection.test.mts as the proof that status is fetched when the
+  // section appears; splitting the audit lifecycle out keeps that assertion
+  // about one thing.
+  onMount(() => {
+    void refreshAudit()
+    auditPollTimer = setInterval(() => {
+      // The panel is only mounted while Preferences is open — the settings stack
+      // lives inside the `activeView === 'preferences'` branch — so mounting is
+      // already the visibility gate. document.hidden covers the rest: a
+      // minimised window has nobody reading this.
+      if (typeof document !== 'undefined' && document.hidden) return
+      void refreshAudit()
+    }, AUDIT_POLL_MS)
+  })
+
+  onDestroy(() => {
+    clearTimeout(copyResetTimer)
+    clearInterval(auditPollTimer)
+  })
 </script>
 
             <section>
@@ -138,6 +218,54 @@
                 reads it. Even switched on, an agent can reference a secret variable by name but can
                 never read or set its value.
               </p>
+
+              <div class="settings-section-header mcp-activity-header">
+                <h3>Recent activity</h3>
+                <button
+                  type="button"
+                  data-testid="mcp-audit-refresh-btn"
+                  disabled={auditLoading}
+                  on:click={refreshAudit}
+                >{auditLoading ? 'Refreshing...' : 'Refresh'}</button>
+              </div>
+              <p class="settings-hint">
+                The last {MCP_AUDIT_LIMIT} tool calls an AI tool made, newest first. Denied is kept
+                apart from failed: a denial is a rule holding, not something going wrong.
+              </p>
+
+              {#if auditError}
+                <p class="settings-hint mcp-audit-error" data-testid="mcp-audit-error">
+                  The activity log could not be read — {auditError}
+                </p>
+              {/if}
+
+              {#if auditRows.length === 0}
+                <p class="settings-hint" data-testid="mcp-audit-empty">
+                  {auditEntries === undefined && !auditError
+                    ? 'Loading recent activity...'
+                    : 'No agent activity recorded yet.'}
+                </p>
+              {:else}
+                <ul class="mcp-audit-list" data-testid="mcp-audit-list">
+                  {#each auditRows as row (row.key)}
+                    <li class="mcp-audit-row">
+                      <div class="mcp-audit-line">
+                        <span class="mcp-audit-time">{row.time}</span>
+                        <span class="mcp-audit-tool">{row.tool}</span>
+                        <span
+                          class="mcp-audit-outcome"
+                          data-outcome={row.outcome}
+                          data-testid="mcp-audit-outcome"
+                        >{row.outcomeLabel}</span>
+                        <span class="mcp-audit-duration">{row.duration}</span>
+                      </div>
+                      {#if row.argsSummary}
+                        <p class="mcp-audit-args">{row.argsSummary}</p>
+                      {/if}
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
             </section>
 
 <style>
@@ -151,5 +279,116 @@
     max-width: 62ch;
     font-size: 0.8rem;
     opacity: 0.8;
+  }
+
+  /* .settings-section-header already supplies the flex row; this only separates
+     the second heading from the hint above it, so the section reads as two
+     groups rather than one long list. */
+  .mcp-activity-header {
+    margin-top: var(--space-18);
+  }
+
+  .mcp-audit-error {
+    color: var(--danger-strong);
+    opacity: 1;
+  }
+
+  .mcp-audit-list {
+    display: grid;
+    gap: var(--space-4);
+    /* Capped rather than unbounded: 50 rows would push every section below this
+       one off the settings page. */
+    max-height: 260px;
+    overflow-y: auto;
+    margin: 0 0 var(--space-8);
+    padding: 0;
+    list-style: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-6);
+  }
+
+  .mcp-audit-row {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-6) var(--space-8);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .mcp-audit-row:last-child {
+    border-bottom: none;
+  }
+
+  .mcp-audit-line {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-8);
+    font-size: var(--font-size-12);
+  }
+
+  .mcp-audit-time {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .mcp-audit-tool {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--text);
+    font-family: var(--code-font-family);
+    font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+
+  .mcp-audit-duration {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .mcp-audit-outcome {
+    padding: var(--space-1) var(--space-6);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    color: var(--muted-strong);
+    font-size: var(--font-size-10);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  /* THE THREE BADGES ARE THREE DIFFERENT STATEMENTS, and the palette says which.
+     "ok" stays quiet — it is most of the list and should not be read. "denied"
+     wears the warning colours because the boundary held: it is a thing to
+     notice, not a thing that broke. "error" is the only one on the danger
+     palette. Folding denied into that red is what would make a refusal
+     indistinguishable from a fault, which is the exact question this list is
+     opened to answer. */
+  .mcp-audit-outcome[data-outcome='ok'] {
+    background: var(--success-bg);
+  }
+
+  .mcp-audit-outcome[data-outcome='denied'] {
+    border-color: color-mix(in srgb, var(--warning-strong) 40%, transparent);
+    background: var(--warning-bg);
+    color: var(--warning-text);
+  }
+
+  .mcp-audit-outcome[data-outcome='error'] {
+    border-color: var(--danger-border);
+    background: var(--danger-bg);
+    color: var(--danger-strong);
+  }
+
+  /* Monospace and muted: the summary is evidence, not prose. `anywhere` rather
+     than a nowrap ellipsis so a long one wraps inside its row instead of
+     stretching the settings page sideways. */
+  .mcp-audit-args {
+    margin: 0;
+    color: var(--muted);
+    font-family: var(--code-font-family);
+    font-size: var(--font-size-11);
+    line-height: 1.45;
+    overflow-wrap: anywhere;
   }
 </style>

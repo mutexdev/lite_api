@@ -169,6 +169,14 @@
     type KeyBindingPresetID
   } from './lib/keybindings'
   import { PatchCoalescer } from './lib/patchQueue'
+  import {
+    approvalTimeRemaining,
+    dropApprovalPrompt,
+    expireApprovalPrompts,
+    queueApprovalPrompt,
+    type McpApprovalPrompt,
+    type McpApprovalRequest
+  } from './lib/mcpSettings'
   import { unresolvedHeaderVariables, unresolvedVariableMessage } from './lib/unresolvedVariables'
   import {
     addBackgroundNotice,
@@ -315,6 +323,7 @@
     RevealRequestInFolder,
     RemoveCollectionRecoverable,
     ResolveCollectionFolderPath,
+    ResolveMCPApproval,
     ResetDemoData,
     RefreshChangedCollections,
     RefreshCollection,
@@ -924,6 +933,25 @@
 	  let oauth2CallbackURLInput = $state('')
 	  let oauth2CallbackMessage = $state('')
 	  let oauth2FrameKey = $state(0)
+  // The new-host approval prompts. A QUEUE, not a single slot: the MCP server
+  // handles calls concurrently, so a second run can hit the guard while the
+  // first prompt is still on screen, and the loser of a single-slot race would
+  // be silently dropped — leaving an agent blocked until the backend's timeout
+  // denied it with no dialog ever shown. One is displayed at a time; the rest
+  // wait their turn, each still ageing against its own backend deadline.
+  let mcpApprovalQueue = $state<McpApprovalPrompt[]>([])
+  // Set while a ResolveMCPApproval call is in flight, so the three buttons
+  // cannot be pressed twice — the second call finds no pending prompt and
+  // reports an error about a decision that was in fact delivered.
+  let mcpApprovalBusy = $state(false)
+  // Advanced once a second by the sweep below. Reading it is what makes the
+  // countdown in the dialog re-render.
+  let mcpApprovalNow = $state(Date.now())
+  let mcpApprovalSweep: ReturnType<typeof setInterval> | undefined
+  const mcpApprovalPrompt = $derived(mcpApprovalQueue[0] ?? null)
+  const mcpApprovalSecondsLeft = $derived(
+    mcpApprovalPrompt ? Math.ceil(approvalTimeRemaining(mcpApprovalPrompt, mcpApprovalNow) / 1000) : 0
+  )
 	  let creatingResponseExample = $state(false)
   let createResponseExampleName = $state('')
   let createResponseExampleDescription = $state('')
@@ -1705,6 +1733,7 @@
 	  let stopGitCloneProgress: (() => void) | undefined
 	  let stopOAuth2Authorize: (() => void) | undefined
 	  let stopNativeMenuCommands: (() => void) | undefined
+	  let stopMcpApproval: (() => void) | undefined
 	  let stopNotificationPush: (() => void) | undefined
 
 	  onMount(() => {
@@ -1825,6 +1854,14 @@
 	      oauth2CallbackMessage = ''
 	      oauth2FrameKey += 1
 	    })
+	    // The new-host guard, blocked on an answer from here. See
+	    // internal/core/mcp_approvals.go: a goroutine serving an agent's run is
+	    // waiting on this dialog and denies after 60 seconds.
+	    stopMcpApproval = EventsOn('mcp:approval', (request: McpApprovalRequest) => {
+	      mcpApprovalQueue = queueApprovalPrompt(mcpApprovalQueue, request, Date.now())
+	      mcpApprovalNow = Date.now()
+	      startMcpApprovalSweep()
+	    })
 	    const applyLiveSessionEvent = (push: LiveSessionPush) => {
       const key = liveSessionKey(push.collectionId, push.itemId)
       const current = liveSessionLogs[key] ?? emptyLiveSessionLog()
@@ -1869,6 +1906,9 @@
 	    stopGrpcEvents?.()
 	    stopOAuth2Authorize?.()
 	    stopNativeMenuCommands?.()
+	    stopMcpApproval?.()
+	    clearInterval(mcpApprovalSweep)
+	    mcpApprovalSweep = undefined
 	    OnFileDropOff()
 	    removeSystemThemeListener?.()
     clearAutoSaveTimer()
@@ -5994,6 +6034,75 @@
         ...updates
       } as types.MCPPreferences
     })
+  }
+
+  /**
+   * Runs a one-second sweep for as long as a prompt is on screen, and no longer.
+   *
+   * It does two things: it advances the clock the countdown reads, and it
+   * retires prompts the backend has already given up on.
+   *
+   * THE CLIENT-SIDE EXPIRY DECIDES NOTHING. mcp_approvals.go denied the run when
+   * its own 60 seconds elapsed; this only stops the app offering three buttons
+   * that would every one of them come back as "no approval is waiting with id
+   * ...". The user is told when it fires, because a dialog that vanished by
+   * itself reads as one that was answered.
+   *
+   * Started on arrival and stopped when the queue empties rather than left
+   * ticking for the life of the window: this is a dialog that appears a handful
+   * of times a day, and a permanent 1 Hz timer for it is a cost with no reader.
+   */
+  function startMcpApprovalSweep() {
+    if (mcpApprovalSweep !== undefined) return
+    mcpApprovalSweep = setInterval(() => {
+      if (mcpApprovalQueue.length === 0) {
+        clearInterval(mcpApprovalSweep)
+        mcpApprovalSweep = undefined
+        return
+      }
+      mcpApprovalNow = Date.now()
+      const swept = expireApprovalPrompts(mcpApprovalQueue, mcpApprovalNow)
+      if (swept.expired.length === 0) return
+      mcpApprovalQueue = swept.queue
+      for (const prompt of swept.expired) {
+        reportBackground({
+          tone: 'warning',
+          message: 'An AI tool request was denied automatically',
+          detail: `Nobody answered within 60 seconds, so ${prompt.requestName || 'the request'} was not allowed to send a secret to ${prompt.host || 'a new host'}.`
+        })
+      }
+    }, 1000)
+  }
+
+  /**
+   * Answers one new-host approval prompt.
+   *
+   * The dialog closes when the backend has ACCEPTED the answer, not when the
+   * button is pressed. ResolveMCPApproval fails for a prompt that already timed
+   * out or was answered from another window, and closing first would tell the
+   * user their "Deny" landed when the run had in fact already been denied by the
+   * timeout — a different fact, and one they should be told.
+   *
+   * A rejection therefore still removes the prompt (there is nothing left to
+   * answer) but reports why through the background notice channel, which is the
+   * app's path for failures nobody asked to see.
+   */
+  async function resolveMcpApproval(id: string, approve: boolean, remember: boolean) {
+    if (mcpApprovalBusy) return
+    mcpApprovalBusy = true
+    try {
+      await ResolveMCPApproval(id, approve, remember)
+      mcpApprovalQueue = dropApprovalPrompt(mcpApprovalQueue, id)
+    } catch (err) {
+      mcpApprovalQueue = dropApprovalPrompt(mcpApprovalQueue, id)
+      reportBackgroundError('The approval could not be recorded', err, 'warning')
+    } finally {
+      mcpApprovalBusy = false
+      // The next prompt in the queue starts its countdown from its own arrival
+      // time, so the display has to catch up immediately rather than at the next
+      // second's tick.
+      mcpApprovalNow = Date.now()
+    }
   }
 
   async function updateThemeMode(mode: ThemeMode) {
@@ -11521,6 +11630,19 @@
       {openOAuth2AuthorizationInSystemBrowser}
       {submitOAuth2CallbackURL}
       {closeOAuth2Authorization}
+    />
+  {/await}
+{/if}
+
+{#if mcpApprovalPrompt}
+  {#await import('./lib/views/mcp/McpApprovalModal.svelte') then McpApprovalModal}
+    {@const McpApprovalModalComponent = McpApprovalModal.default}
+    <McpApprovalModalComponent
+      prompt={mcpApprovalPrompt}
+      queued={mcpApprovalQueue.length - 1}
+      secondsRemaining={mcpApprovalSecondsLeft}
+      busy={mcpApprovalBusy}
+      onResolve={resolveMcpApproval}
     />
   {/await}
 {/if}
