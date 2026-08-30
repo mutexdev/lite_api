@@ -1,8 +1,10 @@
 package mcpserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -90,6 +92,15 @@ func newFixtureBackend() *fixtureBackend {
 }
 
 // gate is the shared failure/panic injection every method runs first.
+// RunRequest satisfies the Phase 2 contract; the run-tier tests replace this
+// with real behaviour when the tool lands.
+func (backend *fixtureBackend) RunRequest(_ context.Context, _ RunRequestParams) (RunResult, error) {
+	if err := backend.gate(); err != nil {
+		return RunResult{}, err
+	}
+	return RunResult{}, fmt.Errorf("%w: run tier not yet available", ErrDenied)
+}
+
 func (backend *fixtureBackend) gate() error {
 	if backend.panicWith != "" {
 		panic(backend.panicWith)

@@ -14,6 +14,31 @@ import (
 	"time"
 )
 
+// AuditEntry is one recorded tool call. ArgsSummary is a compact, already
+// redaction-safe rendering of the arguments (long values truncated) — the
+// recorder must be able to persist it verbatim.
+type AuditEntry struct {
+	At          time.Time
+	Tool        string
+	ArgsSummary string
+	Outcome     string // "ok", "error", or "denied"
+	DurationMs  int
+}
+
+// AuditRecorder receives one entry per tools/call. It runs on the request's
+// goroutine, so implementations queue or write quickly and never block on the
+// app's state lock.
+type AuditRecorder func(entry AuditEntry)
+
+// Option configures a Server at construction.
+type Option func(*Server)
+
+// WithAuditRecorder installs the audit sink. Without one, calls are served but
+// not recorded — the Phase 1 read-only posture.
+func WithAuditRecorder(recorder AuditRecorder) Option {
+	return func(s *Server) { s.audit = recorder }
+}
+
 // ShutdownGrace bounds how long Stop waits for in-flight tool calls before
 // closing the listener outright. Mirrors internal/localserver's rule: leaving
 // the port bound would block the next start.
@@ -25,6 +50,7 @@ type Server struct {
 	backend Backend
 	token   string
 	port    int
+	audit   AuditRecorder
 
 	mu       sync.Mutex
 	listener net.Listener
@@ -34,8 +60,12 @@ type Server struct {
 // New prepares a server that will authenticate every request against token
 // and answer tools against backend. port 0 asks the OS for an ephemeral port;
 // read the resolved one from Port after Start.
-func New(backend Backend, token string, port int) *Server {
-	return &Server{backend: backend, token: token, port: port}
+func New(backend Backend, token string, port int, options ...Option) *Server {
+	server := &Server{backend: backend, token: token, port: port}
+	for _, option := range options {
+		option(server)
+	}
+	return server
 }
 
 // Start binds 127.0.0.1 and begins serving. Loopback-only is deliberate and

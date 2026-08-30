@@ -25,6 +25,7 @@ package core
 // LiteAPI, and nowhere in this file.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -462,6 +463,12 @@ func mcpMaskRowValues(rows []mcpserver.KeyValue, secretValues []string) []mcpser
 		rows[index].Value = mcpserver.MaskKnownSecretValues(rows[index].Value, secretValues)
 	}
 	return rows
+}
+
+// RunRequest is the Phase 2 run tier; until it lands, every call is a clean
+// denial rather than a missing method.
+func (b *mcpBackend) RunRequest(_ context.Context, _ mcpserver.RunRequestParams) (mcpserver.RunResult, error) {
+	return mcpserver.RunResult{}, fmt.Errorf("%w: run_request is not available yet", mcpserver.ErrDenied)
 }
 
 // --- mapping helpers -------------------------------------------------------

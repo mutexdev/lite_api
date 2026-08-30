@@ -17,9 +17,21 @@
 // in tool descriptions.
 package mcpserver
 
+import (
+	"context"
+	"errors"
+)
+
 // DefaultPort is the port the server binds when preferences carry no explicit
 // choice. Port 0 remains valid and asks the OS for an ephemeral port.
 const DefaultPort = 43117
+
+// ErrDenied marks a refusal — the new-host guard blocked a run, the user
+// declined the approval prompt, or a tier is disabled. Backend implementations
+// wrap it (errors.Is must hold) so the server can audit the outcome as
+// "denied" rather than "error"; the wrapped message is what the agent reads,
+// and like every error it must be secret-free.
+var ErrDenied = errors.New("denied")
 
 // Backend is the app surface the MCP tools run against. internal/core
 // implements it over *App; tests implement it over fixtures. Every method is
@@ -46,6 +58,48 @@ type Backend interface {
 	// GetHistory returns recent runs of a request, newest first, with
 	// redacted headers and a bounded body.
 	GetHistory(collectionID, requestID string, limit int) ([]HistoryRun, error)
+	// RunRequest executes a stored request through the app's own send path —
+	// scripts, TLS posture, client certificates, history recording, all of
+	// it — with secrets resolving only inside the process. Implementations
+	// reject overrides of secret variables, enforce the new-host guard, and
+	// wrap ErrDenied for every refusal. ctx bounds the run; cancellation must
+	// cancel the underlying request.
+	RunRequest(ctx context.Context, params RunRequestParams) (RunResult, error)
+}
+
+// RunRequestParams identifies what to run and how.
+type RunRequestParams struct {
+	CollectionID  string
+	RequestID     string
+	EnvironmentID string
+	// Variables layer over the resolved variable context for this run only.
+	// A name that resolves to a secret variable in scope is rejected — an
+	// override is how an agent would smuggle a secret into a field it can
+	// read back.
+	Variables map[string]string
+}
+
+// TestResult is one scripted test's outcome from the run.
+type TestResult struct {
+	Name    string `json:"name"`
+	Passed  bool   `json:"passed"`
+	Message string `json:"message,omitempty"`
+}
+
+// RunResult is what the agent gets back from a run: the response, bounded and
+// redacted the same way history is (URL query literals masked, known secret
+// values scrubbed, credential-shaped headers masked), plus the scripted test
+// outcomes.
+type RunResult struct {
+	Status      int          `json:"status"`
+	StatusText  string       `json:"statusText,omitempty"`
+	DurationMs  int          `json:"durationMs"`
+	ExecutedAt  string       `json:"executedAt"`
+	URL         string       `json:"url"`
+	Headers     []KeyValue   `json:"headers,omitempty"`
+	Body        string       `json:"body,omitempty"`
+	Truncated   bool         `json:"truncated,omitempty"`
+	TestResults []TestResult `json:"testResults,omitempty"`
 }
 
 // CollectionSummary names a collection an agent can explore.
