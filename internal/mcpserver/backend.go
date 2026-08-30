@@ -93,10 +93,14 @@ type RequestDetail struct {
 	// graphql, none...); Body is its authored content.
 	BodyType string `json:"bodyType,omitempty"`
 	Body     string `json:"body,omitempty"`
-	// AuthType is the auth mode (none, inherit, basic, bearer, apikey,
-	// oauth2...). Auth rows keep {{template}} values as written; literal
-	// credential values arrive masked (see MaskAuthValue in redact.go).
+	// AuthType is the EFFECTIVE auth mode (none, basic, bearer, apikey,
+	// oauth2...): when the request inherits, the folder's or collection's
+	// mode is reported instead of the word "inherit", and AuthSource says
+	// which level supplied it ("request", "folder", "collection", or empty
+	// when nothing configures auth). Auth rows keep {{template}} values as
+	// written; literal credential values arrive masked (MaskAuthRows).
 	AuthType   string          `json:"authType,omitempty"`
+	AuthSource string          `json:"authSource,omitempty"`
 	Auth       []KeyValue      `json:"auth,omitempty"`
 	Vars       []KeyValue      `json:"vars,omitempty"`
 	PreScript  string          `json:"preScript,omitempty"`

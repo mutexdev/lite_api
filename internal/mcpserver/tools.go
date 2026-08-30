@@ -101,21 +101,34 @@ var toolRegistry = []toolEntry{
 		Name: "search_requests",
 		Description: "Searches every open collection for requests whose name, method, URL, or folder path contains query (case-insensitive " +
 			"substring) and returns the same rows as list_requests, with ordering stable across calls. Prefer this over listing every " +
-			"collection when you roughly know what you want, e.g. \"checkout\" or \"orders\". URLs keep their unresolved {{templates}}. Follow up " +
-			"with get_request using the id and collectionId of the best match.",
+			"collection when you roughly know what you want, e.g. \"checkout\" or \"orders\". Omitting query — or passing an empty one — " +
+			"matches everything, listing every request across all collections up to limit, which is the cheapest way to see the whole " +
+			"workspace when you do not yet know what to look for. URLs keep their unresolved {{templates}}. Follow up with get_request " +
+			"using the id and collectionId of the best match.",
+		// "query" is deliberately NOT required. The Backend contract defines an
+		// empty query as "match everything", and declaring it required would put
+		// validate's empty-string check in front of that behaviour: the one call
+		// an agent reaches for to see everything would be the one call that
+		// always failed.
 		InputSchema: objectSchema(map[string]schemaProperty{
-			"query": {Type: "string", Description: "Case-insensitive substring to match against request name, method, URL, and folder path."},
+			"query": {Type: "string", Description: "Case-insensitive substring to match against request name, method, URL, and folder path. Omit it, or pass \"\", to match every request."},
 			"limit": limitProperty,
-		}, "query"),
+		}),
 		Handler: toolSearchRequests,
 	},
 	{
 		Name: "get_request",
-		Description: "Returns one request's full definition: method, URL, headers, query and path params, body, auth mode, pre/post scripts, " +
-			"and transport settings. Everything is as authored, so {{templates}} are unresolved, and everything is redacted: credential-shaped " +
-			"values and auth credentials arrive as \"<masked>\" and no resolved secret value can ever appear here or in any error. Read this to " +
-			"learn the shape of a call; to actually execute one, a later tier adds run_request, which runs the stored request inside LiteAPI " +
-			"where secrets resolve without crossing this boundary. Call get_history to see what its responses have looked like.",
+		Description: "Returns one request's full definition: method, URL, headers, query and path params, body, auth, pre/post scripts, and " +
+			"transport settings. Everything is as authored, so {{templates}} are never resolved and a secret variable's value can never reach " +
+			"you through this tool. Credential-shaped literals ARE masked to \"<masked>\" in three places: header and param rows, the query " +
+			"string of the URL itself, and auth rows (auth values are masked unless the field only addresses a provider, e.g. username or " +
+			"clientId). Body content, pre/post scripts and tests pass through EXACTLY AS AUTHORED and are not scanned — so a credential the " +
+			"user typed literally into a body or a script is visible here. Treat anything credential-shaped you see as sensitive, never repeat " +
+			"it back, and tell the user to move it into a {{variable}}. authType is the EFFECTIVE auth mode: when a request inherits, the " +
+			"folder's or collection's mode is reported rather than \"inherit\", and authSource says which level configured it (\"request\", " +
+			"\"folder\", \"collection\", or empty when nothing does). Read this to learn the shape of a call; to actually execute one, a later " +
+			"tier adds run_request, which runs the stored request inside LiteAPI where secrets resolve without crossing this boundary. Call " +
+			"get_history to see what its responses have looked like.",
 		InputSchema: objectSchema(map[string]schemaProperty{
 			"collectionId": {Type: "string", Description: "Id of the collection holding the request, from list_collections."},
 			"requestId":    {Type: "string", Description: "Id of the request, from list_requests or search_requests."},

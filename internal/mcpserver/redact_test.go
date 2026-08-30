@@ -66,6 +66,40 @@ func TestMaskAuthRowsDefaultsToMaskedWithAddressingAllowlist(t *testing.T) {
 	}
 }
 
+func TestRedactURLQueryLiteralsMasksOnlyCredentialShapedLiterals(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"no query untouched", "https://api.example.test/v1/items", "https://api.example.test/v1/items"},
+		{"literal api key masked", "https://api.example.test/data?api_key=sk_live_abc123", "https://api.example.test/data?api_key=" + MaskedValue},
+		{"templated key survives", "https://api.example.test/data?api_key={{key}}", "https://api.example.test/data?api_key={{key}}"},
+		{"plain params survive", "https://api.example.test/data?page=2&sort=name", "https://api.example.test/data?page=2&sort=name"},
+		{"only the credential pair masked", "https://api.example.test/d?page=2&access_token=abc&x=1", "https://api.example.test/d?page=2&access_token=" + MaskedValue + "&x=1"},
+		{"fragment preserved", "https://api.example.test/d?token=abc#section", "https://api.example.test/d?token=" + MaskedValue + "#section"},
+		{"template elsewhere in url untouched", "{{baseUrl}}/d?secret=abc", "{{baseUrl}}/d?secret=" + MaskedValue},
+		{"valueless param untouched", "https://api.example.test/d?token", "https://api.example.test/d?token"},
+	}
+	for _, testCase := range cases {
+		if got := RedactURLQueryLiterals(testCase.in); got != testCase.want {
+			t.Fatalf("%s: got %q, want %q", testCase.name, got, testCase.want)
+		}
+	}
+}
+
+func TestMaskKnownSecretValuesScrubsResolvedArtifacts(t *testing.T) {
+	secrets := []string{"sk_live_resolved_credential", "short"}
+	in := "https://api.example.test/d?key=sk_live_resolved_credential&page=2 short year 2024"
+	got := MaskKnownSecretValues(in, secrets)
+	want := "https://api.example.test/d?key=" + MaskedValue + "&page=2 short year 2024"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if MaskKnownSecretValues("", secrets) != "" {
+		t.Fatal("empty text changed")
+	}
+	if MaskKnownSecretValues("untouched", nil) != "untouched" {
+		t.Fatal("no-secrets text changed")
+	}
+}
+
 func TestSensitiveNameCoversHistorySetAndCredentialWords(t *testing.T) {
 	for _, name := range []string{"Authorization", "set-cookie", "X-Auth-Token", "My-Service-ApiKey", "Client_Secret", "X-Password"} {
 		if !SensitiveName(name) {

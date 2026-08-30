@@ -21,14 +21,25 @@ tool descriptions.
    with `{{templates}}` unresolved. Secret variables are listed as name +
    `secret: true`, value always masked. Resolution to real values happens only
    inside LiteAPI at send time. No tool, argument, or error message may carry a
-   resolved secret value.
+   resolved secret value. Credential-shaped *literals* — values a user typed in
+   rather than templated — are masked wherever a request definition can carry
+   one: header and param rows, auth block fields that are not merely addressing
+   (a username, a client id, a token URL), and the query string of the URL
+   itself, so a pasted `?api_key=sk_live_...` arrives as `?api_key=<masked>`
+   with the rest of the URL byte-for-byte intact.
 2. **Sent-request echoes show templates.** When a tool reports what was sent,
    header/URL/body values that came from secret variables appear as their
    template form, never the resolved bytes.
 3. **Response headers are redacted.** `Authorization`, `Proxy-Authorization`,
    `Set-Cookie`, `Cookie`, and headers matching `*api-key*`/`*token*`
    (case-insensitive) are masked in responses shown to the agent. Response
-   bodies pass through in full — that is the data the agent is there for.
+   bodies pass through in full — that is the data the agent is there for. So do
+   request bodies, pre/post scripts and tests: they are returned exactly as
+   authored and are NOT scanned for credentials, because a body mangled into
+   something that no longer runs is worse than useless to an agent. A credential
+   typed literally into a body or a script is therefore visible to the agent —
+   keep real credentials in variables, which is the only place this boundary can
+   protect them.
 4. **The new-host guard.** Every secret variable carries a host allowlist
    learned from the requests that already use it. A run (agent-initiated) that
    would resolve a secret into a request aimed at a host outside that allowlist
@@ -37,8 +48,11 @@ tool descriptions.
 5. **Write tier is off by default.** `create_*`/`update_*` tools are rejected
    until the user enables writes in Settings. Even then, agents can reference
    secret variables by name but can never read or define secret values.
-6. **Everything is audited.** Every MCP call is recorded (tool, arguments
-   summary, outcome, timestamp) and visible in the app's audit panel.
+6. **Everything is audited, from Phase 2.** Every MCP call is recorded (tool,
+   arguments summary, outcome, timestamp) and visible in the app's audit panel.
+   Auditing lands in Phase 2 alongside `run_request`, which is the phase that
+   first lets an agent change anything outside LiteAPI; the Phase 1 tools are
+   read-only and are not yet recorded.
 
 ## Transport and pairing
 
@@ -62,8 +76,8 @@ Read tier (always on while the server is enabled):
 | --- | --- |
 | `list_collections` | Collections with id, name, request/flow counts. |
 | `list_requests` | Requests in a collection: id, name, method, URL template, folder path. |
-| `search_requests` | Substring/keyword search across names, URLs, folder paths. |
-| `get_request` | Full definition (redacted): method, URL, headers, params, body, auth *mode* (never credentials), scripts, settings. |
+| `search_requests` | Substring/keyword search across names, URLs, folder paths. An empty or omitted query matches everything. |
+| `get_request` | Full definition (redacted): method, URL, headers, params, body, the *effective* auth mode plus the level that configured it (never the credentials), scripts, settings. |
 | `list_environments` | Environments with variable names, `secret` flags, masked values for secrets, plain values for non-secrets. |
 | `list_flows` / `get_flow` | Flow definitions (see schema below). |
 | `get_history` | Recent runs of a request: status, duration, redacted headers, response body — lets an agent learn response shapes without re-calling. |

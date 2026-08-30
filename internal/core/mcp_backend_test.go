@@ -34,6 +34,7 @@ import (
 	"github.com/mutexdev/lite_api/internal/history"
 	"github.com/mutexdev/lite_api/internal/mcpserver"
 	"github.com/mutexdev/lite_api/internal/responsestore"
+	"github.com/mutexdev/lite_api/internal/scripting"
 	"github.com/mutexdev/lite_api/internal/types"
 )
 
@@ -505,6 +506,287 @@ func TestMCPBackendUnknownIDsAreActionableErrors(t *testing.T) {
 	if _, err := fixture.backend.ListRequests(""); err == nil {
 		t.Error("an empty collection id returned no error")
 	}
+}
+
+// --- URL query literals ------------------------------------------------------
+
+// The fourth place a credential hides, after headers, params and auth blocks:
+// the URL's own query string. "?api_key=sk_live_..." pasted from a working curl
+// never becomes a structured Params row, so RedactRows never sees it — masking
+// has to happen where the URL itself is built. That is mcpRequestSummary, which
+// every tool that reports a URL goes through, so this asserts all three.
+func TestMCPBackendMasksURLQueryLiteralsInEveryToolThatReportsAURL(t *testing.T) {
+	fixture := newMCPFixture(t)
+	const (
+		literalURL   = "https://api.example.test/d?api_key=sk_live_x&page=2"
+		templatedURL = "https://api.example.test/d?api_key={{key}}&page=2"
+	)
+	literalID := appendMCPFixtureItem(t, fixture, "Curl paste", func(item *types.RequestItem) {
+		item.Method = "GET"
+		item.URL = literalURL
+	})
+	templatedID := appendMCPFixtureItem(t, fixture, "Curl paste templated", func(item *types.RequestItem) {
+		item.Method = "GET"
+		item.URL = templatedURL
+	})
+
+	const wantLiteral = "https://api.example.test/d?api_key=" + mcpserver.MaskedValue + "&page=2"
+
+	// list_requests and search_requests both build rows through
+	// mcpRequestSummary; get_request embeds one. All three are checked because
+	// the masking would be just as absent from any of them if it were applied
+	// at a call site rather than in the shared builder.
+	listed, err := fixture.backend.ListRequests(fixture.collectionID)
+	if err != nil {
+		t.Fatalf("ListRequests: %v", err)
+	}
+	found, err := fixture.backend.SearchRequests("api.example.test", 0)
+	if err != nil {
+		t.Fatalf("SearchRequests: %v", err)
+	}
+	for _, source := range []struct {
+		name string
+		rows []mcpserver.RequestSummary
+	}{{"ListRequests", listed}, {"SearchRequests", found}} {
+		urls := map[string]string{}
+		for _, row := range source.rows {
+			urls[row.ID] = row.URL
+		}
+		if got := urls[literalID]; got != wantLiteral {
+			t.Errorf("%s reported %q, want the credential-shaped query value masked to %q", source.name, got, wantLiteral)
+		}
+		if got := urls[templatedID]; got != templatedURL {
+			t.Errorf("%s reported %q, want the templated URL byte-for-byte — a {{reference}} is not a secret", source.name, got)
+		}
+	}
+
+	detail, err := fixture.backend.GetRequest(fixture.collectionID, literalID)
+	if err != nil {
+		t.Fatalf("GetRequest: %v", err)
+	}
+	if detail.URL != wantLiteral {
+		t.Errorf("GetRequest reported %q, want %q", detail.URL, wantLiteral)
+	}
+	// The negative control for this one is inside the URL rather than beside it:
+	// masking the whole string would also pass a "the secret is absent" check.
+	if !strings.Contains(detail.URL, "page=2") {
+		t.Errorf("the non-credential query parameter was lost: %q", detail.URL)
+	}
+	if strings.Contains(detail.URL, "sk_live_x") {
+		t.Errorf("the literal query credential survived: %q", detail.URL)
+	}
+
+	templatedDetail, err := fixture.backend.GetRequest(fixture.collectionID, templatedID)
+	if err != nil {
+		t.Fatalf("GetRequest(templated): %v", err)
+	}
+	if templatedDetail.URL != templatedURL {
+		t.Errorf("GetRequest rewrote a templated URL to %q, want %q", templatedDetail.URL, templatedURL)
+	}
+}
+
+// --- effective auth ----------------------------------------------------------
+
+// get_request reports the auth a RUN would use, not the word stored on the
+// item. Each case asserts the reported type/source/rows AND that the resolution
+// agrees with scripting.EffectiveRequest — the function the send path itself
+// calls. The second assertion is the one that keeps this honest: if the send
+// path's inheritance rules change, this test fails rather than the adapter
+// quietly reporting auth that no longer matches what LiteAPI would send.
+func TestMCPBackendGetRequestReportsEffectiveInheritedAuth(t *testing.T) {
+	const inheritedToken = "SENTINEL-INHERITED-TOKEN"
+	const folderPassword = "SENTINEL-FOLDER-PASSWORD"
+
+	cases := []struct {
+		name string
+		// setUp configures the collection and returns the item to install.
+		setUp      func(collection *types.Collection, item *types.RequestItem)
+		wantType   string
+		wantSource string
+		wantRows   map[string]string
+	}{
+		{
+			name: "an inheriting request reports the collection's auth",
+			setUp: func(collection *types.Collection, item *types.RequestItem) {
+				collection.Auth = AuthConfig{Mode: "bearer", Token: inheritedToken}
+				item.Auth = AuthConfig{Mode: "inherit"}
+			},
+			wantType:   "bearer",
+			wantSource: mcpAuthSourceCollection,
+			wantRows:   map[string]string{"token": mcpserver.MaskedValue},
+		},
+		{
+			name: "an empty mode inherits exactly as \"inherit\" does",
+			setUp: func(collection *types.Collection, item *types.RequestItem) {
+				collection.Auth = AuthConfig{Mode: "bearer", Token: inheritedToken}
+				item.Auth = AuthConfig{}
+			},
+			wantType:   "bearer",
+			wantSource: mcpAuthSourceCollection,
+			wantRows:   map[string]string{"token": mcpserver.MaskedValue},
+		},
+		{
+			name: "a folder overrides the collection",
+			setUp: func(collection *types.Collection, item *types.RequestItem) {
+				collection.Auth = AuthConfig{Mode: "bearer", Token: inheritedToken}
+				collection.Folders = []types.FolderConfig{
+					{Path: "billing", Name: "billing", Auth: AuthConfig{Mode: "basic", Username: "folder-user", Password: folderPassword}},
+				}
+				item.FolderPath = "billing"
+				item.Auth = AuthConfig{Mode: "inherit"}
+			},
+			wantType:   "basic",
+			wantSource: mcpAuthSourceFolder,
+			// The username addresses the account and survives; the password does not.
+			wantRows: map[string]string{"username": "folder-user", "password": mcpserver.MaskedValue},
+		},
+		{
+			name: "the innermost folder wins over its parent",
+			setUp: func(collection *types.Collection, item *types.RequestItem) {
+				collection.Auth = AuthConfig{Mode: "bearer", Token: inheritedToken}
+				collection.Folders = []types.FolderConfig{
+					{Path: "billing", Name: "billing", Auth: AuthConfig{Mode: "bearer", Token: inheritedToken}},
+					{Path: "billing/admin", Name: "admin", Auth: AuthConfig{Mode: "basic", Username: "inner-user", Password: folderPassword}},
+				}
+				item.FolderPath = "billing/admin"
+				item.Auth = AuthConfig{Mode: "inherit"}
+			},
+			wantType:   "basic",
+			wantSource: mcpAuthSourceFolder,
+			wantRows:   map[string]string{"username": "inner-user", "password": mcpserver.MaskedValue},
+		},
+		{
+			name: "an explicit request mode wins over everything",
+			setUp: func(collection *types.Collection, item *types.RequestItem) {
+				collection.Auth = AuthConfig{Mode: "bearer", Token: inheritedToken}
+				collection.Folders = []types.FolderConfig{
+					{Path: "billing", Name: "billing", Auth: AuthConfig{Mode: "basic", Username: "folder-user", Password: folderPassword}},
+				}
+				item.FolderPath = "billing"
+				item.Auth = AuthConfig{Mode: "apikey", APIKey: "X-Api-Key", APIValue: sentinelAuth, APILocation: "header"}
+			},
+			wantType:   "apikey",
+			wantSource: mcpAuthSourceRequest,
+			// "key" is the header NAME (addressing); "value" is the credential.
+			wantRows: map[string]string{"key": "X-Api-Key", "value": mcpserver.MaskedValue, "addTo": "header"},
+		},
+		{
+			name: "nothing anywhere configures auth",
+			setUp: func(collection *types.Collection, item *types.RequestItem) {
+				collection.Auth = AuthConfig{}
+				item.Auth = AuthConfig{Mode: "inherit"}
+			},
+			wantType:   "",
+			wantSource: "",
+			wantRows:   map[string]string{},
+		},
+		{
+			// The send path tests folder.Auth.Mode != "", so a folder that is
+			// itself set to "inherit" SHADOWS the collection and ends up applying
+			// no auth (applyAuth has no "inherit" case). Reported as configuring
+			// nothing, which is what a run does — and never as the word "inherit".
+			name: "a folder that itself inherits shadows the collection",
+			setUp: func(collection *types.Collection, item *types.RequestItem) {
+				collection.Auth = AuthConfig{Mode: "bearer", Token: inheritedToken}
+				collection.Folders = []types.FolderConfig{
+					{Path: "billing", Name: "billing", Auth: AuthConfig{Mode: "inherit"}},
+				}
+				item.FolderPath = "billing"
+				item.Auth = AuthConfig{Mode: "inherit"}
+			},
+			wantType:   "",
+			wantSource: "",
+			wantRows:   map[string]string{},
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newMCPFixture(t)
+			item := types.NewRequestItem("Inheriting request", "http", 99)
+			item.Method = "GET"
+			item.URL = "{{baseUrl}}/inherited"
+
+			fixture.app.mu.Lock()
+			collection := &fixture.app.state.Workspaces[0].Collections[0]
+			testCase.setUp(collection, &item)
+			collection.Items = append(collection.Items, item)
+			// Snapshot for the cross-check against the send path's own resolver.
+			sendPathView := types.Collection{
+				Path:    collection.Path,
+				Auth:    collection.Auth,
+				Folders: collection.Folders,
+			}
+			fixture.app.mu.Unlock()
+
+			detail, err := fixture.backend.GetRequest(fixture.collectionID, item.ID)
+			if err != nil {
+				t.Fatalf("GetRequest: %v", err)
+			}
+
+			if detail.AuthType != testCase.wantType {
+				t.Errorf("authType is %q, want %q", detail.AuthType, testCase.wantType)
+			}
+			if strings.EqualFold(detail.AuthType, "inherit") {
+				t.Errorf("authType is %q; the effective mode is never the word inherit", detail.AuthType)
+			}
+			if detail.AuthSource != testCase.wantSource {
+				t.Errorf("authSource is %q, want %q", detail.AuthSource, testCase.wantSource)
+			}
+			if len(detail.Auth) != len(testCase.wantRows) {
+				t.Errorf("got %d auth rows, want %d: %+v", len(detail.Auth), len(testCase.wantRows), detail.Auth)
+			}
+			for name, want := range testCase.wantRows {
+				if got := mcpRowValue(detail.Auth, name); got != want {
+					t.Errorf("auth row %q is %q, want %q", name, got, want)
+				}
+			}
+
+			// No sentinel may appear anywhere in the marshalled detail. Resolving
+			// inheritance means reaching credentials the adapter never touched
+			// before, which is exactly when a leak would be introduced.
+			encoded := marshalledMCPResult(t, "GetRequest", detail, nil)
+			for _, sentinel := range []string{inheritedToken, folderPassword, sentinelAuth} {
+				if strings.Contains(encoded, sentinel) {
+					t.Errorf("the resolved auth leaked %s:\n%s", sentinel, encoded)
+				}
+			}
+
+			// The cross-check: the adapter's resolution must be the send path's.
+			// One normalization is needed and only one: where nothing applies,
+			// EffectiveRequest leaves the literal "inherit"/"" on the request
+			// (applyAuth has no case for either, so nothing is sent) while the
+			// adapter reports an empty config. Everything else must match field
+			// for field.
+			normalize := func(auth types.AuthConfig) types.AuthConfig {
+				if auth.Mode == "" || strings.EqualFold(auth.Mode, "inherit") {
+					return types.AuthConfig{}
+				}
+				return auth
+			}
+			wantEffective := normalize(scripting.EffectiveRequest(sendPathView, item).Auth)
+			gotEffective, _ := mcpEffectiveAuth(sendPathView, item)
+			if gotEffective.Mode != wantEffective.Mode {
+				t.Errorf("resolved mode %q, but scripting.EffectiveRequest resolves %q — get_request would describe auth that a run does not use", gotEffective.Mode, wantEffective.Mode)
+			}
+			if gotEffective.Token != wantEffective.Token || gotEffective.Username != wantEffective.Username || gotEffective.Password != wantEffective.Password {
+				t.Errorf("resolved credentials differ from the send path's: got %+v, want %+v", gotEffective, wantEffective)
+			}
+		})
+	}
+}
+
+// appendMCPFixtureItem adds one request to the fixture collection and returns
+// its id.
+func appendMCPFixtureItem(t *testing.T, fixture mcpFixture, name string, mutate func(item *types.RequestItem)) string {
+	t.Helper()
+	item := types.NewRequestItem(name, "http", 50)
+	mutate(&item)
+	fixture.app.mu.Lock()
+	defer fixture.app.mu.Unlock()
+	collection := &fixture.app.state.Workspaces[0].Collections[0]
+	collection.Items = append(collection.Items, item)
+	return item.ID
 }
 
 // mcpRowValue finds one row by name, case-insensitively.

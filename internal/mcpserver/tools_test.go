@@ -36,6 +36,11 @@ type fixtureBackend struct {
 	lastRequestID    string
 	lastQuery        string
 	lastLimit        int
+	// searchCalls counts SearchRequests calls. lastQuery cannot carry that on
+	// its own: the interesting case is the EMPTY query, which is also the zero
+	// value, so "the backend saw an empty query" and "the backend was never
+	// reached" would be indistinguishable without a counter.
+	searchCalls int
 }
 
 func newFixtureBackend() *fixtureBackend {
@@ -117,6 +122,7 @@ func (backend *fixtureBackend) SearchRequests(query string, limit int) ([]Reques
 	}
 	backend.lastQuery = query
 	backend.lastLimit = limit
+	backend.searchCalls++
 	var matches []RequestSummary
 	for _, request := range backend.requests["col_pos"] {
 		if strings.Contains(strings.ToLower(request.Name), strings.ToLower(query)) {
@@ -244,6 +250,59 @@ func TestSearchRequestsForwardsQueryAndLimit(t *testing.T) {
 	}
 }
 
+// "query" is optional, and both ways of leaving it out have to reach the
+// Backend rather than being turned into a validation error: the contract
+// defines an empty query as "match everything", so this is the call an agent
+// makes to see the whole workspace. The fixture's own predicate matches
+// everything on an empty needle, mirroring the real adapter's.
+func TestSearchRequestsWithAnEmptyQueryMatchesEverything(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		arguments map[string]any
+	}{
+		{"an explicitly empty query", map[string]any{"query": ""}},
+		{"a blank query", map[string]any{"query": "   "}},
+		{"no query argument at all", map[string]any{}},
+		{"no arguments at all", nil},
+		{"only a limit", map[string]any{"limit": 5}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			backend := newFixtureBackend()
+			server := newTestServer(t, backend)
+			result := callTool(t, server, "search_requests", testCase.arguments)
+			if result.IsError {
+				t.Fatalf("search_requests failed: %s", result.Content[0].Text)
+			}
+			var requests []RequestSummary
+			decodePayload(t, result, &requests)
+			if backend.searchCalls != 1 {
+				t.Fatalf("the backend was called %d times; the request never got past validation", backend.searchCalls)
+			}
+			if backend.lastQuery != "" {
+				t.Errorf("the backend saw query %q, want it empty", backend.lastQuery)
+			}
+			if len(requests) != 2 {
+				t.Errorf("got %d rows, want every request the fixture has: %+v", len(requests), requests)
+			}
+		})
+	}
+}
+
+// The optionality is declared, not just tolerated: an agent reads the schema
+// before it composes the call.
+func TestSearchRequestsDeclaresQueryOptional(t *testing.T) {
+	entry, known := lookupTool("search_requests")
+	if !known {
+		t.Fatal("search_requests is not registered")
+	}
+	if len(entry.InputSchema.Required) != 0 {
+		t.Errorf("search_requests requires %v; query must be optional for the match-everything call to be reachable", entry.InputSchema.Required)
+	}
+	if _, declared := entry.InputSchema.Properties["query"]; !declared {
+		t.Error("search_requests no longer declares a query property at all")
+	}
+}
+
 func TestSearchRequestsWithoutLimitLetsTheBackendDefault(t *testing.T) {
 	backend := newFixtureBackend()
 	server := newTestServer(t, backend)
@@ -315,7 +374,10 @@ func TestMissingRequiredArgumentIsAToolErrorNamingTheField(t *testing.T) {
 		field     string
 	}{
 		{"list_requests", map[string]any{}, "collectionId"},
-		{"search_requests", map[string]any{"limit": 3}, "query"},
+		// search_requests is deliberately absent: its only argument that could
+		// be missing is "query", which is optional on purpose — omitting it is
+		// the match-everything call, not a mistake. See
+		// TestSearchRequestsWithAnEmptyQueryMatchesEverything.
 		{"get_request", map[string]any{"collectionId": "col_pos"}, "requestId"},
 		{"get_history", map[string]any{"requestId": "req_create"}, "collectionId"},
 		// An argument that is present but blank is the same mistake wearing a

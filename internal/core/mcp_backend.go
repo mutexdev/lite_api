@@ -33,6 +33,7 @@ import (
 	"github.com/mutexdev/lite_api/internal/envsecrets"
 	"github.com/mutexdev/lite_api/internal/history"
 	"github.com/mutexdev/lite_api/internal/mcpserver"
+	"github.com/mutexdev/lite_api/internal/scripting"
 	"github.com/mutexdev/lite_api/internal/types"
 )
 
@@ -201,6 +202,11 @@ func (b *mcpBackend) GetRequest(collectionID, requestID string) (mcpserver.Reque
 		return mcpserver.RequestDetail{}, errors.New("collectionId and requestId are both required")
 	}
 	var row requestRow
+	// owner carries the three fields the auth walk reads — Path and Folders for
+	// the folder chain, Auth for the fallback — copied out under the lock like
+	// everything else. Not the whole collection: this is the narrowest thing
+	// that can answer "what auth would a run of this request actually use".
+	var owner types.Collection
 	found := false
 	if err := b.app.readStateForMCP(func(state *AppState) {
 		for wi := range state.Workspaces {
@@ -214,6 +220,11 @@ func (b *mcpBackend) GetRequest(collectionID, requestID string) (mcpserver.Reque
 						continue
 					}
 					row = requestRow{collectionID: collection.ID, item: mcpItemCopy(collection.Items[ii])}
+					owner = types.Collection{
+						Path:    collection.Path,
+						Auth:    types.CloneAuthConfig(collection.Auth),
+						Folders: mcpFolderCopies(collection.Folders),
+					}
 					found = true
 					return
 				}
@@ -228,6 +239,7 @@ func (b *mcpBackend) GetRequest(collectionID, requestID string) (mcpserver.Reque
 	}
 
 	item := row.item
+	effectiveAuth, authSource := mcpEffectiveAuth(owner, item)
 	detail := mcpserver.RequestDetail{
 		RequestSummary: mcpRequestSummary(row),
 		Headers:        mcpserver.RedactRows(mcpKeyValueRows(item.Headers)),
@@ -235,9 +247,15 @@ func (b *mcpBackend) GetRequest(collectionID, requestID string) (mcpserver.Reque
 		PathParams:     mcpserver.RedactRows(mcpKeyValueRows(item.PathParams)),
 		BodyType:       strings.TrimSpace(item.Body.Mode),
 		Body:           types.RequestBodySnapshot(item.Body),
-		AuthType:       strings.TrimSpace(item.Auth.Mode),
-		Auth:           mcpserver.MaskAuthRows(mcpAuthRows(item.Auth)),
-		Vars:           mcpserver.RedactRows(mcpVariableRows(item.Vars)),
+		// The EFFECTIVE auth, not the stored mode: an inheriting request
+		// reports what a run of it would actually use, and AuthSource names the
+		// level that supplied it. Reporting "inherit" with no rows — which is
+		// what reading item.Auth alone produces — tells the agent nothing about
+		// how the request authenticates, and most imported collections inherit.
+		AuthType:   strings.TrimSpace(effectiveAuth.Mode),
+		AuthSource: authSource,
+		Auth:       mcpserver.MaskAuthRows(mcpAuthRows(effectiveAuth)),
+		Vars:       mcpserver.RedactRows(mcpVariableRows(item.Vars)),
 		// Scripts travel verbatim. They are code the user wrote and the agent
 		// may need to reproduce; a script that hardcodes a credential is a
 		// problem in the collection, not something this layer can fix by
@@ -339,6 +357,17 @@ func (b *mcpBackend) GetHistory(collectionID, requestID string, limit int) ([]mc
 	}
 	limit = mcpBoundedLimit(limit, mcpHistoryDefaultLimit, mcpHistoryMaxLimit)
 
+	// History artifacts are recorded AFTER interpolation, so the name-based
+	// masking that protects definitions cannot help here: a request templated
+	// as ?key={{secret}} has the resolved credential in its recorded URL, under
+	// a parameter name no heuristic flags. The process does know every hydrated
+	// secret VALUE, though, so recorded URLs, bodies and header values are
+	// scrubbed by exact value instead.
+	secretValues, err := b.app.mcpHydratedSecretValues()
+	if err != nil {
+		return nil, err
+	}
+
 	// HistoryQuery filters by collection but not by item, so the store's own
 	// limit cannot be used: applied before the item filter it would return the
 	// newest N entries of the collection and then leave nothing for this
@@ -360,16 +389,15 @@ func (b *mcpBackend) GetHistory(collectionID, requestID string, limit int) ([]mc
 		run := mcpserver.HistoryRun{
 			ID:         entry.ID,
 			Method:     entry.Method,
-			URL:        entry.URL,
+			URL:        mcpserver.MaskKnownSecretValues(entry.URL, secretValues),
 			Status:     entry.Status,
 			DurationMs: int(entry.DurationMs),
 			ExecutedAt: entry.At.UTC().Format(time.RFC3339),
-			// Already redacted by internal/history's rules on the way in — the
-			// stored value for a credential-shaped header is the literal
-			// "<redacted>", never the token. Mapped straight across rather than
-			// re-masked, so a marker found in tool output identifies the layer
-			// that produced it.
-			Headers: mcpKeyValueRows(entry.ResponseHeaders),
+			// Name-based redaction happened on the way in — internal/history
+			// stores "<redacted>" for credential-shaped header names. The
+			// value scrub on top catches a secret that a server echoed into a
+			// header with an innocent name.
+			Headers: mcpMaskRowValues(mcpKeyValueRows(entry.ResponseHeaders), secretValues),
 		}
 		body, err := b.app.GetHistoryBody(entry.ID)
 		if err == nil && len(body) > mcpHistoryBodyLimit {
@@ -378,13 +406,62 @@ func (b *mcpBackend) GetHistory(collectionID, requestID string, limit int) ([]mc
 		}
 		// A body the store has since pruned is not an error: history outlives
 		// the content-addressed bodies it points at by design.
-		run.Body = body
+		run.Body = mcpserver.MaskKnownSecretValues(body, secretValues)
 		out = append(out, run)
 		if len(out) >= limit {
 			break
 		}
 	}
 	return out, nil
+}
+
+// mcpHydratedSecretValues collects every hydrated secret value the process
+// knows about — global and collection environment variables plus request-level
+// vars flagged secret — so post-interpolation artifacts can be scrubbed by
+// exact value. The strings leave the lock, but only into the masker, which
+// replaces them; no caller ever returns one.
+func (a *App) mcpHydratedSecretValues() ([]string, error) {
+	var values []string
+	collect := func(variables []types.Variable) {
+		for _, variable := range variables {
+			if !variable.Secret {
+				continue
+			}
+			if value := envsecrets.ValueToString(variable.Value); value != "" {
+				values = append(values, value)
+			}
+		}
+	}
+	if err := a.readStateForMCP(func(state *AppState) {
+		for wi := range state.Workspaces {
+			workspace := &state.Workspaces[wi]
+			for ei := range workspace.GlobalEnvironments {
+				collect(workspace.GlobalEnvironments[ei].Variables)
+			}
+			for ci := range workspace.Collections {
+				collection := &workspace.Collections[ci]
+				collect(collection.Variables)
+				for ei := range collection.Environments {
+					collect(collection.Environments[ei].Variables)
+				}
+				for ii := range collection.Items {
+					collect(collection.Items[ii].Vars.Req)
+					collect(collection.Items[ii].Vars.Res)
+				}
+			}
+		}
+	}); err != nil {
+		return nil, err
+	}
+	return values, nil
+}
+
+// mcpMaskRowValues runs the known-value scrub over each row's value.
+func mcpMaskRowValues(rows []mcpserver.KeyValue, secretValues []string) []mcpserver.KeyValue {
+	for index := range rows {
+		rows[index].Value = mcpserver.MaskKnownSecretValues(rows[index].Value, secretValues)
+	}
+	return rows
 }
 
 // --- mapping helpers -------------------------------------------------------
@@ -398,6 +475,17 @@ func mcpItemCopy(item types.RequestItem) types.RequestItem {
 	return types.CloneRequestItemForFolderClone(item)
 }
 
+// mcpRequestSummary builds the row every read tool returns — and, because
+// RequestDetail embeds it, the URL in get_request too. That makes it the ONE
+// place a request's URL leaves this adapter, which is why the query-literal
+// masking lives here rather than at each call site: a later tool that reports a
+// request cannot forget to apply it.
+//
+// A URL is not just addressing. "?api_key=sk_live_..." pasted from a working
+// curl never becomes a Params row, so RedactRows never sees it; without this it
+// would ship byte-for-byte. Only credential-shaped query VALUES that are
+// literals are touched — {{templates}} and everything outside the query string
+// come back exactly as authored (see mcpserver.RedactURLQueryLiterals).
 func mcpRequestSummary(row requestRow) mcpserver.RequestSummary {
 	return mcpserver.RequestSummary{
 		ID:           row.item.ID,
@@ -405,9 +493,73 @@ func mcpRequestSummary(row requestRow) mcpserver.RequestSummary {
 		Name:         row.item.Name,
 		Type:         row.item.Type,
 		Method:       row.item.Method,
-		URL:          row.item.URL,
+		URL:          mcpserver.RedactURLQueryLiterals(row.item.URL),
 		FolderPath:   row.item.FolderPath,
 	}
+}
+
+// The levels AuthSource names. A request that configures its own auth reports
+// "request"; an inheriting one reports whichever level the send path would
+// actually take the credentials from.
+const (
+	mcpAuthSourceRequest    = "request"
+	mcpAuthSourceFolder     = "folder"
+	mcpAuthSourceCollection = "collection"
+)
+
+// mcpFolderCopies deep-copies a collection's folder configs out from under the
+// lock. Only Path and Auth are read afterwards, but cloning whole is cheaper to
+// keep correct than a partial copy that a later field would quietly outgrow.
+func mcpFolderCopies(folders []types.FolderConfig) []types.FolderConfig {
+	if len(folders) == 0 {
+		return nil
+	}
+	out := make([]types.FolderConfig, 0, len(folders))
+	for _, folder := range folders {
+		out = append(out, types.CloneFolderConfigForFolderClone(folder))
+	}
+	return out
+}
+
+// mcpEffectiveAuth resolves the auth a run of this request would actually use,
+// and names the level it came from.
+//
+// This MIRRORS the send path rather than reinventing it: scripting.EffectiveRequest
+// (internal/scripting/run.go:397-407) is what every Send, Flow and code-generation
+// path goes through, and it is called here with the same FolderChain helper it
+// uses, so a divergence between "what get_request reports" and "what run_request
+// will send" cannot open up quietly. Two of its behaviours are subtle and are
+// reproduced deliberately:
+//
+//   - The folder chain runs outermost to innermost (scripting.FolderChain), and
+//     the walk keeps the LAST match — so the innermost folder that configures
+//     auth wins over its parents, and any folder wins over the collection.
+//   - The test is folder.Auth.Mode != "", NOT "is a real mode". A folder whose
+//     own mode is "inherit" therefore SHADOWS the collection and ends up
+//     applying no auth at all. That is what a run does, so that is what is
+//     reported: the caller turns a resolved mode of "inherit" into "nothing is
+//     configured" rather than pretending the collection's block applies.
+//
+// A request whose own mode is anything else is explicit and short-circuits.
+func mcpEffectiveAuth(collection types.Collection, item types.RequestItem) (types.AuthConfig, string) {
+	if item.Auth.Mode != "inherit" && item.Auth.Mode != "" {
+		return item.Auth, mcpAuthSourceRequest
+	}
+	auth := collection.Auth
+	source := mcpAuthSourceCollection
+	for _, folder := range scripting.FolderChain(collection, item) {
+		if folder.Auth.Mode != "" {
+			auth = folder.Auth
+			source = mcpAuthSourceFolder
+		}
+	}
+	// EffectiveRequest leaves the item's own (empty or inheriting) auth in place
+	// when nothing upstream configures one; nothing is applied at send time, so
+	// nothing is reported here.
+	if auth.Mode == "" || strings.EqualFold(strings.TrimSpace(auth.Mode), "inherit") {
+		return types.AuthConfig{}, ""
+	}
+	return auth, source
 }
 
 // mcpKeyValueRows narrows the app's KeyValue — which also carries Secret and

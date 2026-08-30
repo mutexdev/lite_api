@@ -57,18 +57,22 @@ var authRowAllowlist = map[string]bool{
 	"redirect_uri":      true,
 	"clientid":          true,
 	"client_id":         true,
-	"headerprefix":      true,
-	"header_prefix":     true,
-	"addto":             true,
-	"add_to":            true,
-	"in":                true,
-	"key":               true,
-	"version":           true,
-	"region":            true,
-	"service":           true,
-	"profile":           true,
-	"domain":            true,
-	"workstation":       true,
+	// "key" is the apikey mode's PARAMETER NAME (e.g. X-API-Key), which is
+	// addressing; the credential itself travels in the row named "value",
+	// which is deliberately NOT here and therefore masked. Do not "fix" this
+	// by swapping them.
+	"key":           true,
+	"headerprefix":  true,
+	"header_prefix": true,
+	"addto":         true,
+	"add_to":        true,
+	"in":            true,
+	"version":       true,
+	"region":        true,
+	"service":       true,
+	"profile":       true,
+	"domain":        true,
+	"workstation":   true,
 }
 
 // SensitiveName reports whether a header or parameter name is
@@ -110,6 +114,69 @@ func RedactRows(rows []KeyValue) []KeyValue {
 		}
 	}
 	return out
+}
+
+// RedactURLQueryLiterals masks literal values of credential-shaped query
+// parameters inside a URL string as authored — the "paste a working curl URL"
+// pattern, where ?api_key=sk_live_... never becomes a structured Params row
+// and would otherwise ship to the agent byte-for-byte.
+//
+// The surgery is string-level on purpose. Parsing with net/url and
+// re-encoding would rewrite the parts that are NOT masked — percent-escapes,
+// ordering, and the {{templates}} a URL here is full of — and a definition
+// that comes back altered is worse than one that comes back masked. Only the
+// value half of a matched pair is replaced; everything else is returned
+// byte-for-byte.
+func RedactURLQueryLiterals(rawURL string) string {
+	queryStart := strings.Index(rawURL, "?")
+	if queryStart < 0 {
+		return rawURL
+	}
+	prefix, rest := rawURL[:queryStart+1], rawURL[queryStart+1:]
+	query, fragment := rest, ""
+	if fragmentStart := strings.Index(rest, "#"); fragmentStart >= 0 {
+		query, fragment = rest[:fragmentStart], rest[fragmentStart:]
+	}
+	parts := strings.Split(query, "&")
+	changed := false
+	for index, part := range parts {
+		name, value, hasValue := strings.Cut(part, "=")
+		if !hasValue || value == "" || containsTemplate(value) {
+			continue
+		}
+		if SensitiveName(name) {
+			parts[index] = name + "=" + MaskedValue
+			changed = true
+		}
+	}
+	if !changed {
+		return rawURL
+	}
+	return prefix + strings.Join(parts, "&") + fragment
+}
+
+// MaskKnownSecretValues replaces every occurrence of the given resolved
+// secret values with the mask. This is the defence for artifacts recorded
+// AFTER interpolation — history URLs, bodies, and header values — where the
+// name-based rules cannot help: a resolved secret sits under whatever
+// parameter name the user chose, but its value is known to the process, so it
+// can be matched exactly.
+//
+// Values shorter than 8 bytes are skipped. Masking "1234" would also mask
+// every calendar year and port number in a response body, corrupting far more
+// than it protects — and a secret that short is not protected by masking
+// anyway.
+func MaskKnownSecretValues(text string, values []string) string {
+	if text == "" {
+		return text
+	}
+	for _, value := range values {
+		if len(value) < 8 {
+			continue
+		}
+		text = strings.ReplaceAll(text, value, MaskedValue)
+	}
+	return text
 }
 
 // MaskAuthRows masks literal values on auth rows unless the field is
