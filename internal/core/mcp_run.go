@@ -303,7 +303,7 @@ func mcpRunResult(response Response, secretValues []string) (mcpserver.RunResult
 		Headers:     mcpRunHeaders(response, secretValues),
 		Body:        body,
 		Truncated:   truncated,
-		TestResults: mcpRunTestResults(response.TestResults),
+		TestResults: mcpRunTestResults(response.TestResults, secretValues),
 	}
 	return result, nil
 }
@@ -336,20 +336,24 @@ func mcpRunHeaders(response Response, secretValues []string) []mcpserver.KeyValu
 // (app_send.go:174). The item's copy is the same slice, assigned at
 // app_send.go:240; reading the response is reading it one step earlier and
 // without a second lookup.
-func mcpRunTestResults(results []TestResult) []mcpserver.TestResult {
+func mcpRunTestResults(results []TestResult, secretValues []string) []mcpserver.TestResult {
 	if len(results) == 0 {
 		return nil
 	}
 	out := make([]mcpserver.TestResult, 0, len(results))
 	for _, result := range results {
 		out = append(out, mcpserver.TestResult{
-			Name:   result.Name,
-			Passed: result.Passed,
-			// Message is the assertion's own text, written by the user's test.
-			// It is not scanned for credentials, for the same reason rule 3
-			// gives for bodies and scripts: a mangled failure message is worse
-			// than useless to the agent trying to act on it.
-			Message: result.Message,
+			// Name and Message are value-scrubbed like the body and the URL.
+			// Rule 3's exemption for scripts covers their SOURCE — text that
+			// has to keep parsing — not their output: a test that read a secret
+			// with pm.variables.get and put it in its own name or failure
+			// message is runtime string output, and the exact-value scrub is
+			// the same non-mangling operation the body already gets. Without
+			// it, this was the one field a properly-templated secret could
+			// still leak through (found by the run tier's adversarial pass).
+			Name:    mcpserver.MaskKnownSecretValues(result.Name, secretValues),
+			Passed:  result.Passed,
+			Message: mcpserver.MaskKnownSecretValues(result.Message, secretValues),
 		})
 	}
 	return out

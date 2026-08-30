@@ -24,16 +24,29 @@ package core
 // because the known-host set is computed WITHOUT the overrides applied while the
 // target host is resolved WITH them.
 //
-// KNOWN LIMITATION, STATED RATHER THAN PAPERED OVER. The guard reasons about the
-// request's DEFINITION. A user-authored pre-request script can rewrite req.url
-// after the guard has run, so a script could retarget a secret mid-run and this
-// check would not see it. That is accepted for now on a specific ground: scripts
-// are written by the user, and an agent cannot author or edit one while the
-// write tier is off — so the only way a hostile script gets into a collection is
-// by the user putting it there, which is a different threat than the one this
-// tier introduces. If agents ever gain script authoring, this guard must move to
-// the send path (after pre-request scripts, before the transport) or the
-// property it claims stops holding.
+// KNOWN LIMITATIONS, STATED RATHER THAN PAPERED OVER. The guard reasons about
+// the request's DEFINITION, and it runs once, before the send. Two consequences:
+//
+//   - A user-authored pre-request script can rewrite req.url after the guard has
+//     run, so a script could retarget a secret mid-run and this check would not
+//     see it. Accepted on a specific ground: scripts are written by the user, and
+//     an agent cannot author or edit one while the write tier is off — so the
+//     only way a hostile script gets into a collection is by the user putting it
+//     there, which is a different threat than the one this tier introduces. If
+//     agents ever gain script authoring, this guard must move to the send path
+//     (after pre-request scripts, before the transport) or the property it
+//     claims stops holding.
+//
+//   - A redirect is followed without re-checking. Go's client strips
+//     Authorization across a HOSTNAME change but not a port change, so a known
+//     host can 302 a credential to another port of itself and the guard never
+//     sees the hop (pinned by TestMCPRunRequestRedirectToADifferentPortReaches-
+//     AnUncheckedService). Accepted because the redirecting host already holds
+//     the credential — it can gain nothing by forwarding it to itself — and the
+//     residual case, unrelated tenants sharing one hostname across ports, is in
+//     practice loopback. Re-guarding each hop would fork the transport's
+//     redirect policy away from the user's own send path, which is the drift
+//     the run tier's design forbids.
 
 import (
 	"context"
