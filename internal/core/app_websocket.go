@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -396,13 +397,52 @@ func websocketTimelineItem(item RequestItem, response Response, action string) T
 	}
 }
 
+// executeWebSocket is the context-free delegate. The send seam still calls this
+// name; the caller switch to executeWebSocketContext lands with the send path,
+// and until then this preserves today's behaviour exactly — a background
+// context, no policy, no checkpoint.
 func (a *App) executeWebSocket(collectionID string, item RequestItem, vars map[string]string) Response {
+	return a.executeWebSocketContext(context.Background(), collectionID, item, vars)
+}
+
+// executeWebSocketContext is the WebSocket send with the request's context
+// carried all the way to the handshake.
+//
+// TWO THINGS CHANGE HERE, and they are the same thing seen from two sides.
+//
+// THE HANDSHAKE IS NOW CANCELLABLE. gorilla's Dial runs the handshake on
+// context.Background(): a cancelled send left the dial running to its own
+// timeout, and no caller could stop it. DialContext is the same dial with the
+// send's context, so cancellation and deadlines reach the connection attempt.
+//
+// AND THE HANDSHAKE IS NOW CHECKED. A WebSocket handshake IS an HTTP request —
+// it carries the request's headers, cookies and auth to whatever host the
+// resolved URL names — so under MCP provenance it goes through the same
+// blocking checkpoint (§4.3, §5 row 10) as any other main egress, BEFORE the
+// dialer opens a socket. Frames then ride a connection that was authorized, so
+// nothing per-frame is needed: a connection cannot change its peer.
+func (a *App) executeWebSocketContext(ctx context.Context, collectionID string, item RequestItem, vars map[string]string) Response {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	start := time.Now()
 	result := Response{SentAt: start, Headers: map[string]string{}, PreviewMode: "websocket"}
 	targetURL := wsexec.TargetURL(item, vars)
 	result.RequestedURL = targetURL
 
 	headers := wsexec.Headers(item, vars)
+
+	if policy := mcpPolicyFromContext(ctx); policy != nil {
+		// A URL that does not resolve to an origin yields the zero Origin,
+		// which Authorize denies with its own "did not resolve" message. That
+		// is deliberate: an unresolvable destination is one nothing checked.
+		origin, _ := OriginOfURL(targetURL)
+		if err := policy.Authorize(ctx, origin, egressKindMain); err != nil {
+			result.Error = err.Error()
+			result.DurationMs = time.Since(start).Milliseconds()
+			return result
+		}
+	}
 
 	timeout := requestTimeoutMilliseconds(item.Settings.TimeoutMs, a.appTLSSettingsSnapshot().Request)
 	dialer, err := a.websocketDialer(collectionID, item, targetURL, vars, time.Duration(timeout)*time.Millisecond)
@@ -411,7 +451,7 @@ func (a *App) executeWebSocket(collectionID string, item RequestItem, vars map[s
 		result.DurationMs = time.Since(start).Milliseconds()
 		return result
 	}
-	conn, res, err := dialer.Dial(targetURL, headers)
+	conn, res, err := dialer.DialContext(ctx, targetURL, headers)
 	if res != nil {
 		result.Status = res.StatusCode
 		result.StatusText = res.Status

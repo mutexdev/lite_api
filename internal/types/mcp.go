@@ -50,37 +50,106 @@ type MCPAuditEntry struct {
 	DurationMs int    `json:"durationMs"`
 }
 
-// MCPApprovalRequest is the payload of the "mcp:approval" event — the prompt the
-// new-host guard (rule 4) raises when a run would resolve a secret into a
-// request aimed at a host the collection has never sent that secret to.
+// MCPApprovalRequest is the payload of the "mcp:approval" event — the prompt
+// raised when an agent-initiated run would contact an origin that nothing in the
+// request's own definition points at, under the environment the run is using.
 //
-// SECRET NAMES, NEVER VALUES. The whole point of the prompt is to tell the user
-// which credential is about to travel somewhere new; naming it is what makes the
-// decision informed, and the value would defeat the boundary the guard exists to
-// hold. The frontend answers with App.ResolveMCPApproval(id, approve, remember).
+// IT NAMES A SITE, NOT JUST A HOST. The question the user is answering is not
+// "may this credential reach example.com" but "may THIS request, under THIS
+// environment, contact THIS origin" — so the payload carries the whole site
+// (workspace, collection, request, selected collection environment, active
+// global environments) plus the egress kind, and the dialog spells all of it
+// out. A prompt that named only the host would ask a question broader than the
+// approval it produces, which is how a user ends up granting something they were
+// never shown.
+//
+// SECRET NAMES, NEVER VALUES, AND ONLY AS ADVICE. SecretNames says which
+// credentials the request references, because that is what makes the decision
+// feel real to the person answering. It is advisory text only: nothing keys an
+// approval on it, and no enforcement anywhere consults it.
+//
+// The frontend answers with App.ResolveMCPApproval(id, approve, remember).
 type MCPApprovalRequest struct {
-	ID          string   `json:"id"`
-	RequestName string   `json:"requestName"`
-	Host        string   `json:"host"`
-	SecretNames []string `json:"secretNames"`
+	ID string `json:"id"`
+	// RunLabel is what the run calls itself in the first line of the prompt —
+	// the request's name for a single run, the flow's for a flow step.
+	RunLabel string `json:"runLabel,omitempty"`
+
+	// --- the site (see MCPApproval; these are the fields the key is built from)
+	WorkspacePath          string   `json:"workspacePath,omitempty"`
+	CollectionID           string   `json:"collectionId,omitempty"`
+	CollectionName         string   `json:"collectionName,omitempty"`
+	RequestID              string   `json:"requestId,omitempty"`
+	RequestName            string   `json:"requestName"`
+	EnvironmentID          string   `json:"environmentId,omitempty"`
+	EnvironmentName        string   `json:"environmentName,omitempty"`
+	GlobalEnvironmentIDs   []string `json:"globalEnvironmentIds,omitempty"`
+	GlobalEnvironmentNames []string `json:"globalEnvironmentNames,omitempty"`
+
+	// Origin is the canonical scheme://host:port the run would contact — the
+	// exact text the approval is remembered under.
+	Origin string `json:"origin,omitempty"`
+	// Kind is the egress kind (main, redirect, script, token, aws) and KindClass
+	// the class its approvals are keyed by (request, token, aws). Both are shown
+	// so the user can tell "this request's own destination" from "the endpoint
+	// that mints its token".
+	Kind      string `json:"kind,omitempty"`
+	KindClass string `json:"kindClass,omitempty"`
+
+	// Host is the bare hostname the SHIPPED host guard (mcp_guard.go) reasons
+	// about. It is kept alongside Origin only while that guard is still the
+	// enforcing boundary; the destination boundary keys on Origin, and the final
+	// wave that retires the old guard retires this field with it.
+	Host string `json:"host,omitempty"`
+	// SecretNames is advisory text — the credentials the request references.
+	SecretNames []string `json:"secretNames,omitempty"`
 }
 
-// MCPApproval is one remembered (secret, host) pair from an approval the user
-// chose to keep. Persisted to <dataDir>/mcp-approvals.json, and unioned into the
-// host allowlist the guard computes from the collections themselves.
+// MCPApproval is one remembered "this request, under this environment, may
+// contact this origin" decision. Persisted to <dataDir>/mcp-approvals.json.
 //
-// Host is stored lowercased and without a port, matching how the guard resolves
-// a run's target. ApprovedAt is RFC3339 and is there for the user's benefit —
-// nothing keys off it.
+// EVERY FIELD IS PART OF THE KEY, AND EVERY ONE OF THEM NARROWS. An approval
+// remembered for request A never authorizes request B; one remembered under the
+// dev environment never authorizes the same request under production, because
+// production resolves the request's variables to somewhere else and the user's
+// "yes" was about the destination they were shown. GlobalEnvironmentIDs is an
+// ordered LIST even though at most one global environment is active today, so a
+// future multi-active model cannot silently widen an approval made under the
+// single-active one.
+//
+// KindClass ("request", "token" or "aws") keeps an approval for a request's own
+// destination from authorizing its OAuth token endpoint, and vice versa.
+//
+// NO OMITEMPTY ON THE KEY FIELDS, deliberately. An empty EnvironmentID means "no
+// collection environment selected", which is a real and common configuration;
+// omitting it from the file would make the entry indistinguishable on reload
+// from one written before these fields existed, and the migration rule
+// (mcp_approvals.go) ignores an entry that is MISSING them.
 type MCPApproval struct {
-	Secret     string `json:"secret"`
-	Host       string `json:"host"`
-	ApprovedAt string `json:"approvedAt,omitempty"`
+	WorkspacePath string `json:"workspacePath"`
+	CollectionID  string `json:"collectionId"`
+	RequestID     string `json:"requestId"`
+	// EnvironmentID is the selected collection environment; "" means none.
+	EnvironmentID string `json:"environmentId"`
+	// GlobalEnvironmentIDs is the ordered list of active global environments.
+	// Always written as an array, never null, for the reason above.
+	GlobalEnvironmentIDs []string `json:"globalEnvironmentIds"`
+	// Origin is canonical scheme://host:port.
+	Origin string `json:"origin"`
+	// KindClass is request | token | aws.
+	KindClass string `json:"kindClass"`
+	// ApprovedAt is for the user reading the file; nothing keys off it.
+	ApprovedAt time.Time `json:"approvedAt"`
 }
 
-// MCPApprovalFile is the on-disk shape of the remembered approvals. A wrapper
-// object rather than a bare array so a later field (a version, an expiry) can be
-// added without rewriting every installed file.
+// MCPApprovalFile is the on-disk shape of the remembered approvals.
+//
+// Version is what makes the store safe to change. A file this build does not
+// recognise is IGNORED rather than interpreted — an approval written under an
+// older, wider key must never authorize anything under the narrower one — and
+// the original is renamed aside rather than deleted. See
+// mcpApprovalStoreVersion in internal/core/mcp_approvals.go.
 type MCPApprovalFile struct {
+	Version   int           `json:"version"`
 	Approvals []MCPApproval `json:"approvals"`
 }

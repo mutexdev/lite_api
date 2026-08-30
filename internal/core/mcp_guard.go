@@ -472,6 +472,29 @@ func (a *App) enforceMCPHostGuard(ctx context.Context, plan mcpRunPlan, input mc
 			mcpserver.ErrDenied, strings.Join(referenced, ", "))
 	}
 
+	// The origin the run would actually contact, in the §6 sense — scheme, host
+	// and effective port. The host guard itself still reasons in bare hostnames
+	// (that is its design, see mcpNormalizeHost), but the APPROVAL it raises is
+	// remembered under the destination boundary's key, so the two halves of the
+	// migration meet here: what the user answers about is a site and an origin,
+	// whichever guard asked.
+	//
+	// An unresolvable origin yields the zero value, which remembers nothing and
+	// matches nothing. That is fail-closed: a destination this build cannot
+	// canonicalise is one it must not persist a decision about.
+	targetOrigin, _ := OriginOfURL(interp.Interpolate(plan.effective.URL, effective))
+
+	// A §6 approval the user already gave for THIS run's exact site and origin
+	// answers the old guard's question too. Strictly narrower than the pairs it
+	// replaced — it requires the same workspace, collection, request, selected
+	// environment and active globals, not merely the same secret name — so it
+	// can only ever mean one prompt fewer, never one destination more.
+	if remembered, rememberErr := a.mcpRememberedOriginApproved(plan.site, targetOrigin, kindClassRequest); rememberErr != nil {
+		return rememberErr
+	} else if remembered {
+		return nil
+	}
+
 	unknown, err := a.mcpSecretsWithoutHost(plan, referenced, targetHost)
 	if err != nil {
 		return err
@@ -480,12 +503,12 @@ func (a *App) enforceMCPHostGuard(ctx context.Context, plan mcpRunPlan, input mc
 		return nil
 	}
 
-	approved := a.requestMCPApproval(ctx, types.MCPApprovalRequest{
-		RequestName: plan.requestName,
-		Host:        targetHost,
-		SecretNames: unknown,
-	})
-	if approved {
+	prompt := mcpApprovalRequestFor(plan.site, plan.promptLabels(unknown), targetOrigin, egressKindMain, kindClassRequest)
+	// The bare host stays on the payload while this guard is the enforcing one:
+	// it is the thing this guard actually decided about, and for a URL whose
+	// origin would not resolve it is the only destination text there is.
+	prompt.Host = targetHost
+	if approved := a.requestMCPApproval(ctx, prompt); approved {
 		return nil
 	}
 	// The message is written for the agent that reads it: it names what was

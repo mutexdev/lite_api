@@ -67,6 +67,17 @@ type mcpRunPlan struct {
 	requestName   string
 	effective     types.RequestItem
 	vars          map[string]string
+	// site is "Site of S" (§1.1): the identity every approval for this run is
+	// keyed on. Fixed inside the locked read below, so the environment identity
+	// a run is judged under is the one it started with.
+	site mcpDefinitionSite
+	// labels is the human half of the site — what a prompt shows. Never part of
+	// any key (§6).
+	labels mcpSiteLabels
+	// scope is Base(S, k) for this definition scope: the origins the stored
+	// definition points at, resolved under the run's SINGLE agent-free variable
+	// context. Nothing agent-supplied contributes to it.
+	scope mcpScopeOrigins
 	// secretsInScope is every variable name that resolves to a secret for this
 	// run. It answers both questions this file asks: which overrides must be
 	// refused (item 3 of the contract) and which references the guard cares
@@ -77,6 +88,20 @@ type mcpRunPlan struct {
 	// mcpSecretOwner in mcp_guard.go for why a bare name is not an identity.
 	workspacePath           string
 	collectionScopedSecrets map[string]bool
+}
+
+// promptLabels is this plan's display names with the advisory secret list
+// narrowed to the names a particular prompt is about.
+//
+// ADVISORY, AND ONLY ADVISORY (§6). The list is what makes the dialog concrete
+// for the person reading it — "it references the secret apiToken" — and nothing
+// keys on it: two prompts about the same site and origin that name different
+// secrets produce the SAME approval, because the approval is about the
+// destination and not about which credential happens to be travelling.
+func (p mcpRunPlan) promptLabels(advisorySecretNames []string) mcpSiteLabels {
+	labels := p.labels
+	labels.advisorySecretNames = append([]string(nil), advisorySecretNames...)
+	return labels
 }
 
 // secretOwner reports where one of this run's secrets is defined.
@@ -109,6 +134,14 @@ func (b *mcpBackend) RunRequest(ctx context.Context, params mcpserver.RunRequest
 	if err != nil {
 		return mcpserver.RunResult{}, err
 	}
+	// The destination policy for this execution (§4.6), attached to the context
+	// the send path will carry. Nothing consults it yet — the shipped host guard
+	// below is still the enforcing boundary — but it is created HERE, from the
+	// same plan the guard uses, so that the wave which wires the checkpoints
+	// changes where the policy is read and not how it is built.
+	policy, _ := b.app.mcpEgressPolicyForRun(plan)
+	ctx = mcpContextWithPolicy(ctx, policy)
+
 	// EVERY override is agent-supplied here: run_request's whole variables map
 	// is the agent's own input, which is why both fields carry it.
 	if err := b.app.enforceMCPHostGuard(ctx, plan, mcpGuardInput{
@@ -151,6 +184,7 @@ func (a *App) mcpRunPlan(collectionID, requestID, environmentID string) (mcpRunP
 	var item types.RequestItem
 	var globals []types.Environment
 	var workspacePath string
+	var environmentName string
 	collectionFound, itemFound, environmentFound := false, false, environmentID == ""
 	globalEnvironmentMatch := false
 	if err := a.readStateForMCP(func(state *AppState) {
@@ -179,6 +213,7 @@ func (a *App) mcpRunPlan(collectionID, requestID, environmentID string) (mcpRunP
 				for _, environment := range collection.Environments {
 					if environment.ID == environmentID {
 						environmentFound = true
+						environmentName = environment.Name
 						break
 					}
 				}
@@ -206,19 +241,149 @@ func (a *App) mcpRunPlan(collectionID, requestID, environmentID string) (mcpRunP
 		return mcpRunPlan{}, fmt.Errorf("no environment with id %q in collection %q; call list_environments for the ids that exist, or omit environmentId to use the active one", environmentID, collectionID)
 	}
 
+	// THE RUN'S ENVIRONMENT IDENTITY, fixed from the one locked read above: the
+	// selected collection environment and the ordered list of global
+	// environments that were active when the run started. §1.1 makes the global
+	// half a LIST even though ActiveGlobalEnvironmentsForWorkspace yields at
+	// most one today, so a future multi-active model changes the key rather than
+	// silently widening approvals made under the single-active one.
+	site := mcpDefinitionSite{
+		workspacePath:        workspacePath,
+		collectionID:         collectionID,
+		requestID:            requestID,
+		environmentID:        environmentID,
+		globalEnvironmentIDs: mcpEnvironmentIDs(globals),
+	}
+
+	// THE RUN'S SINGLE AGENT-FREE VARIABLE CONTEXT (§4.1). One construction, one
+	// environment configuration, no overrides, no flow inputs, no extracted
+	// values — and Base is derived from it and from nothing else, which is what
+	// makes an approval environment-exact. A union over the collection's
+	// environments would authorize a dev host for a run holding production
+	// credentials, which is precisely the mistake the boundary exists to catch.
 	effective := scripting.EffectiveRequest(collection, item)
 	variables := scripting.NewScriptVariableContext(globals, &collection, environmentID, effective, nil, workspacePath)
+	secretsInScope := mcpSecretNamesInScope(globals, collection, environmentID, item)
+
+	// RESOLVED OUTSIDE THE LOCKED READ, and it has to be: readStateForMCP holds
+	// a.mu for writing, while collectionProxyResolution takes a.mu.RLock, so
+	// calling it in there would deadlock. Everything it reads is either a copy
+	// taken above or the collection's own proxy configuration, which no agent
+	// input can reach.
+	scope := mcpDefinitionOrigins(mcpDefinitionOriginsInput{
+		site:      site,
+		effective: effective,
+		vars:      variables.Combined,
+		proxy:     a.collectionProxyResolution(collectionID),
+	})
+
 	return mcpRunPlan{
-		collectionID:            collectionID,
-		requestID:               requestID,
-		environmentID:           environmentID,
-		requestName:             item.Name,
-		effective:               effective,
-		vars:                    variables.Combined,
-		secretsInScope:          mcpSecretNamesInScope(globals, collection, environmentID, item),
+		collectionID:  collectionID,
+		requestID:     requestID,
+		environmentID: environmentID,
+		requestName:   item.Name,
+		effective:     effective,
+		vars:          variables.Combined,
+		site:          site,
+		labels: mcpSiteLabels{
+			runLabel:               item.Name,
+			collectionName:         collection.Name,
+			requestName:            item.Name,
+			environmentName:        environmentName,
+			globalEnvironmentNames: mcpEnvironmentNames(globals),
+			advisorySecretNames:    mcpReferencedSecrets(effective, secretsInScope),
+		},
+		scope:                   scope,
+		secretsInScope:          secretsInScope,
 		workspacePath:           workspacePath,
 		collectionScopedSecrets: mcpCollectionScopedSecretNames(collection),
 	}, nil
+}
+
+// mcpEnvironmentIDs and mcpEnvironmentNames project the active global
+// environments, IN ORDER. Order is preserved rather than sorted because §1.1
+// makes the list itself the identity: a reordered but equivalent list produces a
+// different key and therefore one conservative re-prompt, which is the safe
+// direction, whereas sorting would quietly make two different configurations
+// share an approval.
+func mcpEnvironmentIDs(environments []types.Environment) []string {
+	out := make([]string, 0, len(environments))
+	for _, environment := range environments {
+		out = append(out, environment.ID)
+	}
+	return out
+}
+
+func mcpEnvironmentNames(environments []types.Environment) []string {
+	out := make([]string, 0, len(environments))
+	for _, environment := range environments {
+		out = append(out, environment.Name)
+	}
+	return out
+}
+
+// mcpEgressPolicyForRun builds the one policy that governs an MCP-initiated
+// execution (§4.6): its scope stack, its approval callbacks, and its execution
+// overlay.
+//
+// NOTHING CONSULTS IT YET. This wave attaches the policy to the run's context;
+// the engine checkpoints and the guard transport that read it land in the next
+// one, and until then the shipped host guard is still the enforcing boundary.
+// Building it here regardless is what makes that next wave a wiring change
+// rather than a design change — and it means the approval store, the prompt and
+// the key are exercised now, by the guard that is enforcing.
+//
+// The label book is per-execution because a flow replaces its scope per step:
+// each step records its own names before setting its scope, so a prompt raised
+// during step 3 describes step 3.
+func (a *App) mcpEgressPolicyForRun(plan mcpRunPlan) (*mcpEgressPolicy, *mcpSiteLabelBook) {
+	policy, book := a.newMCPExecutionPolicy()
+	mcpEnterScope(policy, book, plan)
+	return policy, book
+}
+
+// mcpEnterScope makes one definition scope the active one: its labels are
+// recorded first, so a prompt raised the instant the scope becomes active can
+// already name it.
+//
+// SetScope REPLACES rather than pushes, which is what a flow step needs (§4.1):
+// steps are siblings, and step B must not inherit step A's origins.
+func mcpEnterScope(policy *mcpEgressPolicy, book *mcpSiteLabelBook, plan mcpRunPlan) {
+	book.record(plan.site, plan.labels)
+	policy.SetScope(plan.scope)
+}
+
+// newMCPExecutionPolicy builds the callbacks half — everything that does not
+// depend on which definition scope is active. A flow calls this once and then
+// sets a scope per step.
+func (a *App) newMCPExecutionPolicy() (*mcpEgressPolicy, *mcpSiteLabelBook) {
+	policy := newMCPEgressPolicy()
+	book := newMCPSiteLabelBook()
+
+	policy.approved = a.mcpRememberedOriginApproved
+	policy.describe = func(site mcpDefinitionSite, origin Origin, kind egressKind, class string) types.MCPApprovalRequest {
+		return mcpApprovalRequestFor(site, book.lookup(site), origin, kind, class)
+	}
+	// The blocking prompt. Allow-once is the outcome for any approval, because
+	// remembering is ResolveMCPApproval's own job — it persists before releasing
+	// the waiter, so by the time this returns the approval is already on disk if
+	// the user asked for that.
+	policy.prompt = func(ctx context.Context, request types.MCPApprovalRequest) mcpPromptOutcome {
+		if a.requestMCPApproval(ctx, request) {
+			return mcpPromptAllowOnce
+		}
+		return mcpPromptDeny
+	}
+	// The NON-BLOCKING prompt, for the transport backstop that cannot wait
+	// inside client.Timeout (§4.2). It raises the same dialog on its own
+	// goroutine so an approve-and-remember makes the agent's retry succeed; the
+	// egress that triggered it has already been denied by then. Its own context
+	// rather than the run's: the run is on its way to failing, and the question
+	// the user is being asked outlives it.
+	policy.notify = func(request types.MCPApprovalRequest) {
+		go func() { _ = a.requestMCPApproval(context.Background(), request) }()
+	}
+	return policy, book
 }
 
 // mcpValidatedOverrides checks the run's variable overrides and returns the set

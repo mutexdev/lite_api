@@ -135,16 +135,75 @@ export function maskToken(command: string): string {
  */
 export const MCP_APPROVAL_TIMEOUT_MS = 60_000
 
-/** The "mcp:approval" event payload. Mirrors types.MCPApprovalRequest. */
+/**
+ * The "mcp:approval" event payload. Mirrors types.MCPApprovalRequest.
+ *
+ * IT DESCRIBES A SITE, NOT A HOST. What the backend remembers when the user
+ * picks "allow and remember" is keyed on the whole of (workspace, collection,
+ * request, selected collection environment, active global environments, origin,
+ * kind class) — so the dialog has to show all of it. A prompt that named only
+ * the host would ask a broader question than the answer it produces, and the
+ * user would be agreeing to something they were never shown.
+ *
+ * Optional throughout, because a payload is a wire value and a field that
+ * arrives missing must render as "unknown" rather than as "undefined".
+ */
 export interface McpApprovalRequest {
   id: string
+  /** What the run calls itself: the request's name, or the flow step's. */
+  runLabel?: string
+
+  collectionId?: string
+  collectionName?: string
+  requestId?: string
   requestName: string
-  host: string
-  secretNames: string[]
+  environmentId?: string
+  environmentName?: string
+  globalEnvironmentIds?: string[]
+  globalEnvironmentNames?: string[]
+
+  /** Canonical scheme://host:port — the destination the approval is keyed on. */
+  origin?: string
+  /** The egress kind (main, redirect, script, token, aws). */
+  kind?: string
+  /** The class approvals are keyed by: request | token | aws. */
+  kindClass?: string
+
+  /**
+   * The bare hostname the shipped host guard reasons about. Kept only while
+   * that guard is still enforcing; `origin` is what the approval is keyed on.
+   */
+  host?: string
+  /** Advisory only: which credentials the request references. Nothing keys on it. */
+  secretNames?: string[]
 }
 
-/** One queued prompt: the request plus when this window first saw it. */
-export interface McpApprovalPrompt extends McpApprovalRequest {
+/**
+ * One queued prompt: the request, normalized, plus when this window first saw
+ * it.
+ *
+ * EVERY FIELD IS PRESENT HERE even though the payload's are optional. The queue
+ * is where "missing" is turned into "empty", once, so the dialog renders a
+ * decision rather than a template — a component that had to write
+ * `prompt.origin ?? ''` in six places is a component where one of the six will
+ * eventually be forgotten.
+ */
+export interface McpApprovalPrompt {
+  id: string
+  runLabel: string
+  collectionId: string
+  collectionName: string
+  requestId: string
+  requestName: string
+  environmentId: string
+  environmentName: string
+  globalEnvironmentIds: string[]
+  globalEnvironmentNames: string[]
+  origin: string
+  kind: string
+  kindClass: string
+  host: string
+  secretNames: string[]
   /** Epoch ms. The expiry clock runs from here, NOT from when it is shown. */
   receivedAt: number
 }
@@ -167,6 +226,11 @@ export interface McpApprovalPrompt extends McpApprovalRequest {
  * different credentials in a list whose whole purpose is to say how many are
  * about to travel — and it would also collide in the keyed `each` that renders
  * them.
+ *
+ * The global-environment names are NOT de-duplicated or sorted: they are an
+ * ordered list, and the backend's approval key is order-sensitive, so a display
+ * that reordered them would show a configuration other than the one being
+ * approved.
  */
 export function queueApprovalPrompt(
   queue: readonly McpApprovalPrompt[],
@@ -176,15 +240,27 @@ export function queueApprovalPrompt(
   const id = (request?.id ?? '').trim()
   if (!id) return [...queue]
   if (queue.some((prompt) => prompt.id === id)) return [...queue]
+  const text = (value: string | undefined) => (value ?? '').trim()
+  const list = (values: string[] | undefined) =>
+    (values ?? []).map((value) => text(value)).filter((value) => value !== '')
   return [
     ...queue,
     {
       id,
-      requestName: (request.requestName ?? '').trim(),
-      host: (request.host ?? '').trim(),
-      secretNames: [
-        ...new Set((request.secretNames ?? []).map((name) => (name ?? '').trim()).filter((name) => name !== '')),
-      ],
+      runLabel: text(request.runLabel),
+      collectionId: text(request.collectionId),
+      collectionName: text(request.collectionName),
+      requestId: text(request.requestId),
+      requestName: text(request.requestName),
+      environmentId: text(request.environmentId),
+      environmentName: text(request.environmentName),
+      globalEnvironmentIds: list(request.globalEnvironmentIds),
+      globalEnvironmentNames: list(request.globalEnvironmentNames),
+      origin: text(request.origin),
+      kind: text(request.kind),
+      kindClass: text(request.kindClass),
+      host: text(request.host),
+      secretNames: [...new Set(list(request.secretNames))],
       receivedAt,
     },
   ]
@@ -241,6 +317,82 @@ export function approvalSecretsLabel(names: readonly string[]): string {
   if (clean.length === 0) return ''
   if (clean.length === 1) return clean[0]
   return `${clean.slice(0, -1).join(', ')} and ${clean[clean.length - 1]}`
+}
+
+/**
+ * What the prompt calls "no collection environment selected".
+ *
+ * SPELLED OUT RATHER THAN LEFT BLANK. An approval given with no environment
+ * selected is a real, keyed configuration — it does not authorize the same
+ * request under production — so the dialog has to name it, or the user reads
+ * the sentence as though the environment simply did not matter.
+ */
+export const MCP_NO_ENVIRONMENT_LABEL = '(no environment)'
+
+/**
+ * The environment half of the site, as one phrase: "Production + global
+ * Team-Globals", "(no environment)", "Production".
+ *
+ * The backend's key is the SELECTED collection environment plus the ORDERED
+ * list of active global environments, and both halves change what the approval
+ * covers — so both are shown, in that order, with the globals left in the order
+ * they arrived.
+ */
+export function approvalEnvironmentLabel(prompt: {
+  environmentName?: string
+  environmentId?: string
+  globalEnvironmentNames?: readonly string[]
+}): string {
+  const selected =
+    (prompt.environmentName ?? '').trim() ||
+    (prompt.environmentId ?? '').trim() ||
+    MCP_NO_ENVIRONMENT_LABEL
+  const globals = (prompt.globalEnvironmentNames ?? [])
+    .map((name) => (name ?? '').trim())
+    .filter((name) => name !== '')
+  if (globals.length === 0) return selected
+  return `${selected} + global ${globals.join(', ')}`
+}
+
+/**
+ * The destination the approval is keyed on: the canonical origin when there is
+ * one, the bare host only as a fallback.
+ *
+ * ORIGIN FIRST, ALWAYS. scheme://host:port is what gets remembered, and
+ * :3000 and :8080 are different approvals — a dialog that showed "localhost"
+ * would be describing something wider than what it is about to grant.
+ */
+export function approvalDestinationLabel(prompt: { origin?: string; host?: string }): string {
+  return (prompt.origin ?? '').trim() || (prompt.host ?? '').trim() || 'an unrecognised destination'
+}
+
+/**
+ * How the egress reads in the sentence: "main request destination", "OAuth
+ * token endpoint", and so on.
+ *
+ * The kind is shown because an approval is keyed by CLASS: saying yes to the
+ * endpoint that mints a token is not saying yes to the request's own
+ * destination, and the user cannot weigh that distinction if the dialog does not
+ * draw it. An unrecognised kind falls back to plain "destination" rather than
+ * guessing, since the fallback is the one that promises least.
+ */
+export function approvalKindLabel(kind: string | undefined): string {
+  switch ((kind ?? '').trim()) {
+    case 'main':
+      return 'main request destination'
+    case 'redirect':
+      return 'redirect target'
+    case 'script':
+      return 'script request destination'
+    case 'script-dns':
+      return 'script name lookup'
+    case 'token':
+      return 'OAuth token endpoint'
+    case 'aws':
+      return 'AWS credential endpoint'
+    default:
+      return 'destination'
+  }
 }
 
 // --- the recent activity list ---------------------------------------------

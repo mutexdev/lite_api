@@ -209,6 +209,16 @@ type mcpEgressPolicy struct {
 	// inside client.Timeout, so it denies immediately and notifies, letting an
 	// approve-and-remember make the agent's retry succeed (§2 row 10).
 	notify func(req types.MCPApprovalRequest)
+	// describe builds the prompt payload for one (site, origin, kind, class).
+	//
+	// A HOOK RATHER THAN A METHOD BODY, for the same reason approved and prompt
+	// are hooks: the payload needs the DISPLAY names of the collection, request
+	// and environments, and those are not in the site (a rename must not
+	// invalidate an approval, so names cannot be part of the key). The execution
+	// that built the scopes knows them and installs a closure that looks them up
+	// — see mcpSiteLabelBook in mcp_approvals.go. nil falls back to the origin
+	// alone, which is the one thing a callback cannot derive for itself.
+	describe func(site mcpDefinitionSite, o Origin, k egressKind, class string) types.MCPApprovalRequest
 	// session holds in-execution allow-once grants, keyed with the identical
 	// full-site shape as the persisted approvals.
 	session map[sessionKey]bool
@@ -460,16 +470,23 @@ func (p *mcpEgressPolicy) record(site mcpDefinitionSite, o Origin, k egressKind,
 	}
 }
 
-// approvalRequest builds the prompt payload.
+// approvalRequest builds the prompt payload: the full site, the origin, the
+// kind and its class (§6), through whatever describe hook the execution
+// installed.
 //
-// Only the fields types.MCPApprovalRequest has TODAY are filled. §6 widens that
-// struct to carry the full site (collection, request, environment, origin, kind
-// class) and the wave that lands it also enriches this constructor; until then
-// the callbacks receive the origin, which is the one thing they cannot derive.
-// The site, kind and class are already parameters so that widening is an edit
-// to this body alone.
-func (p *mcpEgressPolicy) approvalRequest(_ mcpDefinitionSite, o Origin, _ egressKind, _ string) types.MCPApprovalRequest {
-	return types.MCPApprovalRequest{Host: o.String()}
+// THE MUTEX IS NOT HELD ACROSS describe. It is a lookup, not I/O, but the rule
+// in this file's header is unconditional for a reason — a hook that grew a lock
+// of its own would otherwise introduce a lock order nobody declared.
+func (p *mcpEgressPolicy) approvalRequest(site mcpDefinitionSite, o Origin, k egressKind, class string) types.MCPApprovalRequest {
+	p.mu.Lock()
+	describe := p.describe
+	p.mu.Unlock()
+	if describe != nil {
+		return describe(site, o, k, class)
+	}
+	// No hook: the origin and the ids are still worth more to the user than
+	// nothing, and the site is exactly what the approval will be keyed on.
+	return mcpApprovalRequestFor(site, mcpSiteLabels{}, o, k, class)
 }
 
 // denial is the error an unauthorized egress produces. It names the origin, the

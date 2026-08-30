@@ -546,8 +546,9 @@ func TestMCPRunRequestRememberedApprovalDoesNotPromptAgain(t *testing.T) {
 		t.Errorf("got %d prompts, want 1 — the remembered approval did not hold", len(prompts))
 	}
 
-	// The pair is on disk in the documented shape, naming the secret and the
-	// host and nothing else.
+	// The approval is on disk in §6's shape: the full site, the canonical
+	// origin, the kind class — and no secret name anywhere, because an approval
+	// is about a destination, not about a credential.
 	data, err := os.ReadFile(f.app.mcpApprovalsPath())
 	if err != nil {
 		t.Fatalf("read the approvals file: %v", err)
@@ -556,14 +557,30 @@ func TestMCPRunRequestRememberedApprovalDoesNotPromptAgain(t *testing.T) {
 	if err := json.Unmarshal(data, &stored); err != nil {
 		t.Fatalf("decode the approvals file: %v", err)
 	}
+	if stored.Version != 1 {
+		t.Errorf("the approvals file is version %d, want 1: %s", stored.Version, data)
+	}
 	if len(stored.Approvals) != 1 {
 		t.Fatalf("the approvals file holds %d entries, want 1: %s", len(stored.Approvals), data)
 	}
-	if stored.Approvals[0].Secret != "apiToken" {
-		t.Errorf("the remembered secret is %q", stored.Approvals[0].Secret)
+	approval := stored.Approvals[0]
+	if approval.RequestID != f.secretReqID {
+		t.Errorf("the approval names request %q, want %q", approval.RequestID, f.secretReqID)
 	}
-	if stored.Approvals[0].ApprovedAt == "" {
+	if approval.CollectionID != f.collectionID {
+		t.Errorf("the approval names collection %q, want %q", approval.CollectionID, f.collectionID)
+	}
+	if approval.KindClass != "request" {
+		t.Errorf("the approval class is %q, want request", approval.KindClass)
+	}
+	if wanted := strings.TrimPrefix(other, "http://"); approval.Origin != "http://"+wanted {
+		t.Errorf("the approval origin is %q, want %q", approval.Origin, "http://"+wanted)
+	}
+	if approval.ApprovedAt.IsZero() {
 		t.Error("the remembered approval carries no timestamp")
+	}
+	if strings.Contains(string(data), "apiToken") {
+		t.Errorf("the approvals file names a secret; approvals key on destinations: %s", data)
 	}
 	if strings.Contains(string(data), runSentinelToken) {
 		t.Errorf("the approvals file holds the secret VALUE: %s", data)

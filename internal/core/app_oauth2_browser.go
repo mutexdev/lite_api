@@ -22,6 +22,10 @@ import (
 )
 
 func requestOAuth2AuthorizationCodeTokenWithTimeline(cfg OAuth2Auth, code, codeVerifier, redirectURI string) (oauth2TokenResponse, *TimelineItem, error) {
+	return requestOAuth2AuthorizationCodeTokenWithTimelineContext(context.Background(), cfg, code, codeVerifier, redirectURI)
+}
+
+func requestOAuth2AuthorizationCodeTokenWithTimelineContext(ctx context.Context, cfg OAuth2Auth, code, codeVerifier, redirectURI string) (oauth2TokenResponse, *TimelineItem, error) {
 	if strings.TrimSpace(cfg.AccessTokenURL) == "" {
 		return oauth2TokenResponse{}, nil, errors.New("OAuth2 access token URL is required")
 	}
@@ -43,7 +47,7 @@ func requestOAuth2AuthorizationCodeTokenWithTimeline(cfg OAuth2Auth, code, codeV
 	}
 	params := append([]OAuth2AdditionalParam{}, cfg.TokenAdditionalParams...)
 	params = append(params, legacyOAuth2AdditionalParams(cfg.AdditionalParams)...)
-	return requestOAuth2TokenFormWithTimeline(cfg, cfg.AccessTokenURL, form, params)
+	return requestOAuth2TokenFormWithTimelineContext(ctx, cfg, cfg.AccessTokenURL, form, params)
 }
 
 type oauth2AuthorizationCallback struct {
@@ -113,6 +117,25 @@ func (a *App) openOAuth2AuthorizationURL(authorizeURL, callbackURL, grantType st
 }
 
 func (a *App) requestOAuth2AuthorizationCodeTokenWithTimeline(cfg OAuth2Auth) (oauth2TokenResponse, []TimelineItem, error) {
+	return a.requestOAuth2AuthorizationCodeTokenWithTimelineContext(context.Background(), cfg)
+}
+
+// requestOAuth2AuthorizationCodeTokenWithTimelineContext carries a SECOND copy
+// of the §2 row 5 refusal, and it is not redundant. The primary refusal is at
+// the grant branch in fetchOAuth2TokenWithTimelineContext, where the cached and
+// refreshable paths have already had their chance; this one is the belt that
+// makes the guarantee structural — the promise is ZERO BROWSER OPENS for an MCP
+// run (§1.2(2)), and a future caller reaching this method directly must not be
+// able to break that by forgetting the branch above. It sits before
+// startOAuth2AuthorizationWaiter, so a refused run also opens no local callback
+// listener.
+func (a *App) requestOAuth2AuthorizationCodeTokenWithTimelineContext(ctx context.Context, cfg OAuth2Auth) (oauth2TokenResponse, []TimelineItem, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := oauth2InteractiveGrantRefusal(ctx, "authorization_code"); err != nil {
+		return oauth2TokenResponse{}, nil, err
+	}
 	if strings.TrimSpace(cfg.AuthorizationURL) == "" {
 		return oauth2TokenResponse{}, nil, errors.New("OAuth2 authorization URL is required")
 	}
@@ -156,13 +179,18 @@ func (a *App) requestOAuth2AuthorizationCodeTokenWithTimeline(cfg OAuth2Auth) (o
 	if a.ctx != nil {
 		baseCtx = a.ctx
 	}
-	ctx, cancel := context.WithTimeout(baseCtx, timeout)
+	// waitCtx, NOT a reassignment of ctx. `ctx, cancel := ...` would rebind the
+	// parameter (a short declaration redeclares a name already in the function's
+	// own block), and the token exchange below would then run under a context
+	// derived from a.ctx — stripping the provenance the caller attached. The
+	// callback wait keeps its original base exactly as before.
+	waitCtx, cancel := context.WithTimeout(baseCtx, timeout)
 	defer cancel()
-	callback, err := waiter.Receive(ctx)
+	callback, err := waiter.Receive(waitCtx)
 	if err != nil {
 		return oauth2TokenResponse{}, nil, err
 	}
-	response, tokenEntry, err := requestOAuth2AuthorizationCodeTokenWithTimeline(cfg, callback.Code, codeVerifier, waiter.CallbackURL)
+	response, tokenEntry, err := requestOAuth2AuthorizationCodeTokenWithTimelineContext(ctx, cfg, callback.Code, codeVerifier, waiter.CallbackURL)
 	timelineEntries := append([]TimelineItem{}, callback.Timeline...)
 	if tokenEntry != nil {
 		timelineEntries = append(timelineEntries, *tokenEntry)
@@ -174,6 +202,18 @@ func (a *App) requestOAuth2AuthorizationCodeTokenWithTimeline(cfg OAuth2Auth) (o
 }
 
 func (a *App) requestOAuth2ImplicitTokenWithTimeline(cfg OAuth2Auth) (oauth2TokenResponse, []TimelineItem, error) {
+	return a.requestOAuth2ImplicitTokenWithTimelineContext(context.Background(), cfg)
+}
+
+// requestOAuth2ImplicitTokenWithTimelineContext refuses under MCP provenance for
+// the same reason and in the same place as its authorization_code sibling above.
+func (a *App) requestOAuth2ImplicitTokenWithTimelineContext(ctx context.Context, cfg OAuth2Auth) (oauth2TokenResponse, []TimelineItem, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := oauth2InteractiveGrantRefusal(ctx, "implicit"); err != nil {
+		return oauth2TokenResponse{}, nil, err
+	}
 	if strings.TrimSpace(cfg.AuthorizationURL) == "" {
 		return oauth2TokenResponse{}, nil, errors.New("OAuth2 authorization URL is required")
 	}
@@ -201,9 +241,11 @@ func (a *App) requestOAuth2ImplicitTokenWithTimeline(cfg OAuth2Auth) (oauth2Toke
 	if a.ctx != nil {
 		baseCtx = a.ctx
 	}
-	ctx, cancel := context.WithTimeout(baseCtx, timeout)
+	// waitCtx rather than a rebound ctx, for the reason spelled out in the
+	// authorization_code method above.
+	waitCtx, cancel := context.WithTimeout(baseCtx, timeout)
 	defer cancel()
-	callback, err := waiter.Receive(ctx)
+	callback, err := waiter.Receive(waitCtx)
 	if err != nil {
 		return oauth2TokenResponse{}, nil, err
 	}

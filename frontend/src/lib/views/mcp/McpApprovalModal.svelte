@@ -2,12 +2,20 @@
   // The new-host approval prompt: the app-side face of the guard in
   // internal/core/mcp_guard.go.
   //
-  // WHAT THIS DIALOG ACTUALLY IS. An agent asked LiteAPI to run a request, that
-  // request resolves a secret variable, and the host it points at is one this
-  // workspace has never sent that secret to. A Go goroutine is blocked on the
-  // answer and denies after 60 seconds. So the dialog has one job: state which
-  // credential is about to travel where, plainly enough that the user can say no
-  // without reading it twice.
+  // WHAT THIS DIALOG ACTUALLY IS. An agent asked LiteAPI to run a request, and
+  // the destination it resolved to is one that nothing in that request's own
+  // definition points at under the environment the run is using. A Go goroutine
+  // is blocked on the answer and denies after 60 seconds. So the dialog has one
+  // job: state what is about to be contacted, from which request under which
+  // environment, plainly enough that the user can say no without reading it
+  // twice.
+  //
+  // IT NAMES THE WHOLE SITE BECAUSE THE APPROVAL IS KEYED ON THE WHOLE SITE.
+  // "Allow and remember" writes (workspace, collection, request, selected
+  // environment, active globals, origin, kind class) — it does NOT carry over to
+  // another request, and it does NOT carry over to the same request under
+  // production. The button says so in as many words; a shorter label would
+  // promise either more or less than what happens.
   //
   // Runes, not `export let`, for the reason DiscoveryModal.svelte documents: in
   // legacy mode a derived expression only re-runs for the variables it names,
@@ -32,7 +40,13 @@
   // of this one has to be an answer, and a close affordance that sits apart from
   // the three buttons invites the reading "neither" — which does not exist.
   import Modal from '../../modals/Modal.svelte'
-  import { approvalSecretsLabel, type McpApprovalPrompt } from '../../mcpSettings'
+  import {
+    approvalDestinationLabel,
+    approvalEnvironmentLabel,
+    approvalKindLabel,
+    approvalSecretsLabel,
+    type McpApprovalPrompt,
+  } from '../../mcpSettings'
 
   type Props = {
     prompt: McpApprovalPrompt
@@ -50,7 +64,11 @@
   // The backend sends the request's name; a request saved without one, or a
   // transient tab, arrives blank. "A request" is honest about what is known.
   const requestLabel = $derived(prompt.requestName || 'A request')
-  const hostLabel = $derived(prompt.host || 'an unrecognised host')
+  const runLabel = $derived(prompt.runLabel || prompt.requestName || 'A request')
+  const collectionLabel = $derived(prompt.collectionName || prompt.collectionId)
+  const environmentLabel = $derived(approvalEnvironmentLabel(prompt))
+  const destinationLabel = $derived(approvalDestinationLabel(prompt))
+  const kindLabel = $derived(approvalKindLabel(prompt.kind))
 </script>
 
 <Modal
@@ -62,21 +80,25 @@
   closeOnBackdrop={false}
 >
   <header>
-    <h2 id="mcp-approval-title">Send a secret to a new host?</h2>
+    <h2 id="mcp-approval-title">Contact a new destination?</h2>
   </header>
 
   <div class="prompt-fields" id="mcp-approval-body">
+    <!-- The §6 sentence, in the order the design writes it: which run, from
+         which site, wants to contact what, as which kind of egress. -->
     <p class="mcp-approval-lede">
-      An AI tool asked to run <strong data-testid="mcp-approval-request">{requestLabel}</strong>.
+      Run <strong data-testid="mcp-approval-run">{runLabel}</strong>
+      ({#if collectionLabel}collection
+        <span data-testid="mcp-approval-collection">{collectionLabel}</span>, {/if}request
+      <strong data-testid="mcp-approval-request">{requestLabel}</strong>, environment
+      <strong data-testid="mcp-approval-environment">{environmentLabel}</strong>) wants to contact
+      <strong data-testid="mcp-approval-origin">{destinationLabel}</strong>
+      as its <span data-testid="mcp-approval-kind">{kindLabel}</span>. Nothing in this request's
+      definition points there under this environment.
       {#if secrets}
-        Running it would send
-        <strong data-testid="mcp-approval-secrets">{secrets}</strong>
-        to <strong data-testid="mcp-approval-host">{hostLabel}</strong>, which no request in this
-        workspace has sent {prompt.secretNames.length > 1 ? 'them' : 'it'} to before.
-      {:else}
-        Running it would send a secret to
-        <strong data-testid="mcp-approval-host">{hostLabel}</strong>, which no request in this
-        workspace has sent one to before.
+        It references the secret
+        {prompt.secretNames.length > 1 ? 'variables' : 'variable'}
+        <strong data-testid="mcp-approval-secrets">{secrets}</strong>.
       {/if}
     </p>
 
@@ -85,16 +107,17 @@
          adding information — which is how a prompt starts looking like an alarm
          to be dismissed rather than a question to be read. -->
     {#if prompt.secretNames.length > 1}
-      <ul class="mcp-approval-secrets" aria-label="Secrets this would send">
+      <ul class="mcp-approval-secrets" aria-label="Secrets this request references">
         {#each prompt.secretNames as name (name)}
-          <li><span class="mcp-approval-secret-name">{name}</span> → {hostLabel}</li>
+          <li><span class="mcp-approval-secret-name">{name}</span> → {destinationLabel}</li>
         {/each}
       </ul>
     {/if}
 
     <p class="mcp-approval-note">
-      Only the name is shown. LiteAPI never gives an AI tool the value of a secret — this asks
-      whether the request it wants to run may carry that value to this host.
+      Only names are shown. LiteAPI never gives an AI tool the value of a secret — this asks whether
+      this request, under this environment, may contact this destination. Remembering applies to
+      this request in this environment only.
     </p>
   </div>
 
@@ -118,7 +141,7 @@
       data-testid="mcp-approval-allow-remember"
       disabled={busy}
       onclick={() => onResolve(prompt.id, true, true)}
-    >Allow and remember</button>
+    >Allow and remember for this request in this environment</button>
   </div>
 
   <!-- No aria-live on the countdown. It changes every second, and a live region

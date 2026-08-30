@@ -96,6 +96,18 @@ func (b *mcpBackend) RunFlow(ctx context.Context, params mcpserver.RunFlowParams
 		return mcpserver.FlowRunOutcome{}, err
 	}
 
+	// ONE POLICY FOR THE WHOLE FLOW, with the ACTIVE SCOPE REPLACED PER STEP
+	// (§4.1, §5 row 18). One policy because the execution overlay (§3) is
+	// per-execution and cross-step continuity rides on it; the scope replaced
+	// rather than accumulated because a flow's steps are siblings — step A's
+	// origins must not authorize step B's egress, which is the confused-deputy
+	// widening the scope stack exists to close.
+	//
+	// Nothing consults the policy yet: the per-step host guard below is still
+	// the enforcing boundary this wave. What changes here is that the flow now
+	// carries the authority object its steps will be judged against.
+	policy, book := b.app.newMCPExecutionPolicy()
+
 	guard := func(_ int, requestID string, overrides map[string]string) error {
 		// The step's own plan: its effective request, its resolved variable
 		// scope, and the secrets in scope for it. Nothing here is flow-specific —
@@ -105,6 +117,10 @@ func (b *mcpBackend) RunFlow(ctx context.Context, params mcpserver.RunFlowParams
 		if planErr != nil {
 			return planErr
 		}
+		// The step's own definition scope becomes the active one, keyed on the
+		// STEP'S request id (§9, T2). A flow whose steps hit three different
+		// services therefore has three different authorities, one at a time.
+		mcpEnterScope(policy, book, plan)
 		// The step's vars arrive here already interpolated against flow scope,
 		// and they are what the guard resolves the target host WITH — so a step
 		// that retargets {{baseUrl}} is caught exactly as a run_request override
@@ -125,7 +141,7 @@ func (b *mcpBackend) RunFlow(ctx context.Context, params mcpserver.RunFlowParams
 		})
 	}
 
-	result, runErr := b.app.runFlow(ctx, params.CollectionID, params.FlowID, params.EnvironmentID, params.Inputs, guard)
+	result, runErr := b.app.runFlow(mcpContextWithPolicy(ctx, policy), params.CollectionID, params.FlowID, params.EnvironmentID, params.Inputs, guard)
 	outcome := mcpFlowRunOutcome(result, secretValues)
 	if runErr != nil {
 		// A refusal names variables and hosts, never values — but it is masked

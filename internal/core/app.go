@@ -521,12 +521,17 @@ func (a *App) ListGRPCMethods(collectionID, itemID, environmentID string) ([]GRP
 		return nil, errors.New("active request is not gRPC")
 	}
 	timeout := requestTimeoutMilliseconds(requestCopy.Settings.TimeoutMs, a.appTLSSettingsSnapshot().Request)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Millisecond)
+	// §4.5: a UI binding that dials outside the send seam labels its own
+	// egress. This one reflects against the user's gRPC server and may fetch an
+	// OAuth2 token to do it, neither of which passes through
+	// sendRequestWithControlsContext — so the provenance has to be attached
+	// here or the egress is unlabeled, which strict mode refuses.
+	ctx, cancel := context.WithTimeout(mcpContextWithUIProvenance(context.Background()), time.Duration(timeout)*time.Millisecond)
 	defer cancel()
 	if grpcexec.HasProtoInputs(requestCopy, collectionCopy, vars) {
 		return grpcexec.ListMethodsFromProto(ctx, requestCopy, collectionCopy, vars)
 	}
-	dialConfig, err := a.grpcDialConfigForRequest(collectionCopy, requestCopy, interpolate(requestCopy.URL, vars), vars)
+	dialConfig, err := a.grpcDialConfigForRequestContext(ctx, collectionCopy, requestCopy, interpolate(requestCopy.URL, vars), vars)
 	if err != nil {
 		return nil, err
 	}
@@ -535,7 +540,7 @@ func (a *App) ListGRPCMethods(collectionID, itemID, environmentID string) ([]GRP
 		return nil, err
 	}
 	defer func() { _ = conn.Close() }()
-	outgoingCtx, err := grpcexec.OutgoingContext(ctx, requestCopy, vars, a.fetchOAuth2Token)
+	outgoingCtx, err := grpcexec.OutgoingContext(ctx, requestCopy, vars, a.grpcOAuth2Fetcher(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -554,13 +559,15 @@ func (a *App) GenerateGRPCMessage(collectionID, itemID, environmentID, methodPat
 		requestCopy.Method = methodPath
 	}
 	timeout := requestTimeoutMilliseconds(requestCopy.Settings.TimeoutMs, a.appTLSSettingsSnapshot().Request)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Millisecond)
+	// §4.5, as in ListGRPCMethods above: a UI binding that dials outside the
+	// send seam labels its own egress.
+	ctx, cancel := context.WithTimeout(mcpContextWithUIProvenance(context.Background()), time.Duration(timeout)*time.Millisecond)
 	defer cancel()
 	var binding grpcMethodBinding
 	if grpcexec.HasProtoInputs(requestCopy, collectionCopy, vars) {
 		binding, err = grpcexec.CompileMethod(ctx, requestCopy, collectionCopy, vars)
 	} else {
-		dialConfig, targetErr := a.grpcDialConfigForRequest(collectionCopy, requestCopy, interpolate(requestCopy.URL, vars), vars)
+		dialConfig, targetErr := a.grpcDialConfigForRequestContext(ctx, collectionCopy, requestCopy, interpolate(requestCopy.URL, vars), vars)
 		if targetErr != nil {
 			return "", targetErr
 		}
@@ -569,7 +576,7 @@ func (a *App) GenerateGRPCMessage(collectionID, itemID, environmentID, methodPat
 			return "", connErr
 		}
 		defer func() { _ = conn.Close() }()
-		outgoingCtx, ctxErr := grpcexec.OutgoingContext(ctx, requestCopy, vars, a.fetchOAuth2Token)
+		outgoingCtx, ctxErr := grpcexec.OutgoingContext(ctx, requestCopy, vars, a.grpcOAuth2Fetcher(ctx))
 		if ctxErr != nil {
 			return "", ctxErr
 		}
