@@ -141,7 +141,11 @@ func (b *mcpBackend) RunFlow(ctx context.Context, params mcpserver.RunFlowParams
 		})
 	}
 
-	result, runErr := b.app.runFlow(mcpContextWithPolicy(ctx, policy), params.CollectionID, params.FlowID, params.EnvironmentID, params.Inputs, guard)
+	// mcpSendProvenance(policy) is what makes every step of this flow an
+	// agent-initiated send (§4.5); the flow root stamps it onto the context it
+	// hands each step, so the policy still travels the way the checkpoints expect
+	// while the classification itself is stated rather than inferred.
+	result, runErr := b.app.runFlowProvenance(mcpContextWithPolicy(ctx, policy), mcpSendProvenance(policy), params.CollectionID, params.FlowID, params.EnvironmentID, params.Inputs, guard)
 	outcome := mcpFlowRunOutcome(result, secretValues)
 	if runErr != nil {
 		// A refusal names variables and hosts, never values — but it is masked

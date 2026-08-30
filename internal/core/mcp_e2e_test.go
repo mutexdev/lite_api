@@ -195,9 +195,10 @@ func seedE2EHistory(t *testing.T, app *App, collectionID, requestID string) stri
 		ResponseHeaders: responseHeaders,
 		BodyHandle:      string(handle),
 	}
-	if err := app.history().Append(entry); err != nil {
-		t.Fatalf("append history: %v", err)
-	}
+	// With its Phase 6 §7 projection, through the production builder: an entry
+	// appended bare would be served as the "recorded before agent-safe history"
+	// placeholder, and this fixture exists to exercise the redaction.
+	seedHistoryProjection(t, app, entry, body)
 	if _, err := store.Get(responsestore.Handle(handle)); err != nil {
 		t.Fatalf("stored body is not readable: %v", err)
 	}

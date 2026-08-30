@@ -169,9 +169,10 @@ func seedMCPHistory(t *testing.T, app *App, collectionID, requestID string) stri
 		ResponseHeaders: responseHeaders,
 		BodyHandle:      string(handle),
 	}
-	if err := app.history().Append(entry); err != nil {
-		t.Fatalf("append history: %v", err)
-	}
+	// Recorded WITH its Phase 6 §7 projection, through the production builder:
+	// get_history serves only the projection, so a fixture that appended a bare
+	// entry would be measuring the placeholder rather than the redaction.
+	seedHistoryProjection(t, app, entry, body)
 	// Proves the handle really resolves; a body the store cannot return would
 	// make the truncation assertion below vacuous.
 	if _, err := store.Get(responsestore.Handle(handle)); err != nil {

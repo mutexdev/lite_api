@@ -716,6 +716,12 @@ func (o *mcpExecutionOverlay) setScopeMapLocked(scope mcpOverlayScope, values ma
 type sendProvenance struct {
 	ui     bool
 	policy *mcpEgressPolicy
+	// legacy marks the MIGRATION provenance produced by legacyUnlabeled: a send
+	// that reached a root through a delegate which could not say who asked for
+	// it. It behaves as a UI send while strict is off and is refused once strict
+	// flips, which is what makes the delegates' removal verifiable rather than
+	// hopeful. Deleted with legacyUnlabeled in the final wave.
+	legacy bool
 }
 
 // uiSendProvenance labels a user-initiated send: SendRequest, the collection
@@ -737,10 +743,54 @@ func mcpSendProvenance(p *mcpEgressPolicy) sendProvenance {
 	return sendProvenance{policy: p}
 }
 
-// valid reports whether this provenance was produced by one of the two
+// legacyUnlabeled is the MIGRATION-ONLY third constructor, and it exists to be
+// deleted.
+//
+// The old send/flow entry points survive one wave longer as one-line delegates
+// so that a caller nobody has migrated yet still compiles and still works. What
+// they cannot do is claim to be a UI send: they pass this, which says "nobody
+// told me". While strict is off that reads as UI, so behavior is unchanged;
+// once strict flips it is refused at the root, before any work — so a delegate
+// that was missed becomes a loud failure rather than an unchecked egress
+// wearing a UI label.
+//
+// The final wave deletes this function together with the delegates, after a
+// grep proving they have no callers left, leaving uiSendProvenance and
+// mcpSendProvenance as the only two ways to produce provenance.
+func legacyUnlabeled() sendProvenance {
+	return sendProvenance{ui: true, legacy: true}
+}
+
+// valid reports whether this provenance was produced by one of the
 // constructors. A zero value is not.
 func (p sendProvenance) valid() bool {
 	return p.ui || p.policy != nil
+}
+
+// mcpRequireSendProvenance is the gate both send roots run BEFORE any work —
+// before the state lock, before a script, before a byte moves (§4.5).
+//
+// TWO REFUSALS, AND NEITHER IS A PANIC. A zero value means an engine path
+// reached a root without saying who asked for the send; that is a bug in
+// LiteAPI, and the honest response is a refusal the caller can render and a test
+// can assert on, not a crash that takes the app down and not a silent "assume
+// UI" that would defeat the entire type. A legacy value under strict is the
+// migration's own failure mode, reported separately so the message names the
+// actual fix (label the caller) rather than sending someone hunting for a
+// missing argument.
+//
+// entryPoint is the root's own name, so the message points at the seam rather
+// than at whatever egress happened to be next.
+func mcpRequireSendProvenance(prov sendProvenance, entryPoint string) error {
+	if !prov.valid() {
+		return fmt.Errorf("%w: %s was reached with no send provenance, so LiteAPI could not tell whether this send belongs to an agent run; this is a bug in LiteAPI — report it rather than retrying",
+			mcpserver.ErrDenied, entryPoint)
+	}
+	if prov.legacy && mcpStrictEgressProvenance {
+		return fmt.Errorf("%w: %s was reached through the unlabeled migration path, which is no longer allowed to send; this is a bug in LiteAPI — report it rather than retrying",
+			mcpserver.ErrDenied, entryPoint)
+	}
+	return nil
 }
 
 // --- context plumbing -----------------------------------------------------
@@ -779,6 +829,24 @@ func mcpContextWithUIProvenance(ctx context.Context) context.Context {
 		ctx = context.Background()
 	}
 	return context.WithValue(ctx, mcpPolicyContextKey{}, uiSendProvenance())
+}
+
+// mcpContextWithSendProvenance stamps an already-constructed provenance onto
+// ctx, so that everything below a root — the guard transport, the checkpoints,
+// the script shims, a nested bru.runRequest — reads the SAME answer the root was
+// given as an argument.
+//
+// THE ARGUMENT IS AUTHORITATIVE AND THE CONTEXT IS DERIVED FROM IT, never the
+// other way round. A root that trusted the context instead would be inferring
+// provenance again, one indirection further down.
+func mcpContextWithSendProvenance(ctx context.Context, prov sendProvenance) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if !prov.valid() {
+		return ctx
+	}
+	return context.WithValue(ctx, mcpPolicyContextKey{}, prov)
 }
 
 // mcpProvenanceFromContext reads the label. The second result distinguishes "no

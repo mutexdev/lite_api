@@ -4,7 +4,8 @@ package core
 // 12, 13, 15, 16 and 17 of the Phase 6 design.
 //
 // EVERY TEST HERE DRIVES THE REAL SEND. It builds a policy the way mcpRunPlan
-// does, attaches it to a context, and calls sendRequestWithControlsContext —
+// does, attaches it to a context, and calls
+// sendRequestWithControlsContextProvenance with mcpSendProvenance(policy) —
 // the same function the Wails binding and the collection runner call. That is
 // deliberate: the property is about what the engine does, and a test that
 // re-implemented the wiring would pass while the engine did something else.
@@ -173,14 +174,18 @@ func (f *sendFixture) policyFor(requestID string) *mcpEgressPolicy {
 
 // send runs one request under the given policy. overrides are the AGENT's
 // variables, delivered the way run_request delivers them.
+// A nil policy here is a UI send, stated with uiSendProvenance rather than
+// implied by the absence of a policy (§4.5).
 func (f *sendFixture) send(policy *mcpEgressPolicy, requestID string, overrides map[string]string) *Response {
 	f.t.Helper()
 	ctx := context.Background()
+	prov := uiSendProvenance()
 	if policy != nil {
 		ctx = mcpContextWithPolicy(ctx, policy)
+		prov = mcpSendProvenance(policy)
 	}
-	_, _, response, err := f.app.sendRequestWithControlsContext(
-		ctx, f.collectionID, requestID, f.environmentID, nil, nil,
+	_, _, response, err := f.app.sendRequestWithControlsContextProvenance(
+		ctx, prov, f.collectionID, requestID, f.environmentID, nil, nil,
 		runner.Iteration{Data: overrides},
 	)
 	if err != nil {

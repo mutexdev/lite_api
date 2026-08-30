@@ -129,7 +129,11 @@ iterations:
 				currentRequestIndex++
 				continue
 			}
-			state, controls, res, err := a.sendRequestWithControlsContext(runContext, collectionID, item.ID, environmentID, nil, lookupIndex, runner.Iteration{
+			// uiSendProvenance: the collection runner is the user's own Run,
+			// started from the app's Runner tab. §1.2(4) — never subject to the
+			// destination boundary, and it says so rather than being taken for
+			// one because nothing attached a policy.
+			state, controls, res, err := a.sendRequestWithControlsContextProvenance(runContext, uiSendProvenance(), collectionID, item.ID, environmentID, nil, lookupIndex, runner.Iteration{
 				Index: iteration,
 				Count: totalIterations,
 				Data:  iterationRow,
@@ -151,7 +155,7 @@ iterations:
 				currentRequestIndex++
 				continue
 			}
-			// res is the *Response sendRequestWithControlsContext just stored on this
+			// res is the *Response the send path just stored on this
 			// item, returned directly instead of being re-found by scanning the
 			// state for the item that call had already resolved.
 			status := "passed"

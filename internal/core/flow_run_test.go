@@ -208,9 +208,11 @@ func (f *flowFixture) install(flow types.Flow) {
 	collection.Flows = append(collection.Flows, types.CloneFlow(flow))
 }
 
+// run is a UI-initiated flow run: uiSendProvenance, the same thing RunFlow
+// passes from the Flow tab (§4.5).
 func (f *flowFixture) run(flow types.Flow, inputs map[string]string, guard flowStepGuard) (types.FlowRunResult, error) {
 	f.t.Helper()
-	return f.app.runFlow(context.Background(), f.collectionID, flow.ID, "", inputs, guard)
+	return f.app.runFlowProvenance(context.Background(), uiSendProvenance(), f.collectionID, flow.ID, "", inputs, guard)
 }
 
 func (f *flowFixture) recorded() []recordedFlowRequest {
@@ -745,13 +747,13 @@ func TestFlowRunNamesWhatIsMissingWhenAnIDIsWrong(t *testing.T) {
 	flow := f.provisionFlow()
 	f.install(flow)
 
-	if _, err := f.app.runFlow(context.Background(), f.collectionID, "flow_nope", "", nil, nil); err == nil {
+	if _, err := f.app.runFlowProvenance(context.Background(), uiSendProvenance(), f.collectionID, "flow_nope", "", nil, nil); err == nil {
 		t.Error("an unknown flow id ran")
 	} else if !strings.Contains(err.Error(), "flow_nope") {
 		t.Errorf("error = %v, want it to echo the id", err)
 	}
 
-	if _, err := f.app.runFlow(context.Background(), f.collectionID, flow.ID, "env-nope", map[string]string{"storeCode": "x"}, nil); err == nil {
+	if _, err := f.app.runFlowProvenance(context.Background(), uiSendProvenance(), f.collectionID, flow.ID, "env-nope", map[string]string{"storeCode": "x"}, nil); err == nil {
 		t.Error("an unknown environment id ran")
 	} else if !strings.Contains(err.Error(), "env-nope") {
 		t.Errorf("error = %v, want it to echo the id", err)

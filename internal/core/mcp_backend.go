@@ -53,6 +53,18 @@ const (
 	mcpSearchMaxLimit      = 200
 )
 
+// What get_history says instead of an entry recorded before the §7 projection
+// existed. Written for the agent rather than the maintainer: it has to be
+// obvious that the run is real, that the withholding is deliberate, and what
+// makes a readable record appear.
+const (
+	mcpHistoryUnprojectedURL  = "<withheld: recorded before agent-safe history>"
+	mcpHistoryUnprojectedBody = "This run predates LiteAPI's agent-safe history record, so its URL, headers and body are withheld rather than served. " +
+		"The stored copy was written after variables were substituted in, and it was never masked against the secret values that were live at the time — " +
+		"a credential rotated or deleted since then would no longer be recognised, so serving it now could disclose one. " +
+		"Re-run the request to get a readable record of it."
+)
+
 // mcpBackend adapts *App to mcpserver.Backend.
 type mcpBackend struct {
 	app *App
@@ -358,12 +370,16 @@ func (b *mcpBackend) GetHistory(collectionID, requestID string, limit int) ([]mc
 	}
 	limit = mcpBoundedLimit(limit, mcpHistoryDefaultLimit, mcpHistoryMaxLimit)
 
-	// History artifacts are recorded AFTER interpolation, so the name-based
-	// masking that protects definitions cannot help here: a request templated
-	// as ?key={{secret}} has the resolved credential in its recorded URL, under
-	// a parameter name no heuristic flags. The process does know every hydrated
-	// secret VALUE, though, so recorded URLs, bodies and header values are
-	// scrubbed by exact value instead.
+	// THE BELT, NOT THE BOUNDARY (Phase 6 §7). Masking against the values the
+	// process holds RIGHT NOW is what this method used to rely on entirely, and
+	// it is precisely what rotation defeats: history is recorded after
+	// interpolation, so a request templated as ?key={{secret}} has the resolved
+	// credential in its recorded URL — and once the variable is rotated or
+	// deleted, that old value is no longer in this set and would come straight
+	// back out. The real protection is the record-time projection below, which
+	// was masked when those values were still live. Current-value masking is
+	// kept on top because it costs nothing and catches a value the record-time
+	// pass could not have known about.
 	secretValues, err := b.app.mcpHydratedSecretValues()
 	if err != nil {
 		return nil, err
@@ -387,27 +403,33 @@ func (b *mcpBackend) GetHistory(collectionID, requestID string, limit int) ([]mc
 		if entry.ItemID != requestID {
 			continue
 		}
+		// The four fields taken from the entry itself are the ones that cannot
+		// carry a resolved value: an id, a verb, a status code and a clock. The
+		// URL, the headers and the body come ONLY from the projection.
 		run := mcpserver.HistoryRun{
 			ID:         entry.ID,
 			Method:     entry.Method,
-			URL:        mcpserver.MaskKnownSecretValues(entry.URL, secretValues),
 			Status:     entry.Status,
 			DurationMs: int(entry.DurationMs),
 			ExecutedAt: entry.At.UTC().Format(time.RFC3339),
-			// Name-based redaction happened on the way in — internal/history
-			// stores "<redacted>" for credential-shaped header names. The
-			// value scrub on top catches a secret that a server echoed into a
-			// header with an innocent name.
-			Headers: mcpMaskRowValues(mcpKeyValueRows(entry.ResponseHeaders), secretValues),
 		}
-		body, err := b.app.GetHistoryBody(entry.ID)
-		if err == nil && len(body) > mcpHistoryBodyLimit {
-			body = body[:mcpHistoryBodyLimit]
-			run.Truncated = true
+		if projection, ok := b.app.history().MCPProjection(entry.ID); ok {
+			run.URL = mcpserver.MaskKnownSecretValues(projection.URL, secretValues)
+			run.Headers = mcpMaskRowValues(mcpKeyValueRows(projection.ResponseHeaders), secretValues)
+			run.Body = mcpserver.MaskKnownSecretValues(projection.Body, secretValues)
+			run.Truncated = projection.Truncated
+		} else {
+			// A PLACEHOLDER, NOT THE RAW ENTRY, and this is the entire point of
+			// §7. An entry recorded before the projection existed has a
+			// post-interpolation URL and body that were never masked against
+			// the values live at the time. Falling back to them "just for old
+			// entries" would preserve exactly the leak this task closes, and
+			// would do it silently. An artifact that never contained the value
+			// cannot leak it; an artifact that does cannot be made safe after
+			// the fact.
+			run.URL = mcpHistoryUnprojectedURL
+			run.Body = mcpHistoryUnprojectedBody
 		}
-		// A body the store has since pruned is not an error: history outlives
-		// the content-addressed bodies it points at by design.
-		run.Body = mcpserver.MaskKnownSecretValues(body, secretValues)
 		out = append(out, run)
 		if len(out) >= limit {
 			break
@@ -421,36 +443,19 @@ func (b *mcpBackend) GetHistory(collectionID, requestID string, limit int) ([]mc
 // vars flagged secret — so post-interpolation artifacts can be scrubbed by
 // exact value. The strings leave the lock, but only into the masker, which
 // replaces them; no caller ever returns one.
+//
+// ONE WALK, TWO DOORS. The walk itself is mcpSecretValuesLocked (app_send.go),
+// which takes no lock because the send path calls it with a.mu already held —
+// §7 requires the values to be hydrated at the head of the send, and the
+// hydrator that takes the lock cannot be reached from there without
+// deadlocking. This is the other door: the agent-facing readers run on the MCP
+// server's goroutines, which hold nothing, so they get the same walk with the
+// lock supplied around it. The duplicate implementation the send path landed
+// with is gone; only the two entry points remain.
 func (a *App) mcpHydratedSecretValues() ([]string, error) {
 	var values []string
-	collect := func(variables []types.Variable) {
-		for _, variable := range variables {
-			if !variable.Secret {
-				continue
-			}
-			if value := envsecrets.ValueToString(variable.Value); value != "" {
-				values = append(values, value)
-			}
-		}
-	}
 	if err := a.readStateForMCP(func(state *AppState) {
-		for wi := range state.Workspaces {
-			workspace := &state.Workspaces[wi]
-			for ei := range workspace.GlobalEnvironments {
-				collect(workspace.GlobalEnvironments[ei].Variables)
-			}
-			for ci := range workspace.Collections {
-				collection := &workspace.Collections[ci]
-				collect(collection.Variables)
-				for ei := range collection.Environments {
-					collect(collection.Environments[ei].Variables)
-				}
-				for ii := range collection.Items {
-					collect(collection.Items[ii].Vars.Req)
-					collect(collection.Items[ii].Vars.Res)
-				}
-			}
-		}
+		values = mcpSecretValuesLocked(state)
 	}); err != nil {
 		return nil, err
 	}

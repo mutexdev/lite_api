@@ -3,7 +3,7 @@ package core
 // The flow runner.
 //
 // IT RUNS THE APP'S OWN ENGINE, ONE STEP AT A TIME. Every step goes through
-// sendRequestWithControlsContext (app_send.go:47) — the same function
+// sendRequestWithControlsContextProvenance (app_send.go) — the same function
 // SendRequest and run_request call — so a flow step is a UI Send in every
 // respect that matters: pre/post scripts, tests, TLS posture, client
 // certificates, cookies, OAuth2 refresh, history and the response store all
@@ -83,7 +83,28 @@ type flowRunPlan struct {
 //
 // The result is populated as far as the run got in both cases, so a guard that
 // stops step 3 still hands back what steps 1 and 2 did.
+//
+// THE MIGRATION DELEGATE (§4.5), deleted in the final wave. Like the send
+// path's, it does not recover a policy from the context: a flow that reaches
+// here unlabeled is unlabeled, and says so.
 func (a *App) runFlow(ctx context.Context, collectionID, flowID, environmentID string, inputs map[string]string, stepGuard flowStepGuard) (types.FlowRunResult, error) {
+	return a.runFlowProvenance(ctx, legacyUnlabeled(), collectionID, flowID, environmentID, inputs, stepGuard)
+}
+
+// runFlowProvenance is the flow root. See runFlow for what the run means and
+// sendRequestWithControlsContextProvenance for why provenance is an argument.
+//
+// THE FLOW'S OWN PROVENANCE REACHES EVERY STEP, unchanged and by hand. A flow is
+// one execution: its steps share the policy (and therefore the execution
+// overlay that carries a setVar from step 1 to step 3), and the alternative —
+// each step reconstructing provenance from what it can see — is how a step ends
+// up classified differently from the run it belongs to.
+func (a *App) runFlowProvenance(ctx context.Context, prov sendProvenance, collectionID, flowID, environmentID string, inputs map[string]string, stepGuard flowStepGuard) (types.FlowRunResult, error) {
+	// BEFORE THE PLAN, so an unprovenanced flow does not even read state.
+	if err := mcpRequireSendProvenance(prov, "the flow runner"); err != nil {
+		return types.FlowRunResult{}, err
+	}
+	ctx = mcpContextWithSendProvenance(ctx, prov)
 	plan, err := a.flowRunPlan(collectionID, flowID, environmentID)
 	if err != nil {
 		return types.FlowRunResult{}, err
@@ -118,8 +139,11 @@ func (a *App) runFlow(ctx context.Context, collectionID, flowID, environmentID s
 			}
 		}
 
-		_, _, response, sendErr := a.sendRequestWithControlsContext(
-			ctx, plan.collectionID, step.RequestID, plan.environmentID, nil, nil,
+		// THE FLOW'S OWN PROVENANCE, passed through rather than re-derived: a
+		// step of an agent-initiated flow is an agent-initiated send, and a step
+		// of the user's own run is the user's own send.
+		_, _, response, sendErr := a.sendRequestWithControlsContextProvenance(
+			ctx, prov, plan.collectionID, step.RequestID, plan.environmentID, nil, nil,
 			runner.Iteration{Data: overrides},
 		)
 		if sendErr != nil {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -79,6 +80,9 @@ type HistoryQuery struct {
 type Store struct {
 	mu   sync.Mutex
 	path string
+	// projectionDir holds the agent-facing, already-redacted copy of each
+	// entry, one file per entry. See projection.go.
+	projectionDir string
 	// lines counts what is on disk, so compaction is decided without re-reading
 	// the file on every append.
 	lines  int
@@ -122,7 +126,10 @@ func HeaderMapRows(headers map[string]string) []types.KeyValue {
 func (s *Store) Append(entry HistoryEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.appendLocked(entry)
+}
 
+func (s *Store) appendLocked(entry HistoryEntry) error {
 	if err := s.loadCountLocked(); err != nil {
 		return err
 	}
@@ -262,6 +269,9 @@ func (s *Store) compactLocked() error {
 		return err
 	}
 	s.lines = len(entries)
+	// The agent-facing artifacts are keyed on entry id, so the ones whose
+	// entries just fell off the end are now unreachable garbage.
+	s.pruneProjectionsLocked(entries)
 	return nil
 }
 
@@ -344,11 +354,18 @@ func (s *Store) Clear() error {
 	}
 	s.lines = 0
 	s.loaded = true
-	return nil
+	// Clearing history has to clear the agent-facing copies too. Leaving them
+	// behind would mean a user who cleared their history to get rid of a
+	// recorded run still had it readable through MCP.
+	return s.clearProjectionsLocked()
 }
 
 // NewStore opens the append-only history log at path. The file is created on
 // first write, so a store for a path that does not exist yet is valid.
+//
+// The agent-facing projection directory is derived from the log's own location
+// rather than passed in, so the two artifacts cannot be pointed at different
+// places by a caller that only remembered to configure one of them.
 func NewStore(path string) *Store {
-	return &Store{path: path}
+	return &Store{path: path, projectionDir: filepath.Join(filepath.Dir(path), MCPProjectionDir)}
 }

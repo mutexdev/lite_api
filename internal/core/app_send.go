@@ -32,22 +32,56 @@ func (a *App) SendRequestWithPromptValues(collectionID, itemID, environmentID st
 	return state, err
 }
 
+// sendRequestWithControls is a UI send: the user pressed Send. §1.2(4).
 func (a *App) sendRequestWithControls(collectionID, itemID, environmentID string, promptValues map[string]string) (AppState, scripting.Controls, error) {
-	state, controls, _, err := a.sendRequestWithControlsContext(context.Background(), collectionID, itemID, environmentID, promptValues, nil, runner.Iteration{})
+	state, controls, _, err := a.sendRequestWithControlsContextProvenance(context.Background(), uiSendProvenance(), collectionID, itemID, environmentID, promptValues, nil, runner.Iteration{})
 	return state, controls, err
 }
 
-// sendRequestWithControlsContext resolves collectionID/itemID twice: once on
-// entry, and again on the tail because a.mu is released across the network I/O
-// and the request may have moved or gone in that window. index (US-024) is an
-// optional per-run lookup hint that makes both resolutions O(1); it is verified
-// against live state on every use, and nil restores the plain linear scans.
+// sendRequestWithControlsContext is the MIGRATION DELEGATE (§4.5). It exists so
+// that a caller which has not yet been given provenance still compiles and still
+// behaves, and it is deleted in the final wave once a grep proves it has none.
+//
+// IT DOES NOT READ THE POLICY OFF THE CONTEXT, deliberately. Recovering the
+// policy here would reinstate exactly the inference the required argument
+// exists to abolish: "no policy on the context" would once again mean "UI", and
+// an MCP path that forgot to pass provenance would sail through wearing a UI
+// label. Every real MCP caller passes mcpSendProvenance explicitly.
+func (a *App) sendRequestWithControlsContext(parent context.Context, collectionID, itemID, environmentID string, promptValues map[string]string, index *runnerLookupIndex, iteration runner.Iteration) (AppState, scripting.Controls, *Response, error) {
+	return a.sendRequestWithControlsContextProvenance(parent, legacyUnlabeled(), collectionID, itemID, environmentID, promptValues, index, iteration)
+}
+
+// sendRequestWithControlsContextProvenance is the send path's root.
+//
+// PROVENANCE IS AN ARGUMENT, NOT AN INFERENCE (§4.5). It used to be derived from
+// the context — a policy meant "MCP", its absence meant "UI" — which made the
+// two indistinguishable at exactly the moment they differ most: a new engine
+// path that forgot to attach a policy was silently reclassified as a user's own
+// send and skipped every refusal and every checkpoint. Now the caller that
+// knows says so, in a type with two constructors, and a caller that says nothing
+// produces the zero value, which is refused below before any work happens.
+//
+// The context is then stamped from that argument, so the guard transport, the
+// checkpoints, the script shims and a nested bru.runRequest all read the same
+// answer this root was handed.
+//
+// It resolves collectionID/itemID twice: once on entry, and again on the tail
+// because a.mu is released across the network I/O and the request may have moved
+// or gone in that window. index (US-024) is an optional per-run lookup hint that
+// makes both resolutions O(1); it is verified against live state on every use,
+// and nil restores the plain linear scans.
 //
 // The fourth return value is the *Response this call stored on the item. The
 // collection runner used to re-find the item in the returned state purely to
 // read it back, which was another linear scan per request.
-func (a *App) sendRequestWithControlsContext(parent context.Context, collectionID, itemID, environmentID string, promptValues map[string]string, index *runnerLookupIndex, iteration runner.Iteration) (AppState, scripting.Controls, *Response, error) {
+func (a *App) sendRequestWithControlsContextProvenance(parent context.Context, prov sendProvenance, collectionID, itemID, environmentID string, promptValues map[string]string, index *runnerLookupIndex, iteration runner.Iteration) (AppState, scripting.Controls, *Response, error) {
 	controls := scripting.Controls{}
+	// BEFORE THE LOCK, BEFORE ANYTHING. An unprovenanced send does not get to
+	// resolve a collection, let alone reach a network.
+	if err := mcpRequireSendProvenance(prov, "the send path"); err != nil {
+		return AppState{}, controls, nil, err
+	}
+	parent = mcpContextWithSendProvenance(parent, prov)
 	a.mu.Lock()
 	if err := a.ensureReadyLocked(); err != nil {
 		a.mu.Unlock()
@@ -65,10 +99,10 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 	}
 	collectionCopy := *collection
 	requestCopy := scripting.EffectiveRequest(collectionCopy, *item)
-	// THE ONE POLICY THIS SEND ANSWERS TO, read once at the head and carried
-	// down. nil means a UI send, and every branch below reads as "unchanged"
-	// when it is nil (§1.2(4)).
-	mcpPolicy := mcpPolicyFromContext(parent)
+	// THE ONE POLICY THIS SEND ANSWERS TO, taken from the provenance this call
+	// was given. nil means a UI send, and every branch below reads as
+	// "unchanged" when it is nil (§1.2(4)).
+	mcpPolicy := prov.policy
 	// §7. The secret values an agent-visible history projection will have to be
 	// masked against, hydrated HERE — under the first lock, which is already
 	// held — because the tail records history with a.mu held and the hydrator

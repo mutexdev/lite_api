@@ -147,8 +147,11 @@ func (a *App) DeleteFlow(collectionID, flowID string) (AppState, error) {
 // does). The report is what the caller came for and there is nowhere in
 // AppState to put it; the frontend refreshes state the same way it does after
 // any push-driven change.
+//
+// It passes uiSendProvenance for the same reason the guard is nil: this is the
+// user running their own flow against their own hosts (§1.2(4)).
 func (a *App) RunFlow(collectionID, flowID, environmentID string, inputs map[string]string) (types.FlowRunResult, error) {
-	return a.runFlow(context.Background(), collectionID, flowID, environmentID, inputs, nil)
+	return a.runFlowProvenance(context.Background(), uiSendProvenance(), collectionID, flowID, environmentID, inputs, nil)
 }
 
 // validateFlow is the single gate every authored flow passes through.

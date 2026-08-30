@@ -24,8 +24,10 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mutexdev/lite_api/internal/history"
+	"github.com/mutexdev/lite_api/internal/mcpserver"
 	"github.com/mutexdev/lite_api/internal/responsestore"
 )
 
@@ -93,18 +95,24 @@ func (a *App) recordSendHistory(collectionID string, item RequestItem, response 
 	return a.recordSendHistoryWithMCPProjection(collectionID, item, response, nil)
 }
 
-// recordSendHistoryWithMCPProjection is recordSendHistory with the secret
-// values an agent-visible copy of the entry will have to be masked against.
+// recordSendHistoryWithMCPProjection is recordSendHistory plus the Phase 6 §7
+// artifact: an already-redacted, already-value-masked copy of the same send,
+// written as a sibling of the history log and served as the ONLY thing MCP's
+// get_history ever reads.
 //
-// The values are a PARAMETER rather than something looked up here because this
-// runs with a.mu already held, and the hydrator that knows the secret values
-// takes that same lock — reading them from inside would deadlock the send path.
-// The caller hydrates once, at the head of the send under the first lock, and
-// carries the values down.
+// WHY THE VALUES ARE A PARAMETER. This runs with a.mu already held, and
+// mcpHydratedSecretValues re-acquires that lock through readStateForMCP
+// (mcp_backend.go:70) — calling it from here deadlocks the send path outright.
+// So the caller hydrates once at the head of the send, under the first lock it
+// is already holding, and carries the values down. Those are the values that
+// were live for THIS send, which is the whole point: read-time masking against
+// whatever the variable holds tomorrow is exactly what rotation defeats.
 //
-// Nothing consumes mcpMaskValues yet: the MCP-safe projection it exists for is
-// T9's, and this seam lands early so the call site can be switched over without
-// a signature break landing in the same change as the projection itself.
+// The record-time walk of a.state below is the same walk under the same
+// already-held lock, and it is additive rather than a substitute (see
+// mcpHistorySecretMaskValues).
+//
+// CALLED WITH a.mu HELD.
 func (a *App) recordSendHistoryWithMCPProjection(collectionID string, item RequestItem, response *Response, mcpMaskValues []string) error {
 	if response == nil {
 		return nil
@@ -130,7 +138,129 @@ func (a *App) recordSendHistoryWithMCPProjection(collectionID string, item Reque
 		Redacted:        requestRedacted || responseRedacted,
 		BodyHandle:      response.BodyHandle,
 	}
-	return a.reportHistoryFailure(a.history().Append(entry))
+	projection := a.mcpHistoryProjectionLocked(entry, response, mcpMaskValues)
+	return a.reportHistoryFailure(a.history().AppendWithMCPProjection(entry, &projection))
+}
+
+// mcpHistoryProjectionLocked builds the agent-facing view of one recorded send.
+//
+// Both halves of the §1.3 output boundary are applied HERE, once, and only the
+// result is written down:
+//
+//   - name-based redaction — internal/history has already replaced the values
+//     of credential-shaped header names on the way into the entry, and
+//     mcpserver's own name heuristics catch the two shapes it does not know
+//     about: a credential-shaped query parameter sitting in the resolved URL
+//     ("?api_key=sk_live_..."), and a credential-shaped header name outside
+//     history's short list;
+//   - exact-value masking against every secret value that was live for this
+//     send.
+//
+// The body comes off the response in memory rather than back out of the
+// response store: it is the same bytes, and reading it back would put a disk
+// round trip on the send path's tail while a.mu is held.
+//
+// CALLED WITH a.mu HELD (it walks a.state).
+func (a *App) mcpHistoryProjectionLocked(entry history.HistoryEntry, response *Response, mcpMaskValues []string) history.MCPProjection {
+	values := a.mcpHistorySecretMaskValues(mcpMaskValues)
+
+	// Mask BEFORE truncating (§1.3). The other order lets a secret that
+	// straddles the limit be cut in half, and half a credential is a string no
+	// masker recognises but a reader can still recombine across two runs.
+	body := mcpserver.MaskKnownSecretValues(response.Body, values)
+	truncated := false
+	if len(body) > mcpHistoryBodyLimit {
+		body = truncateAtRuneBoundary(body, mcpHistoryBodyLimit)
+		truncated = true
+	}
+
+	return history.MCPProjection{
+		Method:          entry.Method,
+		URL:             mcpserver.MaskKnownSecretValues(mcpserver.RedactURLQueryLiterals(entry.URL), values),
+		RequestHeaders:  mcpProjectedHeaderRows(entry.RequestHeaders, values),
+		ResponseHeaders: mcpProjectedHeaderRows(entry.ResponseHeaders, values),
+		Body:            body,
+		Truncated:       truncated,
+	}
+}
+
+// mcpHistorySecretMaskValues is the head-of-send set UNIONED with a fresh walk
+// of state, and the union is deliberate in both directions.
+//
+// The passed values are the authoritative half: they were hydrated at the head
+// of this send, so a variable that changed while the request was in flight is
+// still masked out of the record of the send that used it.
+//
+// The state walk is what makes the artifact safe for a UI send. get_history
+// serves the projection for every entry regardless of who caused it, so a UI
+// send whose URL carries a secret would otherwise persist that secret in the
+// one file whose entire purpose is to be the copy an agent may read. The send
+// path only hydrates values under an MCP policy — it has no reason to pay for
+// the walk on a UI send — so the record path does it here instead, under the
+// lock it is already holding.
+//
+// CALLED WITH a.mu HELD.
+func (a *App) mcpHistorySecretMaskValues(mcpMaskValues []string) []string {
+	// mcpSecretValuesLocked is the ONE lock-free walk in this package; the
+	// agent-facing reader reaches the same function through
+	// mcpHydratedSecretValues, which supplies the lock the reader does not
+	// already hold.
+	current := mcpSecretValuesLocked(&a.state)
+	if len(mcpMaskValues) == 0 {
+		return current
+	}
+	values := make([]string, 0, len(mcpMaskValues)+len(current))
+	values = append(values, mcpMaskValues...)
+	return append(values, current...)
+}
+
+// mcpProjectedHeaderRows applies mcpserver's name-based redaction and then the
+// exact-value mask to rows internal/history has already redacted once.
+//
+// Two passes over the same rows because the two heuristics disagree usefully:
+// history's list is the short one that governs what goes to disk in the app's
+// own log, and mcpserver's is the wider agent-facing one.
+//
+// A row history ALREADY redacted keeps history's own marker rather than being
+// re-marked as mcpserver's. The two markers differ on purpose — see
+// mcpserver.MaskedValue's comment — so that a marker found somewhere it should
+// not be names the layer that produced it. Letting the second pass overwrite
+// the first would destroy exactly that signal, and would say "<masked>" about a
+// value that was never written to disk in the first place.
+func mcpProjectedHeaderRows(rows []KeyValue, values []string) []KeyValue {
+	if len(rows) == 0 {
+		return nil
+	}
+	redacted := mcpserver.RedactRows(mcpKeyValueRows(rows))
+	out := make([]KeyValue, 0, len(redacted))
+	for index, row := range redacted {
+		value := row.Value
+		if rows[index].Value == history.RedactedValue {
+			value = history.RedactedValue
+		}
+		out = append(out, KeyValue{
+			Name:    row.Name,
+			Value:   mcpserver.MaskKnownSecretValues(value, values),
+			Enabled: row.Enabled,
+		})
+	}
+	return out
+}
+
+// truncateAtRuneBoundary cuts to at most limit bytes without splitting a rune.
+//
+// Same reason as responseBodyHead: slicing a byte count out of a UTF-8 string
+// can leave a partial rune, which encoding/json then rewrites as U+FFFD — so a
+// body of CJK text or emoji would reach the agent subtly corrupted.
+func truncateAtRuneBoundary(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut]
 }
 
 // CreateRequestFromHistory materialises a history entry as a real request in

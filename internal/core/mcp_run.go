@@ -10,7 +10,7 @@ package core
 // response with the value masked out again.
 //
 // IT RUNS THE APP'S OWN ENGINE, NOT A COPY OF IT. This file calls
-// sendRequestWithControlsContext (app_send.go:47) — the same function
+// sendRequestWithControlsContextProvenance (app_send.go) — the same function
 // SendRequest calls, with the same arguments and the same zero-value iteration.
 // That is not convenience, it is the correctness argument for the whole tier:
 // pre/post scripts, tests, TLS posture, client certificates, cookies, OAuth2
@@ -155,8 +155,14 @@ func (b *mcpBackend) RunRequest(ctx context.Context, params mcpserver.RunRequest
 	// promptValues nil, index nil: an agent cannot answer a pm.prompt and has no
 	// per-run lookup index to offer. iteration carries ONLY the overrides — see
 	// mcpValidatedOverrides for why that field is the right seam.
-	_, _, response, err := b.app.sendRequestWithControlsContext(
-		ctx, plan.collectionID, plan.requestID, plan.environmentID, nil, nil,
+	//
+	// mcpSendProvenance(policy) SAYS WHAT THIS IS (§4.5). The context still
+	// carries the policy — the host guard above and the checkpoints below read it
+	// there — but the send path is TOLD, by argument, that this is an
+	// agent-initiated run governed by this policy. Dropping the label can no
+	// longer downgrade the run to a UI send; it fails the root's check instead.
+	_, _, response, err := b.app.sendRequestWithControlsContextProvenance(
+		ctx, mcpSendProvenance(policy), plan.collectionID, plan.requestID, plan.environmentID, nil, nil,
 		runner.Iteration{Data: overrides},
 	)
 	if err != nil {
@@ -432,9 +438,9 @@ func (a *App) newMCPExecutionPolicy() (*mcpEgressPolicy, *mcpSiteLabelBook) {
 // HOW OVERRIDES ARE APPLIED (the decision worth reading): they travel as
 // runner.Iteration.Data, the data-file row seam (US-046,
 // scripting.ApplyIterationDataToContext at scripting.go:2410), which
-// sendRequestWithControlsContext applies itself at app_send.go:70. That seam
-// fits the requirement exactly, and it was preferred to layering a map over
-// Combined for two reasons:
+// the send path applies itself at its head. That seam fits the requirement
+// exactly, and it was preferred to layering a map over Combined for two
+// reasons:
 //
 //   - PRECEDENCE IS ALREADY RIGHT. VariableContext.Recompute (scripting.go:2474
 //     onward) places Data above Global, Collection, Env, Folder and Request, and
