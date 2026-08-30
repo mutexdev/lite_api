@@ -7,6 +7,8 @@
   import type { types } from '../../../wailsjs/go/models'
   import { automaticPreviewLimit, base64ByteLength, compareHeaders, compareJsonStructure, contentDispositionFilename, contentType, embeddedPreviewLimit, findMatches, formatResponseBody, fullRenderLimit, lineDiff, normalizeResponseView, previewKind, responseTextForView, sliceBase64Bytes, sliceUtf8, utf8ByteLength } from './response'
   import { resolveLiveSessionEvents, type LiveSessionLog } from '../liveSessionEvents'
+  import { parseTLSFailure } from '../tlsErrors'
+  import { JSON_TREE_BUDGET, JSON_TREE_MAX_ENTRIES, boundedJsonTree } from './jsonTree'
 
   // US-028 — runes. None of these are bound by the parent.
   type Props = {
@@ -35,6 +37,10 @@
      * until the file picker was dismissed.
      */
     exportBusy?: string
+    // US-059. A certificate failure is the one send error with a remedy inside
+    // the app, so the pane offers it rather than describing where to find it.
+    onDisableTLSVerification?: () => void | Promise<void>
+    onOpenRequestPreferences?: () => void
   }
 
   let {
@@ -50,8 +56,15 @@
     onCopy,
     onDownloadBody,
     onExportTimeline,
-    exportBusy = ''
+    exportBusy = '',
+    onDisableTLSVerification = undefined,
+    onOpenRequestPreferences = undefined
   }: Props = $props()
+
+  // US-059. Split so the explanation reads as a sentence and the Go error sits
+  // underneath it, where it is available for a bug report without being the
+  // first thing the eye meets.
+  const tlsFailure = $derived(parseTLSFailure(request.response?.error))
 
   // US-028 — every one of these is written from a handler or an effect and read
   // by the template, so all of them must be $state. As plain lets the search
@@ -74,7 +87,6 @@
   let headerSearch = $state('')
   let responseScrollKey = $state('')
   let restoredScrollKey = $state('')
-  const jsonTreeBudget = 96 * 1024
 
   const response = $derived(request.response)
   const headers = $derived(response?.headers ?? {})
@@ -275,23 +287,9 @@
 
   function parsedJson(response: types.Response | undefined, size: number) {
     if (size > fullRenderLimit) return null
-    try { return JSON.parse(response?.body ?? '') as Record<string, unknown> } catch { return null }
+    try { return JSON.parse(response?.body ?? '') as unknown } catch { return null }
   }
 
-  function boundedJsonTree(value: Record<string, unknown> | null) {
-    if (!value || Array.isArray(value)) return { entries: [] as Array<{ name: string; value: unknown; text: string }>, truncated: false }
-    const entries: Array<{ name: string; value: unknown; text: string }> = []
-    let used = 0
-    for (const [name, child] of Object.entries(value)) {
-      if (entries.length >= 100) return { entries, truncated: true }
-      let text = ''
-      try { text = JSON.stringify(child, null, 2) } catch { text = '[Unserializable value]' }
-      if (used + text.length > jsonTreeBudget) return { entries, truncated: true }
-      entries.push({ name, value: child, text })
-      used += text.length
-    }
-    return { entries, truncated: false }
-  }
 
   function timelineMatchesFilter(entry: types.TimelineItem, filter: string) {
     return filter === 'all' || `${entry.phase || ''} ${entry.kind || ''} ${entry.source || ''}`.toLowerCase().includes(filter)
@@ -327,7 +325,28 @@
 
 <div class="response-inspector">
   {#if selectedTab === 'response'}
-    {#if response?.error}<div class="response-warning" role="alert">{response.error}</div>{:else if response?.cancelled}<div class="response-warning" role="status">Request cancelled.</div>{/if}
+    {#if response?.error}
+      {#if tlsFailure}
+        <div class="response-warning response-tls-warning" role="alert">
+          <p>{tlsFailure.summary}</p>
+          <div class="response-tls-actions">
+            {#if onDisableTLSVerification}
+              <button type="button" data-testid="response-disable-tls" onclick={() => void onDisableTLSVerification?.()}>
+                Turn off Verify TLS for this request and resend
+              </button>
+            {/if}
+            {#if onOpenRequestPreferences && tlsFailure.suggestsCustomCA}
+              <button type="button" data-testid="response-open-tls-preferences" onclick={() => onOpenRequestPreferences?.()}>
+                Open request preferences
+              </button>
+            {/if}
+          </div>
+          {#if tlsFailure.detail}<pre class="response-tls-detail">{tlsFailure.detail}</pre>{/if}
+        </div>
+      {:else}
+        <div class="response-warning" role="alert">{response.error}</div>
+      {/if}
+    {:else if response?.cancelled}<div class="response-warning" role="status">Request cancelled.</div>{/if}
     {#if !response}
       <section class="response-empty-state" aria-live="polite">
         <strong>Ready for a response</strong>
@@ -383,7 +402,9 @@
         {#each jsonTree.entries as entry (entry.name)}
           <details><summary>{entry.name} <small>{Array.isArray(entry.value) ? `Array (${entry.value.length})` : typeof entry.value}</small></summary><pre>{entry.text}</pre></details>
         {/each}
-        {#if jsonTree.truncated}<small>Tree render is bounded to 100 root items and {Math.round(jsonTreeBudget / 1024)} KB.</small>{/if}
+        {#if jsonTree.entries.length === 0 && jsonTree.truncated}<small>The first field alone is larger than the {Math.round(JSON_TREE_BUDGET / 1024)} KB this view renders. Use the Pretty or Raw view to read it.</small>
+        {:else if jsonTree.entries.length === 0}<small>This response has no fields to expand.</small>
+        {:else if jsonTree.truncated}<small>Tree render is bounded to {JSON_TREE_MAX_ENTRIES} root items and {Math.round(JSON_TREE_BUDGET / 1024)} KB.</small>{/if}
       </div>
     {:else}
       <pre class="response-body" bind:this={bodyElement} data-match-index={matches[matchIndex] ?? -1}>{#each markedParts(safeDisplay) as part, index (index)}<span>{#if part.match}<mark class:current-match={part.index === matchIndex}>{part.text}</mark>{:else}{part.text}{/if}</span>{/each}</pre>
@@ -504,4 +525,22 @@
   /* Narrow: the duration drops to its own row rather than being squeezed
      against the URL, and the status keeps room for its longest real value. */
   @media (max-width: 720px) { .timeline-entry > button { grid-template-columns:minmax(72px,auto) minmax(0,1fr); } .timeline-entry > button strong { grid-column:1 / -1; } .timeline-entry > button small { grid-column:1 / -1; } }
+  .response-tls-warning {
+    display: grid;
+    gap: 8px;
+  }
+
+  .response-tls-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .response-tls-detail {
+    margin: 0;
+    font-size: 0.78rem;
+    opacity: 0.75;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
 </style>

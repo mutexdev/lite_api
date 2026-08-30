@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptrace"
@@ -74,12 +73,7 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 	}
 	if item.Type == "graphql" && bodyReader == nil {
 		method = http.MethodPost
-		payload := map[string]string{
-			"query":     interpolate(item.Body.GraphQLQuery, vars),
-			"variables": interpolate(item.Body.GraphQLVariables, vars),
-		}
-		b, _ := json.Marshal(payload)
-		bodyReader = strings.NewReader(string(b))
+		bodyReader = strings.NewReader(graphQLRequestPayload(item.Body, vars))
 		contentType = "application/json"
 	}
 	req, err := http.NewRequestWithContext(ctx, method, targetURL, bodyReader)
@@ -154,7 +148,7 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 		if requestContextCancelled(ctx) {
 			markRequestCancelled(&result)
 		} else {
-			result.Error = err.Error()
+			result.Error = requestFailureMessage(err, targetURL)
 		}
 		if onFailErr := scripting.RunRequestOnFail(onFailState, err); onFailErr != nil {
 			result.Error = result.Error + "; onFail: " + onFailErr.Error()
@@ -179,7 +173,7 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 			if requestContextCancelled(ctx) {
 				markRequestCancelled(&result)
 			} else {
-				result.Error = err.Error()
+				result.Error = requestFailureMessage(err, targetURL)
 			}
 			if onFailErr := scripting.RunRequestOnFail(onFailState, err); onFailErr != nil {
 				result.Error = result.Error + "; onFail: " + onFailErr.Error()
@@ -279,6 +273,16 @@ func (a *App) appTLSSettingsSnapshot() appTLSSettings {
 		Request:            preferences.Request,
 		ClientSessionCache: clientSessionCache,
 	}
+}
+
+// requestFailureMessage renders a send failure for the response pane. Only a
+// certificate failure is rewritten (US-059); everything else keeps the wording
+// the transport produced.
+func requestFailureMessage(err error, targetURL string) string {
+	if message, ok := describeTLSFailure(err, targetURL); ok {
+		return message
+	}
+	return err.Error()
 }
 
 func requestTLSVerificationEnabled(preferences RequestPreferences, requestVerifyTLS bool) bool {

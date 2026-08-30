@@ -13,6 +13,7 @@ package scalar
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestShellSingleQuoteContainsEmbeddedQuotes(t *testing.T) {
@@ -194,5 +195,59 @@ func TestFirstYAMLStringSkipsBlankValues(t *testing.T) {
 	raw := map[string]interface{}{"a": "  ", "b": "value"}
 	if got := FirstYAMLString(raw, "a", "b"); got != "value" {
 		t.Fatalf("got %q, want %q", got, "value")
+	}
+}
+
+// US-057. A request name long enough to exceed the filesystem's per-component
+// limit failed the entire import batch with "selected imports could not be
+// committed", because SanitizeFilename passed the name through at any length.
+// Around 85 CJK characters is enough on ext4 and APFS alike, and a Postman
+// collection whose request names are full sentences reaches that easily.
+func TestSanitizeFilenameFitsWithinAFilesystemComponent(t *testing.T) {
+	for _, input := range []string{
+		strings.Repeat("n", 400),
+		strings.Repeat("集", 200),
+		strings.Repeat("é", 150),
+	} {
+		got := SanitizeFilename(input)
+		if len(got) > SanitizeFilenameMaxBytes {
+			t.Errorf("SanitizeFilename(%d chars) returned %d bytes", len([]rune(input)), len(got))
+		}
+		if !utf8.ValidString(got) {
+			t.Errorf("SanitizeFilename(%d chars) cut a rune in half: %q", len([]rune(input)), got)
+		}
+	}
+}
+
+func TestSanitizeFilenameKeepsLongNamesDistinct(t *testing.T) {
+	base := strings.Repeat("n", 300)
+	first, second := SanitizeFilename(base+"alpha"), SanitizeFilename(base+"beta")
+	if first == second {
+		t.Fatalf("two long names collapsed to one filename: %q", first)
+	}
+	if SanitizeFilename(base+"alpha") != first {
+		t.Fatal("truncation is not deterministic")
+	}
+}
+
+func TestSanitizeFilenameLeavesShortNamesUntouched(t *testing.T) {
+	for _, input := range []string{"Get user", "list-items", "集合"} {
+		if got := SanitizeFilename(input); got != input {
+			t.Errorf("SanitizeFilename(%q) = %q", input, got)
+		}
+	}
+}
+
+// Windows refuses to create a file named for a DOS device, whatever the
+// extension. A Postman collection with a request named "CON" imports on Linux
+// and then fails to open on the Windows build of the same app.
+func TestSanitizeFilenameAvoidsWindowsDeviceNames(t *testing.T) {
+	for _, input := range []string{"CON", "con", "PRN", "AUX", "NUL", "COM1", "lpt9"} {
+		if got := SanitizeFilename(input); strings.EqualFold(got, input) {
+			t.Errorf("SanitizeFilename(%q) = %q, still a reserved device name", input, got)
+		}
+	}
+	if got := SanitizeFilename("CONTENT"); got != "CONTENT" {
+		t.Errorf("SanitizeFilename(%q) = %q, a name that merely starts with one", "CONTENT", got)
 	}
 }

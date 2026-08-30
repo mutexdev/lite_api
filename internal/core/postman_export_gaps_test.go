@@ -108,7 +108,7 @@ func TestPostmanExportRoundTripsEveryAuthModeAtEveryLevel(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			imported, err := importers.ImportPostman(exported, "auth", false)
+			imported, _, err := importers.ImportPostman(exported, "auth", false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -129,7 +129,7 @@ func TestPostmanExportRoundTripsEveryAuthModeAtEveryLevel(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			twice, err := importers.ImportPostman(second.Content, "auth", false)
+			twice, _, err := importers.ImportPostman(second.Content, "auth", false)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -170,7 +170,7 @@ const fidelityPostmanCollection = `{
 
 func importFidelityCollection(t *testing.T, content string) Collection {
 	t.Helper()
-	collection, err := importers.ImportPostman(content, "fidelity", false)
+	collection, _, err := importers.ImportPostman(content, "fidelity", false)
 	if err != nil {
 		t.Fatalf("importPostman: %v", err)
 	}

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mutexdev/lite_api/internal/scripting"
 	"github.com/mutexdev/lite_api/internal/types"
 )
 
@@ -43,8 +44,9 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 	}
 	candidates := make(map[string]collectionImportCandidate, len(request.Sources))
 	for index, source := range request.Sources {
-		candidate := previewCollectionImportSource(source, index)
-		candidates[candidate.row.CandidateID] = candidate
+		for _, candidate := range previewCollectionImportCandidates(source, index) {
+			candidates[candidate.row.CandidateID] = candidate
+		}
 	}
 	result := CollectionImportApplyResult{State: a.state}
 	before, err := cloneCollectionImportState(a.state)
@@ -52,6 +54,7 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 		return CollectionImportApplyResult{}, err
 	}
 	mutations := []collectionImportMutation{}
+	globalEnvironmentsWritten := false
 	watchFingerprints := map[string]string{}
 	for key, value := range a.collectionWatchFingerprints {
 		watchFingerprints[key] = value
@@ -74,7 +77,7 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 		// nothing for every normally-detected file, leaving the toggle
 		// apparently working and demonstrably ineffective.
 		if request.TranslatePostmanScripts && strings.EqualFold(strings.TrimSpace(candidate.row.DetectedKind), "postman") && strings.TrimSpace(selection.KindOverride) == "" {
-			content, _, _, folder, readErr := readCollectionImportSource(candidate.source)
+			content, _, _, folder, readErr := readCollectionImportCandidate(candidate)
 			if readErr == nil && !folder {
 				if translated, translateErr := collectionFromImport(ImportPayload{
 					Kind:                    "postman",
@@ -90,7 +93,7 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 			}
 		}
 		if strings.TrimSpace(selection.KindOverride) != "" {
-			content, _, _, folder, readErr := readCollectionImportSource(candidate.source)
+			content, _, _, folder, readErr := readCollectionImportCandidate(candidate)
 			if readErr != nil || folder {
 				candidate.row.Error = "manual import kind could not read the selected source"
 				result.Errors = append(result.Errors, candidate.row)
@@ -106,6 +109,19 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 			candidate.row = collectionImportRow(candidate.row, collection, strings.ToLower(strings.TrimSpace(selection.KindOverride)), "manual")
 		} else if candidate.row.Error != "" {
 			result.Errors = append(result.Errors, candidate.row)
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(candidate.row.DetectedKind), "postman-environment") {
+			if err := a.applyImportedGlobalEnvironmentsLocked(workspace, collection.Environments); err != nil {
+				candidate.row.Error = collectionImportDiagnostic(err)
+				result.Errors = append(result.Errors, candidate.row)
+			} else {
+				// Recorded so a later failure in this batch can put the
+				// environment files back. They are not tracked as path
+				// mutations: the directory is written whole, not file by file.
+				globalEnvironmentsWritten = true
+				result.Applied = append(result.Applied, candidate.row)
+			}
 			continue
 		}
 		if candidate.row.ExistingFolder {
@@ -138,10 +154,13 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 			if errors.Is(err, errCollectionImportSkipped) {
 				result.Skipped = append(result.Skipped, candidate.row)
 			} else {
-				rollbackCollectionImportMutations(a, mutations)
+				restoreErr := rollbackCollectionImportMutations(a, mutations)
 				a.collectionWatchFingerprints = watchFingerprints
 				a.state = before
-				return CollectionImportApplyResult{}, errors.New("selected imports could not be committed")
+				if envErr := a.restoreGlobalEnvironmentFilesLocked(globalEnvironmentsWritten, request.WorkspaceID); envErr != nil && restoreErr == nil {
+					restoreErr = envErr
+				}
+				return CollectionImportApplyResult{}, collectionImportCommitError(err, restoreErr)
 			}
 			continue
 		}
@@ -154,10 +173,13 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 			persist = func() error { return a.collectionImportHooks.persist(a) }
 		}
 		if err := persist(); err != nil {
-			rollbackCollectionImportMutations(a, mutations)
+			restoreErr := rollbackCollectionImportMutations(a, mutations)
 			a.collectionWatchFingerprints = watchFingerprints
 			a.state = before
-			return CollectionImportApplyResult{}, err
+			if envErr := a.restoreGlobalEnvironmentFilesLocked(globalEnvironmentsWritten, request.WorkspaceID); envErr != nil && restoreErr == nil {
+				restoreErr = envErr
+			}
+			return CollectionImportApplyResult{}, collectionImportCommitError(err, restoreErr)
 		}
 		for _, mutation := range mutations {
 			if mutation.backup != "" {
@@ -165,8 +187,98 @@ func (a *App) ApplyCollectionImport(request CollectionImportApplyRequest) (Colle
 			}
 		}
 	}
+	notifyCollectionImportOutcome(a, result)
 	result.State = a.state
 	return result, nil
+}
+
+// notifyCollectionImportOutcome puts the outcome somewhere that survives the
+// user navigating away from the Import view.
+//
+// US-055. Applying an import used to write its outcome only into an aria-live
+// line inside the panel; ImportGlobalEnvironment, on the other side of the same
+// app, has always raised a notification. Anyone who started an import and
+// switched tabs learned nothing about how it went.
+func notifyCollectionImportOutcome(app *App, result CollectionImportApplyResult) {
+	parts := []string{fmt.Sprintf("%d imported", len(result.Applied))}
+	if len(result.Skipped) > 0 {
+		parts = append(parts, fmt.Sprintf("%d skipped", len(result.Skipped)))
+	}
+	if len(result.Errors) > 0 {
+		parts = append(parts, fmt.Sprintf("%d failed", len(result.Errors)))
+	}
+	warnings := 0
+	for _, row := range result.Applied {
+		warnings += len(row.Warnings)
+	}
+	if warnings > 0 {
+		parts = append(parts, fmt.Sprintf("%d warning%s", warnings, map[bool]string{true: "", false: "s"}[warnings == 1]))
+	}
+	level := "success"
+	if len(result.Errors) > 0 {
+		level = "warning"
+	}
+	if len(result.Applied) == 0 && len(result.Errors) > 0 {
+		level = "error"
+	}
+	message := "Import: " + strings.Join(parts, ", ")
+	if len(result.Errors) > 0 && result.Errors[0].Error != "" {
+		message += ". First failure: " + result.Errors[0].Error
+	}
+	app.notify(level, message)
+}
+
+// readCollectionImportCandidate reads the bytes a candidate was parsed from.
+//
+// US-058. A candidate that came out of a data dump or a ZIP cannot be re-read
+// from its source path -- that path is the archive, not the document -- so the
+// document travels with the candidate and is returned here instead.
+func readCollectionImportCandidate(candidate collectionImportCandidate) (string, string, string, bool, error) {
+	if candidate.child {
+		return candidate.content, candidate.row.SourceName, candidate.row.ContentHash, false, nil
+	}
+	return readCollectionImportSource(candidate.source)
+}
+
+// applyImportedGlobalEnvironmentsLocked puts imported environments where a
+// standalone Postman environment file belongs: the workspace's globals, the
+// same destination the Environments panel's paste box has always used.
+//
+// Names are made unique rather than replaced. Importing the same file twice is
+// a thing people do while working out whether the first one took, and silently
+// overwriting the earlier one would destroy any edit made in between.
+func (a *App) applyImportedGlobalEnvironmentsLocked(workspace *Workspace, environments []Environment) error {
+	if len(environments) == 0 {
+		return errors.New("no environments found to import")
+	}
+	// workspace points into a.state, so everything below is live the moment it
+	// is appended. The write can still fail -- a read-only directory, a full
+	// disk -- and an import that reports failure while leaving the environment
+	// in memory is worse than one that fails cleanly: it shows up in the
+	// Environments panel, and the next unrelated save writes it out, quietly
+	// completing the import the user was told had not happened.
+	restoreEnvironments := workspace.GlobalEnvironments
+	restoreUpdatedAt := workspace.UpdatedAt
+	// Appending to a fresh slice rather than in place, so the rollback cannot
+	// be defeated by an append that wrote into shared backing array capacity.
+	workspace.GlobalEnvironments = append([]Environment{}, workspace.GlobalEnvironments...)
+	for _, environment := range environments {
+		environment.ID = newID("global-env")
+		environment.Name = scripting.UniqueEnvironmentName(workspace.GlobalEnvironments, environment.Name)
+		for index := range environment.Variables {
+			if environment.Variables[index].ID == "" {
+				environment.Variables[index].ID = newID("var")
+			}
+		}
+		workspace.GlobalEnvironments = append(workspace.GlobalEnvironments, environment)
+	}
+	workspace.UpdatedAt = time.Now()
+	if err := a.writeWorkspaceGlobalEnvironmentFilesLocked(workspace); err != nil {
+		workspace.GlobalEnvironments = restoreEnvironments
+		workspace.UpdatedAt = restoreUpdatedAt
+		return err
+	}
+	return nil
 }
 
 func cloneCollectionImportState(state AppState) (AppState, error) {
@@ -181,20 +293,47 @@ func cloneCollectionImportState(state AppState) (AppState, error) {
 	return clone, nil
 }
 
-func rollbackCollectionImportMutations(app *App, mutations []collectionImportMutation) {
+func rollbackCollectionImportMutations(app *App, mutations []collectionImportMutation) error {
 	rename := os.Rename
 	if app.collectionImportHooks != nil && app.collectionImportHooks.rename != nil {
 		rename = app.collectionImportHooks.rename
 	}
+	var restoreErr error
 	for index := len(mutations) - 1; index >= 0; index-- {
 		mutation := mutations[index]
 		if err := removeCollectionImportPath(app, mutation.target); err != nil {
+			if mutation.backup != "" && restoreErr == nil {
+				restoreErr = err
+			}
 			continue
 		}
-		if mutation.backup != "" {
-			_ = rename(mutation.backup, mutation.target)
+		if mutation.backup == "" {
+			continue
+		}
+		if err := rename(mutation.backup, mutation.target); err != nil && restoreErr == nil {
+			restoreErr = err
 		}
 	}
+	return restoreErr
+}
+
+// collectionImportCommitError explains a failed commit.
+//
+// US-055. This used to be a bare "selected imports could not be committed",
+// which told the user neither what went wrong nor -- more seriously -- when the
+// rollback had failed to put their existing collection back. A replace that
+// cannot restore its backup leaves the original under a .liteapi-import-backup-
+// suffix, and saying nothing about that is how a collection gets given up for
+// lost.
+func collectionImportCommitError(cause, restoreErr error) error {
+	message := "selected imports could not be committed"
+	if diagnosis := collectionImportDiagnostic(cause); diagnosis != "" {
+		message += ": " + diagnosis
+	}
+	if restoreErr != nil {
+		message += ". The previous collection could not be restored and is kept beside it with a .liteapi-import-backup- suffix"
+	}
+	return errors.New(message)
 }
 
 func removeCollectionImportPath(app *App, path string) error {
@@ -511,4 +650,25 @@ func remapImportedRequestPaths(collection *Collection, staging, destination stri
 			collection.Items[index].FilePath = filepath.Join(destination, relative)
 		}
 	}
+}
+
+// restoreGlobalEnvironmentFilesLocked rewrites a workspace's environment files
+// from state that has just been rolled back, so disk agrees with memory again.
+//
+// The batch rollback restores a.state, which is enough for everything tracked
+// as a path mutation. Global environments are not: they are written as a whole
+// directory, so nothing in the mutation list describes them, and the files an
+// aborted batch wrote would otherwise stay. The next workspace load merges
+// whatever is in that directory back into the state, so leaving them means an
+// import reported as failed reappears at the next launch, which is exactly the
+// outcome the rollback exists to prevent.
+func (a *App) restoreGlobalEnvironmentFilesLocked(written bool, workspaceID string) error {
+	if !written {
+		return nil
+	}
+	workspace, err := a.findWorkspaceLocked(workspaceID)
+	if err != nil {
+		return err
+	}
+	return a.writeWorkspaceGlobalEnvironmentFilesLocked(workspace)
 }

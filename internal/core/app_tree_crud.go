@@ -123,7 +123,11 @@ func (a *App) CreateFolder(collectionID, parentFolderPath, folderName, directory
 	if err != nil {
 		return AppState{}, err
 	}
-	if parentPath == "" && strings.Contains(strings.ToLower(strings.TrimSpace(directoryName)), "environments") {
+	// The exact name only. Contains() refused "My Environments Archive" with a
+	// message quoting a name the user had not typed; the sibling reservations
+	// in this file all compare exactly, and only the literal directory collides
+	// with bruno's layout.
+	if parentPath == "" && strings.EqualFold(strings.TrimSpace(directoryName), "environments") {
 		return AppState{}, errors.New("the folder name \"environments\" at the root of the collection is reserved in bruno")
 	}
 	if collectionHasChildFolder(collection, parentPath, directoryName) {

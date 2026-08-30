@@ -163,3 +163,43 @@ export function importSelectionFor(
     filterRequests: deselected(decision.requests, row.requests)
   }
 }
+
+export interface ImportOutcomeRow {
+  candidateId?: string
+  sourceName?: string
+  error?: string
+  warnings?: string[]
+}
+
+export interface ImportOutcome {
+  applied?: ImportOutcomeRow[]
+  skipped?: ImportOutcomeRow[]
+  errors?: ImportOutcomeRow[]
+}
+
+const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`
+
+/**
+ * Summarises an apply for the panel's live region.
+ *
+ * US-055. The old wording was "N imported, N skipped, N errors" whatever the
+ * numbers were, so a clean import announced "0 skipped, 0 errors" and a total
+ * failure looked much like a success. Only what happened is mentioned, and a
+ * warning raised by an importer -- a skipped request, a rebuilt URL -- is
+ * counted, because until now nothing in the panel drew the eye to one.
+ */
+export function importOutcomeSummary(outcome: ImportOutcome | undefined): string {
+  const applied = outcome?.applied ?? []
+  const skipped = outcome?.skipped ?? []
+  const failed = outcome?.errors ?? []
+  if (applied.length === 0 && skipped.length === 0 && failed.length === 0) return 'Nothing was imported.'
+  const parts = [`${plural(applied.length, 'collection')} imported`]
+  if (skipped.length > 0) parts.push(`${skipped.length} skipped`)
+  if (failed.length > 0) parts.push(`${plural(failed.length, 'failure')}`)
+  const warnings = applied.reduce((total, row) => total + (row.warnings?.length ?? 0), 0)
+  if (warnings > 0) parts.push(plural(warnings, 'warning'))
+  let summary = parts.join(', ')
+  const firstFailure = failed.find((row) => (row.error ?? '').trim() !== '')
+  if (firstFailure) summary += `. ${firstFailure.sourceName || 'A source'}: ${firstFailure.error}`
+  return summary
+}

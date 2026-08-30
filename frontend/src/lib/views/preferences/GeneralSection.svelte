@@ -29,6 +29,11 @@
 	                  />
 	                  SSL/TLS Certificate Verification
 	                </label>
+	                <p class="settings-hint">
+	                  Postman disables this by default. LiteAPI verifies certificates unless you turn it off,
+	                  which is why a request that succeeds in Postman can fail here with a certificate error.
+	                  Prefer adding the issuing CA below to switching verification off for everything.
+	                </p>
 	                <label class="inline-toggle">
 	                  <input
 	                    id="customCaCertificateEnabled"
@@ -150,3 +155,13 @@
 	                </div>
 	              </div>
 	            </section>
+
+<style>
+  .settings-hint {
+    grid-column: 1 / -1;
+    margin: -4px 0 4px;
+    max-width: 62ch;
+    font-size: 0.8rem;
+    opacity: 0.8;
+  }
+</style>

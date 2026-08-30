@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 func Map(raw interface{}) (map[string]interface{}, bool) {
@@ -80,6 +81,27 @@ func NewID(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 }
 
+// SanitizeFilenameMaxBytes bounds one path component.
+//
+// US-057. Every filesystem this app runs on caps a single component at 255
+// bytes -- ext4, APFS, NTFS alike -- and exceeding it fails the write with
+// ENAMETOOLONG. Because an import writes a batch inside one transaction, a
+// single over-long request name rolled back the whole import and reported only
+// that it "could not be committed". 180 leaves room for the ".bru" suffix, for
+// the ".liteapi-import-<id>" staging prefix a materialised import adds, and for
+// the " 2" a name collision appends.
+const SanitizeFilenameMaxBytes = 180
+
+// windowsDeviceNames cannot be used as a filename on Windows whatever the
+// extension, so a collection imported on Linux would fail to open there.
+var windowsDeviceNames = map[string]bool{
+	"con": true, "prn": true, "aux": true, "nul": true,
+	"com1": true, "com2": true, "com3": true, "com4": true, "com5": true,
+	"com6": true, "com7": true, "com8": true, "com9": true,
+	"lpt1": true, "lpt2": true, "lpt3": true, "lpt4": true, "lpt5": true,
+	"lpt6": true, "lpt7": true, "lpt8": true, "lpt9": true,
+}
+
 func SanitizeFilename(name string) string {
 	name = strings.TrimSpace(name)
 	replacer := strings.NewReplacer("/", "-", "\\", "-", ":", "-", "*", "-", "?", "", "\"", "", "<", "", ">", "", "|", "-")
@@ -88,7 +110,25 @@ func SanitizeFilename(name string) string {
 	if name == "" {
 		return "untitled"
 	}
-	return name
+	if windowsDeviceNames[strings.ToLower(name)] {
+		return name + "_"
+	}
+	return truncateFilename(name)
+}
+
+// truncateFilename cuts on a rune boundary and appends a short digest of the
+// whole name, so two long names that share a prefix -- which request names
+// routinely do -- do not collapse onto one file and overwrite each other.
+func truncateFilename(name string) string {
+	if len(name) <= SanitizeFilenameMaxBytes {
+		return name
+	}
+	suffix := "-" + DeterministicID("", name)[1:9]
+	cut := SanitizeFilenameMaxBytes - len(suffix)
+	for cut > 0 && !utf8.RuneStart(name[cut]) {
+		cut--
+	}
+	return strings.TrimRight(strings.TrimSpace(name[:cut]), ". ") + suffix
 }
 
 func DeterministicID(prefix, input string) string {

@@ -42,7 +42,10 @@ func TestImportCollectionSurfacesPostmanImportWarnings(t *testing.T) {
 	if len(imported.Items) != 2 {
 		t.Fatalf("expected the two readable requests to import, got %d", len(imported.Items))
 	}
-	if !hasNotificationContaining(state.Notifications, "warning", "Skipped one item that could not be read") {
+	// The warning names the entry that was dropped. This one has no name of its
+	// own -- it is a bare string where an object belongs -- so it is named by
+	// its position, which is what someone opening the file has to go on.
+	if !hasNotificationContaining(state.Notifications, "warning", `skipped "entry 2"`) {
 		t.Fatalf("the import dropped an item and reported nothing but success: %#v", state.Notifications)
 	}
 	if !hasNotificationContaining(state.Notifications, "success", "Imported Partly Readable") {

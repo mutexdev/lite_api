@@ -25,6 +25,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Byte order, not the caller's locale. Every `sort` below feeds a file that is
+# committed and then diffed on another machine, and locales disagree about
+# punctuation: en_US.UTF-8 ignores the `(` in `CopyGlobalEnvironment(` and puts
+# `CopyGlobalEnvironmentAs` first, C compares the bytes and does not. A baseline
+# regenerated under one collation therefore fails this check under the other,
+# with a diff of pure reordering and no real change in it -- which is noise that
+# looks exactly like a broken binding surface.
+export LC_ALL=C
+
 BASELINE=qa/baseline/bindings.txt
 current=$(mktemp); go_names=$(mktemp); ts_names=$(mktemp); js_names=$(mktemp)
 trap 'rm -f "$current" "$go_names" "$ts_names" "$js_names"' EXIT

@@ -190,9 +190,11 @@
   import ProtocolRequestLine from './lib/workbench/ProtocolRequestLine.svelte'
   import WorkspaceCommandBar from './lib/workbench/WorkspaceCommandBar.svelte'
   import WorkspaceWindowPicker from './lib/workbench/WorkspaceWindowPicker.svelte'
+  import { suggestHeaderNames, suggestHeaderValues } from './lib/httpHeaders'
   import {
     defaultImportDecision,
     hasReplaceImportSelection,
+    importOutcomeSummary,
     importSelectionFor as importSelectionOf,
     reconcileImportDecision,
     selectedImportRows,
@@ -281,6 +283,11 @@
     GitVersion,
 		InitializeCollectionGit,
     ImportCollection,
+    DiscoverImportSources,
+    ReadDiscoveredCollections,
+    ImportDiscoveredCollections,
+    DismissDiscoveryPrompt,
+    AdoptDiscoveredCACertificate,
 	    ApplyCollectionImport,
 	    ChooseCollectionImportFiles,
 	    ChooseCollectionImportFolder,
@@ -866,6 +873,13 @@
   let generateDocsSelectAllInput = $state<HTMLInputElement | undefined>()
   let gitCloneProgress = $state<GitCloneProgress[]>([])
   let gitNotFoundMessage = $state('')
+  // US-064. The first-run offer to bring another client's collections across
+  // and to trust a corporate CA. Undefined until a launch has looked.
+  let discoveryReport = $state<core.DiscoveryReport | undefined>()
+  let discoveryOpen = $state(false)
+  let discoveryCollections = $state<Record<string, core.DiscoveredCollection[]>>({})
+  let discoveryBusy = $state(false)
+  let discoveryError = $state('')
 	let gitWorkbenchSnapshot = $state<gitworkbench.CollectionGitSnapshot | undefined>()
 	let gitWorkbenchCollectionID = $state('')
 	let gitWorkbenchLoading = $state(false)
@@ -1694,6 +1708,8 @@
 	  let stopNotificationPush: (() => void) | undefined
 
 	  onMount(() => {
+	    // US-064. Offered once, on a launch that finds something to offer.
+	    void loadDiscoveryReport(true)
 	    compactWorkbenchMedia = window.matchMedia('(max-width: 960px)')
 	    const updateCompactWorkbench = () => {
 	      compactWorkbench = compactWorkbenchMedia?.matches ?? false
@@ -2201,15 +2217,21 @@
     recoveryBusyEntryID = ''
   }
 
-  async function runAction(label: string, action: () => Promise<void>) {
+  // Returns the failure message, or '' when the action succeeded. The banner
+  // this sets is cleared by the next action of any kind, so a caller whose
+  // failure has to stay on screen -- an import, whose panel is the only place
+  // the user can act on it -- keeps the message somewhere of its own.
+  async function runAction(label: string, action: () => Promise<void>): Promise<string> {
     const actionID = ++nextActionID
     activeActions.set(actionID, label)
     busy = label
     error = ''
     try {
       await action()
+      return ''
     } catch (err) {
       error = err instanceof Error ? err.message : String(err)
+      return error
     } finally {
       activeActions.delete(actionID)
       busy = Array.from(activeActions.values()).at(-1) ?? ''
@@ -3491,7 +3513,14 @@
 	  }
 
 	  async function previewImportSources(sources: core.CollectionImportSource[], focusFirst = false, resetDecisions = false) {
-	    if (!importDestinationWorkspaceID || sources.length === 0) return
+	    if (!importDestinationWorkspaceID) {
+	      importStatus = 'Choose a destination workspace before importing.'
+	      return
+	    }
+	    if (sources.length === 0) {
+	      importStatus = 'No import source was provided.'
+	      return
+	    }
 	    const priorDecisions = importDecisions
 	    importSources = []
 	    importPreview = undefined
@@ -3499,7 +3528,7 @@
 	    importExpanded = {}
 	    clearImportAttemptResults()
 	    let previewSucceeded = false
-	    await runAction('preview import', async () => {
+	    const previewFailure = await runAction('preview import', async () => {
 	      const preview = await PreviewCollectionImport({ workspaceId: importDestinationWorkspaceID, destinationRoot: importDestinationRoot, sources } as core.CollectionImportPreviewRequest)
       importSources = sources
       importPreview = preview
@@ -3515,12 +3544,77 @@
 	      previewSucceeded = true
       if (focusFirst) await tick().then(() => document.querySelector<HTMLElement>('[data-import-preview-row]')?.focus())
     })
-	    if (!previewSucceeded) importStatus = 'Import preview could not be prepared. Check the source and try again.'
+	    if (!previewSucceeded) importStatus = previewFailure ? `Import preview failed: ${previewFailure}` : 'Import preview could not be prepared. Check the source and try again.'
   }
 
   async function previewImportPaths(paths: string[], focusFirst = true) {
     const sources = paths.map((path, index) => ({ id: `path-${Date.now()}-${index}`, path } as core.CollectionImportSource))
     await previewImportSources(sources, focusFirst)
+  }
+
+  // US-064. Asks the backend what this machine has. Presence only: nothing
+  // inside another application's store is read by this call.
+  async function loadDiscoveryReport(openWhenOffered: boolean) {
+    try {
+      const report = await DiscoverImportSources()
+      discoveryReport = report
+      if (openWhenOffered && report.shouldPrompt) discoveryOpen = true
+    } catch {
+      // A machine we cannot inspect is a machine with nothing to offer. There
+      // is no action for the user here, and a startup error box for a feature
+      // nobody asked for is worse than silence.
+    }
+  }
+
+  async function loadDiscoveredCollections(client: string) {
+    discoveryError = ''
+    try {
+      discoveryCollections = { ...discoveryCollections, [client]: await ReadDiscoveredCollections(client) }
+    } catch (err) {
+      discoveryError = err instanceof Error ? err.message : String(err)
+      discoveryCollections = { ...discoveryCollections, [client]: [] }
+    }
+  }
+
+  async function importDiscoveredCollections(client: string, names: string[]) {
+    if (!activeWorkspace || names.length === 0) return
+    discoveryBusy = true
+    discoveryError = ''
+    try {
+      const result = await ImportDiscoveredCollections(activeWorkspace.id, client, names)
+      workspaceStore.appState = result.state
+      importStatus = importOutcomeSummary(result)
+      await closeDiscovery()
+    } catch (err) {
+      discoveryError = err instanceof Error ? err.message : String(err)
+    } finally {
+      discoveryBusy = false
+    }
+  }
+
+  async function adoptDiscoveredCACertificate(path: string) {
+    discoveryBusy = true
+    discoveryError = ''
+    try {
+      workspaceStore.appState = await AdoptDiscoveredCACertificate(path)
+      await loadDiscoveryReport(false)
+    } catch (err) {
+      discoveryError = err instanceof Error ? err.message : String(err)
+    } finally {
+      discoveryBusy = false
+    }
+  }
+
+  // Closing is also the record that the offer was made: a prompt that returns
+  // every launch is one people learn to dismiss without reading.
+  async function closeDiscovery() {
+    discoveryOpen = false
+    try {
+      workspaceStore.appState = await DismissDiscoveryPrompt()
+    } catch {
+      // Failing to record the dismissal costs one repeated prompt, which is not
+      // worth an error in front of somebody who just closed a dialog.
+    }
   }
 
   async function chooseImportFiles() {
@@ -3627,20 +3721,21 @@
 	  importApplyInFlight = true
 	  clearImportAttemptResults()
 	  let applySucceeded = false
+	  let applyFailure = ''
     try {
-      await runAction('apply import', async () => {
+      applyFailure = await runAction('apply import', async () => {
 	        const result = await ApplyCollectionImport({ workspaceId: importDestinationWorkspaceID, destinationRoot: importDestinationRoot, sources: importSources, selections: importReadyRows.map(importSelectionFor), translatePostmanScripts: importTranslatePostmanScripts } as core.CollectionImportApplyRequest)
         importApplyResult = result
 	        workspaceStore.appState = result.state
         const completed = new Set([...(result.applied ?? []), ...(result.skipped ?? [])].map((row) => row.candidateId))
 	        importDecisions = Object.fromEntries(Object.entries(importDecisions).map(([id, decision]) => [id, completed.has(id) ? { ...decision, selected: false } : decision]))
-        importStatus = `${result.applied?.length ?? 0} imported, ${result.skipped?.length ?? 0} skipped, ${result.errors?.length ?? 0} errors`
+        importStatus = importOutcomeSummary(result)
 	        applySucceeded = true
       })
     } finally {
 	    importApplyInFlight = false
     }
-	  if (!applySucceeded) importStatus = 'Import could not be applied. Review the current preview and try again.'
+	  if (!applySucceeded) importStatus = applyFailure ? `Import failed: ${applyFailure}` : 'Import could not be applied. Review the current preview and try again.'
   }
 
 	  function openAPISyncOptions(): types.OpenAPISyncOptions {
@@ -5515,6 +5610,20 @@
     patchRequest({ settings: { ...activeRequest.settings, ...updates } } as types.RequestPatch)
   }
 
+  // US-059. The response pane's remedy for a certificate failure. Turning the
+  // switch off and resending is two screens away otherwise, and the Settings
+  // tab it lives on is not where anyone looks after a failed send.
+  async function disableTLSVerificationAndResend() {
+    if (!activeRequest) return
+    updateSettings({ verifyTls: false })
+    await tick()
+    await sendRequest()
+  }
+
+  function openRequestPreferences() {
+    activeView = 'preferences'
+  }
+
   function updateKeyValue(kind: 'params' | 'pathParams' | 'headers', index: number, field: keyof types.KeyValue, value: string | boolean) {
     if (!activeRequest) return
     const rows = [...(activeRequest[kind] ?? [])]
@@ -5957,7 +6066,13 @@
         } as types.KeepDefaultCaCertificatesPreferences,
         storeCookies: updates.storeCookies ?? current.storeCookies ?? appState.preferences.storeCookies ?? true,
         sendCookies: updates.sendCookies ?? current.sendCookies ?? true,
-        timeout: normalizedRequestTimeout(updates.timeout ?? current.timeout)
+        timeout: normalizedRequestTimeout(updates.timeout ?? current.timeout),
+        // Carried through rather than rebuilt. UpdatePreferences replaces the
+        // whole block, and maxResponseBytes is omitempty, so a field this
+        // function forgets is a field the backend reads back as 0 -- which it
+        // treats as "use the default". Every General-section control routes
+        // through here, so forgetting it resets the response cap on any of them.
+        maxResponseBytes: updates.maxResponseBytes ?? current.maxResponseBytes
       } as types.RequestPreferences
       await savePreferences({
         ...appState.preferences,
@@ -8788,6 +8903,8 @@
 	                {/if}
 	              {:else if requestPaneTab === 'headers'}
                 <KeyValueTable
+                  nameSuggestions={suggestHeaderNames}
+                  valueSuggestions={suggestHeaderValues}
                   showBulkEdit={true}
                   bulkLabel="Request headers bulk edit"
                   rows={activeRequest.headers}
@@ -9275,6 +9392,8 @@
                   onDownloadBody={saveActiveResponseBody}
                   onExportTimeline={saveActiveResponseTimeline}
                   exportBusy={responseExportBusy}
+                  onDisableTLSVerification={disableTLSVerificationAndResend}
+                  onOpenRequestPreferences={openRequestPreferences}
                 />
               {:else}
                 <div class="examples-toolbar">
@@ -10943,6 +11062,8 @@
         {#await import('./lib/views/ImportPanel.svelte') then ImportPanel}
           {@const ImportPanelComponent = ImportPanel.default}
           <ImportPanelComponent
+            discoveredClientCount={discoveryReport?.installations?.length ?? 0}
+            onOpenDiscovery={() => (discoveryOpen = true)}
             bind:importSourceMode
             bind:importTranslatePostmanScripts
             bind:importURL
@@ -11671,6 +11792,22 @@
       {updatePromptValue}
       {submitPromptDialog}
       {cancelPromptDialog}
+    />
+  {/await}
+{/if}
+
+{#if discoveryOpen && discoveryReport}
+  {#await import('./lib/modals/DiscoveryModal.svelte') then DiscoveryModal}
+    {@const DiscoveryModalComponent = DiscoveryModal.default}
+    <DiscoveryModalComponent
+      report={discoveryReport}
+      collectionsByClient={discoveryCollections}
+      busy={discoveryBusy}
+      error={discoveryError}
+      onLoadCollections={loadDiscoveredCollections}
+      onImport={importDiscoveredCollections}
+      onAdoptCA={adoptDiscoveredCACertificate}
+      onClose={closeDiscovery}
     />
   {/await}
 {/if}
