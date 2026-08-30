@@ -177,6 +177,21 @@
     type McpApprovalPrompt,
     type McpApprovalRequest
   } from './lib/mcpSettings'
+  import {
+    applyFlowProgress,
+    blankFlowDraft,
+    blankFlowStepDraft,
+    collectionFlows,
+    collectionHasFlows,
+    emptyFlowProgress,
+    flowFromDraft,
+    flowRowKey,
+    flowSaveErrorMessage,
+    flowTabID,
+    flowTabLabel,
+    type FlowProgressEvent,
+    type FlowRunProgress
+  } from './lib/flowView'
   import { unresolvedHeaderVariables, unresolvedVariableMessage } from './lib/unresolvedVariables'
   import {
     addBackgroundNotice,
@@ -249,6 +264,7 @@
 		CommitCollectionGit,
     CreateCollection,
     CreateEnvironment,
+    CreateFlow,
     CreateFolder,
     CreateGlobalEnvironment,
     CreateTerminalSession,
@@ -260,6 +276,7 @@
     CopyGlobalEnvironmentAs,
     DeleteCookie,
     DeleteDotEnvFile,
+    DeleteFlow,
     DeleteFolderRecoverable,
     DeleteGlobalEnvironment,
     DeleteRequestRecoverable,
@@ -335,6 +352,7 @@
     RestoreRecoveryEntry,
     ResizeTerminalSession,
     RunCollectionWithOptions,
+    RunFlow,
     StartMockServer,
     StopMockServer,
     StartDocsServer,
@@ -388,6 +406,7 @@
     UpdateCollectionScripts,
     UpdateCollectionVariables,
     UpdateEnvironmentVariables,
+    UpdateFlow,
     UpdateFolderSettings,
 	    UpdateGlobalEnvironment,
 	    UpdateGlobalEnvironmentVariables,
@@ -493,7 +512,7 @@
   } from './lib/responseExampleEdits'
   import { BrowserOpenURL, EventsOn, OnFileDrop, OnFileDropOff, Quit } from '../wailsjs/runtime/runtime'
 
-  type View = 'request' | 'collection' | 'git' | 'runner' | 'environments' | 'import' | 'features' | 'network' | 'cookies' | 'history' | 'preferences' | 'devtools'
+  type View = 'request' | 'collection' | 'git' | 'runner' | 'environments' | 'import' | 'features' | 'network' | 'cookies' | 'history' | 'preferences' | 'devtools' | 'flow'
   type ResponsePaneOrientation = 'horizontal' | 'vertical'
   type DevToolsTab = 'console' | 'network' | 'performance' | 'terminal'
   type DevToolsNetworkSortKey = 'method' | 'status' | 'domain' | 'path' | 'time' | 'duration' | 'size'
@@ -952,6 +971,31 @@
   const mcpApprovalSecondsLeft = $derived(
     mcpApprovalPrompt ? Math.ceil(approvalTimeRemaining(mcpApprovalPrompt, mcpApprovalNow) / 1000) : 0
   )
+
+  // ── Flows ────────────────────────────────────────────────────────────────
+  //
+  // FLOW TABS ARE CLIENT-SIDE, and that is a deliberate boundary rather than a
+  // shortcut. types.OpenTab is persisted workspace state whose openers —
+  // OpenRequestTab, OpenResponseExampleTab — each validate that the id they are
+  // handed names a REQUEST in the collection, so there is no binding a flow can
+  // go through and no Go type that would accept one. They render in the same
+  // strip, close the same way, and take part in the same cycling; what they do
+  // not do is survive a restart, which is the one thing the backend owns.
+  type FlowTabRef = { id: string; collectionId: string; flowId: string }
+  let flowTabs = $state<FlowTabRef[]>([])
+  let activeFlowTabId = $state('')
+  // The run's own state, one run at a time: the tab has a single Run button and
+  // the backend call is awaited, so a second run cannot start while one is in
+  // flight. Keyed to nothing, therefore — switching tabs mid-run leaves the
+  // report attached to the flow it belongs to via flowRunFlowId.
+  let flowRunning = $state(false)
+  let flowRunFlowId = $state('')
+  let flowRunResult = $state<types.FlowRunResult | undefined>(undefined)
+  let flowRunProgress = $state<FlowRunProgress | undefined>(undefined)
+  let flowRunError = $state('')
+  let flowSaveError = $state('')
+  let deleteFlowTarget = $state<{ collectionId: string; tabId: string; flow: types.Flow } | null>(null)
+  let stopFlowProgress: (() => void) | undefined
 	  let creatingResponseExample = $state(false)
   let createResponseExampleName = $state('')
   let createResponseExampleDescription = $state('')
@@ -1169,6 +1213,29 @@
   	}
 	})
   const activeRequest = $derived(workspaceStore.activeRequest)
+
+  // Every collection in the workspace, so a Flow tab keeps resolving after the
+  // sidebar selection moves elsewhere — a tab holds ids and looks them up, the
+  // rule tabPresentation.ts documents for request tabs.
+  const allCollections = $derived((appState?.workspaces ?? []).flatMap((workspace) => workspace.collections ?? []))
+  const activeFlowTab = $derived(flowTabs.find((tab) => tab.id === activeFlowTabId))
+  const activeFlowCollection = $derived(
+    activeFlowTab ? allCollections.find((collection) => collection.id === activeFlowTab.collectionId) : undefined
+  )
+  const activeFlow = $derived(
+    activeFlowTab ? (activeFlowCollection?.flows ?? []).find((flow) => flow.id === activeFlowTab.flowId) : undefined
+  )
+  /**
+   * The strip's rows: the backend's tabs, then this window's Flow tabs.
+   *
+   * Flow tabs are appended rather than interleaved because there is no shared
+   * ordering to interleave BY — they are not in OpenTabs and carry no position
+   * in it. Appending is at least stable and honest about that.
+   */
+  const workbenchTabs = $derived([
+    ...(appState?.openTabs ?? []).map((tab) => ({ kind: 'request' as const, id: tab.id, tab })),
+    ...flowTabs.map((tab) => ({ kind: 'flow' as const, id: tab.id, tab }))
+  ])
   const shareCollectionUnsupportedTypes = $derived(collectionShareUnsupportedTypes(activeCollection))
   $effect(() => {
   if ((activeCollection?.id ?? '') !== openAPISyncCollectionId) {
@@ -1862,6 +1929,14 @@
 	      mcpApprovalNow = Date.now()
 	      startMcpApprovalSweep()
 	    })
+	    // One event per step start and one per step settle, so the Flow tab can
+	    // paint a run while it happens. The reducer drops anything that is not
+	    // for the flow currently being run — "flow:progress" is a global channel
+	    // that an agent's run_flow emits onto as well.
+	    stopFlowProgress = EventsOn('flow:progress', (event: FlowProgressEvent) => {
+	      if (!flowRunProgress) return
+	      flowRunProgress = applyFlowProgress(flowRunProgress, event)
+	    })
 	    const applyLiveSessionEvent = (push: LiveSessionPush) => {
       const key = liveSessionKey(push.collectionId, push.itemId)
       const current = liveSessionLogs[key] ?? emptyLiveSessionLog()
@@ -1907,6 +1982,7 @@
 	    stopOAuth2Authorize?.()
 	    stopNativeMenuCommands?.()
 	    stopMcpApproval?.()
+	    stopFlowProgress?.()
 	    clearInterval(mcpApprovalSweep)
 	    mcpApprovalSweep = undefined
 	    OnFileDropOff()
@@ -4208,23 +4284,31 @@
     })
   }
 
+  // Cycling walks workbenchTabs, not appState.openTabs, so a Flow tab is not a
+  // hole the keyboard skips over: ⌘1..⌘9 and next/previous-tab reach every row
+  // the strip actually draws.
   function activeOpenTabIndex() {
-    return appState?.openTabs?.findIndex((tab) => tab.id === appState?.activeTabId) ?? -1
+    const id = activeFlowTabId || appState?.activeTabId
+    return workbenchTabs.findIndex((entry) => entry.id === id)
   }
 
   async function switchToOpenTabAt(index: number) {
-    const tab = appState?.openTabs?.[index]
-    if (!tab) return
-    await setActiveTab(tab.id)
+    const entry = workbenchTabs[index]
+    if (!entry) return
+    if (entry.kind === 'flow') {
+      selectFlowTab(entry.id)
+      return
+    }
+    await setActiveTab(entry.id)
   }
 
   async function switchToRelativeOpenTab(offset: number) {
-    const tabs = appState?.openTabs ?? []
+    const tabs = workbenchTabs
     if (tabs.length === 0) return
     const activeIndex = activeOpenTabIndex()
     const currentIndex = activeIndex >= 0 ? activeIndex : 0
     const nextIndex = (currentIndex + offset + tabs.length) % tabs.length
-    await setActiveTab(tabs[nextIndex].id)
+    await switchToOpenTabAt(nextIndex)
   }
 
   function lifecycleRequests(): LifecycleRequest[] {
@@ -4394,8 +4478,188 @@
     await runAction('open request', async () => {
       workspaceStore.appState = await OpenRequestTab(collectionId, itemId)
       workspaceStore.selectedCollectionId = collectionId
+      // A backend tab and a Flow tab cannot both be active. Clearing this is
+      // what makes the strip's highlight follow the click.
+      activeFlowTabId = ''
       activeView = 'request'
     })
+  }
+
+  // ── Flow tabs ────────────────────────────────────────────────────────────
+
+  /**
+   * Opens (or re-focuses) the tab for one flow.
+   *
+   * Re-focusing rather than re-adding is the same rule openTabLocked applies on
+   * the Go side: a second click on a row the user already has open should take
+   * them to it, not stack a duplicate beside it.
+   */
+  function openFlowTab(collectionId: string, flowId: string) {
+    const id = flowTabID(collectionId, flowId)
+    if (!flowTabs.some((tab) => tab.id === id)) {
+      flowTabs = [...flowTabs, { id, collectionId, flowId }]
+    }
+    // A different flow's run report must not appear under this one. The report
+    // belongs to the flow that produced it, so switching tabs clears it unless
+    // it is this flow's own.
+    if (flowRunFlowId !== flowId) {
+      flowRunResult = undefined
+      flowRunProgress = undefined
+      flowRunError = ''
+    }
+    flowSaveError = ''
+    activeFlowTabId = id
+    workspaceStore.selectedCollectionId = collectionId
+    activeView = 'flow'
+  }
+
+  function closeFlowTab(tabId: string) {
+    const remaining = flowTabs.filter((tab) => tab.id !== tabId)
+    flowTabs = remaining
+    if (activeFlowTabId !== tabId) return
+    activeFlowTabId = ''
+    // Falls back the way CloseTab does: to the last remaining tab of the same
+    // kind, and otherwise back to whatever the backend has active.
+    const next = remaining.at(-1)
+    if (next) {
+      activeFlowTabId = next.id
+      return
+    }
+    activeView = 'request'
+  }
+
+  /** Selects a Flow tab from the strip. */
+  function selectFlowTab(tabId: string) {
+    const tab = flowTabs.find((candidate) => candidate.id === tabId)
+    if (!tab) return
+    openFlowTab(tab.collectionId, tab.flowId)
+  }
+
+  /**
+   * Creates a flow in a collection and opens its tab.
+   *
+   * IT IS SEEDED WITH ONE STEP, and it has to be: validateFlow refuses a flow
+   * with none — "a flow runs at least one request" — so a genuinely empty
+   * create could never succeed, and New Flow would be a menu entry that only
+   * ever produced an error. The seed points at the collection's first request,
+   * which is also the more useful starting point: the editor opens on a step
+   * whose request can simply be repointed.
+   *
+   * A collection with no requests at all cannot seed one, and that create is
+   * left to fail with the backend's own sentence — through runAction's error
+   * banner, since there is no Flow tab yet for a message to live in.
+   */
+  async function createFlowInCollection(collectionId: string) {
+    const collection = allCollections.find((candidate) => candidate.id === collectionId)
+    if (!collection || collection.notFoundLocally) return
+    const existing = new Set(collectionFlows(collection).map((flow) => flow.name))
+    let name = 'New flow'
+    let suffix = 2
+    while (existing.has(name)) name = `New flow ${suffix++}`
+
+    const firstRequest = (collection.items ?? [])[0]
+    const before = new Set(collectionFlows(collection).map((flow) => flow.id))
+    const draft = blankFlowDraft(name)
+    if (firstRequest) draft.steps = [blankFlowStepDraft([], firstRequest.id)]
+
+    flowSaveError = ''
+    const failure = await runAction('create flow', async () => {
+      workspaceStore.appState = await CreateFlow(collectionId, flowFromDraft(draft))
+    })
+    if (failure) return
+
+    // Identified by what is NEW rather than by name: the id is assigned by the
+    // backend, and matching on a name the user can already have changed on disk
+    // would open the wrong tab.
+    const created = collectionFlows(
+      allCollections.find((candidate) => candidate.id === collectionId)
+    ).find((flow) => !before.has(flow.id))
+    if (created) openFlowTab(collectionId, created.id)
+  }
+
+  /**
+   * Saves the flow in the active tab.
+   *
+   * The backend's refusal is shown VERBATIM. Its messages name the step, the
+   * field and what to set it to — "flow "X" step "lookup" extract "storeId"
+   * reads from a header but names no header; set path to the header name" —
+   * and they are written to be read by the person who caused them.
+   */
+  async function saveActiveFlow(flow: types.Flow) {
+    const tab = activeFlowTab
+    if (!tab) return
+    flowSaveError = ''
+    const failure = await runAction('save flow', async () => {
+      workspaceStore.appState = await UpdateFlow(tab.collectionId, flow)
+    })
+    if (failure) flowSaveError = flowSaveErrorMessage(failure)
+  }
+
+  /** Asks first. Deleting a flow rewrites the collection file and there is no
+   *  recovery copy for flows the way there is for requests. */
+  function openDeleteFlowModal(flow: types.Flow) {
+    const tab = activeFlowTab
+    if (!tab) return
+    deleteFlowTarget = { collectionId: tab.collectionId, tabId: tab.id, flow }
+  }
+
+  function cancelDeleteFlowModal() {
+    deleteFlowTarget = null
+  }
+
+  async function confirmDeleteFlow() {
+    const target = deleteFlowTarget
+    if (!target) return
+    flowSaveError = ''
+    const failure = await runAction('delete flow', async () => {
+      workspaceStore.appState = await DeleteFlow(target.collectionId, target.flow.id)
+    })
+    if (failure) {
+      flowSaveError = flowSaveErrorMessage(failure)
+      return
+    }
+    deleteFlowTarget = null
+    closeFlowTab(target.tabId)
+  }
+
+  /**
+   * Runs the flow in the active tab against the selected environment.
+   *
+   * The progress record is seeded BEFORE the call so the first "running" event
+   * — which can arrive before the promise has even yielded — has somewhere to
+   * land. It is cleared to undefined only between runs, never during one.
+   *
+   * RunFlow returns the report rather than AppState even though a run mutates
+   * state (each step stores a response and records history, exactly as a Send
+   * does), so state is refreshed afterwards the way every other push-driven
+   * change is.
+   */
+  async function runActiveFlow(inputs: Record<string, string>) {
+    const tab = activeFlowTab
+    if (!tab || flowRunning) return
+    flowRunning = true
+    flowRunFlowId = tab.flowId
+    flowRunError = ''
+    flowRunResult = undefined
+    flowRunProgress = emptyFlowProgress(tab.collectionId, tab.flowId)
+    try {
+      const collection = allCollections.find((candidate) => candidate.id === tab.collectionId)
+      const environmentId = collection ? requestCodeEnvironmentId(collection) : ''
+      flowRunResult = await RunFlow(tab.collectionId, tab.flowId, environmentId, inputs)
+    } catch (err) {
+      // A rejected call is a refusal BEFORE the first request left — an unknown
+      // flow, a missing required input, a step naming a deleted request. It has
+      // no per-step report, so it is shown on its own.
+      flowRunError = flowSaveErrorMessage(err)
+    } finally {
+      flowRunning = false
+      try {
+        workspaceStore.appState = await GetState()
+      } catch {
+        // A refresh that fails leaves the run report on screen, which is what
+        // the user came for; the next successful call re-syncs the rest.
+      }
+    }
   }
 
   function responseExampleIsActive(collectionId: string, itemId: string, example: types.ResponseExample) {
@@ -7786,6 +8050,14 @@
       return
     }
 
+    // New Flow takes no parent path: a flow belongs to the collection, not to a
+    // folder, and the registry only offers this on a collection row.
+    if (action === 'new-flow') {
+      if (collection.notFoundLocally) return
+      void createFlowInCollection(collection.id)
+      return
+    }
+
     if (row.kind === 'folder') {
       if (action === 'reveal') { void revealFolderInFolder(collection, row.folder); return }
       if (action === 'info') { openFolderInfoModal(collection, row.folder); return }
@@ -8223,7 +8495,7 @@
       case 'closeTab': void closeActiveTab(); return
       case 'switchToPreviousTab': void switchToRelativeOpenTab(-1); return
       case 'switchToNextTab': void switchToRelativeOpenTab(1); return
-      case 'switchToLastTab': void switchToOpenTabAt((appState?.openTabs?.length ?? 0) - 1); return
+      case 'switchToLastTab': void switchToOpenTabAt(workbenchTabs.length - 1); return
       case 'moveTabLeft': void moveActiveTab(-1); return
       case 'moveTabRight': void moveActiveTab(1); return
       case 'newRequest': createRequest(); return
@@ -8467,6 +8739,50 @@
                 {#if win.padBottom > 0}<div class="sidebar-spacer" style={`height:${win.padBottom}px`} aria-hidden="true"></div>{/if}
                 {/if}
               {/each}
+              <!--
+                Flows come after the folders and requests, and only when there
+                are any. A collection with no flows shows nothing at all: flows
+                are opt-in, most collections will never have one, and a
+                permanent empty heading under every collection would charge
+                every user a row for a feature they are not using. The first one
+                is made from the collection's own ⋯ menu, where the tree's other
+                creating actions already live.
+
+                Not virtualised, unlike the request list above. sidebarRows.ts
+                windows a group by multiplying ONE measured row height, and
+                adding a second variable-height section to that arithmetic is a
+                change to virtualList.ts rather than a free addition here. A
+                collection's flow count is small enough that it does not need it.
+              -->
+              {#if collectionHasFlows(collection)}
+                <div class="sidebar-flows" aria-label={`Flows in ${collection.name}`}>
+                  <div class="sidebar-flows-heading" aria-hidden="true">Flows</div>
+                  {#each collectionFlows(collection) as flow (flow.id)}
+                    <!--
+                      The keyboard cursor is deliberately NOT moved onto a flow
+                      row. sidebarRows.walkSidebar does not emit these rows —
+                      they are outside the virtualised walk — so a cursor
+                      pointing at one would resolve to index -1, and the next
+                      arrow key would jump to the top of the tree instead of
+                      moving by one. Leaving the cursor where it was is the
+                      honest behaviour until the walk learns about flows.
+                    -->
+                    <button
+                      class="sidebar-flow-row"
+                      class:item-active={activeFlowTab?.collectionId === collection.id && activeFlowTab?.flowId === flow.id}
+                      type="button"
+                      id={sidebarRowDomId(flowRowKey(collection.id, flow.id))}
+                      data-testid="sidebar-flow-row"
+                      title={flow.description || flowTabLabel(flow)}
+                      onclick={() => openFlowTab(collection.id, flow.id)}
+                    >
+                      <span class="flow-glyph">Flow</span>
+                      <span>{flowTabLabel(flow)}</span>
+                      <small>{(flow.steps ?? []).length}</small>
+                    </button>
+                  {/each}
+                </div>
+              {/if}
             {/if}
           </article>
         {/each}
@@ -8522,24 +8838,50 @@
             {/if}
           {/snippet}
         </WorkspaceCommandBar>
-        {#if (appState.openTabs ?? []).length > 0}
+        {#if workbenchTabs.length > 0}
           <nav class="tabs" aria-label="Open tabs">
-            {#each appState.openTabs as tab (tab.id)}
-              <div class="tab" class:active={tab.id === appState.activeTabId}>
-                <button class="tab-select" title={tabLabel(tab)} onclick={() => setActiveTab(tab.id)}>
-                  {#if tabMethod(tab)}
-                    <span class="tab-method" data-method={tabMethod(tab)}>{methodLabel(tabMethod(tab))}</span>
-                  {/if}
-                  <span class="tab-name">{tabLabel(tab)}</span>
-                </button>
-                <button
-                  class="tab-close"
-                  type="button"
-                  aria-label={`Close tab ${tabLabel(tab)}`}
-                  title="Close tab"
-                  onclick={() => beginTabLifecycleAction('close-active', tab.id)}
-                >×</button>
-              </div>
+            {#each workbenchTabs as entry (entry.id)}
+              {#if entry.kind === 'request'}
+                {@const tab = entry.tab}
+                <div class="tab" class:active={!activeFlowTabId && tab.id === appState.activeTabId}>
+                  <button class="tab-select" title={tabLabel(tab)} onclick={() => setActiveTab(tab.id)}>
+                    {#if tabMethod(tab)}
+                      <span class="tab-method" data-method={tabMethod(tab)}>{methodLabel(tabMethod(tab))}</span>
+                    {/if}
+                    <span class="tab-name">{tabLabel(tab)}</span>
+                  </button>
+                  <button
+                    class="tab-close"
+                    type="button"
+                    aria-label={`Close tab ${tabLabel(tab)}`}
+                    title="Close tab"
+                    onclick={() => beginTabLifecycleAction('close-active', tab.id)}
+                  >×</button>
+                </div>
+              {:else}
+                <!-- A Flow tab. The badge sits where a request tab's method
+                     badge does, because that column is how the strip is
+                     scanned — a tab with an empty first cell reads as a tab
+                     that failed to load rather than as a different kind. -->
+                {@const flowTab = entry.tab}
+                {@const flow = allCollections
+                  .find((collection) => collection.id === flowTab.collectionId)
+                  ?.flows?.find((candidate) => candidate.id === flowTab.flowId)}
+                {@const label = flowTabLabel(flow)}
+                <div class="tab" class:active={activeFlowTabId === flowTab.id} data-testid="flow-tab">
+                  <button class="tab-select" title={label} onclick={() => selectFlowTab(flowTab.id)}>
+                    <span class="tab-method tab-method-flow">FLOW</span>
+                    <span class="tab-name">{label}</span>
+                  </button>
+                  <button
+                    class="tab-close"
+                    type="button"
+                    aria-label={`Close tab ${label}`}
+                    title="Close tab"
+                    onclick={() => closeFlowTab(flowTab.id)}
+                  >×</button>
+                </div>
+              {/if}
             {/each}
           </nav>
         {/if}
@@ -10755,6 +11097,44 @@
             </section>
           {/if}
         </section>
+      {:else if activeView === 'flow'}
+        <!--
+          Keyed on the flow id: FlowTab holds an editable draft in local state
+          and deliberately does not re-derive it from the prop (state refreshes
+          arrive on every send and every watcher tick, and re-deriving would
+          delete half-typed edits). Remounting on a change of flow is what makes
+          switching tabs pick up the right definition.
+
+          Dynamically imported, like the other view panels, so the flow editor's
+          markup is not in the initial chunk for the users who never open one.
+        -->
+        {#if activeFlowTab && activeFlowCollection && activeFlow}
+          {#key activeFlowTab.id}
+            {#await import('./lib/views/flows/FlowTab.svelte') then FlowTab}
+              {@const FlowTabComponent = FlowTab.default}
+              <FlowTabComponent
+                collection={activeFlowCollection}
+                flow={activeFlow}
+                busy={busy !== ''}
+                saveError={flowSaveError}
+                running={flowRunning}
+                result={flowRunFlowId === activeFlowTab.flowId ? flowRunResult : undefined}
+                progress={flowRunFlowId === activeFlowTab.flowId ? flowRunProgress : undefined}
+                runError={flowRunFlowId === activeFlowTab.flowId ? flowRunError : ''}
+                onSave={saveActiveFlow}
+                onDelete={openDeleteFlowModal}
+                onRun={runActiveFlow}
+              />
+            {/await}
+          {/key}
+        {:else}
+          <!-- The flow was deleted, or its collection was removed, while its
+               tab was open. Says so rather than rendering an empty editor. -->
+          <section class="panel">
+            <header class="panel-header"><h2>Flow</h2></header>
+            <div class="empty-state">This flow is no longer in the collection.</div>
+          </section>
+        {/if}
       {:else if activeView === 'runner'}
         {#await import('./lib/views/RunnerPanel.svelte') then RunnerPanel}
           {@const RunnerPanelComponent = RunnerPanel.default}
@@ -11797,6 +12177,18 @@
       {busy}
       {confirmDeleteRequest}
       {cancelDeleteRequestModal}
+    />
+  {/await}
+{/if}
+
+{#if deleteFlowTarget}
+  {#await import('./lib/modals/confirm/DeleteFlowModal.svelte') then DeleteFlowModal}
+    {@const DeleteFlowModalComponent = DeleteFlowModal.default}
+    <DeleteFlowModalComponent
+      target={deleteFlowTarget}
+      {busy}
+      onConfirm={confirmDeleteFlow}
+      onCancel={cancelDeleteFlowModal}
     />
   {/await}
 {/if}

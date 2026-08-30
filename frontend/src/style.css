@@ -1321,6 +1321,69 @@ pre {
   font-size: var(--font-size-11);
 }
 
+/* ── Flows in the collections tree ────────────────────────────────────────────
+   Drawn after a collection's folders and requests, and only when it has any.
+   The group carries a heading where the request list carries none, because a
+   flow row is otherwise indistinguishable from a request row at a glance and
+   the two open completely different editors. The heading is the smallest thing
+   that says "these are not requests". */
+.sidebar-flows {
+  display: grid;
+}
+
+.sidebar-flows-heading {
+  padding: var(--space-8) var(--space-10) var(--space-2) 20px;
+  color: var(--rail-muted);
+  font-size: var(--font-size-10);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Same grammar as .sidebar-example-row — glyph, name, trailing count — because
+   it is the same kind of row: a leaf that opens a tab. */
+.collections article .sidebar-flow-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  gap: var(--space-8);
+  align-items: center;
+  width: 100%;
+  min-height: 28px;
+  padding-left: 20px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--rail-text-soft);
+  text-align: left;
+  user-select: none;
+}
+
+.collections article .sidebar-flow-row:hover,
+.collections article .sidebar-flow-row.item-active {
+  background: var(--rail-hover-2);
+}
+
+.sidebar-flow-row span:not(.flow-glyph) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-glyph {
+  color: var(--rail-accent);
+  font-size: var(--font-size-10);
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+/* The step count. A flow's length is the one number that says how much it
+   does, and it is the same trailing-small slot an example uses for its status. */
+.sidebar-flow-row small {
+  color: var(--rail-muted);
+  font-size: var(--font-size-11);
+}
+
 .sidebar-empty {
   padding: var(--space-10);
   color: var(--rail-muted);
@@ -1733,6 +1796,14 @@ em {
   font-family: var(--code-font-family);
   font-size: 9.5px;
   font-weight: 700;
+}
+
+/* A Flow tab's badge. It occupies the same column as a request tab's method so
+   the strip still scans down one edge, but it is deliberately NOT one of the
+   method colours: a flow is not an HTTP verb, and borrowing GET's green would
+   say it was. --accent is the app's own colour, which is what a flow is. */
+.tab-method-flow {
+  color: var(--accent);
 }
 
 .subtabs button span {
