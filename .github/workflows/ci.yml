@@ -5,13 +5,25 @@ name: CI
 # workflow runs the same standing gates as improvement_v2.md §5.1 on every PR.
 on:
   pull_request:
+    # `closed` is not a gate -- every real job below skips for it. It is
+    # listened for so that merging (or closing) a PR starts a run in that PR's
+    # concurrency group, and the cancel-in-progress rule below then kills the
+    # build still running for it. The default type list is opened/synchronize/
+    # reopened, none of which a merge fires, so without this a merged PR left a
+    # full macOS-and-Linux build running for a result nobody would read.
+    types: [opened, synchronize, reopened, closed]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Keyed on the PR number, not github.ref, so that every event for one PR
+  # shares a group. github.ref is refs/pull/<n>/merge for pull_request events,
+  # which would also work, but the number is stable regardless of how the ref
+  # is computed for an event type -- and this file now depends on `closed`
+  # landing in the same group as the run it is meant to cancel.
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -21,6 +33,7 @@ env:
 jobs:
   go:
     name: Go — build, vet, test, race
+    if: github.event.action != 'closed'
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     steps:
@@ -115,6 +128,7 @@ jobs:
 
   go-lint:
     name: Go — golangci-lint
+    if: github.event.action != 'closed'
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     steps:
@@ -170,6 +184,7 @@ jobs:
 
   frontend:
     name: Frontend — check, lint, build, test
+    if: github.event.action != 'closed'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -205,3 +220,25 @@ jobs:
       # directly, so nothing ran them.
       - name: Test
         run: npm test
+
+  # Runs ONLY when a PR is merged or closed, and gates nothing.
+  #
+  # Its entire purpose is to exist: starting a run puts it in this PR's
+  # concurrency group, and `cancel-in-progress: true` then cancels whatever
+  # build was still going for that PR. A merge answers the question the build
+  # was asking, so finishing it just holds a runner and bills minutes for an
+  # answer no one will read.
+  #
+  # A job that actually runs, rather than letting all three gates skip, is what
+  # makes the takeover deterministic -- the run has to occupy the group, not
+  # merely be created in it.
+  superseded:
+    name: Cancel superseded run
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Report what this run replaced
+        run: |
+          echo "PR #${{ github.event.pull_request.number }} was ${{ github.event.pull_request.merged == true && 'merged' || 'closed' }}."
+          echo "Any CI still running for it has been cancelled by this run taking over the concurrency group."
