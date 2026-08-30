@@ -44,6 +44,9 @@ func (a *App) ensureReadyLocked() error {
 		if len(a.state.FeatureLedger) == 0 {
 			a.state.FeatureLedger = bru.DefaultFeatures()
 		}
+		// The scoped runtime does not run normalizeStateLocked, so the orphaned
+		// tab prune has to be repeated here rather than inherited.
+		a.pruneOrphanedOpenTabsLocked()
 		return nil
 	}
 	if a.dataDir == "" {
@@ -191,6 +194,12 @@ func (a *App) normalizeStateLocked() bool {
 				changed = true
 			}
 		}
+	}
+	// A state file can name requests that no longer exist — deleted outside the
+	// app, or gone from a collection that has moved on since state.json was
+	// written. See pruneOrphanedOpenTabsLocked for what those tabs render.
+	if a.pruneOrphanedOpenTabsLocked() {
+		changed = true
 	}
 	return changed
 }

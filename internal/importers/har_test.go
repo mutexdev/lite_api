@@ -207,6 +207,82 @@ func TestHARImportNamesRequestsDistinctly(t *testing.T) {
 	}
 }
 
+// TestHARImportSeedsSafeRequestSettings guards the fail-open direction of every
+// bool in RequestSettings, VerifyTLS above all.
+//
+// A HAR item built as a bare struct literal comes out with VerifyTLS false,
+// and the executor turns that into InsecureSkipVerify — so a recording
+// imported for convenience would replay against a real host with certificate
+// checking off, and nothing in the UI would say so. The zero values of
+// FollowRedirects, EncodeURL and StoreCookies are wrong in the same quiet way,
+// and a zero TimeoutMs means the request inherits no timeout of its own.
+//
+// Asserted for EVERY imported item rather than the first: the bug was in the
+// per-item constructor, so a fix that seeded one path and not another would
+// still ship the hole.
+func TestHARImportSeedsSafeRequestSettings(t *testing.T) {
+	collection, _ := harImportedItems(t)
+
+	defaults := types.NewRequestItem("reference", "http", 1).Settings
+	if !defaults.VerifyTLS {
+		t.Fatal("NewRequestItem no longer defaults VerifyTLS to true; this test's premise is gone")
+	}
+
+	for _, item := range collection.Items {
+		if !item.Settings.VerifyTLS {
+			t.Errorf("%s: VerifyTLS is false — imported requests would run with certificate verification disabled", item.Name)
+		}
+		if item.Settings.TimeoutMs != defaults.TimeoutMs {
+			t.Errorf("%s: TimeoutMs = %d, want the %d default", item.Name, item.Settings.TimeoutMs, defaults.TimeoutMs)
+		}
+		if !item.Settings.FollowRedirects {
+			t.Errorf("%s: FollowRedirects is false, want the default true", item.Name)
+		}
+		if item.Settings.MaxRedirects != defaults.MaxRedirects {
+			t.Errorf("%s: MaxRedirects = %d, want the %d default", item.Name, item.Settings.MaxRedirects, defaults.MaxRedirects)
+		}
+		if !item.Settings.EncodeURL {
+			t.Errorf("%s: EncodeURL is false, want the default true", item.Name)
+		}
+		if !item.Settings.StoreCookies {
+			t.Errorf("%s: StoreCookies is false, want the default true", item.Name)
+		}
+	}
+}
+
+// TestHARImportKeepsRecordedFieldsOverDefaults. Seeding from NewRequestItem
+// brings placeholder values with it ("{{host}}/get", GET, an empty body); the
+// overlay has to win, or the safety fix would quietly replace the recording.
+func TestHARImportKeepsRecordedFieldsOverDefaults(t *testing.T) {
+	collection, _ := harImportedItems(t)
+
+	for _, item := range collection.Items {
+		if strings.Contains(item.URL, "{{host}}") {
+			t.Errorf("%s: URL %q is the constructor placeholder, not the recorded URL", item.Name, item.URL)
+		}
+		if item.Type != "http" {
+			t.Errorf("%s: Type = %q, want http", item.Name, item.Type)
+		}
+		if item.ID == "" {
+			t.Errorf("%s: empty ID", item.Name)
+		}
+	}
+
+	var post types.RequestItem
+	for _, item := range collection.Items {
+		if item.Method == "POST" {
+			post = item
+			break
+		}
+	}
+	if post.ID == "" {
+		t.Fatal("fixture has no POST; the method overlay is untested")
+	}
+	if post.Body.Mode == "none" {
+		t.Errorf("POST %s: body mode is none, the recorded body was lost", post.URL)
+	}
+}
+
 func TestHARImportRejectsBadInput(t *testing.T) {
 	for _, tc := range []struct{ name, content string }{
 		{"not json", "this is not a HAR"},

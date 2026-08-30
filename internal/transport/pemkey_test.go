@@ -145,17 +145,78 @@ func TestAWrongPassphraseIsAnError(t *testing.T) {
 	}
 }
 
-// An encrypted key with NO passphrase is returned as it came, deliberately: the
-// user may not have configured one yet, and the TLS layer's own error is the
-// right place for that to surface. This is pinned because it looks like a
-// missing error case and is not.
-func TestAnEncryptedKeyWithNoPassphraseIsPassedThrough(t *testing.T) {
-	out, err := decryptPEMKeyIfNeeded([]byte(encryptedKeyPEM), "")
-	if err != nil {
-		t.Fatalf("an empty passphrase produced an error: %v", err)
+// An encrypted key with NO passphrase is an error.
+//
+// This test previously asserted the OPPOSITE, on the reasoning that the user
+// might not have configured a passphrase yet and the TLS layer was the right
+// place for that to surface. It is not: tls.X509KeyPair receives the still-
+// encrypted bytes and reports "failed to find any PEM data" or a generic ASN.1
+// parse failure, which names neither encryption nor the passphrase field the
+// user needs to fill in. The information about WHY the key cannot be read
+// exists only here, so the error has to be raised here.
+func TestAnEncryptedKeyWithNoPassphraseIsAnError(t *testing.T) {
+	_, err := decryptPEMKeyIfNeeded([]byte(encryptedKeyPEM), "")
+	if err == nil {
+		t.Fatal("an encrypted key with no passphrase was accepted; the failure would surface later as an unexplained parse error")
 	}
-	if string(out) != encryptedKeyPEM {
-		t.Error("the key was altered despite no passphrase being supplied")
+	// The message has to name both the cause and the missing input, because it
+	// is the only thing the user sees.
+	for _, want := range []string{"encrypted", "passphrase"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+// An encrypted PKCS#8 key ("BEGIN ENCRYPTED PRIVATE KEY") is the modern format
+// openssl produces by default, and the one this code CANNOT decrypt: it carries
+// no Proc-Type header, so x509.IsEncryptedPEMBlock returns false and the block
+// used to be handed to tls.X509KeyPair as though it were plaintext.
+//
+// Being unable to decrypt it is acceptable; being unable to say so is not. The
+// error names the format and gives the exact command that fixes it, because
+// "unsupported" without a remedy leaves the user with no next step.
+func TestAnEncryptedPKCS8KeyIsRejectedWithAConversionHint(t *testing.T) {
+	// Body bytes are irrelevant — detection is by block type, and that is the
+	// point: nothing here needs to parse for the error to be correct.
+	const pkcs8EncryptedPEM = `-----BEGIN ENCRYPTED PRIVATE KEY-----
+MIIFHDBOBgkqhkiG9w0BBQ0wQTApBgkqhkiG9w0BBQwwHAQIkT7CbaTgLmECAggA
+MAwGCCqGSIb3DQIJBQAwFAYIKoZIhvcNAwcECHl6ZXJvZm9v
+-----END ENCRYPTED PRIVATE KEY-----
+`
+	_, err := decryptPEMKeyIfNeeded([]byte(pkcs8EncryptedPEM), "test-passphrase")
+	if err == nil {
+		t.Fatal("an encrypted PKCS#8 key was accepted and would fail later with an unrelated parse error")
+	}
+	for _, want := range []string{"PKCS#8", "openssl pkcs8 -topk8 -nocrypt"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+
+	// Rejected regardless of whether a passphrase was supplied: the format is
+	// what is unsupported, so a correct passphrase does not change the answer
+	// and must not produce a different, more confusing message.
+	if _, err := decryptPEMKeyIfNeeded([]byte(pkcs8EncryptedPEM), ""); err == nil {
+		t.Error("an encrypted PKCS#8 key with no passphrase was accepted")
+	}
+}
+
+// An UNENCRYPTED PKCS#8 key ("BEGIN PRIVATE KEY") is the common case and must
+// keep working untouched — the new block-type check keys on "ENCRYPTED PRIVATE
+// KEY", and a substring match on "PRIVATE KEY" would reject every ordinary
+// PKCS#8 key in existence.
+func TestAnUnencryptedPKCS8KeyIsUnaffected(t *testing.T) {
+	const pkcs8PlainPEM = `-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCZy1bVTz1wrZpk
+-----END PRIVATE KEY-----
+`
+	out, err := decryptPEMKeyIfNeeded([]byte(pkcs8PlainPEM), "")
+	if err != nil {
+		t.Fatalf("an unencrypted PKCS#8 key was rejected: %v", err)
+	}
+	if string(out) != pkcs8PlainPEM {
+		t.Error("an unencrypted PKCS#8 key was rewritten")
 	}
 }
 

@@ -33,10 +33,67 @@ import (
 	"github.com/dop251/goja"
 )
 
+// ScriptLevel is ONE user-visible script — the collection's, a folder's or the
+// request's own — kept separate from its neighbours.
+//
+// The three phases used to be joined into a single source per phase, and that
+// join cost two things the user could see. A top-level `const token = …` at two
+// levels is a redeclaration in the joined text, so a SyntaxError in the folder
+// script killed the collection's and the request's scripts too. And every line
+// number the runtime reported was an offset into a document that exists nowhere
+// on disk, which is worse than no line number at all.
+//
+// Label is what the error message calls this script; Source is exactly what the
+// user typed, so a line number computed against it means what it says.
+type ScriptLevel struct {
+	Label  string
+	Source string
+}
+
+// ScriptSource is one phase's levels in execution order.
+type ScriptSource struct {
+	Levels []ScriptLevel
+}
+
+// SingleScriptSource wraps a lone script — the shape every legacy entry point
+// that still takes a bare string passes down.
+func SingleScriptSource(label, script string) ScriptSource {
+	if strings.TrimSpace(script) == "" {
+		return ScriptSource{}
+	}
+	return ScriptSource{Levels: []ScriptLevel{{Label: label, Source: script}}}
+}
+
+// IsEmpty reports whether any level has runnable source.
+func (source ScriptSource) IsEmpty() bool {
+	for _, level := range source.Levels {
+		if strings.TrimSpace(level.Source) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// Joined is the flattened form the string-taking entry points still use.
+func (source ScriptSource) Joined() string {
+	parts := make([]string, 0, len(source.Levels))
+	for _, level := range source.Levels {
+		parts = append(parts, level.Source)
+	}
+	return joinScripts(parts...)
+}
+
+// runtimeScripts carries both forms deliberately. Pre/Post/Tests are the joined
+// strings the older exported entry points (and their callers' tests) still take;
+// PreLevels/PostLevels/TestsLevels are what the send path runs.
 type runtimeScripts struct {
 	Pre   string
 	Post  string
 	Tests string
+
+	PreLevels   ScriptSource
+	PostLevels  ScriptSource
+	TestsLevels ScriptSource
 }
 
 type Controls struct {
@@ -52,9 +109,15 @@ type Controls struct {
 }
 
 type ScriptRuntimeMeta struct {
-	CollectionName            string
-	CollectionPath            string
-	EnvironmentName           string
+	CollectionName  string
+	CollectionPath  string
+	EnvironmentName string
+	// EnvironmentID is empty when no environment is selected. Carried so the
+	// runtime can WARN at the moment pm.environment.set / bru.setEnvVar is
+	// called: with no environment, ApplyScriptVariableContextToState has
+	// nowhere to write the value and drops it, and the script had no way to
+	// find that out.
+	EnvironmentID             string
 	JSSandboxMode             string
 	Variables                 *VariableContext
 	OAuth2CredentialVariables func() map[string]interface{}
@@ -76,6 +139,18 @@ type scriptEventLoop struct {
 	nextID       int64
 	timers       map[int64]*scriptTimer
 	pendingTests int
+
+	// The CPU budget and its enforcer. Guarded by budgetMu because the enforcer
+	// runs on a timer goroutine while the script goroutine extends the deadline.
+	budgetMu      sync.Mutex
+	deadline      time.Time
+	budgetTimer   *time.Timer
+	budgetStopped bool
+	blocking      int
+
+	// The scheduling primitives safe mode hands to each level as lexical
+	// bindings. See exposeSafeTimers.
+	safeTimers map[string]func(goja.FunctionCall) goja.Value
 }
 
 func (controls *Controls) Merge(state *RequestState) {
@@ -95,26 +170,61 @@ func (controls *Controls) Merge(state *RequestState) {
 
 func MergedRuntimeScripts(collection types.Collection, item types.RequestItem) runtimeScripts {
 	folders := FolderChain(collection, item)
-	pre := []string{collection.PreScript}
-	for _, folder := range folders {
-		pre = append(pre, folder.PreScript)
+	folderLabel := func(folder types.FolderConfig, suffix string) string {
+		name := strings.TrimSpace(folder.Name)
+		if name == "" {
+			name = strings.TrimSpace(folder.Path)
+		}
+		if name == "" {
+			return "folder " + suffix
+		}
+		return "folder " + suffix + " (" + name + ")"
 	}
-	pre = append(pre, item.PreScript)
 
-	post := []string{item.PostScript}
-	tests := []string{item.Tests}
-	for i := len(folders) - 1; i >= 0; i-- {
-		post = append(post, folders[i].PostScript)
-		tests = append(tests, folders[i].Tests)
+	// Ordering is the contract, and it is inverted between the phases:
+	// outermost first going in, innermost first coming out.
+	pre := ScriptSource{Levels: []ScriptLevel{{Label: "collection pre-request script", Source: collection.PreScript}}}
+	for _, folder := range folders {
+		pre.Levels = append(pre.Levels, ScriptLevel{Label: folderLabel(folder, "pre-request script"), Source: folder.PreScript})
 	}
-	post = append(post, collection.PostScript)
-	tests = append(tests, collection.Tests)
+	pre.Levels = append(pre.Levels, ScriptLevel{Label: "request pre-request script", Source: item.PreScript})
+
+	post := ScriptSource{Levels: []ScriptLevel{{Label: "request post-response script", Source: item.PostScript}}}
+	tests := ScriptSource{Levels: []ScriptLevel{{Label: "request tests script", Source: item.Tests}}}
+	for i := len(folders) - 1; i >= 0; i-- {
+		post.Levels = append(post.Levels, ScriptLevel{Label: folderLabel(folders[i], "post-response script"), Source: folders[i].PostScript})
+		tests.Levels = append(tests.Levels, ScriptLevel{Label: folderLabel(folders[i], "tests script"), Source: folders[i].Tests})
+	}
+	post.Levels = append(post.Levels, ScriptLevel{Label: "collection post-response script", Source: collection.PostScript})
+	tests.Levels = append(tests.Levels, ScriptLevel{Label: "collection tests script", Source: collection.Tests})
+
+	pre = compactScriptSource(pre)
+	post = compactScriptSource(post)
+	tests = compactScriptSource(tests)
 
 	return runtimeScripts{
-		Pre:   joinScripts(pre...),
-		Post:  joinScripts(post...),
-		Tests: joinScripts(tests...),
+		Pre:         pre.Joined(),
+		Post:        post.Joined(),
+		Tests:       tests.Joined(),
+		PreLevels:   pre,
+		PostLevels:  post,
+		TestsLevels: tests,
 	}
+}
+
+func compactScriptSource(source ScriptSource) ScriptSource {
+	levels := make([]ScriptLevel, 0, len(source.Levels))
+	for _, level := range source.Levels {
+		if strings.TrimSpace(level.Source) == "" {
+			continue
+		}
+		level.Source = strings.TrimRight(level.Source, "\n")
+		levels = append(levels, level)
+	}
+	if len(levels) == 0 {
+		return ScriptSource{}
+	}
+	return ScriptSource{Levels: levels}
 }
 
 func joinScripts(parts ...string) string {
@@ -128,14 +238,24 @@ func joinScripts(parts ...string) string {
 }
 
 func EvaluateRuntimeTestsWithJarStateMeta(script string, response types.Response, item types.RequestItem, vars map[string]string, jar *CookieJar, meta ScriptRuntimeMeta, logs ...*[]types.ScriptLog) ([]types.TestResult, *RequestState) {
-	results := EvaluateScriptTests(script, response)
-	js := javascriptFromTests(script)
-	if strings.TrimSpace(js) == "" {
+	return EvaluateRuntimeTestsSourceMeta(SingleScriptSource("tests script", script), response, item, vars, jar, meta, logs...)
+}
+
+func EvaluateRuntimeTestsSourceMeta(source ScriptSource, response types.Response, item types.RequestItem, vars map[string]string, jar *CookieJar, meta ScriptRuntimeMeta, logs ...*[]types.ScriptLog) ([]types.TestResult, *RequestState) {
+	results := []types.TestResult{}
+	jsLevels := ScriptSource{}
+	for _, level := range source.Levels {
+		results = append(results, EvaluateScriptTests(level.Source, response)...)
+		if js := javascriptFromTests(level.Source); strings.TrimSpace(js) != "" {
+			jsLevels.Levels = append(jsLevels.Levels, ScriptLevel{Label: level.Label, Source: js})
+		}
+	}
+	if jsLevels.IsEmpty() {
 		return results, &RequestState{headers: types.CloneKeyValues(item.Headers)}
 	}
 	jsResults := []types.TestResult{}
 	runtime, _, reqState, _ := NewScriptRuntimeWithMeta(item, response, vars, &jsResults, selectedScriptLogs(logs), jar, meta)
-	if err := runGojaScript(runtime, js, meta.JSSandboxMode); err != nil {
+	if err := runGojaScriptLevels(runtime, jsLevels, meta.JSSandboxMode); err != nil {
 		jsResults = append(jsResults, types.TestResult{Name: "tests script", Passed: false, Message: err.Error()})
 	}
 	return append(results, jsResults...), reqState
@@ -230,11 +350,12 @@ func NewScriptRuntimeWithMeta(item types.RequestItem, response types.Response, v
 	installScriptProcess(runtime, loop, meta.CollectionPath, scriptVars.ProcessEnv, sandboxMode)
 	vars = scriptVars.Combined
 	installScriptFetch(runtime, vars)
-	reqState := &RequestState{headers: types.CloneKeyValues(item.Headers), runtime: runtime}
+	bodySnapshot := types.RequestBodySnapshot(item.Body)
+	reqState := &RequestState{headers: types.CloneKeyValues(item.Headers), runtime: runtime, bodySnapshot: bodySnapshot}
 	reqObject := runtime.NewObject()
 	_ = reqObject.Set("method", strings.ToUpper(scalar.FirstNonEmpty(item.Method, http.MethodGet)))
 	_ = reqObject.Set("url", item.URL)
-	_ = reqObject.Set("body", types.RequestBodySnapshot(item.Body))
+	_ = reqObject.Set("body", bodySnapshot)
 	_ = reqObject.Set("timeout", item.Settings.TimeoutMs)
 	_ = reqObject.Set("name", item.Name)
 	_ = reqObject.Set("pathParams", scriptPathParams(item.PathParams))
@@ -509,6 +630,11 @@ func NewScriptRuntimeWithMeta(item types.RequestItem, response types.Response, v
 	_ = bruObject.Set("hasEnvVar", func(name string) bool { return scriptHasScopedVar(scriptVars.Env, name) })
 	_ = bruObject.Set("getEnvVar", func(name string) goja.Value { return scriptGetScopedVar(scriptVars.Env, name) })
 	_ = bruObject.Set("setEnvVar", func(name string, value goja.Value) {
+		if strings.TrimSpace(meta.EnvironmentID) == "" {
+			appendScriptLog(scriptLogs, "warn", []goja.Value{runtime.ToValue(
+				"No environment is selected, so the environment variable " + strconv.Quote(name) +
+					" was not saved. Select an environment, or use bru.setVar / pm.variables.set for a request-scoped value.")})
+		}
 		scriptSetScopedVar(scriptVars.Env, name, value, &scriptVars.EnvDirty, "Creating a env variable without specifying a name is not allowed.")
 	})
 	_ = bruObject.Set("deleteEnvVar", func(name string) { scriptDeleteScopedVar(scriptVars.Env, name, &scriptVars.EnvDirty) })
@@ -555,8 +681,13 @@ func NewScriptRuntimeWithMeta(item types.RequestItem, response types.Response, v
 		if ms < 0 {
 			return scriptResolvedPromise(runtime, goja.Undefined())
 		}
-		if ms > 1000 {
-			ms = 1000
+		if ms > scriptMaxSleepMs {
+			// Silently sleeping for a fifth of what was asked made a script that
+			// waited for a rate-limit window look like it had waited, and then
+			// fail against the server for no visible reason.
+			appendScriptLog(scriptLogs, "warn", []goja.Value{runtime.ToValue(fmt.Sprintf(
+				"bru.sleep(%d) was clamped to %dms: a script may not block for longer.", ms, scriptMaxSleepMs))})
+			ms = scriptMaxSleepMs
 		}
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 		return scriptResolvedPromise(runtime, goja.Undefined())
@@ -568,7 +699,13 @@ func NewScriptRuntimeWithMeta(item types.RequestItem, response types.Response, v
 			if len(call.Arguments) > 0 && !goja.IsUndefined(call.Argument(0)) && !goja.IsNull(call.Argument(0)) {
 				target = call.Argument(0).String()
 			}
-			response, timelineEntry, err := meta.RunRequest(target)
+			var response types.Response
+			var timelineEntry *types.TimelineItem
+			var err error
+			// Wall time inside another request is not this script's CPU budget.
+			scriptBlockingCall(runtime, func() {
+				response, timelineEntry, err = meta.RunRequest(target)
+			})
 			if timelineEntry != nil && meta.RecordTimeline != nil {
 				entry := *timelineEntry
 				entry.ID = scalar.NewID("timeline")
@@ -659,7 +796,12 @@ func NewScriptRuntimeWithMeta(item types.RequestItem, response types.Response, v
 		result, err := fn(goja.Undefined())
 		if err != nil {
 			if testResults != nil {
-				*testResults = append(*testResults, types.TestResult{Name: name, Passed: false, Message: err.Error()})
+				// Recorded and RETURNED, not re-panicked: a failing assertion is
+				// a result, not a crash. Re-throwing killed every later test,
+				// bru.setVar and console line in the same script — and in the
+				// pre-request slot it stopped the request from being sent at
+				// all, which is not what any test framework means by a failure.
+				*testResults = append(*testResults, types.TestResult{Name: name, Passed: false, Message: CleanScriptErrorMessage(err)})
 				return goja.Undefined()
 			}
 			panic(err)
@@ -1657,7 +1799,26 @@ func installScriptEventLoop(runtime *goja.Runtime, sandboxMode string) *scriptEv
 		loop.queueNextTick(call.Argument(0))
 		return goja.Undefined()
 	}
-	_ = runtime.Set("__bruSetTimeout", setTimeout)
+	// Safe mode gets all seven too, as LEXICAL bindings rather than globals —
+	// the shape Bruno's own safe-mode wrapper uses, and the one this codebase
+	// already used for setTimeout alone.
+	//
+	// Alone was the bug. `clearTimeout(handle)` is the line that follows every
+	// setTimeout in real code, and in safe mode — the default — it was a
+	// ReferenceError, which aborts the whole request. Same for setInterval,
+	// clearInterval, setImmediate, clearImmediate and queueMicrotask. These are
+	// scheduling primitives, not capabilities: each is bounded by the script's
+	// own deadline and its timers die with the runtime, so withholding them
+	// bought no safety and cost the user their request.
+	loop.safeTimers = map[string]func(goja.FunctionCall) goja.Value{
+		"setTimeout":     setTimeout,
+		"clearTimeout":   clearTimeout,
+		"setInterval":    setInterval,
+		"clearInterval":  clearTimeout,
+		"setImmediate":   setImmediate,
+		"clearImmediate": clearTimeout,
+		"queueMicrotask": queueMicrotask,
+	}
 	if NormalizeJSSandboxMode(sandboxMode) == "developer" {
 		_ = runtime.Set("setTimeout", setTimeout)
 		_ = runtime.Set("clearTimeout", clearTimeout)
@@ -1668,6 +1829,24 @@ func installScriptEventLoop(runtime *goja.Runtime, sandboxMode string) *scriptEv
 		_ = runtime.Set("queueMicrotask", queueMicrotask)
 	}
 	return loop
+}
+
+// exposeSafeTimers publishes the timer functions under a holder the async
+// wrapper destructures and then deletes, so the user's script has them by name
+// while globalThis stays clean.
+//
+// Called once per LEVEL, because each level is its own RunString and each
+// wrapper deletes the holder on entry. Publishing once at construction is what
+// used to leave the second and later scripts with an undefined setTimeout.
+func (loop *scriptEventLoop) exposeSafeTimers() {
+	if loop == nil || len(loop.safeTimers) == 0 {
+		return
+	}
+	holder := loop.runtime.NewObject()
+	for name, fn := range loop.safeTimers {
+		_ = holder.Set(name, fn)
+	}
+	_ = loop.runtime.Set(scriptSafeTimerHolder, holder)
 }
 
 func scriptNodePlatform() string {
@@ -1879,18 +2058,157 @@ func (loop *scriptEventLoop) finishPendingTest() {
 	}
 }
 
-func runGojaScript(runtime *goja.Runtime, script, sandboxMode string) error {
-	deadline := time.Now().Add(2 * time.Second)
-	timer := time.AfterFunc(2*time.Second, func() {
-		runtime.Interrupt("script timeout")
-	})
-	defer timer.Stop()
-	defer scriptRuntimeEventLoops.Delete(runtime)
-	value, err := runtime.RunString(scriptAsyncWrapper(script, sandboxMode))
-	if err != nil {
-		return err
+func (loop *scriptEventLoop) startBudget(budget time.Duration) {
+	loop.budgetMu.Lock()
+	defer loop.budgetMu.Unlock()
+	loop.budgetStopped = false
+	loop.deadline = time.Now().Add(budget)
+	if loop.budgetTimer != nil {
+		loop.budgetTimer.Stop()
 	}
-	return scriptDrainRuntime(runtime, value, deadline)
+	loop.budgetTimer = time.AfterFunc(budget, loop.enforceBudget)
+}
+
+// enforceBudget interrupts the runtime only when the budget has really run out
+// AND no script-issued network call is in flight. While one is, it re-arms
+// itself instead: goja cannot deliver an interrupt into a blocking Go call
+// anyway, so firing here would only guarantee the script dies the instant its
+// legitimately slow token fetch came back.
+func (loop *scriptEventLoop) enforceBudget() {
+	loop.budgetMu.Lock()
+	if loop.budgetStopped {
+		loop.budgetMu.Unlock()
+		return
+	}
+	remaining := time.Until(loop.deadline)
+	if loop.blocking > 0 || remaining > 0 {
+		if loop.blocking > 0 || remaining < scriptBudgetPoll {
+			remaining = scriptBudgetPoll
+		}
+		loop.budgetTimer.Reset(remaining)
+		loop.budgetMu.Unlock()
+		return
+	}
+	loop.budgetMu.Unlock()
+	loop.runtime.Interrupt("script timeout")
+}
+
+func (loop *scriptEventLoop) stopBudget() {
+	loop.budgetMu.Lock()
+	loop.budgetStopped = true
+	if loop.budgetTimer != nil {
+		loop.budgetTimer.Stop()
+	}
+	loop.budgetMu.Unlock()
+}
+
+func (loop *scriptEventLoop) currentDeadline() time.Time {
+	loop.budgetMu.Lock()
+	defer loop.budgetMu.Unlock()
+	return loop.deadline
+}
+
+func (loop *scriptEventLoop) beginBlockingCall() time.Time {
+	loop.budgetMu.Lock()
+	loop.blocking++
+	loop.budgetMu.Unlock()
+	return time.Now()
+}
+
+func (loop *scriptEventLoop) endBlockingCall(start time.Time) {
+	elapsed := time.Since(start)
+	loop.budgetMu.Lock()
+	if loop.blocking > 0 {
+		loop.blocking--
+	}
+	if !loop.deadline.IsZero() {
+		loop.deadline = loop.deadline.Add(elapsed)
+	}
+	loop.budgetMu.Unlock()
+}
+
+// scriptBlockingCall runs a native call that blocks on the network with the
+// script's CPU budget paused for its duration.
+func scriptBlockingCall(runtime *goja.Runtime, call func()) {
+	loop := scriptEventLoopForRuntime(runtime)
+	if loop == nil {
+		call()
+		return
+	}
+	start := loop.beginBlockingCall()
+	defer loop.endBlockingCall(start)
+	call()
+}
+
+// scriptExecutionBudget is how long a script may spend RUNNING JavaScript.
+//
+// It is not wall-clock time for the phase. Time a script spends blocked inside
+// a native call it made on purpose — pm.sendRequest, bru.sendRequest,
+// bru.runRequest — is added back (see scriptEventLoop.endBlockingCall), because
+// an OAuth token endpoint that takes three seconds is a slow server, not a
+// runaway script, and killing the request over it made the budget unusable for
+// the single most common thing a pre-request script does.
+const scriptExecutionBudget = 2 * time.Second
+
+// scriptBudgetPoll is how often the enforcer re-checks while a blocking native
+// call is in flight. The interrupt cannot be delivered mid-call anyway, so this
+// only decides how promptly it lands once the call returns.
+const scriptBudgetPoll = 50 * time.Millisecond
+
+// scriptMaxSleepMs caps bru.sleep. A longer block would be spent inside a native
+// call the interrupt cannot reach.
+const scriptMaxSleepMs = 1000
+
+func runGojaScript(runtime *goja.Runtime, script, sandboxMode string) error {
+	return runGojaScriptLevels(runtime, SingleScriptSource("script", script), sandboxMode)
+}
+
+// runGojaScriptLevels runs each level in its OWN scope, in order, in the same
+// runtime.
+//
+// One RunString per level rather than one over the joined text. That is what
+// makes a top-level `const` at two levels legal, and it is also what makes a
+// line number meaningful: the wrapper offset is a known constant against a
+// source the user can actually see. State still crosses levels — the runtime,
+// its globals and every bru/pm registry are shared — only lexical declarations
+// stop leaking.
+func runGojaScriptLevels(runtime *goja.Runtime, source ScriptSource, sandboxMode string) error {
+	loop := scriptEventLoopForRuntime(runtime)
+	fallbackDeadline := time.Now().Add(scriptExecutionBudget)
+	if loop != nil {
+		loop.startBudget(scriptExecutionBudget)
+		defer loop.stopBudget()
+	} else {
+		timer := time.AfterFunc(scriptExecutionBudget, func() {
+			runtime.Interrupt("script timeout")
+		})
+		defer timer.Stop()
+	}
+	defer scriptRuntimeEventLoops.Delete(runtime)
+	deadline := func() time.Time {
+		if loop == nil {
+			return fallbackDeadline
+		}
+		return loop.currentDeadline()
+	}
+	for _, level := range source.Levels {
+		if strings.TrimSpace(level.Source) == "" {
+			continue
+		}
+		// Re-published per level: the wrapper deletes the holder on entry, so a
+		// second level would otherwise find nothing to destructure.
+		if loop != nil && NormalizeJSSandboxMode(sandboxMode) != "developer" {
+			loop.exposeSafeTimers()
+		}
+		value, err := runtime.RunString(scriptAsyncWrapper(level.Source, sandboxMode))
+		if err != nil {
+			return ScriptLevelError(err, level.Label)
+		}
+		if err := scriptDrainRuntime(runtime, value, deadline); err != nil {
+			return ScriptLevelError(err, level.Label)
+		}
+	}
+	return nil
 }
 
 func applyScriptedBody(item *types.RequestItem, value interface{}, headers []types.KeyValue) {

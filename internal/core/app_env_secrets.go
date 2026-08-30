@@ -194,7 +194,14 @@ func (a *App) hydrateWorkspaceEnvironmentSecretsLocked(workspace *Workspace) err
 	if stored == nil {
 		return nil
 	}
-	envsecrets.Hydrate(a.dataDir, workspace.GlobalEnvironments, stored.Environments)
+	// Reported rather than returned: hydration completes for every readable
+	// secret, and failing the load would take out the whole workspace over one
+	// bad entry. An error-level notification is where an unreadable secret
+	// becomes visible instead of silently arriving as a blank value.
+	if err := envsecrets.Hydrate(a.dataDir, workspace.GlobalEnvironments, stored.Environments); err != nil {
+		a.notifyChangedLocked("global-environment-secrets:"+workspace.ID, "error",
+			"Global environments in "+workspace.Name+": "+err.Error())
+	}
 	return nil
 }
 
@@ -217,6 +224,12 @@ func (a *App) hydrateCollectionEnvironmentSecretsLocked(collection *Collection) 
 	if stored == nil {
 		return nil
 	}
-	envsecrets.Hydrate(a.dataDir, collection.Environments, stored.Environments)
+	// See hydrateWorkspaceEnvironmentSecretsLocked. This one also runs on every
+	// collection-watcher refresh, so the channelled notification is what keeps a
+	// permanently unreadable secret from filling the notification list.
+	if err := envsecrets.Hydrate(a.dataDir, collection.Environments, stored.Environments); err != nil {
+		a.notifyChangedLocked("collection-environment-secrets:"+collection.ID, "error",
+			"Environments in "+collection.Name+": "+err.Error())
+	}
 	return nil
 }

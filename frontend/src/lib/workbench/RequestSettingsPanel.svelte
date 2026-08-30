@@ -6,9 +6,18 @@
     requestType?: string
     settings: types.RequestSettings
     onChange: (updates: Partial<types.RequestSettings>) => void
+    // The app-level SSL preference. Verification is the AND of this and the
+    // per-request toggle below, so when this is off the checkbox no longer
+    // describes what actually happens on the wire — and a checkbox that says
+    // certificates are verified when they are not is the worst thing this
+    // panel can show. Defaults to true to match the backend, where an absent
+    // preference means verification is on.
+    globalVerifyTlsEnabled?: boolean
   }
 
-  let { requestType = 'http', settings, onChange }: Props = $props()
+  let { requestType = 'http', settings, onChange, globalVerifyTlsEnabled = true }: Props = $props()
+
+  const verifyTlsOverridden = $derived(!globalVerifyTlsEnabled)
 
   const isHTTPFamily = $derived(requestType === 'http' || requestType === 'graphql')
   const protocolName = $derived(
@@ -57,10 +66,24 @@
       </label>
     {/if}
 
-    <label class="setting-toggle">
-      <input type="checkbox" checked={settings.verifyTls} onchange={(event) => onChange({ verifyTls: event.currentTarget.checked })} />
-      <span>Verify TLS certificates</span>
-    </label>
+    <div class="setting-tls" class:is-overridden={verifyTlsOverridden}>
+      <label class="setting-toggle">
+        <input
+          type="checkbox"
+          checked={settings.verifyTls}
+          aria-describedby={verifyTlsOverridden ? 'verify-tls-override' : undefined}
+          onchange={(event) => onChange({ verifyTls: event.currentTarget.checked })}
+        />
+        <span>Verify TLS certificates</span>
+      </label>
+      {#if verifyTlsOverridden}
+        <!-- The checkbox stays editable on purpose: the request's own setting
+             still records intent for when the global preference goes back on.
+             Muting it says "this is not in effect" without destroying the
+             ability to set it. -->
+        <p id="verify-tls-override" class="setting-note">Turned off globally in Preferences — certificates are not verified for any request.</p>
+      {/if}
+    </div>
 
     {#if requestType === 'websocket'}
       <label class="setting-number">
@@ -81,6 +104,11 @@
   .setting-toggle input { width: auto; min-height: auto; }
   .setting-number { display: grid; gap: 4px; }
   .setting-number span { color: var(--muted); }
+  .setting-tls { display: grid; gap: 2px; min-width: 0; }
+  .setting-tls.is-overridden .setting-toggle { opacity: 0.55; }
+  /* Not --danger: nothing is broken, and colouring a preference the user chose
+     as an error trains them to ignore the ones that matter. */
+  .setting-note { margin: 0; color: var(--muted); font-size: 11px; font-weight: 600; line-height: 1.35; }
   .setting-number input { min-width: 0; }
   @media (max-width: 420px) { .settings-fields { grid-template-columns: minmax(0, 1fr); } }
 </style>

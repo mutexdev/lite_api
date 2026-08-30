@@ -3,6 +3,7 @@ package export
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -267,22 +268,84 @@ func Bytes(result types.CollectionExportResult) ([]byte, error) {
 	return []byte(result.Content), nil
 }
 
+// PostmanExport is what a Postman export produced: the document, what it
+// contains, and what it could not carry.
+type PostmanExport struct {
+	Content      string
+	FolderCount  int
+	RequestCount int
+	SkippedTypes []string
+	Warnings     []string
+}
+
+// postmanExportState collects everything the export cannot represent. Two
+// lists, because they read differently to a user: SkippedTypes names request
+// kinds Postman has no concept of, Warnings names content that was dropped or
+// rewritten inside requests that DID export.
+type postmanExportState struct {
+	skipped     []string
+	skippedSeen map[string]bool
+	warnings    []string
+	warningSeen map[string]bool
+}
+
+func newPostmanExportState() *postmanExportState {
+	return &postmanExportState{
+		skipped:     []string{},
+		skippedSeen: map[string]bool{},
+		warningSeen: map[string]bool{},
+	}
+}
+
+func (s *postmanExportState) skip(label string) {
+	if label == "" || s.skippedSeen[label] {
+		return
+	}
+	s.skippedSeen[label] = true
+	s.skipped = append(s.skipped, label)
+}
+
+func (s *postmanExportState) warn(message string) {
+	if message == "" || s.warningSeen[message] {
+		return
+	}
+	s.warningSeen[message] = true
+	s.warnings = append(s.warnings, message)
+}
+
+// BuildPostmanCollection is the narrow form kept for callers that only need the
+// document and the skipped request kinds.
 func BuildPostmanCollection(collection types.Collection) (string, int, []string, error) {
-	skipped := []string{}
-	skippedSeen := map[string]bool{}
-	items, count := postmanCollectionItems(collection, "", &skipped, skippedSeen)
+	result, err := BuildPostmanExport(collection)
+	if err != nil {
+		return "", 0, nil, err
+	}
+	return result.Content, result.RequestCount, result.SkippedTypes, nil
+}
+
+func BuildPostmanExport(collection types.Collection) (PostmanExport, error) {
+	state := newPostmanExportState()
+	items, folderCount, requestCount := postmanCollectionItems(collection, state)
+	info := map[string]interface{}{
+		"name":   collection.Name,
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		// Postman writes an id on every collection and uses it to recognise a
+		// re-import as the same collection. It is derived rather than random so
+		// re-exporting an unchanged collection produces an unchanged file.
+		"_postman_id": postmanCollectionIdentifier(collection),
+	}
+	if description := strings.TrimSpace(collection.Docs); description != "" {
+		info["description"] = description
+	}
 	payload := map[string]interface{}{
-		"info": map[string]interface{}{
-			"name":   collection.Name,
-			"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-		},
+		"info": info,
 		"item": items,
 	}
 	// US-053. types.Collection-level state was previously dropped entirely, so an
 	// export round trip silently lost every collection variable, the
 	// collection auth every request inherits, and the collection scripts that
 	// run before each one. The result imported cleanly and behaved differently.
-	if events := sharePostmanEvents(collection.PreScript, collection.PostScript, ""); len(events) > 0 {
+	if events := sharePostmanEvents(state, collection.PreScript, collection.PostScript, collection.Tests); len(events) > 0 {
 		payload["event"] = events
 	}
 	if auth := sharePostmanAuth(collection.Auth); auth != nil {
@@ -291,54 +354,87 @@ func BuildPostmanCollection(collection types.Collection) (string, int, []string,
 	if variables := sharePostmanVariables(collection.Variables); len(variables) > 0 {
 		payload["variable"] = variables
 	}
+	// Postman has no collection-level or folder-level header. Merging them into
+	// each request would change what those requests send on re-import, so they
+	// are reported instead of silently folded in or silently dropped.
+	if len(collection.Headers) > 0 {
+		state.warn("Collection headers were not exported: Postman has no collection-level headers.")
+	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
-		return "", 0, nil, err
+		return PostmanExport{}, err
 	}
-	return string(data), count, skipped, nil
+	return PostmanExport{
+		Content:      string(data),
+		FolderCount:  folderCount,
+		RequestCount: requestCount,
+		SkippedTypes: state.skipped,
+		Warnings:     state.warnings,
+	}, nil
 }
 
-func postmanCollectionItems(collection types.Collection, parentPath string, skipped *[]string, skippedSeen map[string]bool) ([]interface{}, int) {
+// postmanCollectionIdentifier derives a stable UUID from the collection's
+// identity, so the same collection exports with the same _postman_id every time.
+func postmanCollectionIdentifier(collection types.Collection) string {
+	seed := scalar.FirstNonEmpty(strings.TrimSpace(collection.ID), strings.TrimSpace(collection.Name), "liteapi")
+	sum := sha1.Sum([]byte("liteapi-postman-collection:" + seed))
+	var uuid [16]byte
+	copy(uuid[:], sum[:16])
+	uuid[6] = (uuid[6] & 0x0f) | 0x50
+	uuid[8] = (uuid[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:16])
+}
+
+func postmanCollectionItems(collection types.Collection, state *postmanExportState) ([]interface{}, int, int) {
+	tree := buildPostmanFolderTree(collection)
+	items, count := postmanFolderNodeItems(tree.root, state)
+	return items, tree.count(), count
+}
+
+func postmanFolderNodeItems(node *postmanFolderNode, state *postmanExportState) ([]interface{}, int) {
 	out := []interface{}{}
 	count := 0
-	for _, folder := range collectionDocsChildFolders(collection.Folders, parentPath) {
-		children, childCount := postmanCollectionItems(collection, folder.DisplayPath, skipped, skippedSeen)
+	for _, child := range node.folders {
+		children, childCount := postmanFolderNodeItems(child, state)
 		entry := map[string]interface{}{
-			"name": scalar.FirstNonEmpty(folder.Name, filepath.Base(filepath.FromSlash(folder.DisplayPath)), filepath.Base(filepath.FromSlash(folder.Path))),
+			"name": child.label(),
 			"item": children,
 		}
-		if events := sharePostmanEvents(folder.PreScript, folder.PostScript, ""); len(events) > 0 {
-			entry["event"] = events
-		}
-		if auth := sharePostmanAuth(folder.Auth); auth != nil {
-			entry["auth"] = auth
+		if child.config != nil {
+			folder := *child.config
+			if events := sharePostmanEvents(state, folder.PreScript, folder.PostScript, folder.Tests); len(events) > 0 {
+				entry["event"] = events
+			}
+			if auth := sharePostmanAuth(folder.Auth); auth != nil {
+				entry["auth"] = auth
+			}
+			if description := strings.TrimSpace(folder.Docs); description != "" {
+				entry["description"] = description
+			}
+			if len(folder.Headers) > 0 {
+				state.warn("Folder headers were not exported: Postman has no folder-level headers.")
+			}
 		}
 		out = append(out, entry)
 		count += childCount
 	}
-	for _, item := range collectionDocsChildRequests(collection.Items, parentPath) {
+	for _, item := range node.items {
 		switch item.Type {
 		case "", "http", "graphql":
-			out = append(out, sharePostmanRequestItem(item))
+			out = append(out, sharePostmanRequestItem(item, state))
 			count++
 		case "grpc":
-			addSkippedCollectionExportType(skipped, skippedSeen, "gRPC")
+			state.skip("gRPC")
 		case "websocket":
-			addSkippedCollectionExportType(skipped, skippedSeen, "WebSocket")
+			state.skip("WebSocket")
+		default:
+			state.skip(item.Type)
 		}
 	}
 	return out, count
 }
 
-func addSkippedCollectionExportType(skipped *[]string, seen map[string]bool, label string) {
-	if seen[label] {
-		return
-	}
-	seen[label] = true
-	*skipped = append(*skipped, label)
-}
-
-func sharePostmanRequestItem(item types.RequestItem) map[string]interface{} {
+func sharePostmanRequestItem(item types.RequestItem, state *postmanExportState) map[string]interface{} {
 	method := strings.ToUpper(scalar.FirstNonEmpty(item.Method, http.MethodGet))
 	request := map[string]interface{}{
 		"method": method,
@@ -359,11 +455,81 @@ func sharePostmanRequestItem(item types.RequestItem) map[string]interface{} {
 	entry := map[string]interface{}{
 		"name":    item.Name,
 		"request": request,
+		// Per-request transport settings. Without these a request that opted
+		// out of TLS verification, or out of redirects, came back on re-import
+		// with the defaults and behaved differently with nothing saying so.
+		"protocolProfileBehavior": sharePostmanProtocolProfileBehavior(item.Settings),
 	}
-	if events := sharePostmanEvents(item.PreScript, item.PostScript, item.Tests); len(events) > 0 {
+	if events := sharePostmanEvents(state, item.PreScript, item.PostScript, item.Tests); len(events) > 0 {
 		entry["event"] = events
 	}
+	if responses := sharePostmanResponses(item); len(responses) > 0 {
+		entry["response"] = responses
+	}
 	return entry
+}
+
+func sharePostmanProtocolProfileBehavior(settings types.RequestSettings) map[string]interface{} {
+	return map[string]interface{}{
+		"strictSSL":       settings.VerifyTLS,
+		"followRedirects": settings.FollowRedirects,
+		"maxRedirects":    settings.MaxRedirects,
+	}
+}
+
+// sharePostmanResponses exports saved response examples. The importer builds
+// them from Postman's response array, so an export that wrote none destroyed
+// every example on a round trip.
+func sharePostmanResponses(item types.RequestItem) []interface{} {
+	out := make([]interface{}, 0, len(item.Examples))
+	for _, example := range item.Examples {
+		entry := map[string]interface{}{
+			"name":            example.Name,
+			"originalRequest": sharePostmanExampleRequest(item, example),
+			"status":          example.Response.StatusText,
+			"code":            example.Response.Status,
+			"header":          sharePostmanKeyValues(example.Response.Headers, "key"),
+			"body":            example.Response.Body,
+		}
+		if language := sharePostmanPreviewLanguage(example.Response.BodyType); language != "" {
+			entry["_postman_previewlanguage"] = language
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func sharePostmanExampleRequest(item types.RequestItem, example types.ResponseExample) map[string]interface{} {
+	url := map[string]interface{}{"raw": scalar.FirstNonEmpty(example.Request.URL, item.URL)}
+	if query := sharePostmanKeyValues(example.Request.Params, "key"); len(query) > 0 {
+		url["query"] = query
+	}
+	request := map[string]interface{}{
+		"method": strings.ToUpper(scalar.FirstNonEmpty(example.Request.Method, item.Method, http.MethodGet)),
+		"url":    url,
+	}
+	if headers := sharePostmanKeyValues(example.Request.Headers, "key"); len(headers) > 0 {
+		request["header"] = headers
+	}
+	if body := sharePostmanBody(item); body != nil {
+		request["body"] = body
+	}
+	return request
+}
+
+func sharePostmanPreviewLanguage(bodyType string) string {
+	switch strings.ToLower(strings.TrimSpace(bodyType)) {
+	case "json":
+		return "json"
+	case "xml":
+		return "xml"
+	case "html":
+		return "html"
+	case "":
+		return ""
+	default:
+		return "text"
+	}
 }
 
 // sharePostmanEvents builds the event blocks a Postman collection carries.
@@ -378,8 +544,17 @@ func sharePostmanRequestItem(item types.RequestItem) map[string]interface{} {
 // collection using both slots collapses them into one on the way out — and
 // once collapsed it stays collapsed, which is exactly what makes
 // import -> export -> import idempotent rather than drifting on every cycle.
-func sharePostmanEvents(preScript, postScript, tests string) []interface{} {
+//
+// The tests slot also accepts the legacy plain-English assertion DSL, which is
+// a syntax error in Postman's JavaScript-only event. It is translated on the
+// way out; see postman_assertions.go.
+func sharePostmanEvents(state *postmanExportState, preScript, postScript, tests string) []interface{} {
 	var events []interface{}
+	warn := func(string) {}
+	if state != nil {
+		warn = state.warn
+	}
+	tests = translatePostmanTests(tests, warn)
 	add := func(listen, script string) {
 		if strings.TrimSpace(script) == "" {
 			return
@@ -573,8 +748,21 @@ func shareSelectedFileBodyEntry(body types.RequestBody) *types.FileBodyEntry {
 	return nil
 }
 
+// sharePostmanAuth maps one auth config onto Postman's auth block.
+//
+// Five of the eight modes exported nothing at all before. Two of those are
+// actively dangerous rather than merely lossy: a request whose mode is "none"
+// exported no auth block, and no auth block means INHERIT in Postman — so an
+// endpoint that had deliberately opted out of the collection credential came
+// back sending it. "none" is therefore an explicit noauth block, and only
+// "inherit" is the absent one.
+//
+// The key names mirror what internal/importers/postman.go reads, so a mode
+// survives the round trip instead of exporting into a shape nothing reads back.
 func sharePostmanAuth(auth types.AuthConfig) map[string]interface{} {
 	switch strings.ToLower(strings.TrimSpace(auth.Mode)) {
+	case "none":
+		return map[string]interface{}{"type": "noauth"}
 	case "basic":
 		return map[string]interface{}{"type": "basic", "basic": []map[string]interface{}{
 			{"key": "username", "value": auth.Username, "type": "string"},
@@ -590,7 +778,94 @@ func sharePostmanAuth(auth types.AuthConfig) map[string]interface{} {
 			{"key": "value", "value": auth.APIValue, "type": "string"},
 			{"key": "in", "value": scalar.FirstNonEmpty(auth.APILocation, "header"), "type": "string"},
 		}}
+	case "digest":
+		return map[string]interface{}{"type": "digest", "digest": []map[string]interface{}{
+			{"key": "username", "value": auth.Username, "type": "string"},
+			{"key": "password", "value": auth.Password, "type": "string"},
+		}}
+	case "awsv4":
+		return map[string]interface{}{"type": "awsv4", "awsv4": []map[string]interface{}{
+			{"key": "accessKey", "value": auth.AWSV4.AccessKeyID, "type": "string"},
+			{"key": "secretKey", "value": auth.AWSV4.SecretAccessKey, "type": "string"},
+			{"key": "sessionToken", "value": auth.AWSV4.SessionToken, "type": "string"},
+			{"key": "service", "value": auth.AWSV4.Service, "type": "string"},
+			{"key": "region", "value": auth.AWSV4.Region, "type": "string"},
+		}}
+	case "oauth1":
+		return map[string]interface{}{"type": "oauth1", "oauth1": []map[string]interface{}{
+			{"key": "consumerKey", "value": auth.OAuth1.ConsumerKey, "type": "string"},
+			{"key": "consumerSecret", "value": auth.OAuth1.ConsumerSecret, "type": "string"},
+			{"key": "token", "value": auth.OAuth1.AccessToken, "type": "string"},
+			{"key": "tokenSecret", "value": auth.OAuth1.AccessTokenSecret, "type": "string"},
+			{"key": "callback", "value": auth.OAuth1.CallbackURL, "type": "string"},
+			{"key": "verifier", "value": auth.OAuth1.Verifier, "type": "string"},
+			{"key": "signatureMethod", "value": scalar.FirstNonEmpty(auth.OAuth1.SignatureMethod, "HMAC-SHA1"), "type": "string"},
+			{"key": "privateKey", "value": auth.OAuth1.PrivateKey, "type": "string"},
+			{"key": "timestamp", "value": auth.OAuth1.Timestamp, "type": "string"},
+			{"key": "nonce", "value": auth.OAuth1.Nonce, "type": "string"},
+			{"key": "version", "value": scalar.FirstNonEmpty(auth.OAuth1.Version, "1.0"), "type": "string"},
+			{"key": "realm", "value": auth.OAuth1.Realm, "type": "string"},
+			{"key": "addParamsToHeader", "value": !strings.EqualFold(strings.TrimSpace(auth.OAuth1.Placement), "query"), "type": "boolean"},
+			{"key": "includeBodyHash", "value": auth.OAuth1.IncludeBodyHash, "type": "boolean"},
+		}}
+	case "oauth2":
+		return map[string]interface{}{"type": "oauth2", "oauth2": sharePostmanOAuth2(auth.OAuth2)}
 	default:
+		// "inherit", and anything this app supports that Postman does not, both
+		// mean "write no auth block".
 		return nil
+	}
+}
+
+func sharePostmanOAuth2(auth types.OAuth2Auth) []map[string]interface{} {
+	grantType := sharePostmanOAuth2GrantType(auth)
+	addTokenTo := "header"
+	if strings.EqualFold(strings.TrimSpace(auth.TokenPlacement), "url") {
+		addTokenTo = "queryParams"
+	}
+	clientAuthentication := "header"
+	if strings.EqualFold(strings.TrimSpace(auth.CredentialsPlacement), "body") {
+		clientAuthentication = "body"
+	}
+	values := []map[string]interface{}{
+		{"key": "grant_type", "value": grantType, "type": "string"},
+		{"key": "accessTokenUrl", "value": auth.AccessTokenURL, "type": "string"},
+		{"key": "refreshTokenUrl", "value": auth.RefreshTokenURL, "type": "string"},
+		{"key": "clientId", "value": auth.ClientID, "type": "string"},
+		{"key": "clientSecret", "value": auth.ClientSecret, "type": "string"},
+		{"key": "scope", "value": auth.Scope, "type": "string"},
+		{"key": "state", "value": auth.State, "type": "string"},
+		{"key": "addTokenTo", "value": addTokenTo, "type": "string"},
+		{"key": "headerPrefix", "value": auth.TokenHeaderPrefix, "type": "string"},
+		{"key": "client_authentication", "value": clientAuthentication, "type": "string"},
+	}
+	switch grantType {
+	case "authorization_code", "authorization_code_with_pkce", "implicit":
+		values = append(values,
+			map[string]interface{}{"key": "authUrl", "value": auth.AuthorizationURL, "type": "string"},
+			map[string]interface{}{"key": "redirect_uri", "value": auth.CallbackURL, "type": "string"},
+		)
+	case "password_credentials":
+		values = append(values,
+			map[string]interface{}{"key": "username", "value": auth.Username, "type": "string"},
+			map[string]interface{}{"key": "password", "value": auth.Password, "type": "string"},
+		)
+	}
+	return values
+}
+
+func sharePostmanOAuth2GrantType(auth types.OAuth2Auth) string {
+	switch strings.ToLower(strings.TrimSpace(auth.GrantType)) {
+	case "authorization_code":
+		if auth.PKCE {
+			return "authorization_code_with_pkce"
+		}
+		return "authorization_code"
+	case "password":
+		return "password_credentials"
+	case "implicit":
+		return "implicit"
+	default:
+		return "client_credentials"
 	}
 }

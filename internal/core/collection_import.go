@@ -406,8 +406,10 @@ func detectCollectionImport(content, name, override string) (string, Collection,
 	}
 	if _, hasInfo := raw["info"]; hasInfo {
 		if _, hasItems := raw["item"]; hasItems {
-			collection, err := collectionFromImport(ImportPayload{Kind: "postman", Name: strings.TrimSuffix(name, filepath.Ext(name)), Content: content})
-			return "postman", collection, nil, err
+			// The warnings variant, so an item the importer could not read is
+			// reported in the preview instead of being skipped in silence.
+			collection, warnings, err := importers.ImportPostmanWithWarnings(content, strings.TrimSuffix(name, filepath.Ext(name)), false)
+			return "postman", collection, uniqueCollectionImportWarnings(warnings), err
 		}
 	}
 	if _, hasItems := raw["items"]; hasItems {

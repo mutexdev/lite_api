@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -180,21 +181,53 @@ const responseBodyHeadLimit = 8 << 10
 // who just got a 200 should not see an error because a cache write failed. The
 // error is returned for the caller to log or ignore deliberately rather than
 // swallowed here, but the response stays intact either way.
+//
+// The failure is ALSO logged here, once per session. Every caller on the send
+// path writes `_ = a.attachResponseBody(...)`, and deliberately so — but the
+// consequence was that a response store which could not be written (a read-only
+// data directory, a full disk) produced no evidence anywhere at all. Owning the
+// log here rather than at the call sites means a caller cannot opt out of it by
+// discarding the error, and the once-per-session guard is what keeps
+// migrateResponseBodiesLocked from emitting one line per cached response at
+// startup.
 func (a *App) attachResponseBody(response *Response) error {
 	if response == nil || response.Body == "" || response.BodyHandle != "" {
 		return nil
 	}
 	store, err := a.responseStore()
 	if err != nil {
-		return err
+		return a.reportResponseStoreFailure(err)
 	}
 	handle, err := store.Put([]byte(response.Body))
 	if err != nil {
-		return err
+		return a.reportResponseStoreFailure(err)
 	}
 	response.BodyHandle = string(handle)
 	response.BodyHead = responseBodyHead(response.Body)
 	return nil
+}
+
+// reportResponseStoreFailure logs the first response-store failure of the
+// session and returns the error unchanged.
+func (a *App) reportResponseStoreFailure(err error) error {
+	if err == nil {
+		return nil
+	}
+	a.responseStoreFailureOnce.Do(func() {
+		a.logPersistError("Could not cache a response body: " + err.Error())
+	})
+	return err
+}
+
+// reportHistoryFailure is reportResponseStoreFailure for the send-history log.
+func (a *App) reportHistoryFailure(err error) error {
+	if err == nil {
+		return nil
+	}
+	a.historyFailureOnce.Do(func() {
+		a.logPersistError("Could not record send history: " + err.Error())
+	})
+	return err
 }
 
 // responseBodyHead returns the inline prefix, truncated on a UTF-8 boundary.
@@ -425,19 +458,36 @@ func (a *App) persistOnce() error {
 	return err
 }
 
+// persistFailureReportInterval is how many consecutive background write
+// failures pass between reports.
+//
+// The streak's FIRST failure is always reported; after that one in every
+// persistFailureReportInterval is. Reporting every failure would flood the
+// 20-entry notification list and evict everything else, which is why this used
+// to report only once — but only once meant a data directory that became
+// permanently unwritable said so a single time, hours ago, in a notification
+// the user may already have marked read, while every edit since then has been
+// silently lost. With the backoff ceiling at persistRetryCeiling, one report in
+// ten is a reminder every few minutes rather than a flood.
+const persistFailureReportInterval = 10
+
 // reportPersistFailureLocked surfaces a background write failure everywhere it
 // can be seen without a caller: the Wails log, and a notification the frontend
-// already renders. It fires only on the first failure of a streak so a
-// permanently unwritable directory does not flood the (20-entry) notification
-// list and evict everything else.
+// already renders.
 func (a *App) reportPersistFailureLocked(err error) {
 	a.persistMu.Lock()
-	first := a.persistFailures == 0
+	// persistFailures counts the failures BEFORE this one — the writer loop
+	// increments it after persistOnce returns — so a value of 0 is the first
+	// failure of the streak.
+	streak := a.persistFailures
 	a.persistMu.Unlock()
-	if !first {
+	if streak%persistFailureReportInterval != 0 {
 		return
 	}
 	message := "Could not save workspace state: " + err.Error()
+	if streak > 0 {
+		message = fmt.Sprintf("Could not save workspace state (%d consecutive failures): %s", streak+1, err.Error())
+	}
 	a.logPersistError(message)
 	a.notify("error", message)
 }

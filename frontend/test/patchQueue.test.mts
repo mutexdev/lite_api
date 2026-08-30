@@ -12,6 +12,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import type { PatchTarget } from '../src/lib/patchQueue.ts'
 import { PatchCoalescer, mergePatches, sameTarget } from '../src/lib/patchQueue.ts'
 
 /** A controllable clock: nothing fires until `tick()` is called. */
@@ -345,4 +346,186 @@ test('a flushed patch is not delivered again when its timer fires', async () => 
   await new Promise((resolve) => setTimeout(resolve, 40))
 
   assert.equal(sent.length, 1, 'the cancelled timer must not deliver the patch a second time')
+})
+
+// --- rejection handling ------------------------------------------------
+//
+// The fourth way this design loses keystrokes, and the only one that loses
+// FUTURE ones as well as the current one. The queue chains flushes to keep them
+// ordered; before this, the chain was allowed to hold a rejection, so a single
+// failed flush left `inFlight` rejected and every subsequent flush chained a
+// `.then` off it whose callback never ran. Nothing threw, nothing logged, and
+// the request stopped saving for the rest of the session.
+//
+// Each test below fails against that implementation, which is the point: "the
+// queue still works after a failure" is invisible from the happy path, so it
+// has to be asserted directly.
+//
+// Note the deliberate absence of `clock.tick()` before an awaited `flush()`.
+// Ticking fires the debounce, which flushes and clears the pending patch, so a
+// flush() called afterwards finds nothing to send and resolves — testing the
+// idle path while appearing to test the failing one.
+
+/** A flusher whose failures are controlled per call index. */
+function failingHarness(fail: (callIndex: number) => boolean, delayMs = 120) {
+  const clock = fakeClock()
+  const calls: Array<{ target: PatchTarget; patch: Record<string, unknown> }> = []
+  const errors: Array<{ error: unknown; target: PatchTarget; patch: Record<string, unknown> }> = []
+  const coalescer = new PatchCoalescer<Record<string, unknown>>(
+    async (t, p) => {
+      const index = calls.length
+      calls.push({ target: t, patch: p })
+      if (fail(index)) throw new Error(`flush ${index} failed`)
+    },
+    {
+      delayMs,
+      schedule: clock.schedule,
+      cancel: clock.cancel,
+      onError: (error, t, p) => { errors.push({ error, target: t, patch: p }) },
+    },
+  )
+  return { clock, calls, errors, coalescer }
+}
+
+test('a rejected flush does not poison the queue for later patches', async () => {
+  // Only the first call fails. Everything after it must still be delivered.
+  const { clock, calls, coalescer } = failingHarness((index) => index === 0)
+
+  coalescer.queue(target, { url: 'first' })
+  await assert.rejects(() => coalescer.flush())
+  // The failed patch is re-queued, so drain it first: otherwise the assertion
+  // below passes on the retry rather than on the newly queued patch.
+  await coalescer.flush()
+  const before = calls.length
+
+  coalescer.queue(target, { url: 'second' })
+  clock.tick()
+  await coalescer.flush()
+
+  assert.ok(calls.length > before, 'the queue must keep flushing after a rejection')
+  assert.deepEqual(
+    calls.at(-1)?.patch,
+    { url: 'second' },
+    'the patch queued after the failure must actually reach the flusher',
+  )
+})
+
+test('a rejected flush is reported with the patch and target that failed', async () => {
+  const { errors, coalescer } = failingHarness(() => true)
+
+  coalescer.queue(target, { url: 'https://a.test', method: 'POST' })
+  await assert.rejects(() => coalescer.flush())
+
+  assert.equal(errors.length, 1, 'the failure must be surfaced, not swallowed')
+  assert.deepEqual(errors[0].patch, { url: 'https://a.test', method: 'POST' })
+  assert.deepEqual(errors[0].target, target)
+  assert.match((errors[0].error as Error).message, /failed/)
+})
+
+test('the debounce timer reports its rejection instead of raising an unhandled one', async () => {
+  // The timer calls `void flush()`, so nothing holds the returned promise. The
+  // rejection has to be absorbed by the queue's own handler; if it escapes,
+  // `node --test` fails the run with an unhandled rejection, which is how this
+  // regression would announce itself.
+  const errors: unknown[] = []
+  const coalescer = new PatchCoalescer<{ url?: string }>(
+    async () => { throw new Error('backend down') },
+    { delayMs: 5, onError: (error) => { errors.push(error) } },
+  )
+
+  coalescer.queue({ collectionId: 'c1', itemId: 'i1' }, { url: 'https://a.test' })
+  await new Promise((resolve) => setTimeout(resolve, 40))
+
+  assert.equal(errors.length, 1, 'the debounce timer must route its failure to onError')
+})
+
+test('a failing flusher does not arm a retry loop', async () => {
+  // Re-queuing must not reschedule: a backend that is down would otherwise be
+  // hammered every delayMs, reporting the same error each time.
+  const { clock, calls, errors, coalescer } = failingHarness(() => true, 5)
+
+  coalescer.queue(target, { url: 'https://a.test' })
+  await assert.rejects(() => coalescer.flush())
+  await new Promise((resolve) => setTimeout(resolve, 40))
+
+  assert.equal(clock.scheduled, 0, 'recovery must not arm a timer')
+  assert.equal(calls.length, 1, 'the failed patch must be retried on demand, not on a timer')
+  assert.equal(errors.length, 1)
+})
+
+test('a failed patch is re-queued so the edit survives to the next flush', async () => {
+  const { calls, coalescer } = failingHarness((index) => index === 0)
+
+  coalescer.queue(target, { url: 'https://a.test' })
+  await assert.rejects(() => coalescer.flush())
+
+  assert.equal(coalescer.hasPending, true, 'the failed patch must not be dropped')
+  assert.deepEqual(coalescer.pendingPatch, { url: 'https://a.test' })
+  assert.deepEqual(coalescer.pendingTarget, target)
+
+  await coalescer.flush()
+  assert.deepEqual(calls.at(-1)?.patch, { url: 'https://a.test' }, 'the retry must deliver it')
+})
+
+test('re-queuing a failed patch never rewinds what was typed after it', async () => {
+  const { calls, coalescer } = failingHarness((index) => index === 0)
+
+  coalescer.queue(target, { url: 'old', method: 'GET' })
+  const failed = coalescer.flush()
+  // Typed while the doomed flush was on the wire.
+  coalescer.queue(target, { url: 'new' })
+  await assert.rejects(() => failed)
+
+  assert.deepEqual(
+    coalescer.pendingPatch,
+    { url: 'new', method: 'GET' },
+    'the newer value wins per field; the retry only restores fields it alone carries',
+  )
+
+  await coalescer.flush()
+  assert.deepEqual(calls.at(-1)?.patch, { url: 'new', method: 'GET' })
+})
+
+test('a failed patch is not re-queued onto a different request', async () => {
+  // Delivering a URL typed into one request to a different one is a worse
+  // failure than the one being recovered from, so recovery gives up instead.
+  const { errors, coalescer } = failingHarness((index) => index === 0)
+
+  coalescer.queue(target, { url: 'typed into i1' })
+  const failed = coalescer.flush()
+  coalescer.queue(other, { url: 'typed into i2' })
+  await assert.rejects(() => failed)
+
+  assert.deepEqual(coalescer.pendingTarget, other)
+  assert.deepEqual(coalescer.pendingPatch, { url: 'typed into i2' }, 'i1 patch must not leak into i2')
+  assert.equal(errors.length, 1, 'and the loss must still be reported')
+})
+
+test('an idle flush after a rejection resolves rather than rejecting', async () => {
+  // Callers flush before sending whether or not anything is pending. If the
+  // idle chain still carried the last failure, the next send would fail once
+  // for a reason that had already been dealt with.
+  const { coalescer } = failingHarness((index) => index === 0)
+
+  coalescer.queue(target, { url: 'https://a.test' })
+  await assert.rejects(() => coalescer.flush())
+  await coalescer.flush()
+
+  assert.equal(coalescer.hasPending, false)
+  await coalescer.flush()
+})
+
+test('a forced flush from queue() surfaces its failure without an unhandled rejection', async () => {
+  // Switching requests mid-window forces a flush whose promise queue() returns.
+  // App code calls queue() as `void queue(...)`, so that promise is dropped on
+  // the floor and the queue's own handler is all that stands between a failed
+  // cross-request flush and an unhandled rejection.
+  const { errors, coalescer } = failingHarness(() => true)
+
+  coalescer.queue(target, { url: 'typed into i1' })
+  void coalescer.queue(other, { url: 'typed into i2' })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  assert.equal(errors.length, 1, 'the forced flush failure must reach onError')
+  assert.deepEqual(errors[0].target, target)
 })

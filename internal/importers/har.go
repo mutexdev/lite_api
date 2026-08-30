@@ -224,16 +224,18 @@ func harRequestItem(request harRequest, seq int) (types.RequestItem, map[string]
 
 	baseURL, params := harSplitURL(request.URL, request.QueryString)
 
-	item := types.RequestItem{
-		ID:     scalar.NewID("request"),
-		Type:   "http",
-		Method: method,
-		URL:    baseURL,
-		Params: params,
-		Auth:   types.AuthConfig{Mode: "none"},
-		Seq:    seq,
-	}
-	item.Name = harRequestName(method, baseURL)
+	// Seeded from NewRequestItem, not built as a bare literal, for the same
+	// reason as every other importer: the per-request Settings carry VerifyTLS,
+	// and the zero value of a bool is the DANGEROUS one. An item built by hand
+	// arrives with VerifyTLS false, which the executor reads as
+	// InsecureSkipVerify — a recording imported for convenience would then
+	// replay against production with certificate checking silently off. The
+	// constructor is the single place those defaults are written down; the HAR
+	// fields are overlaid on top of it.
+	item := types.NewRequestItem(harRequestName(method, baseURL), "http", seq)
+	item.Method = method
+	item.URL = baseURL
+	item.Params = params
 
 	credentials := map[string]bool{}
 	for _, header := range request.Headers {

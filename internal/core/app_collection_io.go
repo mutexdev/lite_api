@@ -15,6 +15,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/mutexdev/lite_api/internal/atomicfile"
 	"github.com/mutexdev/lite_api/internal/importers"
 	"github.com/mutexdev/lite_api/internal/store/bru"
 	"github.com/mutexdev/lite_api/internal/store/yamlstore"
@@ -64,7 +65,7 @@ func (a *App) writeCollectionFileLocked(path string, data []byte) error {
 		a.collectionFileFingerprints[path] = fingerprint
 		return nil
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := atomicfile.Write(path, data, 0o600); err != nil {
 		// Do not record on failure; the next save must retry rather than
 		// conclude the file is already correct.
 		return err
@@ -185,12 +186,12 @@ func writeYAMLCollectionNameMetadata(collection *Collection) error {
 	data, err := os.ReadFile(target)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return os.WriteFile(target, []byte(yamlstore.StringifyCollection(*collection)), 0o600)
+			return atomicfile.Write(target, []byte(yamlstore.StringifyCollection(*collection)), 0o600)
 		}
 		return err
 	}
 	if strings.TrimSpace(string(data)) == "" {
-		return os.WriteFile(target, []byte(yamlstore.StringifyCollection(*collection)), 0o600)
+		return atomicfile.Write(target, []byte(yamlstore.StringifyCollection(*collection)), 0o600)
 	}
 	var root map[string]interface{}
 	if err := yaml.Unmarshal(data, &root); err != nil {
@@ -215,7 +216,7 @@ func writeYAMLCollectionNameMetadata(collection *Collection) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(target, updated, 0o600)
+	return atomicfile.Write(target, updated, 0o600)
 }
 
 func writeBruCollectionNameMetadata(collection *Collection) error {
@@ -245,7 +246,7 @@ func writeBruCollectionNameMetadata(collection *Collection) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(target, configData, 0o600)
+	return atomicfile.Write(target, configData, 0o600)
 }
 
 func writeClonedCollectionRootMetadata(source, cloned *Collection) error {
@@ -263,7 +264,7 @@ func writeClonedYAMLCollectionRootMetadata(source, cloned *Collection) error {
 	data, err := os.ReadFile(sourceConfigPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return os.WriteFile(targetConfigPath, []byte(yamlstore.StringifyCollection(*cloned)), 0o600)
+			return atomicfile.Write(targetConfigPath, []byte(yamlstore.StringifyCollection(*cloned)), 0o600)
 		}
 		return err
 	}
@@ -290,7 +291,7 @@ func writeClonedYAMLCollectionRootMetadata(source, cloned *Collection) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(targetConfigPath, updated, 0o600)
+	return atomicfile.Write(targetConfigPath, updated, 0o600)
 }
 
 func writeClonedBruCollectionRootMetadata(source, cloned *Collection) error {
@@ -321,7 +322,7 @@ func writeClonedBruCollectionRootMetadata(source, cloned *Collection) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(targetConfigPath, configData, 0o600)
+	return atomicfile.Write(targetConfigPath, configData, 0o600)
 }
 
 func copyCollectionFormatFiles(sourcePath, targetPath, format string) error {
@@ -416,7 +417,7 @@ func (a *App) writeFolderConfigLocked(collection *Collection, folder FolderConfi
 	} else {
 		content = bru.StringifyBruFolder(folder)
 	}
-	if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+	if err := atomicfile.Write(target, []byte(content), 0o600); err != nil {
 		return err
 	}
 	a.seedCollectionWatchFingerprintLocked(collection.Path)
@@ -463,7 +464,7 @@ func (a *App) writeWorkspaceGlobalEnvironmentFilesLocked(workspace *Workspace) e
 		if filename == "" {
 			filename = env.ID
 		}
-		if err := os.WriteFile(filepath.Join(envPath, filename+".yml"), []byte(bru.StringifyYAMLEnvironment(env)), 0o600); err != nil {
+		if err := atomicfile.Write(filepath.Join(envPath, filename+".yml"), []byte(bru.StringifyYAMLEnvironment(env)), 0o600); err != nil {
 			return err
 		}
 	}
@@ -520,7 +521,22 @@ func collectionRequestFilesystemPath(collection *Collection, item RequestItem) (
 	return targetPath, nil
 }
 
+// collectionFromImport is collectionFromImportWithWarnings for the callers
+// that have nowhere to put a warning.
 func collectionFromImport(payload ImportPayload) (Collection, error) {
+	collection, _, err := collectionFromImportWithWarnings(payload)
+	return collection, err
+}
+
+// collectionFromImportWithWarnings also reports what the importer could not
+// read.
+//
+// The Postman importer skips an item it cannot decode and names it rather than
+// failing the whole file (see importers.ImportPostmanWithWarnings). Calling the
+// warning-free wrapper here threw that list away, so a hundred-request
+// collection that imported ninety-nine of them was announced as a plain
+// success and the missing request was found later, or not at all.
+func collectionFromImportWithWarnings(payload ImportPayload) (Collection, []string, error) {
 	now := time.Now()
 	name := strings.TrimSpace(payload.Name)
 	if name == "" {
@@ -540,7 +556,7 @@ func collectionFromImport(payload ImportPayload) (Collection, error) {
 	case "bruno-json", "json", "bruno":
 		var imported Collection
 		if err := json.Unmarshal([]byte(payload.Content), &imported); err != nil {
-			return Collection{}, err
+			return Collection{}, nil, err
 		}
 		imported.ID = collection.ID
 		if imported.Name == "" {
@@ -549,33 +565,37 @@ func collectionFromImport(payload ImportPayload) (Collection, error) {
 		imported.SecurityConfig = normalizeCollectionSecurityConfig(imported.SecurityConfig)
 		imported.CreatedAt = now
 		imported.UpdatedAt = now
-		return imported, nil
+		return imported, nil, nil
 	case "bru":
 		item, err := bru.Parse(payload.Content)
 		if err != nil {
-			return Collection{}, err
+			return Collection{}, nil, err
 		}
 		collection.Items = []RequestItem{item}
-		return collection, nil
+		return collection, nil, nil
 	case "postman":
-		return importers.ImportPostman(payload.Content, name, payload.TranslatePostmanScripts)
+		imported, warnings, err := importers.ImportPostmanWithWarnings(payload.Content, name, payload.TranslatePostmanScripts)
+		return imported, uniqueCollectionImportWarnings(warnings), err
 	case "har":
-		collection, _, err := importers.ImportHAR(payload.Content, name)
-		return collection, err
+		imported, _, err := importers.ImportHAR(payload.Content, name)
+		return imported, nil, err
 	case "insomnia":
-		return importers.ImportInsomnia(payload.Content, name)
+		imported, err := importers.ImportInsomnia(payload.Content, name)
+		return imported, nil, err
 	case "swagger-2", "swagger2", "swagger":
 		converted, err := importers.ConvertSwagger2ToOpenAPI3(payload.Content)
 		if err != nil {
-			return Collection{}, err
+			return Collection{}, nil, err
 		}
-		return importers.ImportOpenAPI(converted, name, payload.GroupBy)
+		imported, err := importers.ImportOpenAPI(converted, name, payload.GroupBy)
+		return imported, nil, err
 	case "openapi":
-		return importers.ImportOpenAPI(payload.Content, name, payload.GroupBy)
+		imported, err := importers.ImportOpenAPI(payload.Content, name, payload.GroupBy)
+		return imported, nil, err
 	case "curl":
-		collection, _, err := collectionFromCurlImport(payload.Content, name)
-		return collection, err
+		imported, warnings, err := collectionFromCurlImport(payload.Content, name)
+		return imported, warnings, err
 	default:
-		return Collection{}, fmt.Errorf("unsupported import kind %q", payload.Kind)
+		return Collection{}, nil, fmt.Errorf("unsupported import kind %q", payload.Kind)
 	}
 }

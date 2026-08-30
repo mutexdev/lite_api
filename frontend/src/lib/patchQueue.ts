@@ -17,6 +17,13 @@
 //   3. A later patch being overwritten by an earlier one. Merging is
 //      last-write-wins per FIELD, not per patch, so a URL edit followed by a
 //      header edit keeps both.
+//   4. A flush REJECTING. This one used to be the worst of the four, because it
+//      lost every FUTURE keystroke too, not just the one that failed: the queue
+//      chained `inFlight = inFlight.then(...)`, so once `inFlight` settled
+//      rejected, every later flush chained a `.then` off a rejected promise and
+//      its callback never ran. The queue was dead for the rest of the session,
+//      silently, and the timer path's `void flush()` turned the original
+//      failure into an unhandled rejection nobody saw. See `flush()`.
 
 export interface PatchTarget {
   collectionId: string
@@ -41,32 +48,51 @@ export function sameTarget(a: PatchTarget | null, b: PatchTarget): boolean {
   return a !== null && a.collectionId === b.collectionId && a.itemId === b.itemId
 }
 
-export interface CoalescerOptions {
+/**
+ * Told about a flush that failed, with the patch that did not make it.
+ *
+ * The queue cannot decide what a failed keystroke means to the user, so it does
+ * not try: it hands the failure to the application, which routes it to the
+ * visible error channel. What the queue guarantees is that this is CALLED —
+ * a rejection can no longer disappear into a promise nobody is holding.
+ */
+export type PatchErrorReporter<P> = (error: unknown, target: PatchTarget, patch: P) => void
+
+export interface CoalescerOptions<P = unknown> {
   delayMs?: number
   /** Injected so tests can drive time instead of waiting for it. */
   schedule?: (fn: () => void, ms: number) => unknown
   cancel?: (handle: unknown) => void
+  /** Where failed flushes are surfaced. See PatchErrorReporter. */
+  onError?: PatchErrorReporter<P>
 }
 
 export class PatchCoalescer<P extends object> {
   private target: PatchTarget | null = null
   private patch: P | null = null
   private handle: unknown = null
+  /**
+   * The ordering chain. Deliberately a promise that NEVER rejects — see the
+   * settling in `flush()`. Callers who want the failure get it from the promise
+   * `flush()` returns, not from this one.
+   */
   private inFlight: Promise<void> = Promise.resolve()
 
   private readonly delayMs: number
   private readonly schedule: (fn: () => void, ms: number) => unknown
   private readonly cancel: (handle: unknown) => void
+  private readonly onError: PatchErrorReporter<P>
   // Declared and assigned explicitly rather than as a TypeScript parameter
   // property: this repo's tests run under `node --test`, whose strip-only type
   // handling rejects parameter properties (ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX).
   private readonly flusher: PatchFlusher<P>
 
-  constructor(flusher: PatchFlusher<P>, options: CoalescerOptions = {}) {
+  constructor(flusher: PatchFlusher<P>, options: CoalescerOptions<P> = {}) {
     this.flusher = flusher
     this.delayMs = options.delayMs ?? 120
     this.schedule = options.schedule ?? ((fn, ms) => setTimeout(fn, ms))
     this.cancel = options.cancel ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>))
+    this.onError = options.onError ?? (() => {})
   }
 
   get hasPending(): boolean {
@@ -121,6 +147,13 @@ export class PatchCoalescer<P extends object> {
    *
    * Safe to call with nothing pending. Chains onto any flush already running so
    * two overlapping flushes cannot reorder and deliver an older patch last.
+   *
+   * REJECTS when the flusher rejects, so a caller that awaits a flush before
+   * sending or switching tabs learns that the edit did not land. The chain it
+   * leaves behind for the NEXT flush does not: `inFlight` is re-settled to a
+   * resolved promise carrying only the failure report. Those two facts have to
+   * be separated, because collapsing them is exactly the old bug — a chain that
+   * can hold a rejection stops running every flush queued after it.
    */
   flush(): Promise<void> {
     if (this.handle !== null) {
@@ -131,7 +164,37 @@ export class PatchCoalescer<P extends object> {
     const target = this.target
     if (patch === null || target === null) return this.inFlight
     this.patch = null
-    this.inFlight = this.inFlight.then(() => this.flusher(target, patch))
-    return this.inFlight
+    const attempt = this.inFlight.then(() => this.flusher(target, patch))
+    // Attaching this handler is also what keeps `void flush()` from raising an
+    // unhandled rejection: `attempt` always has a rejection handler, whether or
+    // not anyone holds the promise flush() returns.
+    this.inFlight = attempt.then(undefined, (err: unknown) => {
+      this.recover(err, target, patch)
+    })
+    return attempt
+  }
+
+  /**
+   * Puts a failed patch back in the queue and reports the failure.
+   *
+   * Re-queued UNDER anything typed since, so the newer value still wins per
+   * field and the retry cannot rewind the input. No timer is armed: a failing
+   * backend would turn one into a retry loop that reports the same error every
+   * 120 ms. The patch rides out on the next flush the app performs anyway —
+   * the next keystroke's window, or the forced flush before send/save — which
+   * is soon enough to save the edit and slow enough not to spin.
+   *
+   * A patch whose target is no longer the queued one is NOT re-queued. Merging
+   * it into a different request would deliver a URL typed into one request to
+   * another, which is a worse failure than the one being recovered from.
+   */
+  private recover(error: unknown, target: PatchTarget, patch: P): void {
+    if (this.patch === null) {
+      this.target = target
+      this.patch = patch
+    } else if (sameTarget(this.target, target)) {
+      this.patch = mergePatches(patch, this.patch)
+    }
+    this.onError(error, target, patch)
   }
 }

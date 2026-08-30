@@ -60,23 +60,30 @@ type App struct {
 	// other request file. Keyed by absolute path, guarded by a.mu, and lazily
 	// populated — see writeCollectionFileLocked.
 	collectionFileFingerprints map[string]string
-	oauth2OpenURL              func(context.Context, string) error
-	oauth2OpenInAppURL         func(context.Context, oauth2AuthorizationBrowserRequest) error
-	revealInFolder             func(string) error
-	oauth2CallbackTimeout      time.Duration
-	oauth2                     map[string]oauth2TokenResponse
-	oauth2Baseline             map[string]oauth2TokenResponse
-	oauth2PendingMu            sync.Mutex
-	oauth2Authorization        map[string]chan oauth2AuthorizationResult
-	oauth2Implicit             map[string]chan oauth2ImplicitResult
-	websocketSessions          map[string]*websocketSession
-	grpcStreamSessions         map[string]*grpcStreamSession
-	terminals                  map[string]*terminalSessionProcess
-	startedAt                  time.Time
-	lastCPUTime                time.Duration
-	lastCPUWall                time.Time
-	requests                   *requestLifecycleRegistry
-	collectionRuns             *collectionRunLifecycleRegistry
+	// notifiedChannels is the last message raised on each notifyChangedLocked
+	// channel, so a condition a poller re-observes every tick is reported once
+	// rather than filling the 20-entry notification list. Guarded by a.mu.
+	notifiedChannels map[string]string
+	// notificationEmit replaces the Wails event emit for error/warn
+	// notification pushes. nil in production; see pushNotification.
+	notificationEmit      func(Notification)
+	oauth2OpenURL         func(context.Context, string) error
+	oauth2OpenInAppURL    func(context.Context, oauth2AuthorizationBrowserRequest) error
+	revealInFolder        func(string) error
+	oauth2CallbackTimeout time.Duration
+	oauth2                map[string]oauth2TokenResponse
+	oauth2Baseline        map[string]oauth2TokenResponse
+	oauth2PendingMu       sync.Mutex
+	oauth2Authorization   map[string]chan oauth2AuthorizationResult
+	oauth2Implicit        map[string]chan oauth2ImplicitResult
+	websocketSessions     map[string]*websocketSession
+	grpcStreamSessions    map[string]*grpcStreamSession
+	terminals             map[string]*terminalSessionProcess
+	startedAt             time.Time
+	lastCPUTime           time.Duration
+	lastCPUWall           time.Time
+	requests              *requestLifecycleRegistry
+	collectionRuns        *collectionRunLifecycleRegistry
 	// transportCache (US-016) keys one *http.Transport per outbound security
 	// posture so requests reuse connections instead of cloning an empty pool
 	// per send. Its own lock is a leaf below a.mu; see http_transport_cache.go.
@@ -125,6 +132,12 @@ type App struct {
 	// a directory for Apps that never store a response. Guarded by responsesMu,
 	// which is a leaf lock — never held while acquiring a.mu.
 	responsesMu sync.Mutex
+	// Best-effort side writes report their FIRST failure of the session and
+	// then stay quiet: every caller discards their error on purpose, and
+	// migrateResponseBodiesLocked would otherwise log once per cached response
+	// at startup. See reportResponseStoreFailure / reportHistoryFailure.
+	responseStoreFailureOnce sync.Once
+	historyFailureOnce       sync.Once
 	// US-048. History lives outside state.json; see history_store.go for why.
 	historyOnce  sync.Once
 	historyStore *history.Store
@@ -524,7 +537,13 @@ func (a *App) GenerateGrpcurlCommand(collectionID, itemID, environmentID string)
 	if requestCopy.Type != "grpc" {
 		return "", errors.New("active request is not gRPC")
 	}
-	return grpcexec.GenerateGrpcurlCommand(collectionCopy, requestCopy, vars)
+	// Resolved exactly as the gRPC executor resolves it (see buildGrpcDialConfig),
+	// so the copied command verifies certificates if and only if the real request
+	// would have. Passing requestCopy.Settings.VerifyTLS alone silently dropped
+	// -insecure whenever the app-level SSL preference was the thing turning
+	// verification off.
+	verifyTLS := requestTLSVerificationEnabled(a.appTLSSettingsSnapshot().Request, requestCopy.Settings.VerifyTLS)
+	return grpcexec.GenerateGrpcurlCommand(collectionCopy, requestCopy, vars, verifyTLS)
 }
 
 func (a *App) GenerateRequestCode(collectionID, itemID, environmentID, language string) (string, error) {
@@ -555,21 +574,21 @@ func (a *App) SaveRequest(collectionID, itemID string) (AppState, error) {
 	if err != nil {
 		return AppState{}, err
 	}
-	item.Draft = false
-	if collection.Scratch {
-		item.Transient = true
-		if strings.TrimSpace(item.FilePath) == "" || !pathInside(collection.Path, item.FilePath) {
-			item.FilePath = requestFilePath(*collection, *item, requestFileExtensionForCollection(*collection))
-		}
-	} else {
-		item.Transient = false
-	}
-	item.UpdatedAt = time.Now()
+	// The save flags are cleared BEFORE the write because the .bru/.yml the
+	// writer produces is a serialisation of the item as saved. If the write
+	// then fails, the in-memory item must go back to being a draft: leaving
+	// Draft=false on an item whose edits never reached disk tells the user
+	// their work is saved, hides the unsaved-changes dot, and lets the
+	// collection watcher overwrite the item from the stale file on disk.
+	restore := snapshotSavedItemFlags(item)
+	markItemSaved(collection, item, time.Now())
 	if err := a.writeCollectionFilesLocked(collection); err != nil {
+		restore.apply(item)
 		return AppState{}, err
 	}
 	if collection.Scratch {
 		if err := a.writeScratchCollectionMetadataLocked(collection); err != nil {
+			restore.apply(item)
 			return AppState{}, err
 		}
 	}
@@ -734,7 +753,7 @@ func (a *App) ImportCollection(workspaceID string, payload ImportPayload) (AppSt
 	if err != nil {
 		return AppState{}, err
 	}
-	collection, err := collectionFromImport(payload)
+	collection, importWarnings, err := collectionFromImportWithWarnings(payload)
 	if err != nil {
 		return AppState{}, err
 	}
@@ -776,6 +795,14 @@ func (a *App) ImportCollection(workspaceID string, payload ImportPayload) (AppSt
 		}
 	}
 	a.notify("success", "Imported "+collection.Name)
+	// Raised AFTER the success so it sits above it in the (newest-first) list.
+	// An import that dropped items it could not read is still an import, but
+	// announcing only the success left the user with no way to learn that
+	// anything was missing until they went looking for a request that was not
+	// there.
+	if len(importWarnings) > 0 {
+		a.notify("warning", "Imported "+collection.Name+" with warnings: "+strings.Join(importWarnings, " "))
+	}
 	persist := a.persistLocked
 	if a.collectionImportHooks != nil && a.collectionImportHooks.persist != nil {
 		persist = func() error { return a.collectionImportHooks.persist(a) }

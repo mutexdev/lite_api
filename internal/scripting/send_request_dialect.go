@@ -47,7 +47,16 @@ const (
 
 func makeScriptSendRequest(runtime *goja.Runtime, dialect scriptSendDialect, vars map[string]string, item types.RequestItem, meta ScriptRuntimeMeta) func(goja.FunctionCall) goja.Value {
 	return func(call goja.FunctionCall) goja.Value {
-		responseValue, errorValue, timelineEntry, err := scriptSendRequest(runtime, dialect, call.Argument(0), vars)
+		var responseValue, errorValue goja.Value
+		var timelineEntry *types.TimelineItem
+		var err error
+		// The script's 2s budget is for RUNNING JavaScript. A token endpoint
+		// that takes three seconds to answer is the server being slow, and
+		// counting that against the budget killed the single most common thing
+		// a pre-request script does.
+		scriptBlockingCall(runtime, func() {
+			responseValue, errorValue, timelineEntry, err = scriptSendRequest(runtime, dialect, call.Argument(0), vars)
+		})
 		if timelineEntry != nil && meta.RecordTimeline != nil {
 			entry := *timelineEntry
 			entry.ID = scalar.NewID("timeline")

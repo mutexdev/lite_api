@@ -86,6 +86,9 @@ func (a *App) ClearHistory() error {
 // Best-effort by design: the error is returned for tests but the send path
 // ignores it. A request that reached the server must not report failure
 // because its history line could not be written.
+//
+// The failure is logged once per session before the error is handed back, so an
+// unwritable history file is not simply invisible. See reportHistoryFailure.
 func (a *App) recordSendHistory(collectionID string, item RequestItem, response *Response) error {
 	if response == nil {
 		return nil
@@ -111,7 +114,7 @@ func (a *App) recordSendHistory(collectionID string, item RequestItem, response 
 		Redacted:        requestRedacted || responseRedacted,
 		BodyHandle:      response.BodyHandle,
 	}
-	return a.history().Append(entry)
+	return a.reportHistoryFailure(a.history().Append(entry))
 }
 
 // CreateRequestFromHistory materialises a history entry as a real request in

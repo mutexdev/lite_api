@@ -55,7 +55,23 @@ type VariableEntry struct {
 	Value string `json:"value"`
 }
 
-func Hydrate(dataDir string, environments []types.Environment, storedEnvironments []EnvironmentEntry) {
+// Hydrate puts stored secret values back onto the environments in memory, and
+// reports the ones it could not read.
+//
+// A secret that fails to decrypt used to be skipped silently, which left the
+// variable holding the blank ScrubValues wrote before the state was persisted.
+// That is indistinguishable from a secret the user never filled in: the request
+// goes out with an empty Authorization header and fails at the server, and
+// nothing in the app ever says the value on disk is unreadable — which is what
+// a rotated machine key, a copied data directory or a corrupted secrets file
+// all look like.
+//
+// Hydration still completes: every readable secret is restored, because failing
+// the whole load over one bad entry would take out the environments that are
+// fine. The error is a summary of what was lost, for the caller to surface.
+func Hydrate(dataDir string, environments []types.Environment, storedEnvironments []EnvironmentEntry) error {
+	failures := []string{}
+	total := 0
 	for envIndex := range environments {
 		env := &environments[envIndex]
 		var storedEnv *EnvironmentEntry
@@ -72,6 +88,7 @@ func Hydrate(dataDir string, environments []types.Environment, storedEnvironment
 		for _, secret := range storedEnv.Secrets {
 			secretValues[secret.Name] = secret.Value
 		}
+		unreadable := 0
 		for variableIndex := range env.Variables {
 			variable := &env.Variables[variableIndex]
 			if !variable.Secret || variable.Name == "" {
@@ -83,11 +100,27 @@ func Hydrate(dataDir string, environments []types.Environment, storedEnvironment
 			}
 			plain, err := DecryptString(dataDir, encoded)
 			if err != nil {
+				unreadable++
 				continue
 			}
 			variable.Value = ParseValue(plain, scalar.FirstNonEmpty(variable.DataType, variable.Type, "string"))
 		}
+		if unreadable > 0 {
+			total += unreadable
+			failures = append(failures, fmt.Sprintf("%d in %q", unreadable, env.Name))
+		}
 	}
+	if total == 0 {
+		return nil
+	}
+	return fmt.Errorf("could not decrypt %d stored secret value%s: %s", total, plural(total), strings.Join(failures, ", "))
+}
+
+func plural(count int) string {
+	if count == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func UpsertWorkspace(store *File, dataDir string, workspace *types.Workspace) {

@@ -13,8 +13,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
-	"regexp"
 	"strings"
 
 	"github.com/mutexdev/lite_api/internal/interp"
@@ -60,21 +60,113 @@ func MatchingTLSClientCertificate(collectionPath string, certs []types.ClientCer
 	return tls.Certificate{}, false, nil
 }
 
+// ClientCertificateDomainMatches decides whether a configured client
+// certificate belongs to a request URL.
+//
+// This compares HOSTS, never URL text. The previous implementation built a
+// regex from the configured domain and ran it against the whole URL with a
+// `^(scheme)?` prefix and NO terminator, so the pattern was free to end in the
+// middle of a hostname. That leaked the certificate — and therefore the user's
+// identity — to hosts an attacker controls:
+//
+//	domain "example.com"   matched  https://example.com.evil.com/a
+//	domain "example.com"   matched  https://example.community/a
+//	domain "*.example.com" matched  https://api.example.com.evil.com/a
+//
+// A client certificate is a credential. Sending one to the wrong host hands
+// that host a signed proof of identity, so the matcher has to be exact in the
+// direction that matters and the parse has to define where the host ENDS —
+// which is what url.Parse does and a prefix regex cannot.
+//
+// Two forms are supported:
+//
+//	"example.com"    exact host, case-insensitive
+//	"*.example.com"  one or more labels, then exactly ".example.com"
+//
+// "*.example.com" deliberately does NOT match the bare "example.com", matching
+// the rule TLS itself uses for wildcard certificates. Ports are ignored on
+// both sides.
 func ClientCertificateDomainMatches(requestURL, domain string) bool {
-	domain = strings.TrimSpace(domain)
-	if domain == "" || strings.TrimSpace(requestURL) == "" {
+	pattern := clientCertificateDomainPattern(domain)
+	if pattern == "" {
 		return false
 	}
-	domain = strings.TrimPrefix(domain, "https://")
-	domain = strings.TrimPrefix(domain, "grpcs://")
-	domain = strings.TrimPrefix(domain, "grpc://")
-	domain = strings.TrimPrefix(domain, "wss://")
-	domain = strings.TrimPrefix(domain, "ws://")
-	quoted := regexp.QuoteMeta(domain)
-	quoted = strings.ReplaceAll(quoted, `\*`, `.*`)
-	pattern := `^(https://|grpc://|grpcs://|ws://|wss://)?` + quoted
-	matched, err := regexp.MatchString(pattern, requestURL)
-	return err == nil && matched
+	host := clientCertificateRequestHost(requestURL)
+	if host == "" {
+		return false
+	}
+	// A bare "*" is the configured "any host", preserved from the old regex
+	// where it was the natural way to spell it. It is explicit user intent
+	// rather than an accident of anchoring, so it is not a leak.
+	if pattern == "*" {
+		return true
+	}
+	if suffix, ok := strings.CutPrefix(pattern, "*."); ok {
+		if suffix == "" {
+			return false
+		}
+		// The length test is what requires at least one label before the dot:
+		// it rejects both "example.com" and a malformed ".example.com".
+		return len(host) > len(suffix)+1 && strings.HasSuffix(host, "."+suffix)
+	}
+	return host == pattern
+}
+
+// clientCertificateRequestHost extracts the hostname a request is actually
+// going to, with the port and every other URL component discarded.
+func clientCertificateRequestHost(requestURL string) string {
+	trimmed := strings.TrimSpace(requestURL)
+	if trimmed == "" {
+		return ""
+	}
+	if !strings.Contains(trimmed, "://") {
+		// Scheme-relative, because url.Parse reads a bare "host:port/path" as
+		// scheme "host" with an opaque body and loses the host entirely.
+		trimmed = "//" + strings.TrimPrefix(trimmed, "//")
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(parsed.Hostname())
+}
+
+// clientCertificateDomainPattern reduces a configured domain to a bare
+// lower-case host, optionally keeping a leading "*." wildcard.
+//
+// Configured values are tolerated with a scheme, a port or a trailing path
+// because existing collections on disk have them — the old matcher stripped a
+// scheme explicitly, and anything after the host was simply never reached by
+// the prefix regex.
+func clientCertificateDomainPattern(domain string) string {
+	domain = strings.TrimSpace(domain)
+	if domain == "" {
+		return ""
+	}
+	if index := strings.Index(domain, "://"); index >= 0 {
+		domain = domain[index+3:]
+	}
+	if domain == "*" {
+		return "*"
+	}
+	// "*" is not legal host syntax, so the wildcard is lifted off before the
+	// parse and restored after it.
+	wildcard := strings.HasPrefix(domain, "*.")
+	domain = strings.TrimPrefix(domain, "*.")
+	host := clientCertificateRequestHost(domain)
+	if host == "" {
+		return ""
+	}
+	// Any surviving "*" is a mid-host wildcard ("api.*.com"). Those are not
+	// supported: there is no safe anchored reading of one, and matching it
+	// loosely is how the original bug worked. Fail closed.
+	if strings.Contains(host, "*") {
+		return ""
+	}
+	if wildcard {
+		return "*." + host
+	}
+	return host
 }
 
 func loadTLSClientCertificate(collectionPath string, certConfig types.ClientCertificateConfig, vars map[string]string) (tls.Certificate, error) {
@@ -131,13 +223,35 @@ func loadTLSClientCertificate(collectionPath string, certConfig types.ClientCert
 	}
 }
 
+// decryptPEMKeyIfNeeded turns an encrypted private key on disk into one
+// tls.X509KeyPair can read and, where it cannot, says so plainly.
+//
+// Only legacy RFC-1423 keys ("Proc-Type: 4,ENCRYPTED") are actually decrypted
+// here: Go deprecated that API without shipping a replacement, and the
+// standard library has never exposed PKCS#8 decryption at all.
+//
+// What changed is the FAILURE modes. Both used to return the key untouched and
+// let tls.X509KeyPair fail afterwards with a generic parse error that mentions
+// neither encryption nor a passphrase — so a user holding a perfectly good key
+// was told only that their certificate would not load, with nothing pointing
+// at the reason or the fix.
 func decryptPEMKeyIfNeeded(keyPEM []byte, passphrase string) ([]byte, error) {
 	block, rest := pem.Decode(keyPEM)
-	if block == nil || !x509.IsEncryptedPEMBlock(block) {
+	if block == nil {
+		return keyPEM, nil
+	}
+	// PKCS#8 encryption carries no Proc-Type header, so IsEncryptedPEMBlock
+	// does not recognise it and the block used to sail straight through as if
+	// it were plaintext. The block type is the only marker there is.
+	if block.Type == "ENCRYPTED PRIVATE KEY" {
+		return nil, errors.New("client certificate key is an encrypted PKCS#8 key, which is not supported; " +
+			"convert it first with: openssl pkcs8 -topk8 -nocrypt -in key.pem -out key-decrypted.pem")
+	}
+	if !x509.IsEncryptedPEMBlock(block) {
 		return keyPEM, nil
 	}
 	if passphrase == "" {
-		return keyPEM, nil
+		return nil, errors.New("client certificate key is encrypted; a passphrase is required")
 	}
 	decrypted, err := x509.DecryptPEMBlock(block, []byte(passphrase))
 	if err != nil {
