@@ -11,15 +11,98 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/dop251/goja"
 )
 
+// The DNS egress authorizer, handed from NewScriptRuntimeWithMeta to
+// newScriptDNSObject across installScriptRequire.
+//
+// node:dns is assembled three levels below the runtime constructor, by a module
+// installer whose signature is not this seam's to widen. The registration is
+// therefore scoped to the install itself: NewScriptRuntimeWithMeta sets it,
+// newScriptDNSObject captures it into the bridge closures, and
+// NewScriptRuntimeWithMeta clears it on the next line. No entry survives the
+// constructor, so this is a hand-off and not a registry — nothing to leak, and
+// no runtime keyed here for longer than it takes to build.
+var (
+	scriptDNSAuthorizerMu sync.Mutex
+	scriptDNSAuthorizers  = map[*goja.Runtime]func(string, string) error{}
+)
+
+func setScriptDNSAuthorizer(runtime *goja.Runtime, authorize func(rawURL string, kind string) error) {
+	if runtime == nil || authorize == nil {
+		return
+	}
+	scriptDNSAuthorizerMu.Lock()
+	defer scriptDNSAuthorizerMu.Unlock()
+	scriptDNSAuthorizers[runtime] = authorize
+}
+
+func clearScriptDNSAuthorizer(runtime *goja.Runtime) {
+	if runtime == nil {
+		return
+	}
+	scriptDNSAuthorizerMu.Lock()
+	defer scriptDNSAuthorizerMu.Unlock()
+	delete(scriptDNSAuthorizers, runtime)
+}
+
+func scriptDNSAuthorizerFor(runtime *goja.Runtime) func(string, string) error {
+	if runtime == nil {
+		return nil
+	}
+	scriptDNSAuthorizerMu.Lock()
+	defer scriptDNSAuthorizerMu.Unlock()
+	return scriptDNSAuthorizers[runtime]
+}
+
 func newScriptDNSObject(runtime *goja.Runtime) goja.Value {
-	_ = runtime.Set("__liteApiDNSLookup", scriptDNSLookup)
-	_ = runtime.Set("__liteApiDNSResolve", scriptDNSResolve)
-	_ = runtime.Set("__liteApiDNSReverse", scriptDNSReverse)
-	_ = runtime.Set("__liteApiDNSLookupService", scriptDNSLookupService)
+	// One gate in front of the four bridges the JS shim can reach. Everything
+	// below them — resolveTyped, the promises object, Resolver.prototype — is
+	// spelled in JavaScript and funnels back through these four, so gating here
+	// gates the whole lookup surface.
+	//
+	// With no authorizer installed this is the identity: every bridge behaves
+	// exactly as it did, including for the blank-argument cases, which are
+	// rejected by the helpers themselves without ever reaching a resolver and so
+	// are not worth an authorization decision.
+	authorize := scriptDNSAuthorizerFor(runtime)
+	guard := func(host string) error {
+		if authorize == nil {
+			return nil
+		}
+		name := strings.TrimSpace(host)
+		if name == "" {
+			return nil
+		}
+		return authorize(name, EgressKindScriptDNS)
+	}
+	_ = runtime.Set("__liteApiDNSLookup", func(hostname string, family int) (map[string]interface{}, error) {
+		if err := guard(hostname); err != nil {
+			return nil, err
+		}
+		return scriptDNSLookup(hostname, family)
+	})
+	_ = runtime.Set("__liteApiDNSResolve", func(hostname, rrtype string) (interface{}, error) {
+		if err := guard(hostname); err != nil {
+			return nil, err
+		}
+		return scriptDNSResolve(hostname, rrtype)
+	})
+	_ = runtime.Set("__liteApiDNSReverse", func(ip string) ([]string, error) {
+		if err := guard(ip); err != nil {
+			return nil, err
+		}
+		return scriptDNSReverse(ip)
+	})
+	_ = runtime.Set("__liteApiDNSLookupService", func(address string, port int) (map[string]interface{}, error) {
+		if err := guard(address); err != nil {
+			return nil, err
+		}
+		return scriptDNSLookupService(address, port)
+	})
 	script := `(function () {
   const lookupBridge = globalThis.__liteApiDNSLookup;
   const resolveBridge = globalThis.__liteApiDNSResolve;

@@ -19,6 +19,7 @@ import (
 	goruntime "runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/mutexdev/lite_api/internal/interp"
@@ -112,28 +113,62 @@ func ManualProxyURL(proxy types.ProxyConfig, vars map[string]string) (*url.URL, 
 	return proxyURL, nil
 }
 
-func SystemProxyURLForRequest(rawURL string) (*url.URL, error) {
-	if proxyURL, err := proxyURLFromEnvironment(rawURL); proxyURL != nil || err != nil {
-		return proxyURL, err
+// DiscoverSystemProxy answers "what does this machine say about a proxy for
+// this request" WITHOUT evaluating anything: a static proxy URL, or the
+// location of a PAC script, or neither.
+//
+// It is SystemProxyURLForRequest's own body with the three PAC evaluations
+// lifted out, and SystemProxyURLForRequest is now discovery plus those
+// evaluations -- one body, two callers, so the two cannot drift. Every caller
+// that needs to know a PAC is involved BEFORE a script is fetched and run (a
+// PAC file is a remote JavaScript program with its own DNS and its own fetch)
+// asks discovery; the one that wants the answer asks
+// SystemProxyURLForRequest.
+//
+// The split is behaviour-preserving because at each of the three sites PAC,
+// once selected, short-circuits: the block returns on every path and never
+// falls through to the static values below it. So "a PAC source was
+// discovered" and "a static proxy was discovered" are mutually exclusive, and
+// a PAC discovery never carries an error.
+func DiscoverSystemProxy(rawURL string) (proxyURL *url.URL, pacURL string, err error) {
+	if envProxy, envErr := proxyURLFromEnvironment(rawURL); envProxy != nil || envErr != nil {
+		return envProxy, "", envErr
 	}
 	if pacSource := strings.TrimSpace(os.Getenv("LITEAPI_SYSTEM_PAC_URL")); pacSource != "" {
-		proxyURL, ok, err := ResolvePACProxyURL(pacSource, rawURL)
-		if err != nil || !ok {
-			return nil, nil
-		}
-		return proxyURL, nil
+		return nil, pacSource, nil
 	}
 	if goruntime.GOOS == "darwin" {
-		return macOSSystemProxyURLForRequest(rawURL)
+		return discoverMacOSSystemProxy(rawURL)
 	}
 	// US-061. Windows and Linux read their own settings. Reached only after the
 	// environment variables above: exporting HTTPS_PROXY is a deliberate act by
 	// whoever launched the app, and has to win over a value the machine was
 	// handed by whoever set it up.
 	if settings, ok := readOSProxySettings(); ok {
-		return ProxyURLFromOSSettings(settings, rawURL)
+		return discoverProxyFromOSSettings(settings, rawURL)
 	}
-	return nil, nil
+	return nil, "", nil
+}
+
+func SystemProxyURLForRequest(rawURL string) (*url.URL, error) {
+	proxyURL, pacURL, err := DiscoverSystemProxy(rawURL)
+	if pacURL != "" {
+		return systemPACProxyURL(pacURL, rawURL)
+	}
+	return proxyURL, err
+}
+
+// systemPACProxyURL is the disposition all three system-proxy PAC sites shared
+// before discovery was split out, kept in one place so it stays shared: a PAC
+// that fails to load, fails to run, or selects DIRECT means "no proxy" rather
+// than a failed request, because the machine having an unusable PAC is not a
+// reason to refuse to make the call.
+func systemPACProxyURL(pacSource, rawURL string) (*url.URL, error) {
+	proxyURL, ok, err := ResolvePACProxyURL(pacSource, rawURL)
+	if err != nil || !ok {
+		return nil, nil
+	}
+	return proxyURL, nil
 }
 
 func proxyURLFromEnvironment(rawURL string) (*url.URL, error) {
@@ -155,46 +190,57 @@ func proxyURLFromEnvironment(rawURL string) (*url.URL, error) {
 	return parseProxyURLValue(proxyValue)
 }
 
-func macOSSystemProxyURLForRequest(rawURL string) (*url.URL, error) {
+func discoverMacOSSystemProxy(rawURL string) (*url.URL, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	output, err := exec.CommandContext(ctx, "scutil", "--proxy").Output()
 	if err != nil {
-		return nil, nil
+		return nil, "", nil
 	}
-	return ProxyURLFromMacOSScutilOutput(string(output), rawURL)
+	return discoverProxyFromMacOSScutilOutput(string(output), rawURL)
 }
 
 func ProxyURLFromMacOSScutilOutput(output, rawURL string) (*url.URL, error) {
+	proxyURL, pacURL, err := discoverProxyFromMacOSScutilOutput(output, rawURL)
+	if pacURL != "" {
+		return systemPACProxyURL(pacURL, rawURL)
+	}
+	return proxyURL, err
+}
+
+// discoverProxyFromMacOSScutilOutput reports what `scutil --proxy` says,
+// reporting a PAC script's location instead of running it. The exceptions list
+// is still consulted first: a host the machine says to reach directly is
+// direct whether the configuration names a PAC or a static proxy.
+func discoverProxyFromMacOSScutilOutput(output, rawURL string) (*url.URL, string, error) {
 	values, exceptions := parseMacOSScutilProxyOutput(output)
 	if len(exceptions) > 0 && !ShouldUseManualProxy(rawURL, strings.Join(exceptions, ",")) {
-		return nil, nil
+		return nil, "", nil
 	}
 	if values["ProxyAutoConfigEnable"] == "1" && strings.TrimSpace(values["ProxyAutoConfigURLString"]) != "" {
-		proxyURL, ok, err := ResolvePACProxyURL(values["ProxyAutoConfigURLString"], rawURL)
-		if err != nil || !ok {
-			return nil, nil
-		}
-		return proxyURL, nil
+		return nil, values["ProxyAutoConfigURLString"], nil
 	}
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, nil
+		return nil, "", nil
 	}
 	switch strings.ToLower(parsed.Scheme) {
 	case "https", "wss":
 		if values["HTTPSEnable"] == "1" {
-			return proxyURLFromParts("http", values["HTTPSProxy"], values["HTTPSPort"])
+			proxyURL, err := proxyURLFromParts("http", values["HTTPSProxy"], values["HTTPSPort"])
+			return proxyURL, "", err
 		}
 	case "http", "ws":
 		if values["HTTPEnable"] == "1" {
-			return proxyURLFromParts("http", values["HTTPProxy"], values["HTTPPort"])
+			proxyURL, err := proxyURLFromParts("http", values["HTTPProxy"], values["HTTPPort"])
+			return proxyURL, "", err
 		}
 	}
 	if values["SOCKSEnable"] == "1" {
-		return proxyURLFromParts("socks5", values["SOCKSProxy"], values["SOCKSPort"])
+		proxyURL, err := proxyURLFromParts("socks5", values["SOCKSProxy"], values["SOCKSPort"])
+		return proxyURL, "", err
 	}
-	return nil, nil
+	return nil, "", nil
 }
 
 func parseMacOSScutilProxyOutput(output string) (map[string]string, []string) {
@@ -267,7 +313,25 @@ func parseProxyURLValue(value string) (*url.URL, error) {
 	return proxyURL, nil
 }
 
+// pacEvaluationCount counts entries into ResolvePACProxyURL -- the single door
+// to loading a PAC source and running it.
+//
+// It exists so a test can assert a NEGATIVE that is otherwise unobservable:
+// that a code path did not evaluate a PAC at all. A PAC script fetches, runs
+// JavaScript and resolves its own hostnames, so "no proxy came back" is not
+// evidence that nothing ran; only a count is. Kept unexported and read through
+// the two helpers below, which are test-only by convention.
+var pacEvaluationCount atomic.Int64
+
+// pacEvaluations reports how many times the PAC load-and-evaluate path has been
+// entered since the last reset.
+func pacEvaluations() int64 { return pacEvaluationCount.Load() }
+
+// resetPACEvaluations zeroes the counter so one test can measure one stretch.
+func resetPACEvaluations() { pacEvaluationCount.Store(0) }
+
 func ResolvePACProxyURL(pacSource, requestURL string) (*url.URL, bool, error) {
+	pacEvaluationCount.Add(1)
 	pacSource = strings.TrimSpace(pacSource)
 	if pacSource == "" {
 		return nil, false, nil

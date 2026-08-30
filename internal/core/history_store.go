@@ -90,6 +90,22 @@ func (a *App) ClearHistory() error {
 // The failure is logged once per session before the error is handed back, so an
 // unwritable history file is not simply invisible. See reportHistoryFailure.
 func (a *App) recordSendHistory(collectionID string, item RequestItem, response *Response) error {
+	return a.recordSendHistoryWithMCPProjection(collectionID, item, response, nil)
+}
+
+// recordSendHistoryWithMCPProjection is recordSendHistory with the secret
+// values an agent-visible copy of the entry will have to be masked against.
+//
+// The values are a PARAMETER rather than something looked up here because this
+// runs with a.mu already held, and the hydrator that knows the secret values
+// takes that same lock — reading them from inside would deadlock the send path.
+// The caller hydrates once, at the head of the send under the first lock, and
+// carries the values down.
+//
+// Nothing consumes mcpMaskValues yet: the MCP-safe projection it exists for is
+// T9's, and this seam lands early so the call site can be switched over without
+// a signature break landing in the same change as the projection itself.
+func (a *App) recordSendHistoryWithMCPProjection(collectionID string, item RequestItem, response *Response, mcpMaskValues []string) error {
 	if response == nil {
 		return nil
 	}

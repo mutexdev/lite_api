@@ -18,8 +18,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mutexdev/lite_api/internal/history"
 )
@@ -387,6 +390,130 @@ func TestCreateRequestFromHistoryLeavesTheOriginalAlone(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// historySeamProbe is one send's worth of input for the two recording
+// functions: a header set that exercises redaction on both sides, and a
+// response carrying exactly one header so the map-to-rows conversion is
+// order-stable across the two calls.
+func historySeamProbe() (RequestItem, *Response) {
+	item := RequestItem{
+		ID:     "item-seam",
+		Name:   "seam probe",
+		Method: "post",
+		URL:    "https://example.test/v1/charge",
+		Headers: []KeyValue{
+			{Name: "Authorization", Value: "Bearer supersecret-token", Enabled: true},
+			{Name: "Accept", Value: "application/json", Enabled: true},
+		},
+	}
+	response := &Response{
+		Status:       201,
+		StatusText:   "Created",
+		DurationMs:   12,
+		Size:         34,
+		RequestedURL: "https://example.test/v1/charge?attempt=1",
+		Headers:      map[string]string{"Set-Cookie": "session=supersecret"},
+		BodyHandle:   "handle-seam",
+	}
+	return item, response
+}
+
+// normalizedHistoryEntry drops the two fields that differ between any two
+// recordings of the same send — the generated id and the wall clock — and sorts
+// the header rows, so what remains is exactly the recorded content.
+func normalizedHistoryEntry(entry history.HistoryEntry) history.HistoryEntry {
+	entry.ID = ""
+	entry.At = time.Time{}
+	sortHeaderRows(entry.RequestHeaders)
+	sortHeaderRows(entry.ResponseHeaders)
+	return entry
+}
+
+func sortHeaderRows(rows []KeyValue) {
+	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
+}
+
+// TestRecordSendHistoryMCPProjectionSeamIsBehaviourNeutral pins the seam the
+// MCP-safe history projection will be built on.
+//
+// The projection cannot look its secret values up: recording runs with a.mu
+// held and the hydrator takes the same lock, so the values have to arrive as an
+// argument, which means the parameter must exist before the send path can start
+// supplying it. Until the projection itself lands, the two functions have to BE
+// the same function — including when mask values are passed, which must not yet
+// change a single recorded byte. A divergence here would mean history recording
+// changed under a task whose whole point was to change nothing.
+func TestRecordSendHistoryMCPProjectionSeamIsBehaviourNeutral(t *testing.T) {
+	app := newAppForTest(t)
+	item, response := historySeamProbe()
+
+	if err := app.recordSendHistory("collection-seam", item, response); err != nil {
+		t.Fatalf("recordSendHistory: %v", err)
+	}
+	if err := app.recordSendHistoryWithMCPProjection("collection-seam", item, response, nil); err != nil {
+		t.Fatalf("recordSendHistoryWithMCPProjection(nil): %v", err)
+	}
+	if err := app.recordSendHistoryWithMCPProjection("collection-seam", item, response, []string{"supersecret-token", "session=supersecret"}); err != nil {
+		t.Fatalf("recordSendHistoryWithMCPProjection(values): %v", err)
+	}
+
+	entries, err := app.ListHistory(history.HistoryQuery{})
+	if err != nil {
+		t.Fatalf("ListHistory: %v", err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("got %d entries, want 3", len(entries))
+	}
+
+	viaDelegate := normalizedHistoryEntry(entries[0])
+	for i, entry := range entries[1:] {
+		if got := normalizedHistoryEntry(entry); !reflect.DeepEqual(got, viaDelegate) {
+			t.Errorf("entry %d differs from the one recorded through recordSendHistory:\n got %+v\nwant %+v", i+1, got, viaDelegate)
+		}
+	}
+	// Guard against the comparison passing on two empty entries.
+	if viaDelegate.Method != "POST" || viaDelegate.Status != 201 || viaDelegate.BodyHandle != "handle-seam" {
+		t.Fatalf("the compared entry is not the recorded send: %+v", viaDelegate)
+	}
+	if !viaDelegate.Redacted {
+		t.Error("the recorded entry does not report redaction; the comparison is not covering the redaction path")
+	}
+
+	// A nil response is the "nothing was recorded" case on both paths.
+	if err := app.recordSendHistory("collection-seam", item, nil); err != nil {
+		t.Errorf("recordSendHistory(nil response): %v", err)
+	}
+	if err := app.recordSendHistoryWithMCPProjection("collection-seam", item, nil, []string{"supersecret-token"}); err != nil {
+		t.Errorf("recordSendHistoryWithMCPProjection(nil response): %v", err)
+	}
+	after, err := app.ListHistory(history.HistoryQuery{})
+	if err != nil {
+		t.Fatalf("ListHistory: %v", err)
+	}
+	if len(after) != 3 {
+		t.Errorf("a nil response was recorded: %d entries, want 3", len(after))
+	}
+}
+
+// TestRecordSendHistoryMCPProjectionSeamSharesFailures. The error is what the
+// send path ignores and what tests assert on, so the delegate must not swallow
+// or invent one.
+func TestRecordSendHistoryMCPProjectionSeamSharesFailures(t *testing.T) {
+	app := newAppForTest(t)
+	// A directory where the log file goes: the store cannot read or append.
+	if err := os.MkdirAll(filepath.Join(app.dataDir, "history.jsonl"), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	item, response := historySeamProbe()
+
+	delegateErr := app.recordSendHistory("collection-seam", item, response)
+	if delegateErr == nil {
+		t.Fatal("recordSendHistory reported success against an unwritable history file")
+	}
+	if err := app.recordSendHistoryWithMCPProjection("collection-seam", item, response, []string{"supersecret-token"}); err == nil {
+		t.Error("recordSendHistoryWithMCPProjection reported success where the delegate failed")
 	}
 }
 
