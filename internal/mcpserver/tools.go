@@ -13,16 +13,25 @@
 // should not waste a call discovering that it cannot read a secret.
 //
 // Validation is hand-written for the same reason the protocol is: the schemas
-// are six shallow objects of strings and integers, and a JSON Schema library
+// are a handful of shallow objects of strings and integers, and a JSON Schema library
 // would be a dependency whose error messages we do not control. The messages
 // matter — an agent recovers from "missing required argument collectionId"
 // and stalls on "does not match schema".
 package mcpserver
 
 import (
+	"context"
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 )
+
+// RunTimeout bounds one run_request call. It is generous because the request
+// being run is the user's own — a slow staging host or a long-polling endpoint
+// is a legitimate answer, not a hang — and short enough that a wedged run
+// cannot pin a handler goroutine for the life of the process.
+const RunTimeout = 120 * time.Second
 
 // toolArgs is one call's arguments as decoded from JSON, so values are the
 // usual encoding/json shapes: string, float64, bool, map, slice.
@@ -54,6 +63,20 @@ type inputSchema struct {
 type schemaProperty struct {
 	Type        string `json:"type"`
 	Description string `json:"description"`
+	// AdditionalProperties declares the value type of an object property, and
+	// is the whole of JSON Schema's map vocabulary this package needs. It is
+	// both documentation for the agent composing the call and the rule
+	// validate enforces, so the two cannot drift.
+	AdditionalProperties *schemaProperty `json:"additionalProperties,omitempty"`
+}
+
+// stringValuedObject describes an object whose every value must be a string.
+func stringValuedObject(description string) schemaProperty {
+	return schemaProperty{
+		Type:                 "object",
+		Description:          description,
+		AdditionalProperties: &schemaProperty{Type: "string"},
+	}
 }
 
 // objectSchema builds a schema with the empty-not-nil guarantees the wire
@@ -126,8 +149,8 @@ var toolRegistry = []toolEntry{
 			"user typed literally into a body or a script is visible here. Treat anything credential-shaped you see as sensitive, never repeat " +
 			"it back, and tell the user to move it into a {{variable}}. authType is the EFFECTIVE auth mode: when a request inherits, the " +
 			"folder's or collection's mode is reported rather than \"inherit\", and authSource says which level configured it (\"request\", " +
-			"\"folder\", \"collection\", or empty when nothing does). Read this to learn the shape of a call; to actually execute one, a later " +
-			"tier adds run_request, which runs the stored request inside LiteAPI where secrets resolve without crossing this boundary. Call " +
+			"\"folder\", \"collection\", or empty when nothing does). Read this to learn the shape of a call; to actually execute one, call " +
+			"run_request, which runs the stored request inside LiteAPI where secrets resolve without crossing this boundary. Call " +
 			"get_history to see what its responses have looked like.",
 		InputSchema: objectSchema(map[string]schemaProperty{
 			"collectionId": {Type: "string", Description: "Id of the collection holding the request, from list_collections."},
@@ -156,6 +179,28 @@ var toolRegistry = []toolEntry{
 			"limit":        limitProperty,
 		}, "collectionId", "requestId"),
 		Handler: toolGetHistory,
+	},
+	{
+		Name: "run_request",
+		Description: "Runs a stored request inside LiteAPI, exactly the way the user's own send button does: their auth, their TLS posture, their " +
+			"client certificates, their pre/post scripts and tests. Secrets resolve INSIDE LiteAPI and never appear in what you get back, so you " +
+			"can execute a call that needs a credential you are not allowed to read. Prefer this over reconstructing the request yourself — a " +
+			"hand-built call cannot see the user's secrets and will not match what the app sends. Pass variables to override NON-SECRET variables " +
+			"for this one run only; every value must be a string, nothing is written back to the environment, and an attempt to override a secret " +
+			"is refused. A run that would send a secret to a host the collection has never sent that secret to PAUSES for the user's approval in " +
+			"the app, and may come back denied: a denial names its reason, and the fix is never to retry or to work around it but to ASK THE USER " +
+			"to approve the host (or to point you at the right one). The result carries status and statusText, response headers, the response body " +
+			"(bounded — truncated says when it was cut), duration, the executedAt timestamp, the resolved URL with any query-string credentials " +
+			"masked, and testResults for the request's scripted tests. Read get_request first if you need to know what the call will send. " +
+			"Chaining several requests together is not this tool's job: run_flow arrives in a later tier.",
+		InputSchema: objectSchema(map[string]schemaProperty{
+			"collectionId":  {Type: "string", Description: "Id of the collection holding the request, from list_collections."},
+			"requestId":     {Type: "string", Description: "Id of the request to run, from list_requests or search_requests."},
+			"environmentId": {Type: "string", Description: "Id of the environment to resolve variables against, from list_environments. Omit it to use whichever environment is active in the app."},
+			"variables": stringValuedObject("Non-secret variable overrides for this run only, as an object of string values, e.g. {\"storeId\":\"str_42\"}. " +
+				"Numbers and booleans must be quoted. Overriding a secret variable is refused."),
+		}, "collectionId", "requestId"),
+		Handler: toolRunRequest,
 	},
 }
 
@@ -228,6 +273,30 @@ func toolGetHistory(backend Backend, args toolArgs) (any, error) {
 	return nonNil(runs), nil
 }
 
+// toolRunRequest executes one stored request.
+//
+// The context is rooted in context.Background() rather than the HTTP request's
+// own, deliberately. A run is not a read: it reaches a real host and may create
+// or change something there. If the context were the request's, an agent that
+// disconnected — a client crash, a user hitting Ctrl-C, a proxy timing out —
+// would cancel a POST that had already been sent, and the app would never
+// record what came back. A run that has started should finish and land in
+// history, so cancellation is bounded by RunTimeout alone. The handler goroutine
+// therefore outlives its client by at most that long, which is the trade we
+// want; the Backend still honours cancellation, so Stop's shutdown grace and
+// this deadline both remain effective.
+func toolRunRequest(backend Backend, args toolArgs) (any, error) {
+	params := RunRequestParams{
+		CollectionID:  argString(args, "collectionId"),
+		RequestID:     argString(args, "requestId"),
+		EnvironmentID: argString(args, "environmentId"),
+		Variables:     argStringMap(args, "variables"),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), RunTimeout)
+	defer cancel()
+	return backend.RunRequest(ctx, params)
+}
+
 // validate checks one call's arguments against the declared schema.
 //
 // Unknown keys pass: clients attach their own metadata, and a mistyped
@@ -250,7 +319,7 @@ func (schema inputSchema) validate(args toolArgs) error {
 		if !known || value == nil {
 			continue
 		}
-		if err := checkArgType(name, property.Type, value); err != nil {
+		if err := checkArgType(name, property, value); err != nil {
 			return err
 		}
 	}
@@ -270,8 +339,8 @@ func (schema inputSchema) fixHint(name string) string {
 // encoding/json as float64, so an integer property accepts a float only when
 // it has no fractional part; a plain int is accepted too, for callers that
 // build arguments in Go rather than decoding them.
-func checkArgType(name, declared string, value any) error {
-	switch declared {
+func checkArgType(name string, property schemaProperty, value any) error {
+	switch property.Type {
 	case "string":
 		if _, ok := value.(string); !ok {
 			return fmt.Errorf("argument %q must be a string, got %s: quote the value and call the tool again", name, jsonTypeName(value))
@@ -291,8 +360,45 @@ func checkArgType(name, declared string, value any) error {
 		if _, ok := value.(bool); !ok {
 			return fmt.Errorf("argument %q must be true or false, got %s", name, jsonTypeName(value))
 		}
+	case "object":
+		fields, ok := value.(map[string]any)
+		if !ok {
+			return fmt.Errorf("argument %q must be an object, got %s: pass it as {\"name\":\"value\"} and call the tool again", name, jsonTypeName(value))
+		}
+		return checkObjectValues(name, property, fields)
 	}
 	return nil
+}
+
+// checkObjectValues enforces an object property's declared value type. Only
+// string values are describable, which is all run_request's variables need: a
+// variable override is substituted into a request as text, so a bare number or
+// boolean is a mistake the agent should fix rather than something to coerce
+// silently. The message names the offending key, since an object of a dozen
+// variables gives an agent nothing to act on otherwise. Keys are checked in
+// sorted order so the same bad call always names the same key — an agent that
+// fixes one and retries must not be handed a different complaint each time.
+func checkObjectValues(name string, property schemaProperty, fields map[string]any) error {
+	if property.AdditionalProperties == nil || property.AdditionalProperties.Type != "string" {
+		return nil
+	}
+	for _, key := range sortedKeys(fields) {
+		if _, isString := fields[key].(string); !isString {
+			return fmt.Errorf("argument %q must be an object of string values, but %q is %s: quote it, e.g. %q: {%q: \"…\"}, and call the tool again",
+				name, key, jsonTypeName(fields[key]), name, key)
+		}
+	}
+	return nil
+}
+
+// sortedKeys returns a map's keys in a stable order.
+func sortedKeys[V any](values map[string]V) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // jsonTypeName names what actually arrived, in the vocabulary of the schema
@@ -331,6 +437,33 @@ func nonNil[T any](items []T) []T {
 func argString(args toolArgs, name string) string {
 	text, _ := args[name].(string)
 	return strings.TrimSpace(text)
+}
+
+// argStringMap reads a validated object-of-strings argument. A missing or empty
+// one yields nil, which the Backend contract reads as "no overrides".
+//
+// Non-string values cannot reach here — validate rejects the whole call before
+// the handler runs (checkObjectValues). They are skipped rather than coerced
+// anyway: if that guard ever regressed, dropping the value is the failure that
+// makes the Backend complain about a variable it cannot resolve, while
+// stringifying it would quietly send fmt's rendering of a JSON object to a real
+// host. Names keep their surrounding whitespace: a variable name is matched
+// exactly, and trimming one here would map two different names onto one.
+func argStringMap(args toolArgs, name string) map[string]string {
+	fields, ok := args[name].(map[string]any)
+	if !ok || len(fields) == 0 {
+		return nil
+	}
+	overrides := make(map[string]string, len(fields))
+	for key, value := range fields {
+		if text, isString := value.(string); isString {
+			overrides[key] = text
+		}
+	}
+	if len(overrides) == 0 {
+		return nil
+	}
+	return overrides
 }
 
 // argInt reads a validated integer argument. A missing one yields 0, which the

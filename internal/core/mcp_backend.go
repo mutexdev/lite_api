@@ -25,7 +25,6 @@ package core
 // LiteAPI, and nowhere in this file.
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -465,11 +464,11 @@ func mcpMaskRowValues(rows []mcpserver.KeyValue, secretValues []string) []mcpser
 	return rows
 }
 
-// RunRequest is the Phase 2 run tier; until it lands, every call is a clean
-// denial rather than a missing method.
-func (b *mcpBackend) RunRequest(_ context.Context, _ mcpserver.RunRequestParams) (mcpserver.RunResult, error) {
-	return mcpserver.RunResult{}, fmt.Errorf("%w: run_request is not available yet", mcpserver.ErrDenied)
-}
+// RunRequest is the Phase 2 run tier and lives in mcp_run.go, with the new-host
+// guard it enforces in mcp_guard.go. It is the one Backend method that is not
+// implemented in this file, because it is the one that does not read state: it
+// executes the app's own send path, and the "no interpolation" rule at the top
+// of this file is exactly inverted for it.
 
 // --- mapping helpers -------------------------------------------------------
 

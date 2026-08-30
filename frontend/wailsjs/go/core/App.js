@@ -338,6 +338,10 @@ export function GetHistoryEntry(arg1) {
   return window['go']['core']['App']['GetHistoryEntry'](arg1);
 }
 
+export function GetMCPAuditLog(arg1) {
+  return window['go']['core']['App']['GetMCPAuditLog'](arg1);
+}
+
 export function GetMCPStatus() {
   return window['go']['core']['App']['GetMCPStatus']();
 }
@@ -532,6 +536,10 @@ export function ResizeTerminalSession(arg1, arg2, arg3) {
 
 export function ResolveCollectionFolderPath(arg1, arg2) {
   return window['go']['core']['App']['ResolveCollectionFolderPath'](arg1, arg2);
+}
+
+export function ResolveMCPApproval(arg1, arg2, arg3) {
+  return window['go']['core']['App']['ResolveMCPApproval'](arg1, arg2, arg3);
 }
 
 export function ResolveProcessEnvValues(arg1, arg2) {

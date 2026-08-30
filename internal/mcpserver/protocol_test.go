@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -28,11 +29,52 @@ type testResponse struct {
 	Error   *rpcError       `json:"error"`
 }
 
-func newTestServer(t *testing.T, backend Backend) *httptest.Server {
+// newTestServer builds the whole stack over httptest. Options are forwarded to
+// New, so a test that cares about auditing installs a recorder the same way
+// internal/core does.
+func newTestServer(t *testing.T, backend Backend, options ...Option) *httptest.Server {
 	t.Helper()
-	server := httptest.NewServer(New(backend, testToken, 0).handler())
+	server := httptest.NewServer(New(backend, testToken, 0, options...).handler())
 	t.Cleanup(server.Close)
 	return server
+}
+
+// auditLog collects entries for assertion. The recorder runs on the HTTP
+// handler's goroutine while the test reads from its own, so the mutex is what
+// makes these tests meaningful under -race rather than merely green.
+type auditLog struct {
+	mu      sync.Mutex
+	entries []AuditEntry
+}
+
+func (log *auditLog) record(entry AuditEntry) {
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	log.entries = append(log.entries, entry)
+}
+
+func (log *auditLog) all() []AuditEntry {
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	return append([]AuditEntry(nil), log.entries...)
+}
+
+// only returns the single entry the test expects, failing loudly otherwise —
+// "exactly one call was recorded" is half of what most of these assert.
+func (log *auditLog) only(t *testing.T) AuditEntry {
+	t.Helper()
+	entries := log.all()
+	if len(entries) != 1 {
+		t.Fatalf("recorded %d entries, want exactly 1: %+v", len(entries), entries)
+	}
+	return entries[0]
+}
+
+// newAuditedServer pairs a server with the log recording it.
+func newAuditedServer(t *testing.T, backend Backend) (*httptest.Server, *auditLog) {
+	t.Helper()
+	log := &auditLog{}
+	return newTestServer(t, backend, WithAuditRecorder(log.record)), log
 }
 
 // doRequest drives one raw HTTP exchange and returns the status and body.
@@ -177,7 +219,10 @@ func TestPingReturnsAnEmptyResult(t *testing.T) {
 	}
 }
 
-func TestToolsListDeclaresExactlyTheReadTier(t *testing.T) {
+// The registry is the whole of what an agent can reach, so the listing is
+// pinned by name: a tool appearing here that nobody meant to ship is exactly
+// the change this test exists to catch. The write tier is deliberately absent.
+func TestToolsListDeclaresExactlyTheReadAndRunTiers(t *testing.T) {
 	server := newTestServer(t, newFixtureBackend())
 	response := rpcCall(t, server, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`, http.StatusOK)
 	if response.Error != nil {
@@ -194,7 +239,7 @@ func TestToolsListDeclaresExactlyTheReadTier(t *testing.T) {
 		t.Fatalf("decode result: %v", err)
 	}
 
-	want := []string{"list_collections", "list_requests", "search_requests", "get_request", "list_environments", "get_history"}
+	want := []string{"list_collections", "list_requests", "search_requests", "get_request", "list_environments", "get_history", "run_request"}
 	if len(result.Tools) != len(want) {
 		t.Fatalf("got %d tools, want %d: %+v", len(result.Tools), len(want), result.Tools)
 	}

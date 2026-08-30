@@ -23,6 +23,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -720,6 +721,137 @@ func TestMCPE2EGetRequestReportsInheritedCollectionAuth(t *testing.T) {
 	}
 	if !foundToken {
 		t.Errorf("no token row for a request inheriting a configured bearer block: %+v", detail.Auth)
+	}
+}
+
+// The run tier over the real wire. Everything above this point reads; this is
+// the one journey that WRITES — an agent picks a request out of the collection
+// and executes it against a live host, with the secret resolving inside LiteAPI
+// and never crossing the boundary in either direction.
+//
+// Three things are measured that no unit test can measure together: that the
+// response body arrives through JSON-RPC intact, that not one sentinel appears
+// anywhere in the raw exchange, and that the call is in the audit log
+// afterwards — which is rule 6 end to end, from mcpserver's recorder through
+// this App's store to the binding the panel reads.
+func TestMCPE2ERunRequestReachesTheHostAndLandsInTheAuditLog(t *testing.T) {
+	f := newE2EFixture(t)
+	allSentinels := []string{e2eSentinelHeaderAuth, e2eSentinelPassword, e2eSentinelEnvSecret, e2eSentinelURLQuery}
+
+	// A live target, and a request in the fixture collection pointed at it whose
+	// Authorization header reads the SECRET environment variable. The handler
+	// echoes what it received, so the assertions below can tell "the secret
+	// resolved at send time" apart from "the secret never travelled".
+	var received string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"resource":"e2e-run-payload"}`))
+	}))
+	defer target.Close()
+
+	f.app.mu.Lock()
+	collection := &f.app.state.Workspaces[0].Collections[0]
+	runnable := types.NewRequestItem("Run me", "http", len(collection.Items)+1)
+	runnable.Method = "GET"
+	runnable.URL = target.URL + "/resource"
+	runnable.FolderPath = "api/run"
+	runnable.Headers = []KeyValue{{Name: "Authorization", Value: "Bearer {{apiToken}}", Enabled: true}}
+	runnable.Body = types.RequestBody{Mode: "none"}
+	collection.Items = append(collection.Items, runnable)
+	runnableID := runnable.ID
+	f.app.mu.Unlock()
+
+	text, isError, raw := f.callTool(t, "run_request", map[string]any{
+		"collectionId": f.collectionID, "requestId": runnableID,
+	})
+	if isError {
+		t.Fatalf("run_request returned isError: %s", text)
+	}
+	assertNoSentinel(t, "run_request", raw, allSentinels...)
+
+	var result struct {
+		Status int    `json:"status"`
+		URL    string `json:"url"`
+		Body   string `json:"body"`
+	}
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		t.Fatalf("decode run_request result: %v (text=%s)", err, text)
+	}
+	if result.Status != http.StatusOK {
+		t.Errorf("status is %d, want 200", result.Status)
+	}
+	if !strings.Contains(result.Body, "e2e-run-payload") {
+		t.Errorf("the response body did not arrive: %q", result.Body)
+	}
+	// The negative control for the sentinel sweep: the secret DID resolve and
+	// reach the host, so the absence of it in the exchange above is masking
+	// rather than the credential never having been used.
+	if received != "Bearer "+e2eSentinelEnvSecret {
+		t.Errorf("the target received Authorization %q; the secret did not resolve at send time", received)
+	}
+
+	// Rule 6: the call is in the audit log, through the recorder this App
+	// installs at mcpserver.New.
+	entries, err := f.app.GetMCPAuditLog(0)
+	if err != nil {
+		t.Fatalf("GetMCPAuditLog: %v", err)
+	}
+	var runEntry *types.MCPAuditEntry
+	for index := range entries {
+		if entries[index].Tool == "run_request" {
+			runEntry = &entries[index]
+			break
+		}
+	}
+	if runEntry == nil {
+		t.Fatalf("run_request is not in the audit log: %+v", entries)
+	}
+	if runEntry.Outcome != "ok" {
+		t.Errorf("the audited outcome is %q, want ok", runEntry.Outcome)
+	}
+	if !strings.Contains(runEntry.ArgsSummary, runnableID) {
+		t.Errorf("the audited args summary does not name the request: %q", runEntry.ArgsSummary)
+	}
+	if runEntry.At.IsZero() {
+		t.Error("the audited entry has no timestamp")
+	}
+	audited, err := json.Marshal(entries)
+	if err != nil {
+		t.Fatalf("marshal the audit log: %v", err)
+	}
+	assertNoSentinel(t, "audit log", audited, allSentinels...)
+}
+
+// A denial is audited too, and as a DENIAL rather than an error — the guard
+// doing its job is exactly what the user opens the panel to see. Measured over
+// the real wire because the outcome is decided in one package (internal/core's
+// guard) and recorded in another (internal/mcpserver's protocol layer).
+func TestMCPE2ERunRequestDeniedOverrideIsAuditedAsDenied(t *testing.T) {
+	f := newE2EFixture(t)
+
+	text, isError, raw := f.callTool(t, "run_request", map[string]any{
+		"collectionId": f.collectionID,
+		"requestId":    f.reqTemplatedAuthID,
+		"variables":    map[string]any{"apiToken": "agent-chosen-value"},
+	})
+	if !isError {
+		t.Fatalf("overriding a secret over the wire was allowed: %s", text)
+	}
+	if !strings.Contains(text, "apiToken") {
+		t.Errorf("the refusal does not name the variable: %s", text)
+	}
+	assertNoSentinel(t, "run_request(secret override)", raw, e2eSentinelEnvSecret)
+
+	entries, err := f.app.GetMCPAuditLog(0)
+	if err != nil {
+		t.Fatalf("GetMCPAuditLog: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("the denied call was not audited at all")
+	}
+	if entries[0].Tool != "run_request" || entries[0].Outcome != "denied" {
+		t.Errorf("the newest audit entry is %+v, want run_request/denied", entries[0])
 	}
 }
 

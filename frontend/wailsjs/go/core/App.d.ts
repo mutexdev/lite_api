@@ -176,6 +176,8 @@ export function GetHistoryBody(arg1:string):Promise<string>;
 
 export function GetHistoryEntry(arg1:string):Promise<history.HistoryEntry>;
 
+export function GetMCPAuditLog(arg1:number):Promise<Array<types.MCPAuditEntry>>;
+
 export function GetMCPStatus():Promise<types.MCPStatus>;
 
 export function GetOpenAPISyncSpec(arg1:string):Promise<types.OpenAPISyncSpecViewResult>;
@@ -273,6 +275,8 @@ export function ResetDemoData():Promise<types.AppState>;
 export function ResizeTerminalSession(arg1:string,arg2:number,arg3:number):Promise<void>;
 
 export function ResolveCollectionFolderPath(arg1:string,arg2:string):Promise<string>;
+
+export function ResolveMCPApproval(arg1:string,arg2:boolean,arg3:boolean):Promise<void>;
 
 export function ResolveProcessEnvValues(arg1:string,arg2:Array<string>):Promise<Record<string, string>>;
 

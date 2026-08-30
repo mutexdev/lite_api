@@ -80,7 +80,16 @@ func (a *App) applyMCPPreferences(preferences types.MCPPreferences) {
 			a.mcpServer.Stop()
 			a.mcpServer = nil
 		}
-		server := mcpserver.New(&mcpBackend{app: a}, token, preferences.Port)
+		// The audit recorder (rule 6) is installed at construction rather than
+		// switched on later, so there is no window in which a served call goes
+		// unrecorded. a.recordMCPAudit runs on the tool call's own goroutine and
+		// writes through the audit store's own lock; it reaches a.mu only to
+		// raise a notification when the write FAILED, and only after that lock
+		// has been released. Nothing in it can block on the state lock, which is
+		// what makes it safe to call from a handler that owns none of this App's
+		// locks — and safe to construct here, under mcpMu.
+		server := mcpserver.New(&mcpBackend{app: a}, token, preferences.Port,
+			mcpserver.WithAuditRecorder(a.recordMCPAudit))
 		if err := server.Start(); err != nil {
 			failure = fmt.Sprintf("The MCP server could not start on port %d: %v", preferences.Port, err)
 			a.mcpLastError = err.Error()

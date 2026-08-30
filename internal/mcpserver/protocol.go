@@ -19,11 +19,14 @@ import (
 	"bytes"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // ProtocolVersion is the MCP revision this server implements, and the version
@@ -256,24 +259,141 @@ func negotiateProtocolVersion(requested string) string {
 // mean to a caller: naming a tool that does not exist is the client having
 // used the protocol wrong, while a tool that ran and failed is information the
 // agent should read and act on.
+// It is also the one place that sees everything an audit entry needs — the
+// tool name, the arguments, the outcome, and the wall time around the handler —
+// so every tools/call is recorded here and nowhere else. The -32602 paths are
+// recorded too, with outcome "error": a client naming tools that do not exist
+// is exactly the probing an audit exists to show, and an audit that only
+// records the calls that worked would report a clean history of an attack.
+//
+// tools/list, initialize and ping are not recorded. They are discovery, every
+// client makes them on connect, and burying the calls that touched the user's
+// data under that noise would make the panel useless.
 func (s *Server) handleToolsCall(raw json.RawMessage) (any, *rpcError) {
+	started := time.Now()
 	var params struct {
 		Name      string   `json:"name"`
 		Arguments toolArgs `json:"arguments"`
 	}
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &params); err != nil {
+			s.recordCall(started, "", nil, outcomeError)
 			return nil, &rpcError{Code: codeInvalidParams, Message: "tools/call params must be an object with a name and an arguments object"}
 		}
 	}
 	if params.Name == "" {
+		s.recordCall(started, "", params.Arguments, outcomeError)
 		return nil, &rpcError{Code: codeInvalidParams, Message: "tools/call requires a tool name; call tools/list for the available tools"}
 	}
 	entry, found := lookupTool(params.Name)
 	if !found {
+		s.recordCall(started, params.Name, params.Arguments, outcomeError)
 		return nil, &rpcError{Code: codeInvalidParams, Message: fmt.Sprintf("unknown tool %q; call tools/list for the available tools", params.Name)}
 	}
-	return runTool(entry, s.backend, params.Arguments), nil
+	result, outcome := runTool(entry, s.backend, params.Arguments)
+	s.recordCall(started, params.Name, params.Arguments, outcome)
+	return result, nil
+}
+
+// The three outcomes an audit entry can carry. "denied" is kept apart from
+// "error" because they mean opposite things about the system: an error is
+// something that went wrong, while a denial is a guard doing its job, and a
+// user scanning the panel needs to see refusals without reading every row.
+const (
+	outcomeOK     = "ok"
+	outcomeError  = "error"
+	outcomeDenied = "denied"
+)
+
+// recordCall hands one finished tools/call to the audit sink, if there is one.
+//
+// It runs on the request's goroutine after the tool has already produced its
+// result, so a slow recorder delays the response but cannot change it. Without
+// a recorder this is a nil check and nothing else, which is the Phase 1
+// read-only posture.
+func (s *Server) recordCall(started time.Time, tool string, args toolArgs, outcome string) {
+	if s.audit == nil {
+		return
+	}
+	s.audit(AuditEntry{
+		At:          time.Now().UTC(),
+		Tool:        tool,
+		ArgsSummary: summarizeArgs(args),
+		Outcome:     outcome,
+		DurationMs:  int(time.Since(started).Milliseconds()),
+	})
+}
+
+// maxAuditValueRunes and maxAuditSummaryRunes bound what one entry can cost.
+// Arguments are attacker-shaped input on a loopback port: a single call can
+// carry megabytes of body-sized strings, and an audit log that stores them
+// verbatim is a way to fill the user's disk from an MCP client. Runes, not
+// bytes, so a summary cut mid-character never lands in the panel.
+const (
+	maxAuditValueRunes   = 200
+	maxAuditSummaryRunes = 1000
+	truncationMarker     = "…"
+)
+
+// summarizeArgs renders one call's arguments as a compact, bounded line for the
+// audit panel: `collectionId="col_pos" limit=5`, keys in sorted order so the
+// same call always produces the same summary and two entries can be compared.
+//
+// This is a summary, not a record: values are truncated and the whole line is
+// capped, so nothing here should be treated as a faithful copy of what was
+// sent. What it does guarantee is that the tool and the ids it was pointed at
+// survive, which is what makes a row worth reading.
+func summarizeArgs(args toolArgs) string {
+	if len(args) == 0 {
+		return ""
+	}
+	var builder strings.Builder
+	for _, name := range sortedKeys(args) {
+		if builder.Len() > 0 {
+			builder.WriteByte(' ')
+		}
+		builder.WriteString(name)
+		builder.WriteByte('=')
+		builder.WriteString(truncateRunes(renderArgValue(args[name]), maxAuditValueRunes))
+	}
+	return truncateRunes(builder.String(), maxAuditSummaryRunes)
+}
+
+// renderArgValue renders one argument value compactly.
+//
+// Strings go through strconv.Quote rather than json.Marshal: both quote and
+// escape, but Quote leaves <, > and & alone, and a URL or a JSON body rendered
+// with < everywhere is unreadable in the panel the user is scanning.
+// Everything else is JSON, which keeps nested objects on one line.
+func renderArgValue(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return strconv.Quote(typed)
+	case nil:
+		return "null"
+	default:
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			// Nothing decoded from JSON can land here; a Go-built argument
+			// might, and a summary is never worth failing a call over.
+			return fmt.Sprintf("%v", value)
+		}
+		return string(encoded)
+	}
+}
+
+// truncateRunes cuts text to at most limit runes, marking that it did.
+func truncateRunes(text string, limit int) string {
+	if len(text) <= limit {
+		// Bytes bound runes, so a short string is short in both and the
+		// conversion below can be skipped for the overwhelmingly common case.
+		return text
+	}
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit]) + truncationMarker
 }
 
 // toolContent is one block of a tool result. Only text blocks are produced:
@@ -292,7 +412,8 @@ type callToolResult struct {
 	IsError bool          `json:"isError"`
 }
 
-// runTool validates, runs, and encodes one tool call.
+// runTool validates, runs, and encodes one tool call, returning the result and
+// the outcome the audit should record.
 //
 // Everything that can go wrong from here on is the tool's own failure —
 // arguments that do not fit the schema, a backend that could not answer, a
@@ -300,16 +421,27 @@ type callToolResult struct {
 // is the MCP split: JSON-RPC errors mean the protocol broke and the client
 // should stop, while an isError result is a message addressed to the agent,
 // which can read the explanation and try again with better arguments.
-func runTool(entry toolEntry, backend Backend, args toolArgs) callToolResult {
+//
+// A denial is one of those failures and reaches the agent the same way, as an
+// isError result carrying the message unchanged. The Backend contract makes
+// that message the explanation — which guard fired, and what the user would
+// have to approve — so rewriting or prefixing it here would only bury the one
+// sentence the agent needs in order to stop retrying and ask. The outcome is
+// what differs: the audit records "denied", so a refusal shows up in the panel
+// as a refusal rather than as one more failed call.
+func runTool(entry toolEntry, backend Backend, args toolArgs) (callToolResult, string) {
 	payload, err := invokeTool(entry, backend, args)
 	if err != nil {
-		return toolFailure(err.Error())
+		if errors.Is(err, ErrDenied) {
+			return toolFailure(err.Error()), outcomeDenied
+		}
+		return toolFailure(err.Error()), outcomeError
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
-		return toolFailure(fmt.Sprintf("tool %q produced a result that could not be encoded as JSON: %v", entry.Name, err))
+		return toolFailure(fmt.Sprintf("tool %q produced a result that could not be encoded as JSON: %v", entry.Name, err)), outcomeError
 	}
-	return callToolResult{Content: []toolContent{{Type: "text", Text: string(encoded)}}, IsError: false}
+	return callToolResult{Content: []toolContent{{Type: "text", Text: string(encoded)}}, IsError: false}, outcomeOK
 }
 
 // invokeTool runs validation and the handler under a recover.

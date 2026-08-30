@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fixtureBackend is a Backend whose answers are fixed and inspectable. It
@@ -43,6 +43,18 @@ type fixtureBackend struct {
 	// value, so "the backend saw an empty query" and "the backend was never
 	// reached" would be indistinguishable without a counter.
 	searchCalls int
+
+	// The run tier. runResult is what RunRequest answers with unless runErr is
+	// set; runErr stands in for a refusal (wrapping ErrDenied) or a plain
+	// failure. The lastRun* fields record what the tool actually handed over,
+	// including whether the context it was given carried a deadline — the tool
+	// must not pass the HTTP request's context straight through.
+	runResult          RunResult
+	runErr             error
+	runCalls           int
+	lastRunParams      RunRequestParams
+	lastRunHadDeadline bool
+	lastRunTimeout     time.Duration
 }
 
 func newFixtureBackend() *fixtureBackend {
@@ -88,19 +100,38 @@ func newFixtureBackend() *fixtureBackend {
 				Body:    `{"terminal":{"id":"trm_9"}}`},
 			{ID: "run_1", Method: "POST", URL: "https://pos.stage.example.test/terminals", Status: 500, DurationMs: 12, ExecutedAt: "2026-08-29T09:00:00Z", Body: "boom", Truncated: true},
 		},
+		runResult: RunResult{
+			Status: 201, StatusText: "201 Created", DurationMs: 91, ExecutedAt: "2026-08-30T08:00:00Z",
+			// The URL arrives resolved and already masked, as the contract
+			// requires of every implementation.
+			URL:         "https://pos.stage.example.test/terminals?apiKey=" + MaskedValue,
+			Headers:     []KeyValue{{Name: "Content-Type", Value: "application/json", Enabled: true}},
+			Body:        `{"terminal":{"id":"trm_10"}}`,
+			TestResults: []TestResult{{Name: "status is 201", Passed: true}, {Name: "has an id", Passed: false, Message: "expected body.terminal.id"}},
+		},
 	}
 }
 
-// gate is the shared failure/panic injection every method runs first.
-// RunRequest satisfies the Phase 2 contract; the run-tier tests replace this
-// with real behaviour when the tool lands.
-func (backend *fixtureBackend) RunRequest(_ context.Context, _ RunRequestParams) (RunResult, error) {
+// RunRequest records what it was asked to run and answers with whatever the
+// test configured. The deadline is captured rather than asserted here so a test
+// can say what it expects of it.
+func (backend *fixtureBackend) RunRequest(ctx context.Context, params RunRequestParams) (RunResult, error) {
 	if err := backend.gate(); err != nil {
 		return RunResult{}, err
 	}
-	return RunResult{}, fmt.Errorf("%w: run tier not yet available", ErrDenied)
+	backend.runCalls++
+	backend.lastRunParams = params
+	if deadline, ok := ctx.Deadline(); ok {
+		backend.lastRunHadDeadline = true
+		backend.lastRunTimeout = time.Until(deadline)
+	}
+	if backend.runErr != nil {
+		return RunResult{}, backend.runErr
+	}
+	return backend.runResult, nil
 }
 
+// gate is the shared failure/panic injection every method runs first.
 func (backend *fixtureBackend) gate() error {
 	if backend.panicWith != "" {
 		panic(backend.panicWith)

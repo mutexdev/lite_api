@@ -154,7 +154,7 @@ type App struct {
 	docsServers map[string]*localserver.DocsServer
 	responses   *responsestore.Store
 
-	// The MCP agent interface. mcpMu guards the three fields below it and
+	// The MCP agent interface. mcpMu guards mcpServer and mcpLastError and
 	// nothing else; like mockMu and docsMu it is taken WITHOUT a.mu held,
 	// because binding a socket under the state lock is the failure mode
 	// mock_server.go was restructured to avoid. mcpTokenMu is separate from
@@ -165,6 +165,32 @@ type App struct {
 	mcpServer    *mcpserver.Server
 	mcpLastError string
 	mcpTokenMu   sync.Mutex
+	// The Phase 2 run tier. Three independent locks, none of them ever held
+	// while taking a.mu, and none of them held while a request is in flight:
+	//
+	//   mcpApprovalMu guards the pending new-host approvals — the same waiter
+	//   shape as oauth2PendingMu, because the problem is the same one (a
+	//   goroutine blocked on a decision only the frontend can make).
+	//
+	//   mcpApprovalFileMu guards the REMEMBERED approvals and their lazy load
+	//   from disk. Separate from mcpApprovalMu so persisting a remembered
+	//   answer — a file write — never happens while a waiter is being resolved.
+	//
+	//   the audit store carries its own lock (mcp_audit.go); mcpAuditOnce only
+	//   builds it.
+	mcpApprovalMu sync.Mutex
+	mcpApprovals  map[string]*mcpPendingApproval
+	// mcpApprovalEmit replaces the Wails event emit for the approval prompt.
+	// nil in production; the test seam, exactly like notificationEmit.
+	mcpApprovalEmit func(types.MCPApprovalRequest)
+	// mcpApprovalTimeout bounds one prompt. Zero means the 60s default; tests
+	// shrink it rather than waiting out a minute to prove a timeout denies.
+	mcpApprovalTimeout     time.Duration
+	mcpApprovalFileMu      sync.Mutex
+	mcpApprovalsRemembered []types.MCPApproval
+	mcpApprovalsLoaded     bool
+	mcpAuditOnce           sync.Once
+	mcpAuditStore          *mcpAuditStore
 
 	// US-013. Fingerprints of what each auxiliary file last contained, so a
 	// persist that changes nothing in a file does no work for that file.

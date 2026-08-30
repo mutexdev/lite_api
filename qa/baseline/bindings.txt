@@ -82,6 +82,7 @@ GetDevToolsSnapshot() (DevToolsSnapshot, error)
 GetFileCacheSize() (int64, error)
 GetHistoryBody(id string) (string, error)
 GetHistoryEntry(id string) (history.HistoryEntry, error)
+GetMCPAuditLog(limit int) ([]types.MCPAuditEntry, error)
 GetMCPStatus() (types.MCPStatus, error)
 GetOpenAPISyncSpec(collectionID string) (OpenAPISyncSpecViewResult, error)
 GetOpenAPISyncSpecDiff(collectionID string, options OpenAPISyncOptions) (OpenAPISyncSpecDiffResult, error)
@@ -131,6 +132,7 @@ ReopenLastClosedTab(collectionID string) (AppState, error)
 ResetDemoData() (AppState, error)
 ResizeTerminalSession(sessionID string, cols, rows int) error
 ResolveCollectionFolderPath(collectionID, folderPath string) (string, error)
+ResolveMCPApproval(id string, approve bool, remember bool) error
 ResolveProcessEnvValues(collectionID string, names []string) (map[string]string, error)
 RestoreRecoveryEntry(entryID string) (AppState, error)
 RevealCollectionFolderInFolder(collectionID, folderPath string) error
