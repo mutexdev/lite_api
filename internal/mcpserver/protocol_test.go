@@ -221,8 +221,14 @@ func TestPingReturnsAnEmptyResult(t *testing.T) {
 
 // The registry is the whole of what an agent can reach, so the listing is
 // pinned by name: a tool appearing here that nobody meant to ship is exactly
-// the change this test exists to catch. The write tier is deliberately absent.
-func TestToolsListDeclaresExactlyTheReadAndRunTiers(t *testing.T) {
+// the change this test exists to catch.
+//
+// The write tier IS listed, and listed unconditionally — rule 5 rejects those
+// calls while the user has authoring switched off rather than hiding the tools,
+// because a tool that vanished would tell the agent the capability does not
+// exist and send it off to build a worse substitute by hand. This fixture has
+// the tier off, and the four write tools appear all the same.
+func TestToolsListDeclaresExactlyTheShippedTools(t *testing.T) {
 	server := newTestServer(t, newFixtureBackend())
 	response := rpcCall(t, server, `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`, http.StatusOK)
 	if response.Error != nil {
@@ -241,8 +247,9 @@ func TestToolsListDeclaresExactlyTheReadAndRunTiers(t *testing.T) {
 
 	want := []string{
 		"list_collections", "list_requests", "search_requests", "get_request", "list_environments",
-		"list_flows", "get_flow", "get_history",
+		"list_flows", "get_flow", "get_history", "describe_usage",
 		"run_request", "run_flow",
+		"create_request", "update_request", "create_flow", "update_flow",
 	}
 	if len(result.Tools) != len(want) {
 		t.Fatalf("got %d tools, want %d: %+v", len(result.Tools), len(want), result.Tools)

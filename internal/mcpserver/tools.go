@@ -75,6 +75,27 @@ type schemaProperty struct {
 	// both documentation for the agent composing the call and the rule
 	// validate enforces, so the two cannot drift.
 	AdditionalProperties *schemaProperty `json:"additionalProperties,omitempty"`
+	// Items declares the element type of an array property. Like
+	// AdditionalProperties it is documentation and rule at once: checkArgType
+	// enforces exactly what it says, and nothing deeper. The write tier's row
+	// arrays are objects whose own fields are checked when they are decoded,
+	// with messages that can name the offending row — which a schema walker
+	// could not do.
+	Items *schemaProperty `json:"items,omitempty"`
+}
+
+// rowArray describes an array of authored rows: the {name, value, enabled}
+// shape get_request already returns, so an agent can read a request's headers,
+// change one, and write them straight back.
+func rowArray(description string) schemaProperty {
+	return schemaProperty{
+		Type:        "array",
+		Description: description,
+		Items: &schemaProperty{
+			Type:        "object",
+			Description: "A row: {\"name\":\"Accept\",\"value\":\"application/json\"}. enabled defaults to true. secret is refused — agents may reference a secret variable by name but never define one.",
+		},
+	}
 }
 
 // stringValuedObject describes an object whose every value must be a string.
@@ -213,6 +234,17 @@ var toolRegistry = []toolEntry{
 		Handler: toolGetHistory,
 	},
 	{
+		Name: "describe_usage",
+		Description: "Returns the machine-readable guide to this server: the safety rules that bind every tool and are enforced inside LiteAPI rather than " +
+			"by these descriptions, which tiers exist and whether the write tier is currently unlocked, the full Flow schema with its semantics, the rules " +
+			"that govern authoring (no scripts, no secret definitions, and the host approval a new target raises), a worked example, and the conventions " +
+			"the tools share. Call it BEFORE authoring anything with create_request, update_request, create_flow or update_flow — it is cheaper than a " +
+			"refused call, and it is the only place the flow schema is written out in full. Always available, takes no arguments, and reads nothing of the " +
+			"user's: the answer is the same whatever their collections contain, apart from the write tier's live enabled flag.",
+		InputSchema: objectSchema(nil),
+		Handler:     toolDescribeUsage,
+	},
+	{
 		Name: "run_request",
 		Description: "Runs a stored request inside LiteAPI, exactly the way the user's own send button does: their auth, their TLS posture, their " +
 			"client certificates, their pre/post scripts and tests. Secrets resolve INSIDE LiteAPI and never appear in what you get back, so you " +
@@ -256,6 +288,102 @@ var toolRegistry = []toolEntry{
 				"Numbers and booleans must be quoted. A name the flow does not declare is refused, and so is a missing required input."),
 		}, "collectionId", "flowId"),
 		Handler: toolRunFlow,
+	},
+
+	// The write tier. These four are listed whether or not the user has
+	// unlocked it: a tool that vanished when the preference was off would tell
+	// an agent the capability does not exist, and it would compose a fragile
+	// hand-built substitute instead of asking the user for the one switch that
+	// makes the real thing work. They are rejected, not hidden — the refusal
+	// says what to ask for.
+	{
+		Name: "create_request",
+		Description: "Authors a new request in one of the user's collections, through the same model and the same file writes the app's own editor uses, and " +
+			"returns the created row (its id is accepted by get_request, run_request and every other tool that takes a requestId). REQUIRES the write tier, " +
+			"which is off by default: when it is off this call is refused and the only fix is to ASK THE USER to turn on \"Allow AI tools to create and edit " +
+			"requests\" in LiteAPI's Settings → AI access. Three things can never be authored, whatever the tier: pre-request scripts, post-response scripts " +
+			"and tests (they run inside the user's engine and could retarget a credential past the host guard), any row marked secret (reference a secret by " +
+			"name in a {{template}} instead — you may do that freely), and transport settings such as TLS verification (the new request takes LiteAPI's " +
+			"defaults). If the request points a secret variable at a host the user's collections have never sent that secret to, LiteAPI pauses for the " +
+			"user's approval and the call may come back denied: do not retry, do not route around it, ask the user. Call describe_usage first if you have " +
+			"not already.",
+		InputSchema: objectSchema(map[string]schemaProperty{
+			"collectionId":     {Type: "string", Description: "Id of the collection to author in, from list_collections."},
+			"name":             {Type: "string", Description: "Human name for the request; it also names the file on disk, e.g. \"Create terminal\"."},
+			"url":              {Type: "string", Description: "URL as authored, with {{templates}} left unresolved, e.g. \"{{baseUrl}}/terminals\". Reuse the variable names list_environments reports."},
+			"method":           {Type: "string", Description: "HTTP method. Defaults to GET."},
+			"type":             {Type: "string", Description: "Request kind: http (default) or graphql."},
+			"folderPath":       {Type: "string", Description: "Folder to create it in, as list_requests reports folderPath, e.g. \"api/v2\". Omit for the collection root. An unknown folder is an error."},
+			"headers":          rowArray("Header rows, in get_request's own shape: [{\"name\":\"Authorization\",\"value\":\"Bearer {{apiToken}}\"}]."),
+			"params":           rowArray("Query parameter rows."),
+			"pathParams":       rowArray("Path parameter rows, for a URL with :placeholders."),
+			"vars":             rowArray("Request-level variables. A row marked secret is refused."),
+			"bodyType":         {Type: "string", Description: "Body mode: none (default), json, text, xml, form-urlencoded, or graphql."},
+			"body":             {Type: "string", Description: "Body content for json, text, xml, or the query document for graphql. Send it as a string, not as a nested object."},
+			"graphqlVariables": {Type: "string", Description: "Variables document for a graphql body, as a JSON string."},
+			"formData":         rowArray("Field rows for a form-urlencoded body."),
+			"auth": stringValuedObject("Auth block as flat strings, e.g. {\"mode\":\"bearer\",\"token\":\"{{apiToken}}\"}. mode is none, inherit, basic, bearer or apikey; " +
+				"point credential fields at {{variables}} rather than typing values. Richer modes (oauth2, awsv4, oauth1) are configured by the user in the app."),
+			"preScript":  {Type: "string", Description: "Must be empty or omitted. Scripts cannot be authored over MCP; ask the user to write one in the app."},
+			"postScript": {Type: "string", Description: "Must be empty or omitted, for the same reason as preScript."},
+			"tests":      {Type: "string", Description: "Must be empty or omitted, for the same reason as preScript."},
+		}, "collectionId", "name", "url"),
+		Handler: toolCreateRequest,
+	},
+	{
+		Name: "update_request",
+		Description: "Edits an existing request in place, matched by requestId, and returns the updated row. Only the fields you pass are changed — omit a field " +
+			"and the stored one is kept, so you can change a URL without restating a body. REQUIRES the write tier exactly as create_request does, with the " +
+			"same refusal and the same fix (ask the user to enable it in Settings → AI access). preScript, postScript and tests are PRESERVED, never edited: " +
+			"pass them back byte-for-byte as get_request returned them, or leave them out; anything else is refused, because a script runs inside the user's " +
+			"engine and could send a credential somewhere the host guard never checked. A row marked secret is refused. If your edit points a secret variable " +
+			"at a host the collections have never sent it to, the save pauses for the user's approval and may be denied — ask the user rather than retrying. " +
+			"Renaming and moving a request are the user's actions in the app, so name and folderPath are not editable here.",
+		InputSchema: objectSchema(map[string]schemaProperty{
+			"collectionId":     {Type: "string", Description: "Id of the collection holding the request, from list_collections."},
+			"requestId":        {Type: "string", Description: "Id of the request to edit, from list_requests, search_requests or create_request."},
+			"method":           {Type: "string", Description: "New HTTP method."},
+			"url":              {Type: "string", Description: "New URL, with {{templates}} unresolved."},
+			"headers":          rowArray("Replacement header rows — the whole list, not a delta. Read get_request first and send it back edited."),
+			"params":           rowArray("Replacement query parameter rows — the whole list."),
+			"pathParams":       rowArray("Replacement path parameter rows — the whole list."),
+			"vars":             rowArray("Replacement request-level variables — the whole list. A row marked secret is refused."),
+			"bodyType":         {Type: "string", Description: "New body mode: none, json, text, xml, form-urlencoded, or graphql."},
+			"body":             {Type: "string", Description: "New body content, as a string."},
+			"graphqlVariables": {Type: "string", Description: "New variables document for a graphql body, as a JSON string."},
+			"formData":         rowArray("Replacement rows for a form-urlencoded body."),
+			"auth":             stringValuedObject("Replacement auth block as flat strings, e.g. {\"mode\":\"bearer\",\"token\":\"{{apiToken}}\"}."),
+			"preScript":        {Type: "string", Description: "Only accepted unchanged: pass exactly what get_request returned, or omit it. A different non-empty value is refused."},
+			"postScript":       {Type: "string", Description: "Only accepted unchanged, like preScript."},
+			"tests":            {Type: "string", Description: "Only accepted unchanged, like preScript."},
+		}, "collectionId", "requestId"),
+		Handler: toolUpdateRequest,
+	},
+	{
+		Name: "create_flow",
+		Description: "Stores a new Flow — a named, ordered chain of the collection's own requests with data wired from each response into the next, assertions, " +
+			"and declared outputs — and returns its row, whose id run_flow and get_flow accept. REQUIRES the write tier, which is off by default: when it is " +
+			"off this call is refused and the only fix is to ASK THE USER to enable it in LiteAPI's Settings → AI access. Pass the whole flow as one object; call describe_usage for the schema, the semantics and a worked example, and get_flow " +
+			"to see one the user already wrote. Validation is the app's own: an unknown requestId, a duplicate step id, an extraction with no path, an " +
+			"assertion that checks nothing, or a flow name that shadows a secret variable are all refused with the reason named. A step var written as " +
+			"{{apiToken}} stays literal — flow scope never resolves a secret — so a flow cannot carry a credential and needs no host approval to save.",
+		InputSchema: objectSchema(map[string]schemaProperty{
+			"collectionId": {Type: "string", Description: "Id of the collection to store the flow in, from list_collections."},
+			"flow": {Type: "object", Description: "The flow: {name, description?, inputs?, steps, outputs?}. Every step is {id, requestId, vars?, extract?, assert?} and " +
+				"every requestId must be a request in this collection. Omit id and one is assigned. Call describe_usage for the full schema."},
+		}, "collectionId", "flow"),
+		Handler: toolCreateFlow,
+	},
+	{
+		Name: "update_flow",
+		Description: "Replaces an existing Flow by id with the definition you pass — the whole flow, not a delta, so read it with get_flow first and send it back " +
+			"edited — and returns its row. REQUIRES the write tier, which is off by default: when it is off this call is refused and the only fix is to ASK " +
+			"THE USER to enable it in LiteAPI's Settings → AI access. Validation is create_flow's: every error names the step and what to change.",
+		InputSchema: objectSchema(map[string]schemaProperty{
+			"collectionId": {Type: "string", Description: "Id of the collection holding the flow, from list_collections."},
+			"flow":         {Type: "object", Description: "The complete replacement flow, including its id, in the shape get_flow returns. Call describe_usage for the schema."},
+		}, "collectionId", "flow"),
+		Handler: toolUpdateFlow,
 	},
 }
 
@@ -455,6 +583,35 @@ func checkArgType(name string, property schemaProperty, value any) error {
 			return fmt.Errorf("argument %q must be an object, got %s: pass it as {\"name\":\"value\"} and call the tool again", name, jsonTypeName(value))
 		}
 		return checkObjectValues(name, property, fields)
+	case "array":
+		elements, ok := value.([]any)
+		if !ok {
+			return fmt.Errorf("argument %q must be an array, got %s: pass it as [{\"name\":\"…\",\"value\":\"…\"}] and call the tool again", name, jsonTypeName(value))
+		}
+		return checkArrayElements(name, property, elements)
+	}
+	return nil
+}
+
+// checkArrayElements enforces an array property's declared element type. Only
+// the element's TYPE is checked here; the fields of a row object are checked
+// where the row is decoded, because that is the only place an error can name
+// which row and which field went wrong.
+func checkArrayElements(name string, property schemaProperty, elements []any) error {
+	if property.Items == nil || property.Items.Type == "" {
+		return nil
+	}
+	for index, element := range elements {
+		switch property.Items.Type {
+		case "object":
+			if _, ok := element.(map[string]any); !ok {
+				return fmt.Errorf("argument %q entry %d must be an object, got %s: each entry is {\"name\":\"…\",\"value\":\"…\"}", name, index+1, jsonTypeName(element))
+			}
+		case "string":
+			if _, ok := element.(string); !ok {
+				return fmt.Errorf("argument %q entry %d must be a string, got %s: quote it and call the tool again", name, index+1, jsonTypeName(element))
+			}
+		}
 	}
 	return nil
 }

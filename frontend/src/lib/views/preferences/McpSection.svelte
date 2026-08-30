@@ -214,9 +214,12 @@
                 Allow AI tools to create and edit requests
               </label>
               <p class="settings-hint">
-                Off by default. It unlocks the authoring tools in a later phase; until then nothing
-                reads it. Even switched on, an agent can reference a secret variable by name but can
-                never read or set its value.
+                Off by default. Switched on, an agent can add and edit requests and Flows in your
+                collections — the same files your own edits write. Three things stay impossible
+                either way: it can never read or define a secret value (only reference one by name),
+                it can never write or change a pre-request script, post-response script or test, and
+                pointing a secret at a host your collections have never used still stops here for
+                your approval.
               </p>
 
               <div class="settings-section-header mcp-activity-header">

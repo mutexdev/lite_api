@@ -60,6 +60,11 @@ type fixtureBackend struct {
 	// failures live in flowFixtureState, declared in flow_tools_test.go next
 	// to the tests that read them.
 	flows flowFixtureState
+
+	// The write tier, in writeFixtureState (write_tools_test.go), for the same
+	// reason. It starts with the tier OFF, which is the state every install
+	// starts in and the one most of this package's tests should meet.
+	writes writeFixtureState
 }
 
 func newFixtureBackend() *fixtureBackend {

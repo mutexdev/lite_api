@@ -298,18 +298,25 @@ func TestRunRequestSchemaDeclaresWhatValidationEnforces(t *testing.T) {
 
 // Discovery order is part of the contract with the agent: run_request is the
 // tool you reach for after you have read the request, so it comes after the
-// whole read tier — of which get_history is the last member. run_flow follows it
-// as the other half of the run tier (Phase 3).
-func TestRunRequestIsRegisteredAfterGetHistory(t *testing.T) {
+// whole read tier. describe_usage joined that tier in Phase 4 and closes it,
+// which is where an agent should meet the guide — after the tools it explains
+// how to read, before the ones that change something.
+func TestRunRequestIsRegisteredAfterTheReadTier(t *testing.T) {
 	names := make([]string, len(toolRegistry))
+	position := map[string]int{}
 	for index, entry := range toolRegistry {
 		names[index] = entry.Name
+		position[entry.Name] = index
 	}
 	if len(names) < 3 {
 		t.Fatalf("registry order = %v", names)
 	}
-	tail := names[len(names)-3:]
-	if tail[0] != "get_history" || tail[1] != "run_request" || tail[2] != "run_flow" {
-		t.Fatalf("registry order = %v, want the run tier last: get_history, run_request, run_flow", names)
+	for _, readTool := range []string{"get_history", "describe_usage"} {
+		if position[readTool] > position["run_request"] {
+			t.Fatalf("registry order = %v, want %s before run_request", names, readTool)
+		}
+	}
+	if position["run_flow"] != position["run_request"]+1 {
+		t.Fatalf("registry order = %v, want run_flow immediately after run_request", names)
 	}
 }

@@ -80,6 +80,162 @@ type Backend interface {
 	// return the outcome populated as far as the run got even when the error
 	// is non-nil. ctx bounds the whole flow.
 	RunFlow(ctx context.Context, params RunFlowParams) (FlowRunOutcome, error)
+
+	// WriteTierEnabled reports whether the user has unlocked authoring in
+	// Settings, read fresh at the moment of the call — the preference can be
+	// turned on and off while the server runs.
+	//
+	// It exists for describe_usage, which tells an agent which tiers are
+	// live before it composes a call. It is NOT the gate: the gate is inside
+	// the four write methods below, because a check made here and acted on
+	// there would be a race, and because a tier that is enforced anywhere
+	// but at the point of the write is enforced nowhere.
+	WriteTierEnabled() (bool, error)
+
+	// CreateRequest authors a new request in a collection and returns the row
+	// it created, whose id is accepted by every tool that takes a requestId.
+	//
+	// Implementations reject the whole call — with an ErrDenied-wrapped error
+	// and nothing written — when the write tier is off, when the definition
+	// carries a script or a test, when any authored row declares itself
+	// secret, or when the user declines to let a referenced secret travel to
+	// a host the collection has never sent it to. ctx bounds the call and
+	// the approval prompt it may raise.
+	CreateRequest(ctx context.Context, params CreateRequestParams) (RequestSummary, error)
+
+	// UpdateRequest edits an existing request, matched by id, applying only
+	// the fields the caller supplied. Scripts and tests are PRESERVED rather
+	// than editable: a call may echo them back unchanged or omit them, and
+	// anything else is refused. The same denials as CreateRequest apply.
+	UpdateRequest(ctx context.Context, params UpdateRequestParams) (RequestSummary, error)
+
+	// CreateFlow stores a new flow, validated against the same rules the
+	// app's own Flow editor uses. A flow carries no URL of its own, so no
+	// host approval can arise here; every step is guarded at run time.
+	CreateFlow(params CreateFlowParams) (FlowSummary, error)
+
+	// UpdateFlow replaces a flow by id, with the same validation.
+	UpdateFlow(params UpdateFlowParams) (FlowSummary, error)
+}
+
+// AuthoredRow is one header, param, path param, form field or variable as an
+// AGENT wrote it — the input counterpart of KeyValue.
+//
+// It is a separate type from KeyValue precisely because it carries Secret, and
+// KeyValue must not: KeyValue is a return DTO, and the contract at the top of
+// this file says no field on it may describe a secret. Secret exists here so
+// that "an agent tried to DEFINE a secret" is something the Backend can see and
+// refuse, rather than something the decoding layer silently drops — a rule
+// enforced by dropping the field is a rule with no error message.
+//
+// Enabled is a pointer so that "omitted" and "false" are distinguishable; an
+// omitted enabled means true, which is what an agent listing headers means.
+type AuthoredRow struct {
+	Name    string `json:"name"`
+	Value   string `json:"value"`
+	Enabled *bool  `json:"enabled,omitempty"`
+	Secret  bool   `json:"secret,omitempty"`
+}
+
+// CreateRequestParams is a whole authored request.
+//
+// TRANSPORT SETTINGS ARE ABSENT ON PURPOSE. VerifyTLS, redirect policy and
+// timeouts decide how safely a request travels, they are the user's posture
+// rather than the agent's, and a new request takes LiteAPI's own defaults. An
+// agent that needs a different posture asks the user for it.
+type CreateRequestParams struct {
+	CollectionID string
+	Name         string
+	// FolderPath places the request in the collection tree ("api/v2"); empty
+	// is the collection root. An unknown folder is an error, not a silent
+	// demotion to the root.
+	FolderPath string
+	// Type is the request kind: http or graphql. The socket kinds (ws, grpc)
+	// are not authorable here — they carry per-kind message state an agent
+	// has no way to fill in.
+	Type   string
+	Method string
+	URL    string
+
+	Headers    []AuthoredRow
+	Params     []AuthoredRow
+	PathParams []AuthoredRow
+	Vars       []AuthoredRow
+
+	// BodyType is the body mode (none, json, text, xml, form-urlencoded,
+	// graphql); Body is its content, and FormData the rows for
+	// form-urlencoded.
+	BodyType string
+	Body     string
+	// GraphQLVariables is the variables document of a graphql body.
+	GraphQLVariables string
+	FormData         []AuthoredRow
+
+	// Auth is a flat block: {"mode":"bearer","token":"{{apiToken}}"}. An
+	// agent may point a field at a secret VARIABLE; it can never read one.
+	Auth map[string]string
+
+	// PreScript, PostScript and Tests exist here so the refusal can be
+	// explicit. A non-empty value is denied: see the Backend contract.
+	PreScript  string
+	PostScript string
+	Tests      string
+}
+
+// UpdateRequestParams is a patch: a nil field is left as it is on the stored
+// request, which is what lets an agent change a URL without restating a body it
+// never read.
+type UpdateRequestParams struct {
+	CollectionID string
+	RequestID    string
+
+	Method *string
+	URL    *string
+
+	Headers    *[]AuthoredRow
+	Params     *[]AuthoredRow
+	PathParams *[]AuthoredRow
+	Vars       *[]AuthoredRow
+
+	BodyType         *string
+	Body             *string
+	GraphQLVariables *string
+	FormData         *[]AuthoredRow
+
+	Auth map[string]string
+
+	// PreScript, PostScript and Tests are compared against what is stored
+	// rather than applied: equal or empty passes and changes nothing,
+	// anything else is refused. An agent that echoes get_request's output
+	// back therefore succeeds, and one that edits a script does not.
+	PreScript  *string
+	PostScript *string
+	Tests      *string
+}
+
+// FlowDefinition is a flow as an agent authors it — the same shape get_flow
+// returns, minus the derived stepCount, so a definition can be read, edited and
+// written back without reshaping.
+type FlowDefinition struct {
+	ID          string       `json:"id,omitempty"`
+	Name        string       `json:"name"`
+	Description string       `json:"description,omitempty"`
+	Inputs      []FlowInput  `json:"inputs,omitempty"`
+	Steps       []FlowStep   `json:"steps"`
+	Outputs     []FlowOutput `json:"outputs,omitempty"`
+}
+
+// CreateFlowParams stores one new flow. An empty Flow.ID is assigned by the
+// implementation and returned in the summary.
+type CreateFlowParams struct {
+	CollectionID string
+	Flow         FlowDefinition
+}
+
+// UpdateFlowParams replaces the flow named by Flow.ID, which is required.
+type UpdateFlowParams struct {
+	CollectionID string
+	Flow         FlowDefinition
 }
 
 // RunRequestParams identifies what to run and how.

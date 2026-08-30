@@ -562,7 +562,16 @@ func TestFlowToolsAreRegisteredWithTheirTier(t *testing.T) {
 	if position["get_flow"] > position["run_request"] {
 		t.Error("the flow read tools are listed after the run tier")
 	}
-	if position["run_flow"] != len(toolRegistry)-1 {
-		t.Errorf("run_flow is at %d of %d; it is the last tool an agent reaches for", position["run_flow"], len(toolRegistry))
+	// run_flow closes the RUN tier, which is what "last" meant when there was
+	// nothing after it. Phase 4 added the write tier below it, so the claim is
+	// now relative: every write tool is listed after run_flow, and nothing else
+	// is.
+	for index, entry := range toolRegistry {
+		if index <= position["run_flow"] {
+			continue
+		}
+		if !strings.HasPrefix(entry.Name, "create_") && !strings.HasPrefix(entry.Name, "update_") {
+			t.Errorf("%s is listed after run_flow but is not a write-tier tool", entry.Name)
+		}
 	}
 }
