@@ -9,7 +9,7 @@ so the next person changing the shape does not have to re-derive them.
 
 ```
 lite_api/
-  main.go                  24 lines — the only .go file in the root
+  main.go                  44 lines — the only .go file in the root
   internal/
     core/                  the App: 201 bound methods, the state lock
     types/                 the domain structs everything speaks in

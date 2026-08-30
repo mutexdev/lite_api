@@ -13,6 +13,11 @@
 // Mcp-Session-Id, and ignores one if a client sends it. Every request is
 // authenticated on its own merits, which is also why nothing here is allowed
 // to depend on a prior initialize having happened.
+//
+// A second transport, stdio, lives in stdio.go and serves `liteapi mcp`. It
+// frames the same messages differently and authenticates differently (not at
+// all — the pipe is the credential), but it shares handleMessage below, so the
+// protocol has exactly one implementation whichever way a client reaches it.
 package mcpserver
 
 import (
@@ -154,56 +159,83 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 		writeRPC(w, http.StatusBadRequest, errorResponse(nullID, codeParseError, "request body could not be read"))
 		return
 	}
-	trimmed := bytes.TrimSpace(body)
-	if len(trimmed) == 0 {
-		writeRPC(w, http.StatusBadRequest, errorResponse(nullID, codeParseError, "empty request body: expected a single JSON-RPC 2.0 message"))
+
+	response, status := s.handleMessage(body)
+	// A notification carries no id, so there is nothing to respond to — not
+	// even an error. 202 with an empty body is what the spec asks for, and it
+	// covers notifications/initialized along with any other the client sends.
+	if response == nil {
+		w.WriteHeader(http.StatusAccepted)
 		return
+	}
+	writeRPC(w, status, *response)
+}
+
+// handleMessage is the protocol itself: one raw inbound message in, the reply
+// that answers it out. Framing checks, dispatch, and the JSON-RPC envelope
+// around the result all live here.
+//
+// BOTH TRANSPORTS COME THROUGH THIS FUNCTION, and that is the point of it
+// existing. handleMCP adds what HTTP needs around a message — origin check,
+// bearer auth, method, status codes — and ServeStdio (stdio.go) adds nothing at
+// all, but neither of them decides what a message MEANS. A call answered over
+// the loopback port and the same call answered over a pipe produce the same
+// bytes, record the same audit entry, and split result-versus-isError the same
+// way, because there is only one implementation here to disagree with itself.
+// TestStdioAndHTTPAnswerIdenticallyForTheSameCall pins that.
+//
+// A nil response means the message was a notification and nothing is to be
+// sent. The status is what the HTTP transport writes; stdio ignores it, a pipe
+// having no status line.
+func (s *Server) handleMessage(message []byte) (*rpcResponse, int) {
+	trimmed := bytes.TrimSpace(message)
+	if len(trimmed) == 0 {
+		return protocolFault(nullID, codeParseError, "empty request body: expected a single JSON-RPC 2.0 message")
 	}
 	// Well-formedness first, meaning second: -32700 is specifically "I could
 	// not parse this", and reporting it for a JSON document that simply is not
 	// a JSON-RPC message would send the client looking for the wrong bug.
 	if !json.Valid(trimmed) {
-		writeRPC(w, http.StatusBadRequest, errorResponse(nullID, codeParseError, "request body is not valid JSON"))
-		return
+		return protocolFault(nullID, codeParseError, "request body is not valid JSON")
 	}
 	if trimmed[0] == '[' {
 		// Batching was removed in the 2025-06-18 revision. Answering the array
 		// would be a silent downgrade, so it is refused by name.
-		writeRPC(w, http.StatusBadRequest, errorResponse(nullID, codeInvalidRequest, "JSON-RPC batching is not supported in MCP 2025-06-18: send one message per request"))
-		return
+		return protocolFault(nullID, codeInvalidRequest, "JSON-RPC batching is not supported in MCP 2025-06-18: send one message per request")
 	}
 	if trimmed[0] != '{' {
-		writeRPC(w, http.StatusBadRequest, errorResponse(nullID, codeInvalidRequest, "request must be a JSON-RPC 2.0 object"))
-		return
+		return protocolFault(nullID, codeInvalidRequest, "request must be a JSON-RPC 2.0 object")
 	}
 	var request rpcRequest
 	if err := json.Unmarshal(trimmed, &request); err != nil {
 		// Valid JSON whose members have the wrong types: parseable, but not a
 		// JSON-RPC message.
-		writeRPC(w, http.StatusBadRequest, errorResponse(nullID, codeInvalidRequest, "request is not a JSON-RPC 2.0 message: jsonrpc and method must be strings"))
-		return
+		return protocolFault(nullID, codeInvalidRequest, "request is not a JSON-RPC 2.0 message: jsonrpc and method must be strings")
 	}
 	if request.JSONRPC != "2.0" || request.Method == "" {
-		writeRPC(w, http.StatusBadRequest, errorResponse(request.ID, codeInvalidRequest, `request must carry jsonrpc:"2.0" and a method`))
-		return
+		return protocolFault(request.ID, codeInvalidRequest, `request must carry jsonrpc:"2.0" and a method`)
 	}
 
-	// A notification carries no id, so there is nothing to respond to — not
-	// even an error. 202 with an empty body is what the spec asks for, and it
-	// covers notifications/initialized along with any other the client sends.
 	if len(request.ID) == 0 {
-		w.WriteHeader(http.StatusAccepted)
-		return
+		return nil, http.StatusAccepted
 	}
 
 	result, rpcErr := s.dispatch(request)
 	if rpcErr != nil {
 		// A well-formed request that names something we do not have is a
-		// successful HTTP exchange reporting a JSON-RPC failure.
-		writeRPC(w, http.StatusOK, rpcResponse{JSONRPC: "2.0", ID: request.ID, Error: rpcErr})
-		return
+		// successful exchange reporting a JSON-RPC failure.
+		return &rpcResponse{JSONRPC: "2.0", ID: request.ID, Error: rpcErr}, http.StatusOK
 	}
-	writeRPC(w, http.StatusOK, rpcResponse{JSONRPC: "2.0", ID: request.ID, Result: result})
+	return &rpcResponse{JSONRPC: "2.0", ID: request.ID, Result: result}, http.StatusOK
+}
+
+// protocolFault packages one framing failure: the JSON-RPC error the client
+// reads, and the 400 the HTTP transport pairs it with. Every fault reported
+// here is the message being unreadable AS a message, which is the one class of
+// failure that is not a normal exchange.
+func protocolFault(id json.RawMessage, code int, message string) (*rpcResponse, int) {
+	response := errorResponse(id, code, message)
+	return &response, http.StatusBadRequest
 }
 
 // dispatch routes one request-shaped message to its method.

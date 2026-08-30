@@ -65,8 +65,53 @@ is on. Settings shows a copyable one-liner:
 claude mcp add --transport http liteapi http://127.0.0.1:<port>/mcp --header "Authorization: Bearer <token>"
 ```
 
-A later phase adds `liteapi mcp` (stdio, headless) over the same store for
-machines where the app is not running.
+### Headless stdio: `liteapi mcp`
+
+For a machine or a session where the desktop app is not running — a CI box, an
+SSH session, an agent that would rather spawn a process than be handed a URL —
+the same server runs over stdin/stdout:
+
+```
+liteapi mcp [--data-dir <path>]
+```
+
+```
+claude mcp add liteapi -- /path/to/liteapi mcp
+```
+
+It is the app minus the window: the real data directory, the real state, the
+real collections, the same Backend, guard, audit and preferences. The transport
+is the MCP stdio transport — newline-delimited JSON-RPC, one message per line —
+and it shares its dispatch with the HTTP handler, so a call answered over a pipe
+returns the same bytes and records the same audit entry as the same call over
+the port. **Stdout carries protocol and nothing else**; diagnostics go to
+stderr.
+
+**No bearer token.** Over HTTP the token separates the user's collections from
+anything else that can reach the loopback interface. A pipe carries no such
+ambiguity: stdin and stdout were handed to the process by the parent that
+launched it, so possession of the pipe is the credential.
+
+**One store, one writer.** If the app is open (or another `liteapi mcp` is
+serving) over the same data directory, the subcommand refuses to start, says so
+on stderr, and points at the running app's HTTP endpoint. It takes the same
+per-workspace ownership lease the app window takes, so the refusal comes from
+the lock itself rather than from a heuristic. A lease left behind by a killed
+process expires within 30 seconds.
+
+**The safety rules hold, with one consequence worth stating.** The new-host
+guard still runs, and headlessly it *denies*: with no window there is nobody to
+raise the approval prompt to, so a run that would resolve a secret into a
+request aimed at a host outside its allowlist fails with the standard
+secret-free message. Hosts already approved in the app still work — remembered
+approvals live in the same data directory and widen the allowlist here too.
+Every call is audited into the same log the app's panel reads. The write tier
+honours the same off-by-default preference.
+
+**The MCP enabled/port preferences do not apply.** They govern the HTTP
+listener, which publishes a port other software on the machine can reach;
+invoking the subcommand is itself the consent, so it serves regardless of the
+Settings toggle and binds no port.
 
 ## Tool surface
 
