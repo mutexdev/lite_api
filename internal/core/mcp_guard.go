@@ -24,6 +24,19 @@ package core
 // because the known-host set is computed WITHOUT the overrides applied while the
 // target host is resolved WITH them.
 //
+// WHAT AN AGENT-SUPPLIED VALUE MAY NOT DO. interp.Interpolate is MULTI-PASS: it
+// re-scans its own output for new {{tokens}}. So a value the agent chose is not
+// inert data — an override of {"smuggle": "{{apiToken}}"} on a request whose
+// header reads "Bearer {{smuggle}}" resolves the real credential at send time,
+// and the scan above sees only the name "smuggle", which is not a secret, so it
+// would find nothing to guard and return before a host was ever computed. That
+// path is closed by mcpRefuseSecretInjectingValues, which REFUSES any
+// agent-supplied value that reaches a secret — the same inversion argument
+// mcpValidatedOverrides (mcp_run.go) already makes for override NAMES, applied
+// to their values. Separately, the "is a secret in play" scan now also follows
+// the overrides (mcpSecretsReachedByOverrides), so a secret a USER-authored
+// flow step var aims at a request is host-checked rather than invisible.
+//
 // KNOWN LIMITATIONS, STATED RATHER THAN PAPERED OVER. The guard reasons about
 // the request's DEFINITION, and it runs once, before the send. Two consequences:
 //
@@ -239,8 +252,80 @@ func mcpReferencedSecrets(item types.RequestItem, secretsInScope map[string]bool
 	return names
 }
 
-// mcpKnownHostsForSecret walks every request of every open collection and
-// collects the hosts the ones referencing secretName resolve to.
+// mcpSecretOwner names the DEFINITION SITE a secret's host allowlist is scoped
+// to.
+//
+// A secret has no identity beyond where it is written down. Two collections that
+// both declare "apiToken" — the single most reusable name a real workspace has —
+// hold two different credentials, for two different APIs, that have never shared
+// a host; treating them as one secret let either one's requests widen the
+// other's allowlist, which is the whole point of scoping by site rather than by
+// name.
+type mcpSecretOwner struct {
+	// workspacePath is the workspace the secret is defined in. Hosts are NEVER
+	// unioned across workspaces: separate workspaces are the user's own coarsest
+	// separation and nothing in one may teach the guard about the other.
+	workspacePath string
+	// collectionID is the collection that owns the secret, or "" when it is
+	// defined in a workspace GLOBAL environment. A global secret legitimately
+	// serves every collection in its workspace — that is what a global
+	// environment is for — so its allowlist unions that workspace's collections.
+	collectionID string
+}
+
+// mcpCollectionScopedSecretNames is every name this collection declares SECRET
+// at collection scope or narrower: its own variables, any of its environments,
+// any folder, or any request's own vars.
+//
+// The sources match mcpSecretNamesInScope's, minus the workspace globals, for
+// the same reason that function gives — "which scope is this name secret in" has
+// to agree with "which value would this name resolve to". Every environment is
+// considered rather than only the selected one, and that is the conservative
+// direction: a name a collection declares secret in ANY environment means that
+// collection's own credential somewhere, so treating it as collection-owned
+// narrows the allowlist rather than widening it.
+func mcpCollectionScopedSecretNames(collection types.Collection) map[string]bool {
+	names := map[string]bool{}
+	collect := func(variables []types.Variable) {
+		for _, variable := range variables {
+			name := strings.TrimSpace(variable.Name)
+			if name == "" || !variable.Secret {
+				continue
+			}
+			names[name] = true
+		}
+	}
+	collect(collection.Variables)
+	for _, environment := range collection.Environments {
+		collect(environment.Variables)
+	}
+	for _, folder := range collection.Folders {
+		collect(folder.Variables)
+	}
+	for index := range collection.Items {
+		collect(collection.Items[index].Vars.Req)
+	}
+	return names
+}
+
+// mcpSecretOwnerIn works out where a secret name is defined for a request being
+// judged inside one collection: the collection when it declares the name secret
+// itself, the workspace otherwise.
+//
+// Collection scope wins when both declare it, because that is the precedence
+// scripting.BuildVariableMap applies — the collection's value is the one that
+// would resolve — and because it is the narrower allowlist of the two.
+func mcpSecretOwnerIn(owner mcpGuardCollection, collectionScoped map[string]bool, secretName string) mcpSecretOwner {
+	site := mcpSecretOwner{workspacePath: owner.workspacePath}
+	if collectionScoped[secretName] {
+		site.collectionID = owner.collection.ID
+	}
+	return site
+}
+
+// mcpKnownHostsForSecret collects the hosts the requests that reference this
+// secret resolve to — from the collections its DEFINITION SITE lets it serve,
+// and no others.
 //
 // EACH CANDIDATE IS RESOLVED UNDER EVERY ENVIRONMENT ITS OWN COLLECTION
 // DEFINES, plus none. A collection with staging and production environments
@@ -250,9 +335,27 @@ func mcpReferencedSecrets(item types.RequestItem, secretsInScope map[string]bool
 // What this does NOT widen is overrides — those are the agent's input, and they
 // are excluded here precisely so that retargeting through one is what trips the
 // guard.
-func mcpKnownHostsForSecret(collections []mcpGuardCollection, secretName string) map[string]bool {
+//
+// A COLLECTION THAT REDEFINES THE NAME IS SKIPPED when the secret under guard is
+// the workspace-global one. Inside such a collection the name means that
+// collection's own credential, at least under the environments that declare it,
+// and there is no way to tell from a request's braces which of the two it meant.
+// Skipping is the fail-closed answer: at worst it costs one approval prompt for
+// a host the global secret really does already use, whereas the other direction
+// is one collection silently widening another's allowlist.
+func mcpKnownHostsForSecret(collections []mcpGuardCollection, site mcpSecretOwner, secretName string) map[string]bool {
 	hosts := map[string]bool{}
 	for _, owner := range collections {
+		if owner.workspacePath != site.workspacePath {
+			continue
+		}
+		if site.collectionID != "" {
+			if owner.collection.ID != site.collectionID {
+				continue
+			}
+		} else if mcpCollectionScopedSecretNames(owner.collection)[secretName] {
+			continue
+		}
 		collection := owner.collection
 		environmentIDs := []string{""}
 		for _, environment := range collection.Environments {
@@ -284,14 +387,77 @@ type mcpGuardCollection struct {
 	workspacePath      string
 }
 
+// mcpGuardInput is everything ONE run contributes to the guard's decision
+// beyond the request's own definition. It is a struct rather than three
+// parameters because the three are only ever passed together, and because the
+// distinction between the first two is load-bearing enough to want a name on
+// each.
+type mcpGuardInput struct {
+	// overrides is what the send will actually apply (runner.Iteration.Data).
+	// For run_request these ARE the agent's own variables; for run_flow they are
+	// the step's USER-AUTHORED vars after flow-scope interpolation.
+	overrides map[string]string
+	// agentValues is the subset the AGENT itself chose: run_request's variables,
+	// run_flow's inputs.
+	//
+	// THE SPLIT MATTERS AND IS NOT COSMETIC. A flow step var of
+	// {"token": "{{apiToken}}"} is legitimate and documented — the USER wrote
+	// that reference into the flow, and flow scope deliberately never resolves
+	// it (flow_run.go's header), so the braces travel to the send path and the
+	// credential is resolved there, inside LiteAPI. Refusing THAT would break
+	// the flow tier's central promise. What must be refused is the same
+	// reference arriving from the agent, which for a flow means an INPUT value,
+	// not the derived override it ends up inside.
+	agentValues map[string]string
+	// secretValues is the process's hydrated secret values, fetched by the
+	// caller before the run, for the backstop below.
+	secretValues []string
+}
+
+// mcpTemplateWalkDepth bounds the transitive walk of an agent-supplied value
+// through the variable map. It matches interp's own maxPasses because that is
+// how far the send path will chase a nested template: a chain the interpolator
+// cannot finish is a chain that cannot deliver a credential either.
+const mcpTemplateWalkDepth = 8
+
+// mcpMinComparableSecretLength mirrors MaskKnownSecretValues' own threshold
+// (internal/mcpserver/redact.go). A value shorter than this matches too much
+// ordinary text to attribute anything to — refusing every override that happens
+// to contain "1234" would be noise, not safety — and a secret that short is not
+// protected by value comparison anyway. The NAME walk above does not depend on
+// value length, so the normal smuggling route stays closed regardless.
+const mcpMinComparableSecretLength = 8
+
 // enforceMCPHostGuard is the decision point, called from RunRequest before
-// anything is sent.
+// anything is sent and from RunFlow's per-step guard before each step.
 //
 // Returns nil to proceed. Returns an ErrDenied-wrapped error to refuse, naming
-// the host and the secret NAMES — never a value, which is what makes the error
-// safe to hand back to the agent verbatim.
-func (a *App) enforceMCPHostGuard(ctx context.Context, plan mcpRunPlan, overrides map[string]string) error {
-	referenced := mcpReferencedSecrets(plan.effective, plan.secretsInScope)
+// the host, the offending variable and the secret NAMES — never a value, which
+// is what makes the error safe to hand back to the agent verbatim.
+func (a *App) enforceMCPHostGuard(ctx context.Context, plan mcpRunPlan, input mcpGuardInput) error {
+	// The variable map the send path will resolve against: the run's own scope
+	// overlaid with the overrides. Both halves below need it — the injection
+	// refusal walks agent-supplied values through it, and the target host is
+	// resolved with it.
+	effective := mcpEffectiveGuardVars(plan.vars, input.overrides)
+
+	// FIRST, AND UNCONDITIONALLY: an agent-supplied value that reaches a secret
+	// is refused outright, before any host is computed. It is not a run to be
+	// guarded, it is a run that must not be attempted.
+	if err := mcpRefuseSecretInjectingValues(plan, effective, input); err != nil {
+		return err
+	}
+
+	referenced := mcpUnionSecretNames(
+		mcpReferencedSecrets(plan.effective, plan.secretsInScope),
+		// A secret can also reach the request through an override the USER
+		// authored — a flow step var of {"token": "{{apiToken}}"} on a request
+		// whose header reads "Bearer {{token}}". The request's own fields never
+		// name the secret, so the scan above cannot see it, but the send path
+		// will resolve it all the same. Following the overrides is what makes
+		// such a run host-checked rather than invisible.
+		mcpSecretsReachedByOverrides(effective, input.overrides, plan.secretsInScope),
+	)
 	if len(referenced) == 0 {
 		// Nothing secret is in play. A run with no credential to protect is not
 		// the guard's business, whatever host it points at.
@@ -300,14 +466,7 @@ func (a *App) enforceMCPHostGuard(ctx context.Context, plan mcpRunPlan, override
 
 	// The target host, resolved WITH the overrides — this is where the run would
 	// actually send the credential.
-	targetVars := map[string]string{}
-	for name, value := range plan.vars {
-		targetVars[name] = value
-	}
-	for name, value := range overrides {
-		targetVars[name] = value
-	}
-	targetHost := mcpHostOfURL(plan.effective.URL, targetVars)
+	targetHost := mcpHostOfURL(plan.effective.URL, effective)
 	if targetHost == "" {
 		return fmt.Errorf("%w: this run references the secret %s but its URL does not resolve to a host, so the new-host guard cannot check where the credential would go; fix the URL or the variables it depends on",
 			mcpserver.ErrDenied, strings.Join(referenced, ", "))
@@ -336,6 +495,169 @@ func (a *App) enforceMCPHostGuard(ctx context.Context, plan mcpRunPlan, override
 		mcpserver.ErrDenied, mcpJoinSecretNames(unknown), targetHost)
 }
 
+// mcpEffectiveGuardVars is the run's resolved scope overlaid with its overrides:
+// the map the send path will interpolate every field against, minus only what a
+// pre-request script could add (which the limitation note at the top of this
+// file already accounts for).
+func mcpEffectiveGuardVars(vars, overrides map[string]string) map[string]string {
+	effective := make(map[string]string, len(vars)+len(overrides))
+	for name, value := range vars {
+		effective[name] = value
+	}
+	for name, value := range overrides {
+		effective[name] = value
+	}
+	return effective
+}
+
+// mcpRefuseSecretInjectingValues refuses a run whose AGENT-SUPPLIED values would
+// inject a secret into it.
+//
+// WHY REFUSE RATHER THAN GUARD. mcpValidatedOverrides (mcp_run.go) already
+// makes this argument for override NAMES: an agent that cannot READ a secret
+// must not be able to WRITE one, because that inverts the whole boundary. The
+// argument applies unchanged to VALUES. interp.Interpolate is multi-pass, so
+// {"smuggle": "{{apiToken}}"} is not data — it is a second-order reference that
+// the send path will chase to the real credential. There is no legitimate run
+// that needs it: a request references a secret because the USER wrote that
+// reference into the request definition, and the way for an agent to use that
+// credential is to run the request as authored. So this refuses outright rather
+// than routing to an approval prompt, which would ask the user to bless a shape
+// that has no honest use.
+//
+// TWO CHECKS, IN ORDER. The name walk follows the value's tokens through the
+// effective map — transitively ({"a": "{{b}}"} where b is "{{apiToken}}"),
+// cycle-safe (a name is expanded once) and depth-bounded. The backstop then
+// interpolates the value for real and compares the result against the process's
+// known secret values, which catches routes no name walk can see: an ordinary
+// variable whose VALUE literally contains the credential, or a
+// {{process.env.X}} form that interp resolves outside the variable map
+// entirely.
+func mcpRefuseSecretInjectingValues(plan mcpRunPlan, effective map[string]string, input mcpGuardInput) error {
+	for _, key := range mcpSortedNames(mcpMapKeys(input.agentValues)) {
+		value := input.agentValues[key]
+		if names := mcpSecretsReachedByTemplate(value, effective, plan.secretsInScope); len(names) > 0 {
+			return mcpSecretInjectionRefusal(key, names)
+		}
+		resolved := value
+		if strings.Contains(value, "{{") {
+			resolved = interp.Interpolate(value, effective)
+		}
+		if !mcpContainsKnownSecretValue(resolved, input.secretValues) {
+			continue
+		}
+		// The resolved text is NEVER put in the message; only the names whose
+		// values it turned out to contain, and only when they can be attributed.
+		return mcpSecretInjectionRefusal(key, mcpSecretNamesResolvingInto(resolved, plan))
+	}
+	return nil
+}
+
+// mcpSecretInjectionRefusal writes the refusal for the agent that reads it: what
+// was refused, why no approval can unlock it, and what to do instead.
+func mcpSecretInjectionRefusal(key string, names []string) error {
+	reached := "a value this workspace holds as a secret"
+	if len(names) > 0 {
+		reached = "the secret " + mcpJoinSecretNames(names)
+	}
+	return fmt.Errorf("%w: the value you supplied for %q resolves to %s, and a value you supply may not inject a secret into a run. A request references a secret because the USER wrote that reference into the request definition; the fix is to run the request as authored and let LiteAPI resolve the credential itself, never to pass the credential in yourself. Drop this variable and run again; do not retry it and do not work around it",
+		mcpserver.ErrDenied, key, reached)
+}
+
+// mcpSecretsReachedByTemplate walks the {{tokens}} of one value through the
+// effective variable map and returns every secret name it can reach.
+//
+// mcpTemplatePattern is reused rather than a second regex written: two patterns
+// for "what is a template reference" is exactly the drift that lets one of them
+// miss the spaced form and become the bypass.
+func mcpSecretsReachedByTemplate(value string, effective map[string]string, secretsInScope map[string]bool) []string {
+	if len(secretsInScope) == 0 || !strings.Contains(value, "{{") {
+		return nil
+	}
+	found := map[string]bool{}
+	// Keyed by NAME, so a cycle ({"a": "{{b}}"} with b = "{{a}}") expands each
+	// name once and terminates regardless of the depth bound.
+	visited := map[string]bool{}
+	frontier := []string{value}
+	for depth := 0; depth < mcpTemplateWalkDepth && len(frontier) > 0; depth++ {
+		var next []string
+		for _, text := range frontier {
+			if !strings.Contains(text, "{{") {
+				continue
+			}
+			for _, match := range mcpTemplatePattern.FindAllStringSubmatch(text, -1) {
+				name := strings.TrimSpace(match[1])
+				if secretsInScope[name] {
+					found[name] = true
+					continue
+				}
+				if visited[name] {
+					continue
+				}
+				visited[name] = true
+				if hop, ok := effective[name]; ok {
+					next = append(next, hop)
+				}
+			}
+		}
+		frontier = next
+	}
+	return mcpSortedNames(mcpMapKeys(found))
+}
+
+// mcpSecretsReachedByOverrides is the union of what every override value can
+// reach — the set the host guard adds to the request's own references.
+func mcpSecretsReachedByOverrides(effective, overrides map[string]string, secretsInScope map[string]bool) []string {
+	var names []string
+	for _, value := range overrides {
+		names = append(names, mcpSecretsReachedByTemplate(value, effective, secretsInScope)...)
+	}
+	return mcpSortedNames(names)
+}
+
+// mcpContainsKnownSecretValue reports whether text carries a hydrated secret
+// value verbatim.
+func mcpContainsKnownSecretValue(text string, secretValues []string) bool {
+	if text == "" {
+		return false
+	}
+	for _, value := range secretValues {
+		if len(value) < mcpMinComparableSecretLength {
+			continue
+		}
+		if strings.Contains(text, value) {
+			return true
+		}
+	}
+	return false
+}
+
+// mcpSecretNamesResolvingInto attributes a resolved string to the secret names
+// in scope whose values it contains, so the refusal can say which credential was
+// reached. It can legitimately come back empty — a process.env value has no name
+// in this scope — and the refusal has wording for that case.
+func mcpSecretNamesResolvingInto(resolved string, plan mcpRunPlan) []string {
+	var names []string
+	for name := range plan.secretsInScope {
+		value := plan.vars[name]
+		if len(value) < mcpMinComparableSecretLength {
+			continue
+		}
+		if strings.Contains(resolved, value) {
+			names = append(names, name)
+		}
+	}
+	return mcpSortedNames(names)
+}
+
+// mcpUnionSecretNames merges two name lists into one sorted, deduped list.
+func mcpUnionSecretNames(first, second []string) []string {
+	if len(second) == 0 {
+		return first
+	}
+	return mcpSortedNames(append(append([]string{}, first...), second...))
+}
+
 // mcpSecretsWithoutHost narrows the referenced secrets to the ones whose
 // allowlist does not already contain targetHost.
 //
@@ -347,6 +669,13 @@ func (a *App) mcpSecretsWithoutHost(plan mcpRunPlan, referenced []string, target
 	var unknown []string
 	var collections []mcpGuardCollection
 	for _, name := range referenced {
+		// REMEMBERED APPROVALS ARE NOT SCOPED, deliberately. mcp-approvals.json
+		// is keyed by name+host because a remembered approval is the user's own
+		// explicit decision about that pair, made in front of a prompt that
+		// named both — it is not something the collections computed, so there is
+		// no definition site to scope it to, and re-asking for a pair the user
+		// has already answered is the noise that trains people to click through
+		// prompts without reading them.
 		remembered, err := a.mcpRememberedHostsForSecret(name)
 		if err != nil {
 			return nil, err
@@ -360,7 +689,7 @@ func (a *App) mcpSecretsWithoutHost(plan mcpRunPlan, referenced []string, target
 				return nil, err
 			}
 		}
-		if mcpKnownHostsForSecret(collections, name)[targetHost] {
+		if mcpKnownHostsForSecret(collections, plan.secretOwner(name), name)[targetHost] {
 			continue
 		}
 		unknown = append(unknown, name)

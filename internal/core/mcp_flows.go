@@ -109,7 +109,20 @@ func (b *mcpBackend) RunFlow(ctx context.Context, params mcpserver.RunFlowParams
 		// and they are what the guard resolves the target host WITH — so a step
 		// that retargets {{baseUrl}} is caught exactly as a run_request override
 		// would be.
-		return b.app.enforceMCPHostGuard(ctx, plan, overrides)
+		//
+		// THE AGENT'S OWN VALUES ARE THE INPUTS, NOT THE OVERRIDES. A step var is
+		// written by the USER, and one that reads {"token": "{{apiToken}}"} is
+		// the flow tier working as designed — flow scope leaves the braces
+		// alone and the send path resolves them inside LiteAPI. What the agent
+		// chooses is params.Inputs, and an input whose VALUE is itself a
+		// template is the smuggling channel: it lands in a step var, travels as
+		// an override, and the send path's multi-pass interpolation chases it to
+		// the real credential. So the inputs are what the guard refuses on.
+		return b.app.enforceMCPHostGuard(ctx, plan, mcpGuardInput{
+			overrides:    overrides,
+			agentValues:  params.Inputs,
+			secretValues: secretValues,
+		})
 	}
 
 	result, runErr := b.app.runFlow(ctx, params.CollectionID, params.FlowID, params.EnvironmentID, params.Inputs, guard)

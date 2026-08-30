@@ -72,6 +72,20 @@ type mcpRunPlan struct {
 	// refused (item 3 of the contract) and which references the guard cares
 	// about.
 	secretsInScope map[string]bool
+	// workspacePath and collectionScopedSecrets locate each of those secrets'
+	// DEFINITION SITE, which is what its host allowlist is scoped to. See
+	// mcpSecretOwner in mcp_guard.go for why a bare name is not an identity.
+	workspacePath           string
+	collectionScopedSecrets map[string]bool
+}
+
+// secretOwner reports where one of this run's secrets is defined.
+func (p mcpRunPlan) secretOwner(name string) mcpSecretOwner {
+	site := mcpSecretOwner{workspacePath: p.workspacePath}
+	if p.collectionScopedSecrets[name] {
+		site.collectionID = p.collectionID
+	}
+	return site
 }
 
 // RunRequest executes one stored request through the app's own send path.
@@ -84,17 +98,24 @@ func (b *mcpBackend) RunRequest(ctx context.Context, params mcpserver.RunRequest
 	if err != nil {
 		return mcpserver.RunResult{}, err
 	}
-	if err := b.app.enforceMCPHostGuard(ctx, plan, overrides); err != nil {
-		return mcpserver.RunResult{}, err
-	}
-
-	// The known secret VALUES, fetched before the send so the mapping below
+	// The known secret VALUES, fetched before the guard so the mapping below
 	// cannot forget to scrub. Post-interpolation artifacts — the resolved URL,
 	// response headers, the body — are where name-based masking cannot help: a
 	// resolved secret sits under whatever name the user chose, and only an exact
-	// value match finds it. Same argument as GetHistory's.
+	// value match finds it. Same argument as GetHistory's. The guard needs them
+	// too, for the backstop that catches an override resolving to a credential
+	// no name walk could have reached.
 	secretValues, err := b.app.mcpHydratedSecretValues()
 	if err != nil {
+		return mcpserver.RunResult{}, err
+	}
+	// EVERY override is agent-supplied here: run_request's whole variables map
+	// is the agent's own input, which is why both fields carry it.
+	if err := b.app.enforceMCPHostGuard(ctx, plan, mcpGuardInput{
+		overrides:    overrides,
+		agentValues:  overrides,
+		secretValues: secretValues,
+	}); err != nil {
 		return mcpserver.RunResult{}, err
 	}
 
@@ -188,13 +209,15 @@ func (a *App) mcpRunPlan(collectionID, requestID, environmentID string) (mcpRunP
 	effective := scripting.EffectiveRequest(collection, item)
 	variables := scripting.NewScriptVariableContext(globals, &collection, environmentID, effective, nil, workspacePath)
 	return mcpRunPlan{
-		collectionID:   collectionID,
-		requestID:      requestID,
-		environmentID:  environmentID,
-		requestName:    item.Name,
-		effective:      effective,
-		vars:           variables.Combined,
-		secretsInScope: mcpSecretNamesInScope(globals, collection, environmentID, item),
+		collectionID:            collectionID,
+		requestID:               requestID,
+		environmentID:           environmentID,
+		requestName:             item.Name,
+		effective:               effective,
+		vars:                    variables.Combined,
+		secretsInScope:          mcpSecretNamesInScope(globals, collection, environmentID, item),
+		workspacePath:           workspacePath,
+		collectionScopedSecrets: mcpCollectionScopedSecretNames(collection),
 	}, nil
 }
 

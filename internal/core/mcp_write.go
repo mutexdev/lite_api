@@ -394,6 +394,13 @@ func (a *App) enforceMCPAuthoringGuard(ctx context.Context, collectionID string,
 
 	// The allowlist as it stands WITHOUT this definition: the collections as
 	// they are on disk, plus what the user has already remembered.
+	//
+	// SCOPED BY DEFINITION SITE, exactly as the run guard scopes it
+	// (mcpSecretOwner, mcp_guard.go). The candidate is judged against the
+	// collection as it WOULD BE, so a secret the candidate's own vars introduce
+	// is collection-owned here too. The remembered half is unscoped by design —
+	// see mcpSecretsWithoutHost.
+	collectionScoped := mcpCollectionScopedSecretNames(hypothetical)
 	known := map[string]map[string]bool{}
 	knownFor := func(secretName string) (map[string]bool, error) {
 		if hosts, cached := known[secretName]; cached {
@@ -403,7 +410,8 @@ func (a *App) enforceMCPAuthoringGuard(ctx context.Context, collectionID string,
 		if err != nil {
 			return nil, err
 		}
-		for host := range mcpKnownHostsForSecret(collections, secretName) {
+		site := mcpSecretOwnerIn(owner, collectionScoped, secretName)
+		for host := range mcpKnownHostsForSecret(collections, site, secretName) {
 			hosts[host] = true
 		}
 		known[secretName] = hosts
