@@ -165,8 +165,38 @@ func (b *mcpBackend) RunRequest(ctx context.Context, params mcpserver.RunRequest
 	if response == nil {
 		return mcpserver.RunResult{}, errors.New("the run produced no response; this is a bug in LiteAPI, not something to retry")
 	}
-	return mcpRunResult(*response, secretValues)
+	result, runResultErr := mcpRunResult(*response, secretValues)
+	return result, mcpClassifyRunFailure(runResultErr, policy)
 }
+
+// mcpClassifyRunFailure re-attaches the ErrDenied CLASS to a run that failed
+// because the destination policy refused something.
+//
+// WHY IT IS NEEDED. The engine's own checkpoints — the main HTTP one and the
+// guard transport under it — live inside executeHTTP, which reports every
+// failure by writing a string into Response.Error. By the time the refusal
+// reaches here it is text, and §1.2's promise that a denial arrives as "an
+// ErrDenied-class error" would silently stop holding for exactly the egresses
+// this phase added. The policy remembers that it refused, so the class can be
+// restored without inspecting the message.
+//
+// WHY NOT fmt.Errorf("%w: …", ErrDenied). The refusal has already been rendered
+// once, "denied:" and all; wrapping would print it twice. mcpDeniedRunError
+// carries the class and leaves the message alone.
+func mcpClassifyRunFailure(err error, policy *mcpEgressPolicy) error {
+	if err == nil || errors.Is(err, mcpserver.ErrDenied) || !policy.refusedAnyEgress() {
+		return err
+	}
+	return mcpDeniedRunError{err: err}
+}
+
+// mcpDeniedRunError is a refusal whose message was produced elsewhere: Error()
+// is the text the agent reads, Unwrap() is what errors.Is matches.
+type mcpDeniedRunError struct{ err error }
+
+func (e mcpDeniedRunError) Error() string { return e.err.Error() }
+
+func (e mcpDeniedRunError) Unwrap() error { return mcpserver.ErrDenied }
 
 // mcpRunPlan validates the ids and copies the definition the run needs.
 //

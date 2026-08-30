@@ -45,6 +45,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/mutexdev/lite_api/internal/mcpserver"
 	"github.com/mutexdev/lite_api/internal/types"
@@ -224,6 +225,20 @@ type mcpEgressPolicy struct {
 	session map[sessionKey]bool
 	// audit records every decision. Called with p.mu released.
 	audit func(site mcpDefinitionSite, o Origin, kind egressKind, decision string)
+	// refused remembers that SOMETHING in this execution was denied.
+	//
+	// IT EXISTS BECAUSE A REFUSAL LOSES ITS TYPE ON THE WAY OUT. The main
+	// checkpoint and the guard transport both sit inside executeHTTP, which
+	// reports failure by writing a STRING into Response.Error — so an
+	// ErrDenied-wrapped refusal reaches the MCP tool layer as ordinary text, and
+	// §1.2's promise that a denial is "an ErrDenied-class error" would quietly
+	// stop being true for exactly the egresses this phase added. The run root
+	// reads this flag and re-attaches the class without re-rendering the
+	// message.
+	//
+	// An atomic rather than a mutex-guarded bool because it is written from
+	// inside record(), which is called with p.mu deliberately RELEASED.
+	refused atomic.Bool
 }
 
 // newMCPEgressPolicy builds a policy with a fresh execution overlay.
@@ -460,14 +475,23 @@ func (p *mcpEgressPolicy) grantSession(site mcpDefinitionSite, o Origin, class s
 	p.session[newSessionKey(site, o, class)] = true
 }
 
-// record calls the audit hook with p.mu released.
+// record calls the audit hook with p.mu released, and remembers a refusal.
 func (p *mcpEgressPolicy) record(site mcpDefinitionSite, o Origin, k egressKind, decision string) {
+	if decision == mcpDecisionDenied || decision == mcpDecisionUnavailable {
+		p.refused.Store(true)
+	}
 	p.mu.Lock()
 	audit := p.audit
 	p.mu.Unlock()
 	if audit != nil {
 		audit(site, o, k, decision)
 	}
+}
+
+// refusedAnyEgress reports whether this execution denied something. See the
+// `refused` field for why the run root needs to know.
+func (p *mcpEgressPolicy) refusedAnyEgress() bool {
+	return p != nil && p.refused.Load()
 }
 
 // approvalRequest builds the prompt payload: the full site, the origin, the

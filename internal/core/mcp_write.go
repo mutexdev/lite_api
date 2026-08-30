@@ -34,19 +34,27 @@ package core
 //    stated limitation would become a hole and the guard would claim a property
 //    it no longer has.
 //
-// 4. THE AUTHORING-TIME HOST GUARD, which is the load-bearing piece. The run
-//    guard's allowlist is COMPUTED from the requests that reference each secret
-//    (mcpKnownHostsForSecret). Authoring therefore writes the allowlist: a
-//    request an agent saved pointing {{apiToken}} at evil.test would teach the
-//    guard that evil.test is a legitimate destination for that secret, and
-//    every later run to it would pass unchecked. So the same question the run
-//    guard asks is asked BEFORE the save, with the same helpers, and a
-//    (secret, host) pair the collections have never used raises the same
-//    approval prompt. A request that references no secret, or whose URL does
-//    not resolve to a host yet, saves without a prompt — an unresolvable URL
-//    contributes no host to the allowlist either, so it teaches the guard
-//    nothing and cannot be sent until it resolves, at which point the run guard
-//    checks it.
+// 4. THE AUTHORING-TIME DESTINATION GUARD, which is the load-bearing piece.
+//    Both boundaries a run passes through are COMPUTED FROM STORED DEFINITIONS,
+//    so authoring writes them:
+//
+//      - Base(S, k) (§1.1) — what an MCP run may contact at all — is the origins
+//        the request's own stored definition resolves to. A request an agent
+//        saved pointing at evil.test would teach the boundary that evil.test is
+//        a legitimate destination FOR THAT REQUEST, and every later run to it
+//        would pass with no prompt at all.
+//      - The shipped host guard's per-secret allowlist (mcpKnownHostsForSecret)
+//        is the hosts the requests referencing each secret resolve to, so a
+//        saved request also teaches THAT.
+//
+//    So both questions are asked BEFORE the save, through the same helpers the
+//    run tier uses — mcpDefinitionOrigins for the first (one resolver, so "what
+//    authoring checks" and "what running learns" cannot drift) and
+//    mcpKnownHostsForSecret for the second — and an origin or a (secret, host)
+//    pair the collections have never used raises an approval prompt keyed on the
+//    §6 full site. A URL that does not resolve to an origin yet saves without a
+//    prompt: it teaches neither boundary anything and cannot be sent until it
+//    resolves, at which point the run tier checks it.
 //
 // LOCKING follows mcp_backend.go's rule: nothing here holds a.mu. The copy-out
 // helpers take it briefly, and the App methods this file calls take it
@@ -57,6 +65,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/mutexdev/lite_api/internal/mcpserver"
@@ -319,22 +328,41 @@ func (a *App) mcpApplyAuthoredRequest(collectionID, requestID string, authored t
 	return nil
 }
 
-// --- the authoring-time host guard -----------------------------------------
+// --- the authoring-time destination guard -----------------------------------
 
 // enforceMCPAuthoringGuard decides whether the authored definition may be
-// saved, and blocks on the user when it points a secret somewhere new.
+// saved, and blocks on the user when it would reach somewhere new.
 //
 // replacingID names the request this definition would REPLACE, so an update is
-// judged against the collection minus its own previous version — otherwise a
-// request would authorise its own retargeting by already being in the
-// allowlist. It is empty for a create.
+// judged as the collection would be once it lands — with its own previous
+// version out of the way — and never against itself. It is empty for a create.
+// What the previous version may still vouch for, and why, is set out on
+// mcpAuthoringSubject.stored.
 //
-// Everything here resolves the way mcpKnownHostsForSecret resolves, and through
-// the same helpers: mcpSecretNamesInScope for which names are secret,
-// mcpReferencedSecrets for which ones the definition uses, mcpHostOfURL for
-// where it points, under every environment the collection defines plus none.
-// Any divergence between "the hosts authoring checks" and "the hosts running
-// learns" would be a gap in exactly the shape of the attack this closes.
+// TWO HALVES, IN THIS ORDER, AND THEY ASK DIFFERENT QUESTIONS.
+//
+//  1. THE ORIGIN HALF (enforceMCPAuthoredOrigins) asks "would saving this teach
+//     Base a destination nothing already reaches". It is the Phase 6 boundary's
+//     own question, so it is asked in the Phase 6 boundary's own terms —
+//     mcpDefinitionOrigins, the SAME resolver mcpRunPlan uses to build the run's
+//     scope, so that what authoring checks and what running learns cannot drift.
+//     It is deliberately SECRET-BLIND: Base carries no notion of a credential,
+//     and an origin the boundary would learn is worth a question whatever the
+//     request happens to carry.
+//  2. THE SECRET HALF (enforceMCPAuthoredSecretHosts) asks the shipped host
+//     guard's question — "has this credential ever gone to that host" — and is
+//     kept verbatim in substance because §9 of the design forbids any
+//     intermediate wave from weakening the shipped boundary. It catches what the
+//     origin half cannot: a host the workspace already talks to, reached by a
+//     credential that has never been sent there. It also still reasons in bare
+//     hosts (mcpHostOfURL), which additionally covers a schemeless URL — one the
+//     send path will complete but which yields no Origin at all.
+//
+// The origin half runs first and hands the second the hosts the user approved
+// while it ran, so one save asks one question about one destination. Asking
+// twice about the same host — once naming the origin, once naming the secret —
+// is the queue of near-identical dialogs that trains a user to click through
+// prompts without reading them.
 func (a *App) enforceMCPAuthoringGuard(ctx context.Context, collectionID string, candidate types.RequestItem, replacingID string) error {
 	collections, err := a.mcpGuardCollections()
 	if err != nil {
@@ -349,31 +377,467 @@ func (a *App) enforceMCPAuthoringGuard(ctx context.Context, collectionID string,
 	// collection's own variables all apply to the candidate exactly as they
 	// will once it is saved.
 	hypothetical := owner.collection
-	items := make([]types.RequestItem, 0, len(owner.collection.Items)+1)
+	remaining := make([]types.RequestItem, 0, len(owner.collection.Items)+1)
 	for _, item := range owner.collection.Items {
 		if replacingID != "" && item.ID == replacingID {
 			continue
 		}
-		items = append(items, item)
+		remaining = append(remaining, item)
 	}
-	hypothetical.Items = append(items, candidate)
-	effective := scripting.EffectiveRequest(hypothetical, candidate)
+	hypothetical.Items = append(remaining, candidate)
 
-	environmentIDs := []string{""}
+	subject := mcpAuthoringSubject{
+		collections:            collections,
+		owner:                  owner,
+		hypothetical:           hypothetical,
+		stored:                 owner.collection.Items,
+		candidate:              candidate,
+		effective:              scripting.EffectiveRequest(hypothetical, candidate),
+		replacingID:            replacingID,
+		environments:           []string{""},
+		environmentNames:       map[string]string{},
+		globalEnvironmentIDs:   mcpEnvironmentIDs(owner.globalEnvironments),
+		globalEnvironmentNames: mcpEnvironmentNames(owner.globalEnvironments),
+	}
 	for _, environment := range hypothetical.Environments {
-		environmentIDs = append(environmentIDs, environment.ID)
+		subject.environments = append(subject.environments, environment.ID)
+		subject.environmentNames[environment.ID] = environment.Name
 	}
 
-	// host -> the secrets this definition would send there.
+	approvedHosts, err := a.enforceMCPAuthoredOrigins(ctx, subject)
+	if err != nil {
+		return err
+	}
+	return a.enforceMCPAuthoredSecretHosts(ctx, subject, approvedHosts)
+}
+
+// mcpAuthoringSubject is one authored definition and everything both halves of
+// the guard need to judge it. A struct rather than a parameter list because the
+// two halves must judge the SAME thing — the same hypothetical collection, the
+// same environment list, the same site — and a second assembly of any of it
+// would be a place for the two to disagree.
+type mcpAuthoringSubject struct {
+	// collections is every open collection, for the secret half's workspace walk.
+	collections []mcpGuardCollection
+	// owner is the collection the definition is being saved into.
+	owner mcpGuardCollection
+	// hypothetical is that collection as it WOULD BE: the other items plus the
+	// candidate, minus the version an update replaces. It is the RESOLUTION
+	// CONTEXT — folder chain, collection auth, collection variables — never the
+	// reachability set, because it contains the candidate and a set containing
+	// the candidate would authorise the candidate.
+	hypothetical types.Collection
+	// stored is the owning collection's items AS THEY ARE ON DISK, which is what
+	// "already reachable" is computed from inside this collection. The candidate
+	// is not among them, which is the exclusion that matters.
+	//
+	// The version an UPDATE replaces IS among them, and deliberately: every
+	// origin it reaches under an environment is already in Base(S, k) for this
+	// exact site, so a run can contact it right now with no prompt and saving
+	// cannot teach it. What the stored version can never do is authorise a
+	// DIFFERENT origin — the sets are compared origin by origin, per environment
+	// and per class — and a retarget is the only shape that widens anything.
+	// Excluding it instead would re-ask about a request's own unchanged
+	// destination on every edit, which is how a prompt stops being read.
+	stored []types.RequestItem
+	// candidate is the definition as it would be stored; effective is that
+	// definition with folder and collection headers and inherited auth folded
+	// in, which is what the send path resolves.
+	candidate types.RequestItem
+	effective types.RequestItem
+	// replacingID is the request id an update would overwrite, "" for a create.
+	// It is also the site's requestID — see site().
+	replacingID string
+	// environments is "" (no collection environment) followed by the
+	// collection's own, in order. Every one of them is judged: the authored
+	// definition can be run under any of them, and Base is per-environment.
+	environments     []string
+	environmentNames map[string]string
+	// The workspace's active global environments, which are part of the §6 site
+	// even though no authored field can change them.
+	globalEnvironmentIDs   []string
+	globalEnvironmentNames []string
+}
+
+// site is the §6 approval site this definition would be run under, for one
+// collection environment.
+//
+// THE requestID IS EMPTY FOR A CREATE, and that is honest rather than
+// convenient: the request does not exist yet, so there is no identity for an
+// approval to be keyed on. The consequences are both correct — no stored
+// approval can match (every stored entry carries a request id, enforced by the
+// migration probe in mcp_approvals.go), and nothing may be remembered from a
+// create's prompt either (see mcpAuthoringPrompt).
+func (s mcpAuthoringSubject) site(environmentID string) mcpDefinitionSite {
+	return mcpDefinitionSite{
+		workspacePath:        s.owner.workspacePath,
+		collectionID:         s.owner.collection.ID,
+		requestID:            s.replacingID,
+		environmentID:        environmentID,
+		globalEnvironmentIDs: s.globalEnvironmentIDs,
+	}
+}
+
+// labels is the human half of the prompt for one environment (§6): names only,
+// nothing the key is built from.
+func (s mcpAuthoringSubject) labels(environmentID string, advisorySecretNames []string) mcpSiteLabels {
+	return mcpSiteLabels{
+		runLabel:               s.candidate.Name,
+		collectionName:         s.owner.collection.Name,
+		requestName:            s.candidate.Name,
+		environmentName:        s.environmentNames[environmentID],
+		globalEnvironmentNames: s.globalEnvironmentNames,
+		advisorySecretNames:    advisorySecretNames,
+	}
+}
+
+// vars resolves one item under one collection environment with the AGENT-FREE
+// context, through the exact scripting.NewScriptVariableContext construction
+// mcpRunPlan performs (mcp_run.go). Base is defined as what that construction
+// yields (§1.1), so authoring has to use the same one — BuildVariableMap, which
+// the shipped host guard uses, layers its scopes differently and would resolve a
+// request-scoped variable against a different precedence than the send does.
+func (s mcpAuthoringSubject) vars(environmentID string, item types.RequestItem) map[string]string {
+	collection := s.hypothetical
+	return scripting.NewScriptVariableContext(
+		s.owner.globalEnvironments, &collection, environmentID, item, nil, s.owner.workspacePath,
+	).Combined
+}
+
+// secretsReferenced is the advisory list for a prompt raised under one
+// environment: which secret variables this definition mentions. Nothing keys on
+// it (§6) — it is there because "this request would carry apiToken" is what
+// makes the decision feel real to the person answering.
+func (s mcpAuthoringSubject) secretsReferenced(environmentID string) []string {
+	return mcpReferencedSecrets(s.effective,
+		mcpSecretNamesInScope(s.owner.globalEnvironments, s.hypothetical, environmentID, s.candidate))
+}
+
+// mcpAuthoringCheckedKinds are the egress kinds an authored definition is judged
+// on, and the three that are missing are missing on purpose.
+//
+// redirect and script are absent even though Base carries them: mcpDefinitionOrigins
+// fills both with the MAIN set at construction (§4.1), so checking them would
+// re-ask the identical request-class question about the identical origins and
+// turn one save into three prompts. script-dns is absent because it is
+// authorized against hostnames rather than origins and only a script can raise
+// it — and this tier refuses scripts outright (rule 3). proxy is absent because
+// it has no approval path at all (§1.1): the manual proxy comes from the
+// collection's own configuration, which nothing an agent may author can reach,
+// so a prompt about it could only ever be unanswerable.
+//
+// token AND aws ARE HERE, and that is the non-obvious half. An agent cannot
+// author an oauth2 or awsv4 auth block — mcpAuthoredAuth refuses both modes —
+// but it can author the request VARIABLES and the URL of a request that
+// INHERITS one from its folder or collection, and a request-scoped variable
+// outranks the environment's. So {{tokenBase}} in an inherited OAuth2
+// AccessTokenURL is retargetable from fields this tier does allow, and the
+// token exchange carries the client secret. Base is per kind (§1.1); so is this.
+var mcpAuthoringCheckedKinds = []egressKind{egressKindMain, egressKindToken, egressKindAWS}
+
+// mcpAuthoredReach is one origin the authored definition would reach, under one
+// environment, for one egress kind.
+type mcpAuthoredReach struct {
+	origin        Origin
+	kind          egressKind
+	class         string
+	environmentID string
+	secretNames   []string
+}
+
+// enforceMCPAuthoredOrigins is the origin half. It returns the HOSTS the user
+// approved while it ran, so the secret half does not ask about them again.
+func (a *App) enforceMCPAuthoredOrigins(ctx context.Context, subject mcpAuthoringSubject) (map[string]bool, error) {
+	reaches := subject.authoredReaches()
+	if len(reaches) == 0 {
+		// Nothing resolved. An unresolved destination is not in Base either
+		// (mcp_origin_sources.go), so this save teaches the boundary nothing and
+		// there is nothing to approve.
+		return nil, nil
+	}
+
+	known := newMCPAuthoringKnownOrigins(subject)
+	var pending []mcpAuthoredReach
+	for _, reach := range reaches {
+		if known.covers(reach.environmentID, reach.class, reach.origin) {
+			continue
+		}
+		// A create has no request identity, so no stored approval can be keyed to
+		// it and the lookup is skipped rather than performed against an empty id.
+		if subject.replacingID != "" {
+			remembered, err := a.mcpRememberedOriginApproved(subject.site(reach.environmentID), reach.origin, reach.class)
+			if err != nil {
+				return nil, err
+			}
+			if remembered {
+				continue
+			}
+		}
+		pending = append(pending, reach)
+	}
+
+	approvedHosts := map[string]bool{}
+	asked := map[string]bool{}
+	for _, reach := range pending {
+		// ONE PROMPT PER (ORIGIN, CLASS), even when several environments resolve
+		// to it. The user is being asked one question — may this definition reach
+		// this origin — and asking it once per environment would be the same
+		// dialog three times. What is REMEMBERED stays environment-exact (§6): the
+		// answer is keyed on the first environment that needed it, so a run under
+		// any other environment still asks at the egress.
+		key := reach.origin.String() + "\x00" + reach.class
+		if asked[key] {
+			continue
+		}
+		asked[key] = true
+		if a.requestMCPApproval(ctx, subject.authoringPrompt(reach)) {
+			approvedHosts[reach.origin.Host] = true
+			continue
+		}
+		return nil, mcpAuthoredOriginDenial(subject, reach)
+	}
+	return approvedHosts, nil
+}
+
+// authoredReaches resolves the candidate under every environment and collects
+// every origin it would reach, per kind, in a deterministic order: environments
+// in order ("" first), kinds in order, origins sorted. Determinism matters
+// because the FIRST environment a (origin, class) appears under is the one its
+// prompt — and therefore any remembered approval — is keyed on.
+func (s mcpAuthoringSubject) authoredReaches() []mcpAuthoredReach {
+	var reaches []mcpAuthoredReach
+	for _, environmentID := range s.environments {
+		scope := mcpDefinitionOrigins(mcpDefinitionOriginsInput{
+			site:      s.site(environmentID),
+			effective: s.effective,
+			vars:      s.vars(environmentID, s.effective),
+			// proxy is deliberately left zero: the manual proxy is the
+			// collection's own configuration, no authored field can reach it, and
+			// proxy-kind origins have no approval path (§1.1).
+		})
+		secretNames := s.secretsReferenced(environmentID)
+		for _, kind := range mcpAuthoringCheckedKinds {
+			for _, origin := range mcpSortedOrigins(scope.perKind[kind]) {
+				reaches = append(reaches, mcpAuthoredReach{
+					origin:        origin,
+					kind:          kind,
+					class:         kindClass(kind),
+					environmentID: environmentID,
+					secretNames:   secretNames,
+				})
+			}
+		}
+	}
+	return reaches
+}
+
+// authoringPrompt builds the approval payload for one reach.
+//
+// A CREATE'S PROMPT CARRIES NO KIND AND NO KIND CLASS, and that is a safety
+// interlock rather than an omission. ResolveMCPApproval(id, approve, remember)
+// persists an approval built from the payload it was shown (mcpApprovalSubject,
+// mcp_approvals.go), and a create's site has no request id — an entry written
+// with an empty one is refused by the load-time migration probe, which would
+// then retire the user's ENTIRE approvals file on the next start. Clearing the
+// class is what makes rememberMCPApproval a no-op, so a create's prompt is
+// allow-once by construction — which is all it could honestly be: an approval
+// keyed to a request that does not exist yet could never match the request that
+// ends up being created.
+//
+// THE COST IS THE KIND LABEL, and it is paid where it is cheapest. A create CAN
+// reach a token endpoint (auth mode "inherit" inside a folder that carries an
+// oauth2 block), so the dialog loses the words that would have distinguished
+// "this request's own destination" from "the endpoint that mints its token".
+// The alternative — clearing the ORIGIN instead — would take the destination
+// itself off the dialog, which is the one thing the user must see. The kind is
+// still named in the refusal the agent receives (mcpAuthoredOriginDenial), and
+// the field returns for real the moment an update, which has a request id, is
+// what raised the prompt.
+func (s mcpAuthoringSubject) authoringPrompt(reach mcpAuthoredReach) types.MCPApprovalRequest {
+	prompt := mcpApprovalRequestFor(
+		s.site(reach.environmentID),
+		s.labels(reach.environmentID, reach.secretNames),
+		reach.origin, reach.kind, reach.class,
+	)
+	if s.replacingID == "" {
+		prompt.Kind, prompt.KindClass = "", ""
+	}
+	return prompt
+}
+
+// mcpAuthoredOriginDenial is the refusal, written for the agent that reads it:
+// what would have been reached, under which environment, and that the fix is to
+// ask the user rather than to retry. It names SECRET NAMES and never a value.
+func mcpAuthoredOriginDenial(subject mcpAuthoringSubject, reach mcpAuthoredReach) error {
+	carrying := ""
+	if len(reach.secretNames) > 0 {
+		carrying = fmt.Sprintf(", carrying the secret %s", mcpJoinSecretNames(reach.secretNames))
+	}
+	return fmt.Errorf("%w: saving this request would let it reach %s as its %s destination%s, and nothing in the open collections reaches that origin under %s, so it was not saved. Ask the user to approve that origin in LiteAPI (or to point you at the right one); do not retry and do not work around it",
+		mcpserver.ErrDenied, reach.origin.String(), reach.kind, carrying,
+		subject.site(reach.environmentID).environmentLabel())
+}
+
+// mcpAuthoringKnownOrigins is "what the open collections already reach", the set
+// the authored definition is judged against.
+//
+// TWO SCOPES, BECAUSE THE TWO HALVES OF THE WORKSPACE ARE NOT COMPARABLE.
+//
+//   - Inside the OWNING collection the comparison is ENVIRONMENT-EXACT, because
+//     an environment id means the same thing on both sides and because §1.1 is
+//     explicit that Base is never a union over environments: a sibling request
+//     that reaches a host only under dev must not silently authorize the
+//     candidate to reach it under production, which is precisely the mistake the
+//     boundary exists to catch.
+//   - Other collections in the SAME WORKSPACE contribute their origins unioned
+//     over their own environments, because their environment ids name nothing in
+//     this collection. That union is exactly the widening the shipped host guard
+//     already performs (mcpKnownHostsForSecret), and the credential-level
+//     scoping that keeps it honest is the secret half's job, not this one's.
+//
+// Other WORKSPACES never contribute. A workspace is the user's own coarsest
+// separation, and mcpSecretOwner makes the same call for the same reason.
+//
+// PER CLASS, NOT PER KIND. An existing request's OAuth2 token endpoint does not
+// authorize the candidate's own destination, and vice versa — that is §6's class
+// separation, applied to the reachability set so authoring cannot launder one
+// class of authority into another.
+//
+// Everything is computed LAZILY: a save whose origins are all already reachable
+// inside its own collection never walks the workspace at all, and the walk
+// resolves a variable map (and a .env file) per item per environment.
+type mcpAuthoringKnownOrigins struct {
+	subject mcpAuthoringSubject
+	// own is envID -> class -> origins, from the owning collection's stored
+	// items (see mcpAuthoringSubject.stored for what that set is and is not).
+	own map[string]map[string]map[Origin]bool
+	// shared is class -> origins, from the workspace's other collections.
+	shared map[string]map[Origin]bool
+}
+
+func newMCPAuthoringKnownOrigins(subject mcpAuthoringSubject) *mcpAuthoringKnownOrigins {
+	return &mcpAuthoringKnownOrigins{
+		subject: subject,
+		own:     map[string]map[string]map[Origin]bool{},
+	}
+}
+
+// covers reports whether some definition other than the candidate already
+// reaches this origin for this class.
+func (k *mcpAuthoringKnownOrigins) covers(environmentID, class string, origin Origin) bool {
+	if k.ownFor(environmentID)[class][origin] {
+		return true
+	}
+	return k.sharedFor()[class][origin]
+}
+
+func (k *mcpAuthoringKnownOrigins) ownFor(environmentID string) map[string]map[Origin]bool {
+	if cached, found := k.own[environmentID]; found {
+		return cached
+	}
+	origins := map[string]map[Origin]bool{}
+	for _, item := range k.subject.stored {
+		effective := scripting.EffectiveRequest(k.subject.hypothetical, item)
+		mcpCollectOriginsByClass(origins, effective, k.subject.vars(environmentID, effective))
+	}
+	k.own[environmentID] = origins
+	return origins
+}
+
+func (k *mcpAuthoringKnownOrigins) sharedFor() map[string]map[Origin]bool {
+	if k.shared != nil {
+		return k.shared
+	}
+	k.shared = map[string]map[Origin]bool{}
+	for _, other := range k.subject.collections {
+		if other.workspacePath != k.subject.owner.workspacePath {
+			continue
+		}
+		if other.collection.ID == k.subject.owner.collection.ID {
+			continue
+		}
+		environmentIDs := []string{""}
+		for _, environment := range other.collection.Environments {
+			environmentIDs = append(environmentIDs, environment.ID)
+		}
+		collection := other.collection
+		for index := range collection.Items {
+			effective := scripting.EffectiveRequest(collection, collection.Items[index])
+			for _, environmentID := range environmentIDs {
+				vars := scripting.NewScriptVariableContext(
+					other.globalEnvironments, &collection, environmentID, effective, nil, other.workspacePath,
+				).Combined
+				mcpCollectOriginsByClass(k.shared, effective, vars)
+			}
+		}
+	}
+	return k.shared
+}
+
+// mcpCollectOriginsByClass folds one stored definition's per-kind origins into a
+// class-keyed set, through the same resolver the candidate goes through.
+func mcpCollectOriginsByClass(into map[string]map[Origin]bool, effective types.RequestItem, vars map[string]string) {
+	scope := mcpDefinitionOrigins(mcpDefinitionOriginsInput{effective: effective, vars: vars})
+	for _, kind := range mcpAuthoringCheckedKinds {
+		class := kindClass(kind)
+		for origin := range scope.perKind[kind] {
+			if into[class] == nil {
+				into[class] = map[Origin]bool{}
+			}
+			into[class][origin] = true
+		}
+	}
+}
+
+// mcpSortedOrigins renders an origin set in a stable order.
+func mcpSortedOrigins(origins map[Origin]bool) []Origin {
+	out := make([]Origin, 0, len(origins))
+	for origin := range origins {
+		out = append(out, origin)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].String() < out[j].String() })
+	return out
+}
+
+// --- the authoring-time secret/host guard ------------------------------------
+
+// enforceMCPAuthoredSecretHosts is the shipped host guard's question, asked
+// before the save: would this definition send a credential to a host that
+// credential has never been sent to.
+//
+// KEPT WHILE THE OLD GUARD IS STILL ENFORCING. §9 of the design says the shipped
+// host guard stays active until the wave that retires it, so no intermediate
+// wave weakens the boundary — and this is that guard's authoring half. It
+// catches the one shape the origin half cannot: a host the workspace already
+// talks to, reached by a credential that has never gone there (two collections
+// that both declare "apiToken" hold two different credentials). It also still
+// resolves with mcpHostOfURL, which completes a schemeless URL the way the send
+// path does and therefore guards a definition that yields no Origin at all.
+//
+// WHAT DID CHANGE: the remembered half. It no longer consults
+// mcpRememberedHostsForSecret — §6 replaced the (secret, host) store, and that
+// function is now an empty shim that answers "nothing" precisely so an approval
+// made under the old, wider scope cannot authorize under the new one. The
+// remembered question is asked against the new store instead, for this
+// definition's exact site and origin, which is strictly narrower than the pair
+// it replaced: same workspace, collection, request and environment, not merely
+// the same secret name.
+//
+// approvedHosts are the hosts the origin half already got a yes for during this
+// same save.
+func (a *App) enforceMCPAuthoredSecretHosts(ctx context.Context, subject mcpAuthoringSubject, approvedHosts map[string]bool) error {
+	// host -> the secrets this definition would send there, and the origin that
+	// host resolved as (zero when the URL has no scheme to canonicalize).
 	targets := map[string]map[string]bool{}
-	for _, environmentID := range environmentIDs {
-		secretsInScope := mcpSecretNamesInScope(owner.globalEnvironments, hypothetical, environmentID, candidate)
-		referenced := mcpReferencedSecrets(effective, secretsInScope)
+	origins := map[string]Origin{}
+	environments := map[string]string{}
+	for _, environmentID := range subject.environments {
+		referenced := subject.secretsReferenced(environmentID)
 		if len(referenced) == 0 {
 			continue
 		}
-		vars := scripting.BuildVariableMap(owner.globalEnvironments, &hypothetical, environmentID, candidate, owner.workspacePath)
-		host := mcpHostOfURL(effective.URL, vars)
+		vars := subject.vars(environmentID, subject.effective)
+		host := mcpHostOfURL(subject.effective.URL, vars)
 		if host == "" {
 			// Nowhere to send it yet. A URL that resolves to no host teaches
 			// the allowlist nothing (mcpKnownHostsForSecret skips it too) and
@@ -383,6 +847,8 @@ func (a *App) enforceMCPAuthoringGuard(ctx context.Context, collectionID string,
 		}
 		if targets[host] == nil {
 			targets[host] = map[string]bool{}
+			environments[host] = environmentID
+			origins[host], _ = OriginOfURL(mcpAgentFreeMainURL(subject.effective, vars))
 		}
 		for _, name := range referenced {
 			targets[host][name] = true
@@ -393,39 +859,50 @@ func (a *App) enforceMCPAuthoringGuard(ctx context.Context, collectionID string,
 	}
 
 	// The allowlist as it stands WITHOUT this definition: the collections as
-	// they are on disk, plus what the user has already remembered.
+	// they are on disk.
 	//
 	// SCOPED BY DEFINITION SITE, exactly as the run guard scopes it
 	// (mcpSecretOwner, mcp_guard.go). The candidate is judged against the
 	// collection as it WOULD BE, so a secret the candidate's own vars introduce
-	// is collection-owned here too. The remembered half is unscoped by design —
-	// see mcpSecretsWithoutHost.
-	collectionScoped := mcpCollectionScopedSecretNames(hypothetical)
+	// is collection-owned here too.
+	collectionScoped := mcpCollectionScopedSecretNames(subject.hypothetical)
 	known := map[string]map[string]bool{}
-	knownFor := func(secretName string) (map[string]bool, error) {
+	knownFor := func(secretName string) map[string]bool {
 		if hosts, cached := known[secretName]; cached {
-			return hosts, nil
+			return hosts
 		}
-		hosts, err := a.mcpRememberedHostsForSecret(secretName)
-		if err != nil {
-			return nil, err
-		}
-		site := mcpSecretOwnerIn(owner, collectionScoped, secretName)
-		for host := range mcpKnownHostsForSecret(collections, site, secretName) {
-			hosts[host] = true
-		}
+		site := mcpSecretOwnerIn(subject.owner, collectionScoped, secretName)
+		hosts := mcpKnownHostsForSecret(subject.collections, site, secretName)
 		known[secretName] = hosts
-		return hosts, nil
+		return hosts
 	}
 
 	for _, host := range mcpSortedNames(mcpMapKeys(targets)) {
-		var unknown []string
-		for _, name := range mcpSortedNames(mcpMapKeys(targets[host])) {
-			hosts, err := knownFor(name)
+		if approvedHosts[host] {
+			// The origin half just asked about this destination and the user said
+			// yes. Asking again, with the credential named this time, is the same
+			// decision put twice.
+			continue
+		}
+		environmentID := environments[host]
+		// A §6 approval the user already gave for THIS definition's exact site and
+		// origin answers this guard's question too — the same reading
+		// enforceMCPHostGuard applies at run time. Strictly narrower than the
+		// (secret, host) pairs it replaced, so it can only mean one prompt fewer,
+		// never one destination more. Skipped for a create, which has no request
+		// identity for an approval to be keyed on.
+		if subject.replacingID != "" {
+			remembered, err := a.mcpRememberedOriginApproved(subject.site(environmentID), origins[host], kindClassRequest)
 			if err != nil {
 				return err
 			}
-			if !hosts[host] {
+			if remembered {
+				continue
+			}
+		}
+		var unknown []string
+		for _, name := range mcpSortedNames(mcpMapKeys(targets[host])) {
+			if !knownFor(name)[host] {
 				unknown = append(unknown, name)
 			}
 		}
@@ -437,11 +914,18 @@ func (a *App) enforceMCPAuthoringGuard(ctx context.Context, collectionID string,
 		// same decision, and a user answering a queue of near-identical dialogs
 		// stops reading them — which is the failure mode that makes an approval
 		// prompt worthless.
-		if a.requestMCPApproval(ctx, types.MCPApprovalRequest{
-			RequestName: candidate.Name,
-			Host:        host,
-			SecretNames: unknown,
-		}) {
+		prompt := subject.authoringPrompt(mcpAuthoredReach{
+			origin:        origins[host],
+			kind:          egressKindMain,
+			class:         kindClassRequest,
+			environmentID: environmentID,
+			secretNames:   unknown,
+		})
+		// The bare host stays on the payload while this guard is the enforcing
+		// one: it is the thing this guard actually decided about, and for a URL
+		// whose origin would not resolve it is the only destination text there is.
+		prompt.Host = host
+		if a.requestMCPApproval(ctx, prompt) {
 			continue
 		}
 		return fmt.Errorf("%w: saving this request would point the secret %s at %s, which no request in the open collections sends it to, so it was not saved. Ask the user to approve that host in LiteAPI (or to point you at the right one); do not retry and do not work around it",

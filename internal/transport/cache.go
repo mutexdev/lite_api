@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -138,6 +139,20 @@ type Spec struct {
 	// system-proxy users, and the pre-US-016 code already memoised one
 	// system-proxy transport per App with whatever URL happened to be first.
 	SystemProxyFallbackURL string
+
+	// RefuseSystemPAC makes a ProxySystem transport refuse the dial whenever
+	// discovery reports that this machine's answer for the request is a PAC
+	// script, instead of fetching and running it.
+	//
+	// IT IS PART OF THE KEY, and that is the whole reason it is a Spec field
+	// rather than an argument to Build. Two ProxySystem transports that differ
+	// only in this flag differ in a SECURITY POSTURE: one will fetch and
+	// execute a remote JavaScript program to pick its proxy, the other refuses
+	// to. Without the flag in the key an agent-initiated send and a UI send
+	// would hash to the same entry and the first one to arrive would decide
+	// which behaviour the other got — either handing the UI a transport that
+	// refuses the user's own PAC, or handing an agent run the one that runs it.
+	RefuseSystemPAC bool
 }
 
 // pristine reports whether build() would produce a transport indistinguishable
@@ -201,6 +216,7 @@ func (spec Spec) CacheKey() string {
 	} else {
 		field("")
 	}
+	field(fmt.Sprintf("%t", spec.RefuseSystemPAC))
 	return hex.EncodeToString(digest.Sum(nil))
 }
 
@@ -263,20 +279,57 @@ func (spec Spec) Build() (*http.Transport, error) {
 	case ProxyInherit:
 		// Keep the source's own Proxy func.
 	case ProxySystem:
-		fallbackURL := spec.SystemProxyFallbackURL
-		transport.Proxy = func(req *http.Request) (*url.URL, error) {
-			target := fallbackURL
-			if req != nil && req.URL != nil {
-				target = req.URL.String()
-			}
-			return SystemProxyURLForRequest(target)
-		}
+		transport.Proxy = SystemProxyFunc(spec.SystemProxyFallbackURL, spec.RefuseSystemPAC)
 	case ProxyExplicit:
 		transport.Proxy = http.ProxyURL(spec.ProxyURL)
 	default:
 		transport.Proxy = nil
 	}
 	return transport, nil
+}
+
+// ErrSystemPACRefused is returned by a PAC-refusing system-proxy func instead
+// of fetching and evaluating the PAC script this machine names.
+//
+// A SENTINEL RATHER THAN A MESSAGE, because the caller that installed the
+// refusal is the one that knows how to phrase it. This package cannot say "run
+// this request in the LiteAPI app" — it does not know an app exists — so it
+// says the one fact it owns, and internal/core matches on it (through the
+// *url.Error http.Transport wraps a proxy-func error in) to raise the §2 row 4
+// refusal with the wording and the ErrDenied class the agent needs.
+var ErrSystemPACRefused = errors.New("the effective system proxy configuration selects a PAC script")
+
+// SystemProxyFunc builds the per-request proxy func a ProxySystem transport
+// uses. fallbackURL answers the (never-taken) nil-request case, matching Spec's
+// documentation of that field.
+//
+// With refusePAC false this is exactly SystemProxyURLForRequest, i.e. discovery
+// plus PAC evaluation — the shipped behaviour, unchanged.
+//
+// With refusePAC true it stops at DISCOVERY. The distinction is the point: a
+// PAC file is a remote JavaScript program with its own fetch and its own DNS
+// (proxy.go), so "did this machine name a PAC" has to be answerable WITHOUT
+// running one, and the refusal has to happen before the first byte moves.
+// Discovery never both names a PAC and returns a static proxy, and a PAC
+// selection never carries an error, so the three outcomes below are exhaustive.
+func SystemProxyFunc(fallbackURL string, refusePAC bool) func(*http.Request) (*url.URL, error) {
+	return func(req *http.Request) (*url.URL, error) {
+		target := fallbackURL
+		if req != nil && req.URL != nil {
+			target = req.URL.String()
+		}
+		if !refusePAC {
+			return SystemProxyURLForRequest(target)
+		}
+		proxyURL, pacURL, err := DiscoverSystemProxy(target)
+		if err != nil {
+			return nil, err
+		}
+		if pacURL != "" {
+			return nil, ErrSystemPACRefused
+		}
+		return proxyURL, nil
+	}
 }
 
 // ApplyCustomRootCAPEM is applyCustomRootCAsToTLSConfig's body, restated

@@ -106,10 +106,16 @@ func (a *App) requestLifecycle() *requestLifecycleRegistry {
 	return a.requests
 }
 
-func (a *App) startCancellableRequest(collectionID, requestID, requestType string) (context.Context, func() bool) {
-	return a.startCancellableRequestWithParent(context.Background(), collectionID, requestID, requestType)
-}
-
+// startCancellableRequestWithParent registers an execution under a parent
+// context.
+//
+// THE BACKGROUND-CONTEXT FORM IS GONE. `startCancellableRequest` existed for one
+// caller — bru.runRequest's nested send — and what it did there was drop the
+// parent: the nested execution neither observed the outer cancellation nor,
+// once there was one, carried the outer send's provenance. Both callers now
+// pass a real parent, and the delegate is deleted rather than kept, because a
+// second way to start an execution that quietly loses its context is exactly
+// the thing that made the nested send unchecked in the first place.
 func (a *App) startCancellableRequestWithParent(parent context.Context, collectionID, requestID, requestType string) (context.Context, func() bool) {
 	if requestType != "http" && requestType != "graphql" {
 		return parent, func() bool { return false }

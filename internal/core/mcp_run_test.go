@@ -406,30 +406,63 @@ func TestMCPRunRequestAllowsNonSecretOverrides(t *testing.T) {
 
 // --- 3. the new-host guard ---------------------------------------------------
 
-func TestMCPRunRequestDoesNotPromptForAHostTheCollectionAlreadyUses(t *testing.T) {
+// FLIPPED BY THE DESTINATION BOUNDARY. This test used to assert that a host a
+// SIBLING request in the same collection already uses needs no approval —
+// correct for the shipped host guard, whose question is "which hosts does this
+// credential already serve", and wrong for a destination boundary.
+//
+// Base is now the SCOPE's own definition (§4.1), and a scope is one
+// (collection, request) pair. "Request A's approval never authorizes request B"
+// (§6) is the same rule read from the other end: a sibling's destination is not
+// this request's destination, and an agent that can point request A at request
+// B's host has widened nothing the user agreed to. The sibling still teaches the
+// OLD guard, which is why this run gets past it and is stopped here instead.
+func TestMCPRunRequestPromptsForAHostOnlyASiblingRequestUses(t *testing.T) {
 	f := newMCPRunFixture(t)
+	// The fixture's emitter records prompts and never answers them, which is a
+	// closed window: deny after the timeout. Shortened so the test does not sit
+	// out the full 60 s.
+	f.app.mcpApprovalTimeout = 50 * time.Millisecond
 	other := f.otherLoopbackURL()
-	// A SIBLING request already sends this same secret to the other host, so the
-	// computed allowlist covers it and no approval is needed.
 	f.addSecretRequestForHost(other + "/sibling")
 
-	if _, err := f.run(context.Background(), f.secretReqID, map[string]string{"baseUrl": other}); err != nil {
-		t.Fatalf("a run to a host the collection already uses was blocked: %v", err)
+	_, err := f.run(context.Background(), f.secretReqID, map[string]string{"baseUrl": other})
+	if err == nil {
+		t.Fatal("a run retargeted at a sibling request's host was allowed without approval")
 	}
-	if prompts := f.prompts(); len(prompts) != 0 {
-		t.Errorf("the guard prompted for a known host: %+v", prompts)
+	if !errors.Is(err, mcpserver.ErrDenied) {
+		t.Errorf("the refusal does not wrap ErrDenied: %v", err)
+	}
+	if prompts := f.prompts(); len(prompts) == 0 {
+		t.Error("the user was never asked; a denial with no prompt is a dead end for the agent and the user alike")
+	}
+	if len(f.recorded()) != 0 {
+		t.Errorf("the denied run still reached the target server: %+v", f.recorded())
 	}
 }
 
-func TestMCPRunRequestDoesNotPromptWhenNoSecretIsReferenced(t *testing.T) {
+// ALSO FLIPPED. The shipped host guard only engages when a secret is in play —
+// its whole subject is credentials. The destination boundary's subject is
+// DESTINATIONS (§1.2(1)): every application-layer egress of an MCP run is
+// checked, secret or not, because "this request carries nothing sensitive" is
+// not something the boundary can know (the response is sensitive too, and the
+// request's mere arrival can be an action).
+func TestMCPRunRequestPromptsForANewHostEvenWithNoSecret(t *testing.T) {
 	f := newMCPRunFixture(t)
-	// A brand-new host, but the request references no secret at all — there is
-	// nothing for the guard to protect.
-	if _, err := f.run(context.Background(), f.plainReqID, map[string]string{"baseUrl": f.otherLoopbackURL()}); err != nil {
-		t.Fatalf("a secret-free run to a new host was blocked: %v", err)
+	f.app.mcpApprovalTimeout = 50 * time.Millisecond
+
+	_, err := f.run(context.Background(), f.plainReqID, map[string]string{"baseUrl": f.otherLoopbackURL()})
+	if err == nil {
+		t.Fatal("a secret-free run to a new host was allowed without approval")
 	}
-	if prompts := f.prompts(); len(prompts) != 0 {
-		t.Errorf("the guard prompted for a run with no secret in it: %+v", prompts)
+	if !errors.Is(err, mcpserver.ErrDenied) {
+		t.Errorf("the refusal does not wrap ErrDenied: %v", err)
+	}
+	if prompts := f.prompts(); len(prompts) == 0 {
+		t.Error("the user was never asked about the new destination")
+	}
+	if len(f.recorded()) != 0 {
+		t.Errorf("the denied run still reached the target server: %+v", f.recorded())
 	}
 }
 
@@ -513,8 +546,16 @@ func TestMCPRunRequestApprovedNewHostRuns(t *testing.T) {
 	if result.Status != http.StatusOK {
 		t.Errorf("status is %d, want 200", result.Status)
 	}
-	if len(f.prompts()) != 1 {
-		t.Errorf("got %d prompts, want exactly 1", len(f.prompts()))
+	// TWO PROMPTS, ONE PER BOUNDARY, and that is the deliberate shape of this
+	// wave rather than a regression. The shipped host guard asks its question
+	// ("may this credential go to that host?") and the destination policy asks
+	// its own ("may this request contact that origin?"), and both are enforcing
+	// at once so that activating the new boundary cannot weaken the old one
+	// while it is being replaced. The final wave retires the host guard and this
+	// goes back to 1 — which is exactly when this assertion should fail and be
+	// changed, so it is pinned rather than loosened.
+	if len(f.prompts()) != 2 {
+		t.Errorf("got %d prompts, want exactly 2 (the host guard's and the destination policy's) — if the host guard has been retired, this is now 1", len(f.prompts()))
 	}
 	// Approve-once does NOT remember: nothing was written.
 	if _, err := os.Stat(f.app.mcpApprovalsPath()); !os.IsNotExist(err) {

@@ -34,6 +34,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mutexdev/lite_api/internal/auth/awsv4"
 	"github.com/mutexdev/lite_api/internal/codegen"
 	"github.com/mutexdev/lite_api/internal/interp"
 	"github.com/mutexdev/lite_api/internal/transport"
@@ -72,17 +73,26 @@ type mcpDefinitionOriginsInput struct {
 // endpoints an awsv4-authenticated request would contact (STS AssumeRole /
 // WebIdentity, SSO GetRoleCredentials, SSO-OIDC refresh).
 //
-// A SEAM RATHER THAN A CALL, for now. §4.1 names awsv4.CredentialEndpointOrigins
-// as the source, and that export is another Wave-1 task's deliverable — the two
-// tasks own disjoint files by construction, so this package cannot reference it
-// yet. Reimplementing the endpoint rules here would be the worse option by far:
-// the resolution reads ~/.aws config sections, honours per-profile endpoint
-// overrides and regional defaults, and a second copy would drift from the one
-// that actually dials. So the seam defaults to "no origins", which is
-// fail-closed (an AWS endpoint outside Base prompts), and the task that wires
-// the two halves together points it at the real function.
-var mcpAWSCredentialEndpointOrigins = func(_ types.AWSV4Auth, _ map[string]string) []string {
-	return nil
+// STILL A SEAM, now pointed at the real resolver. §4.1 names
+// awsv4.CredentialEndpointOrigins as the source; it landed in a sibling Wave-1
+// task, so this variable started as a fail-closed stub (no origins, therefore
+// every AWS endpoint prompts) and the send-path task bound it. It stays a
+// variable so tests can substitute a fixture without an ~/.aws directory.
+//
+// Reimplementing the endpoint rules here was never an option: the resolution
+// reads ~/.aws config sections, honours per-profile endpoint overrides and
+// regional defaults, and walks source_profile chains — a second copy would
+// drift from the one that actually dials, and the drift would show up as an
+// origin that was authorized but never contacted, or one contacted but never
+// authorized.
+//
+// The origins come back IN CONTACT ORDER and canonical (scheme://host[:port]),
+// so OriginOfURL parses them directly. A static-keys or environment-credentials
+// auth yields none, which is right: it makes no network call at all.
+var mcpAWSCredentialEndpointOrigins = func(auth types.AWSV4Auth, vars map[string]string) []string {
+	return awsv4.CredentialEndpointOrigins(auth, func(value string) string {
+		return interp.Interpolate(value, vars)
+	})
 }
 
 // mcpDefinitionOrigins resolves one definition scope's per-kind authority.

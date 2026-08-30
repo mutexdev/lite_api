@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptrace"
@@ -42,7 +43,10 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 	start := time.Now()
 	result := Response{SentAt: start, Headers: map[string]string{}, PreviewMode: "auto"}
 	if item.Type == "websocket" {
-		return a.executeWebSocket(collectionID, item, vars)
+		// The context form (§5 row 10). It carries the send's provenance to the
+		// pre-handshake checkpoint and makes the handshake itself cancellable;
+		// the context-free delegate now has no engine caller left.
+		return a.executeWebSocketContext(ctx, collectionID, item, vars)
 	}
 	if item.Type == "grpc" {
 		response := a.executeGRPC(ctx, collection, item, vars)
@@ -92,7 +96,7 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 			req.Header.Set(interpolate(header.Name, vars), interpolate(header.Value, vars))
 		}
 	}
-	if err := a.applyAuth(req, collection.Path, &item, vars, recordTimeline); err != nil {
+	if err := a.applyAuth(ctx, req, collection.Path, &item, vars, recordTimeline); err != nil {
 		result.Error = err.Error()
 		result.DurationMs = time.Since(start).Milliseconds()
 		return result
@@ -108,13 +112,21 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 	verifyTLS := requestTLSVerificationEnabled(tlsSettings.Request, item.Settings.VerifyTLS)
 	// US-016: one shared transport per security posture, so sequential sends
 	// reuse the connection instead of handshaking into a fresh empty pool.
+	//
+	// Under MCP provenance this is also where §2's transport-level refusals fire
+	// — a PAC proxy disposition, or a client certificate that would meet an
+	// https proxy — and where the certificate confinement comes back.
 	var transportErr error
-	baseTransport, transportErr = a.requestTransport(baseTransport, tlsSettings, verifyTLS, collectionID, targetURL, vars)
+	var certOrigin Origin
+	baseTransport, certOrigin, transportErr = a.requestTransport(ctx, baseTransport, tlsSettings, verifyTLS, collectionID, targetURL, vars)
 	if transportErr != nil {
 		result.Error = transportErr.Error()
 		result.DurationMs = time.Since(start).Milliseconds()
 		return result
 	}
+	// The backstop, innermost so it sees NTLM's own round trips as well as the
+	// redirect hops and the digest retry (§4.3 item 3).
+	baseTransport = mcpSendTransport(baseTransport, certOrigin)
 	if strings.EqualFold(item.Auth.Mode, "ntlm") {
 		baseTransport = ntlmssp.Negotiator{RoundTripper: baseTransport}
 	}
@@ -141,6 +153,26 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 			timingTrace.Redirect()
 			attachCookiesToHTTPRequest(req, redirectCookies.Snapshot())
 			return nil
+		}
+	}
+	// THE MAIN CHECKPOINT (§4.3 item 2, §5 row 1). Immediately before the send,
+	// against the URL that is about to be dialed rather than the one the
+	// definition spelled — the two differ whenever a variable resolved, which is
+	// the whole reason the check exists.
+	//
+	// Blocking, so it can prompt: nothing here runs inside client.Timeout yet,
+	// unlike the transport backstop below it. A nil policy means a UI send and
+	// Authorize returns nil without doing anything (§1.2(4)).
+	if policy := mcpPolicyFromContext(ctx); policy != nil {
+		// An unresolvable URL yields the zero Origin, which Authorize denies
+		// with its own "did not resolve" wording: an egress whose destination
+		// could not be determined is one that was not checked.
+		origin, _ := OriginOfURL(targetURL)
+		if err := policy.Authorize(ctx, origin, egressKindMain); err != nil {
+			result.Error = err.Error()
+			result.DurationMs = time.Since(start).Milliseconds()
+			result.Timings = timingTrace.Finalize(time.Now())
+			return result
 		}
 	}
 	res, err := client.Do(req)
@@ -276,9 +308,20 @@ func (a *App) appTLSSettingsSnapshot() appTLSSettings {
 }
 
 // requestFailureMessage renders a send failure for the response pane. Only a
-// certificate failure is rewritten (US-059); everything else keeps the wording
-// the transport produced.
+// certificate failure is rewritten (US-059) and the PAC refusal restated;
+// everything else keeps the wording the transport produced.
+//
+// THE PAC CASE IS A TRANSLATION, not a second policy decision. The cert-free
+// system-proxy closure refuses inside http.Transport's proxy func, so what
+// comes back here is transport.ErrSystemPACRefused inside a *url.Error inside
+// whatever the client wrapped it in — a sentence about a PAC script with a
+// dialer's prefix stapled to the front. internal/transport cannot phrase the
+// refusal because it does not know an app exists; this restates it as §2 row 4,
+// identically to the two places that refuse before a transport is even built.
 func requestFailureMessage(err error, targetURL string) string {
+	if errors.Is(err, transport.ErrSystemPACRefused) {
+		return mcpPACProxyRefusal().Error()
+	}
 	if message, ok := describeTLSFailure(err, targetURL); ok {
 		return message
 	}

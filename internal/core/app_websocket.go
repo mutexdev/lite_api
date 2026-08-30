@@ -224,13 +224,20 @@ func (a *App) connectWebSocket(collectionID, itemID, environmentID string, promp
 	headers := wsexec.Headers(item, vars)
 	timeout := requestTimeoutMilliseconds(item.Settings.TimeoutMs, a.appTLSSettingsSnapshot().Request)
 	response := Response{SentAt: start, Headers: map[string]string{}, PreviewMode: "websocket", RequestedURL: targetURL}
-	dialer, err := a.websocketDialer(collectionID, item, targetURL, vars, time.Duration(timeout)*time.Millisecond)
+	// THE UI MARKER (§4.5). This is a Wails binding: a live WebSocket session
+	// the user opened from the app, which no MCP run can reach. It is labeled
+	// explicitly rather than left to be inferred from the absence of a policy —
+	// that inference is exactly what §4.5 exists to prevent — and DialContext
+	// with a background context is what Dial is defined as, so the handshake is
+	// byte-identical to before.
+	dialContext := mcpContextWithUIProvenance(context.Background())
+	dialer, err := a.websocketDialer(dialContext, collectionID, item, targetURL, vars, time.Duration(timeout)*time.Millisecond)
 	if err != nil {
 		response.Error = err.Error()
 		response.DurationMs = time.Since(start).Milliseconds()
 		return a.applyWebSocketResponse(collectionID, itemID, response, websocketTimelineItem(item, response, "connect"))
 	}
-	conn, res, err := dialer.Dial(targetURL, headers)
+	conn, res, err := dialer.DialContext(dialContext, targetURL, headers)
 	if res != nil {
 		response.Status = res.StatusCode
 		response.StatusText = res.Status
@@ -445,7 +452,7 @@ func (a *App) executeWebSocketContext(ctx context.Context, collectionID string, 
 	}
 
 	timeout := requestTimeoutMilliseconds(item.Settings.TimeoutMs, a.appTLSSettingsSnapshot().Request)
-	dialer, err := a.websocketDialer(collectionID, item, targetURL, vars, time.Duration(timeout)*time.Millisecond)
+	dialer, err := a.websocketDialer(ctx, collectionID, item, targetURL, vars, time.Duration(timeout)*time.Millisecond)
 	if err != nil {
 		result.Error = err.Error()
 		result.DurationMs = time.Since(start).Milliseconds()
@@ -529,7 +536,19 @@ func (a *App) executeWebSocketContext(ctx context.Context, collectionID string, 
 	return result
 }
 
-func (a *App) websocketDialer(collectionID string, item RequestItem, targetURL string, vars map[string]string, timeout time.Duration) (websocket.Dialer, error) {
+// websocketDialer builds the dialer one handshake travels on.
+//
+// THE MCP BRANCH IS §4.4 AT ITS SECOND SEAM. A WebSocket handshake reaches the
+// network through gorilla's dialer rather than an http.Client, so it never
+// touches requestTransport — but it makes the same two decisions from the same
+// two agent-shaped inputs (`targetURL`, `vars`), and therefore needs the same
+// answer. It gets it from the same function: mcpTransportPosture decides, and
+// applyToTransport writes the decision onto the clone whose Proxy and
+// TLSClientConfig the dialer lifts out. A refusal — PAC, or a certificate
+// meeting an https proxy — comes back as an error and no socket is opened.
+//
+// The UI branch below is the shipped chain, untouched.
+func (a *App) websocketDialer(ctx context.Context, collectionID string, item RequestItem, targetURL string, vars map[string]string, timeout time.Duration) (websocket.Dialer, error) {
 	baseTransport := http.RoundTripper(http.DefaultTransport)
 	if a.httpClient != nil && a.httpClient.Transport != nil {
 		baseTransport = a.httpClient.Transport
@@ -540,6 +559,20 @@ func (a *App) websocketDialer(collectionID string, item RequestItem, targetURL s
 	baseTransport, tlsErr = transportWithAppTLSSettings(baseTransport, tlsSettings, verifyTLS)
 	if tlsErr != nil {
 		return websocket.Dialer{}, tlsErr
+	}
+	if policy := mcpPolicyFromContext(ctx); policy != nil {
+		posture, err := a.mcpTransportPosture(ctx, policy, collectionID, targetURL)
+		if err != nil {
+			return websocket.Dialer{}, err
+		}
+		cloned := transport.CloneHTTPTransport(baseTransport)
+		posture.applyToTransport(cloned, targetURL)
+		return websocket.Dialer{
+			HandshakeTimeout: timeout,
+			Proxy:            cloned.Proxy,
+			TLSClientConfig:  cloned.TLSClientConfig,
+			NetDialContext:   cloned.DialContext,
+		}, nil
 	}
 	if collectionPath, certs, ok := a.collectionClientCertificateConfig(collectionID); ok {
 		var certErr error

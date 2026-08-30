@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/mutexdev/lite_api/internal/cookiejar"
+	"github.com/mutexdev/lite_api/internal/envsecrets"
 	"github.com/mutexdev/lite_api/internal/grpcexec"
+	"github.com/mutexdev/lite_api/internal/mcpserver"
 	"github.com/mutexdev/lite_api/internal/prefs"
 	"github.com/mutexdev/lite_api/internal/responsestore"
 	"github.com/mutexdev/lite_api/internal/runner"
@@ -63,15 +65,40 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 	}
 	collectionCopy := *collection
 	requestCopy := scripting.EffectiveRequest(collectionCopy, *item)
+	// THE ONE POLICY THIS SEND ANSWERS TO, read once at the head and carried
+	// down. nil means a UI send, and every branch below reads as "unchanged"
+	// when it is nil (§1.2(4)).
+	mcpPolicy := mcpPolicyFromContext(parent)
+	// §7. The secret values an agent-visible history projection will have to be
+	// masked against, hydrated HERE — under the first lock, which is already
+	// held — because the tail records history with a.mu held and the hydrator
+	// takes that same lock. Reading them at the tail would deadlock the send.
+	var mcpMaskValues []string
+	if mcpPolicy != nil {
+		mcpMaskValues = mcpSecretValuesLocked(&a.state)
+	}
 	scriptVariables := scripting.NewScriptVariableContext(scripting.ActiveGlobalEnvironmentsForWorkspace(*ws), collection, environmentID, requestCopy, promptValues, ws.Path)
 	// US-046. Applied after construction and before Combined is read, so the
 	// row participates in the precedence chain rather than being pasted over
 	// the result of it.
 	scripting.ApplyIterationDataToContext(scriptVariables, iteration.Data)
+	// §3. The execution overlay stands in for the persistence this send is
+	// about to skip: a previous step's bru.setVar is laid over THIS send's
+	// freshly built context, at the precedence the persisted value would have
+	// had, so within-run continuity survives while nothing reaches AppState.
+	//
+	// APPLIED TO THE DEFINITION-SEEDED CONTEXT, never to a bare one. The
+	// extraction at the tail carries a dirty scope WHOLE, matching what the
+	// persisted path writes whole — so a context that was not seeded from the
+	// definitions would extract a scope missing every stored variable the
+	// execution did not touch, and re-applying it would silently drop them.
+	if mcpPolicy != nil {
+		scripting.ApplyRunOverlayToContext(scriptVariables, mcpPolicy.overlay.variableDeltas())
+	}
 	vars := scriptVariables.Combined
 	scriptLogs := []ScriptLog{}
 	scriptTimeline := []TimelineItem{}
-	scriptCookieJar := scripting.NewScriptCookieJar(scripting.CloneCookieEntries(a.state.Cookies))
+	scriptCookieJar := scripting.NewScriptCookieJar(mcpSendCookieSeed(mcpPolicy, a.state.Cookies))
 	initialCookies := scriptCookieJar.Snapshot()
 	scriptRunDepth := 0
 	scriptMeta := scripting.ScriptRuntimeMeta{
@@ -89,9 +116,6 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 	scriptMeta.RecordTimeline = func(entry TimelineItem) {
 		scriptTimeline = append(scriptTimeline, entry)
 	}
-	scriptMeta.RunRequest = func(target string) (Response, *TimelineItem, error) {
-		return a.runScriptedCollectionRequest(collectionID, target, environmentID, scriptVariables, scriptCookieJar, &scriptLogs, &scriptRunDepth, scriptMeta.RecordTimeline)
-	}
 	scripts := scripting.MergedRuntimeScripts(*collection, requestCopy)
 	preferences := prefs.Normalize(a.state.Preferences)
 	shouldStoreCookies := prefs.BoolPtrValue(preferences.Request.StoreCookies, true) && requestCopy.Settings.StoreCookies
@@ -104,6 +128,25 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 	// checkpoints below and prevents any transport that has not started.
 	executionContext, finishExecution := a.startCancellableRequestWithParent(parent, collectionID, itemID, requestCopy.Type)
 	defer finishExecution()
+
+	// Set AFTER the execution context exists, because both fields need it. The
+	// meta is copied by value into the per-phase metas below, all of which are
+	// taken further down, so assigning here is the same as assigning at
+	// construction — with a context to hand.
+	//
+	// §5 rows 11 and 12. A nested bru.runRequest inherits the parent execution's
+	// context, which is how its own sends land inside the same policy and the
+	// same cancellation; and the script sandbox's sendRequest/fetch/DNS shims
+	// consult the authorizer before they reach the network. Both are left nil
+	// for a UI send, which is scripting's documented "permissive, unchanged"
+	// shape.
+	scriptMeta.RunRequest = func(target string) (Response, *TimelineItem, error) {
+		return a.runScriptedCollectionRequest(executionContext, collectionID, target, environmentID, scriptVariables, scriptCookieJar, &scriptLogs, &scriptRunDepth, scriptMeta.RecordTimeline)
+	}
+	if mcpPolicy != nil {
+		scriptMeta.EgressAuthorizer = mcpScriptEgressAuthorizer(executionContext, mcpPolicy)
+		scriptMeta.RequestContext = mcpContextWithEgressKind(executionContext, egressKindScript)
+	}
 
 	var response Response
 	preMeta := scriptMeta
@@ -218,11 +261,33 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 	if err != nil {
 		return AppState{}, controls, nil, err
 	}
-	if shouldStoreCookies {
-		a.state.Cookies = cookiejar.MergeScriptJar(a.state.Cookies, initialCookies, scriptCookieJar.Snapshot())
-		a.pruneExpiredCookiesLocked()
+	if mcpPolicy != nil {
+		// §3, AND IT IS THE WHOLE POINT OF THE SECTION. Neither branch below
+		// runs for an agent-initiated send: no cookie reaches a.state.Cookies
+		// and no dirty variable scope reaches AppState or disk. That closes the
+		// confirmed laundering channel at its root — a script derives a hostname
+		// from agent input, persists it, and the NEXT run reads it back as
+		// definition state, so it enters Base and the boundary has widened.
+		//
+		// What would have been written is EXTRACTED instead, into the
+		// execution's overlay, where the next send in this same execution can
+		// see it and where it dies when the execution does. Extracted from the
+		// definition-seeded context this send built, for the reason the apply
+		// site above states.
+		//
+		// The cookie snapshot is recorded whatever shouldStoreCookies says,
+		// because the overlay is not storage: it is this execution's own view,
+		// and a preference about persisting cookies has nothing to say about
+		// what the run's next step should see. Nothing here outlives the run.
+		mcpPolicy.overlay.absorbVariableDeltas(scripting.DeltasFromContext(scriptVariables))
+		mcpPolicy.overlay.recordCookies(scriptCookieJar.Snapshot())
+	} else {
+		if shouldStoreCookies {
+			a.state.Cookies = cookiejar.MergeScriptJar(a.state.Cookies, initialCookies, scriptCookieJar.Snapshot())
+			a.pruneExpiredCookiesLocked()
+		}
+		scripting.ApplyScriptVariableContextToState(&a.state, liveWorkspace, collection, environmentID, scriptVariables)
 	}
-	scripting.ApplyScriptVariableContextToState(&a.state, liveWorkspace, collection, environmentID, scriptVariables)
 	// US-009 step 4. Store the body and record its handle as the response lands
 	// in state. Best-effort by design at this step: Body is still populated and
 	// still authoritative, so a failed cache write must not fail a request the
@@ -236,7 +301,12 @@ func (a *App) sendRequestWithControlsContext(parent context.Context, collectionI
 	// reached the server must not be reported as failed because its history
 	// line could not be written. Recorded AFTER attachResponseBody so the
 	// entry carries the body handle rather than duplicating the body.
-	_ = a.recordSendHistory(collectionID, requestCopy, &response)
+	//
+	// §7. The projection form, carrying the secret values hydrated at the head
+	// of this send. nil for a UI send, which is the same call recordSendHistory
+	// makes. App history is identical either way; the values only ever feed the
+	// agent-visible sibling artifact.
+	_ = a.recordSendHistoryWithMCPProjection(collectionID, requestCopy, &response, mcpMaskValues)
 	item.Response = &response
 	item.Timeline = append(item.Timeline, scriptTimeline...)
 	if controls.SkipRequest {
@@ -623,7 +693,27 @@ func truncateNetworkLogBody(value string) string {
 	return value[:networkLogBodyLimit] + "\n... truncated"
 }
 
-func (a *App) runScriptedCollectionRequest(collectionID, targetRef, environmentID string, parentVariables *scripting.VariableContext, jar *scripting.CookieJar, logs *[]ScriptLog, depth *int, recordTimeline func(TimelineItem)) (Response, *TimelineItem, error) {
+// runScriptedCollectionRequest is bru.runRequest: one stored request run from
+// inside another request's script.
+//
+// IT TAKES THE PARENT EXECUTION'S CONTEXT (§5 row 11). It used to start its own
+// cancellable request from context.Background(), which dropped two things at
+// once: the parent's cancellation, and — once there was one — the parent's
+// provenance. A nested send that lost the policy would be an unchecked engine
+// egress reachable from a script, which is the shape this whole phase exists to
+// close.
+//
+// AND IT PUSHES ITS OWN DEFINITION SCOPE. The nested target is a DIFFERENT
+// stored definition, so it gets a different Base: it may reach where IT points,
+// not where its caller points, and its authority disappears when it returns.
+// The scope is computed here, lazily, from the stored definition under the
+// state lock and with the same single agent-free variable context rule as the
+// run's root scope (§4.6) — deliberately NOT from parentVariables, which by
+// this point can carry script-set and overlay values.
+func (a *App) runScriptedCollectionRequest(ctx context.Context, collectionID, targetRef, environmentID string, parentVariables *scripting.VariableContext, jar *scripting.CookieJar, logs *[]ScriptLog, depth *int, recordTimeline func(TimelineItem)) (Response, *TimelineItem, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if strings.TrimSpace(targetRef) == "" {
 		return Response{}, nil, errors.New("bru.runRequest requires a request path or name")
 	}
@@ -642,7 +732,10 @@ func (a *App) runScriptedCollectionRequest(collectionID, targetRef, environmentI
 		a.mu.Unlock()
 		return Response{}, nil, err
 	}
-	collection, err := a.findCollectionLocked(collectionID)
+	// The WORKSPACE form, because the nested scope's site needs the workspace
+	// path and the active global environments, and its agent-free variable
+	// context needs the globals too.
+	ws, collection, err := a.findCollectionWithWorkspaceLocked(collectionID)
 	if err != nil {
 		a.mu.Unlock()
 		return Response{}, nil, err
@@ -664,6 +757,26 @@ func (a *App) runScriptedCollectionRequest(collectionID, targetRef, environmentI
 	preferences := prefs.Normalize(a.state.Preferences)
 	shouldSendCookies := prefs.BoolPtrValue(preferences.Request.SendCookies, true) && requestCopy.Settings.StoreCookies
 	nestedVariables := scripting.ScriptVariableContextForItem(parentVariables, &collectionCopy, environmentID, requestCopy)
+	// The nested scope's inputs, taken while the lock is held. Everything
+	// agent-supplied is excluded by construction: NewScriptVariableContext with
+	// nil prompt values, the collection's own environments, and no overrides,
+	// no flow inputs, no overlay (§4.1).
+	nestedScope := (*mcpDefinitionOriginsInput)(nil)
+	if policy := mcpPolicyFromContext(ctx); policy != nil {
+		globals := scripting.ActiveGlobalEnvironmentsForWorkspace(*ws)
+		agentFree := scripting.NewScriptVariableContext(globals, &collectionCopy, environmentID, requestCopy, nil, ws.Path)
+		nestedScope = &mcpDefinitionOriginsInput{
+			site: mcpDefinitionSite{
+				workspacePath:        ws.Path,
+				collectionID:         collectionID,
+				requestID:            item.ID,
+				environmentID:        environmentID,
+				globalEnvironmentIDs: mcpEnvironmentIDs(globals),
+			},
+			effective: requestCopy,
+			vars:      agentFree.Combined,
+		}
+	}
 	nestedMeta := scripting.ScriptRuntimeMeta{
 		CollectionName:            collectionCopy.Name,
 		CollectionPath:            collectionCopy.Path,
@@ -676,9 +789,24 @@ func (a *App) runScriptedCollectionRequest(collectionID, targetRef, environmentI
 		RecordTimeline:            recordTimeline,
 	}
 	nestedMeta.RunRequest = func(target string) (Response, *TimelineItem, error) {
-		return a.runScriptedCollectionRequest(collectionID, target, environmentID, nestedVariables, jar, logs, depth, recordTimeline)
+		return a.runScriptedCollectionRequest(ctx, collectionID, target, environmentID, nestedVariables, jar, logs, depth, recordTimeline)
 	}
 	a.mu.Unlock()
+
+	// PUSHED HERE, WITH THE POP DEFERRED IMMEDIATELY (§4.1). Outside the lock
+	// because mcpDefinitionOrigins needs collectionProxyResolution, which takes
+	// a.mu.RLock; before the pre-request script, because a script's own egress
+	// belongs to the nested definition's authority, not its caller's. The
+	// pairing is what makes the nested authority disappear however this returns
+	// — early error, refusal, or panic.
+	if nestedScope != nil {
+		policy := mcpPolicyFromContext(ctx)
+		nestedScope.proxy = a.collectionProxyResolution(collectionID)
+		policy.PushScope(mcpDefinitionOrigins(*nestedScope))
+		defer policy.PopScope()
+		nestedMeta.EgressAuthorizer = mcpScriptEgressAuthorizer(ctx, policy)
+		nestedMeta.RequestContext = mcpContextWithEgressKind(ctx, egressKindScript)
+	}
 
 	var response Response
 	preMeta := nestedMeta
@@ -708,7 +836,12 @@ func (a *App) runScriptedCollectionRequest(collectionID, targetRef, environmentI
 		cookiejar.AttachHeader(&requestCopy, jar.Snapshot(), requestURL)
 	}
 	func() {
-		executionContext, finishExecution := a.startCancellableRequest(collectionID, requestCopy.ID, requestCopy.Type)
+		// The PARENT's context (§5 row 11). This used to be
+		// startCancellableRequest, i.e. context.Background(): a nested send
+		// neither observed the parent's cancellation nor carried its
+		// provenance, so under MCP it would have reached the network with no
+		// policy on it at all.
+		executionContext, finishExecution := a.startCancellableRequestWithParent(ctx, collectionID, requestCopy.ID, requestCopy.Type)
 		defer finishExecution()
 		response = a.executeHTTP(executionContext, collectionID, collectionCopy, requestCopy, nestedVariables.Combined, preState, recordTimeline)
 	}()
@@ -738,6 +871,159 @@ func (a *App) runScriptedCollectionRequest(collectionID, targetRef, environmentI
 	scripting.ScriptMergeVariableContext(parentVariables, nestedVariables)
 	timelineEntry := scriptRunRequestTimelineItem(collectionCopy.Path, requestCopy, response, nestedVariables.Combined)
 	return response, &timelineEntry, nil
+}
+
+// --- the send path's MCP seams (§3, §5 rows 12 and 13, §7) ----------------
+
+// variableDeltas and absorbVariableDeltas bridge the overlay's four scope maps
+// to scripting's RunVariableDeltas.
+//
+// TWO TYPES FOR ONE THING, ON PURPOSE. The overlay is a policy field with a
+// mutex, held for the length of an execution and read from whichever goroutine
+// a flow step runs on; RunVariableDeltas is a plain value scripting hands out
+// and takes back. Keeping them separate is what lets the overlay hand out
+// copies under its own lock instead of publishing live maps into a
+// VariableContext that another send is about to mutate.
+func (o *mcpExecutionOverlay) variableDeltas() scripting.RunVariableDeltas {
+	if o == nil {
+		return scripting.RunVariableDeltas{}
+	}
+	return scripting.RunVariableDeltas{
+		Runtime:    o.variables(mcpOverlayRuntime),
+		Env:        o.variables(mcpOverlayEnv),
+		Global:     o.variables(mcpOverlayGlobal),
+		Collection: o.variables(mcpOverlayCollection),
+	}
+}
+
+func (o *mcpExecutionOverlay) absorbVariableDeltas(deltas scripting.RunVariableDeltas) {
+	if o == nil || deltas.IsEmpty() {
+		return
+	}
+	o.mergeVariables(mcpOverlayRuntime, deltas.Runtime)
+	o.mergeVariables(mcpOverlayEnv, deltas.Env)
+	o.mergeVariables(mcpOverlayGlobal, deltas.Global)
+	o.mergeVariables(mcpOverlayCollection, deltas.Collection)
+}
+
+// mcpSendCookieSeed picks the jar this send starts from.
+//
+// A UI send starts from AppState, as it always has. An MCP send starts from
+// AppState too — on its FIRST send, because the overlay has recorded nothing
+// yet — and from the overlay afterwards. That is the cookie half of §3's
+// "within-run semantics survive, nothing persists": a login step's Set-Cookie
+// is visible to the step that follows it, and is gone when the run ends.
+func mcpSendCookieSeed(policy *mcpEgressPolicy, stateCookies []CookieEntry) []CookieEntry {
+	if policy != nil {
+		if snapshot, recorded := policy.overlay.cookieSnapshot(); recorded {
+			return snapshot
+		}
+	}
+	return scripting.CloneCookieEntries(stateCookies)
+}
+
+// mcpScriptEgressAuthorizer is the checkpoint behind pm.sendRequest,
+// bru.sendRequest, fetch() and the DNS shims (§5 rows 12 and 13).
+//
+// ONE FUNCTION, TWO KINDS. scripting hands over the kind it is about to perform
+// — a send or a name lookup — and they are authorized differently because a
+// lookup has no scheme and no port: a hostname is checked against the scope's
+// dnsHosts, while a send is checked as a full origin. Treating a lookup as an
+// origin would either invent a scheme or refuse every lookup; treating a send
+// as a hostname would let :3000 authorize :8080, which §1.4(9) specifically
+// rejects.
+//
+// The context is the SEND's, so a prompt raised from inside a script is the
+// same prompt raised from anywhere else and cancelling the run cancels the
+// wait.
+func mcpScriptEgressAuthorizer(ctx context.Context, policy *mcpEgressPolicy) func(string, string) error {
+	if policy == nil {
+		return nil
+	}
+	return func(target, kind string) error {
+		if kind == scripting.EgressKindScriptDNS {
+			return mcpAuthorizeScriptDNSHost(policy, target)
+		}
+		origin, ok := OriginOfURL(target)
+		if !ok {
+			return fmt.Errorf("%w: this run's script tried to contact %q, which is not an http(s) destination LiteAPI can check; use a full http(s) URL, or run this request in the LiteAPI app",
+				mcpserver.ErrDenied, target)
+		}
+		return policy.Authorize(ctx, origin, egressKindScript)
+	}
+}
+
+// mcpAuthorizeScriptDNSHost checks a script's name lookup against the active
+// scope's hostnames (§5 row 13).
+//
+// IT REFUSES RATHER THAN PROMPTS, which is a narrower rule than the one for
+// sends and deliberately so. A lookup has no origin — no scheme, no port — so
+// there is nothing an origin-keyed approval could be granted for, and §1.2(1)
+// excludes resolver traffic from the guarantee precisely because a hostname
+// reaching a resolver is not an application-layer egress LiteAPI can stand
+// behind. The tight rule is therefore the honest one: a script may resolve the
+// names its own definition already points at, and nothing else. A script that
+// needs another name can be run in the app.
+func mcpAuthorizeScriptDNSHost(policy *mcpEgressPolicy, host string) error {
+	scope, ok := policy.activeScope()
+	if !ok {
+		return fmt.Errorf("%w: this run has no active request scope, so the name lookup for %q could not be checked; this is a bug in LiteAPI — report it rather than retrying",
+			mcpserver.ErrDenied, host)
+	}
+	// Normalized through the same function origins use, so [::1], [::0001] and
+	// ::1 are one host on both sides of the comparison.
+	if normalized := normalizeOriginHost(host); normalized != "" && scope.dnsHosts[normalized] {
+		return nil
+	}
+	return fmt.Errorf("%w: this run's script tried to resolve %q, and nothing in request %q's definition (collection %q, environment %s) names that host. Run this request in the LiteAPI app if the lookup is intended",
+		mcpserver.ErrDenied, host, scope.site.requestID, scope.site.collectionID, scope.site.environmentLabel())
+}
+
+// mcpSecretValuesLocked collects every secret variable's resolved value from
+// state. CALLED WITH a.mu ALREADY HELD (§7).
+//
+// A SECOND WALK RATHER THAN A SHARED ONE, and the duplication is deliberate
+// rather than overlooked. mcpHydratedSecretValues does the same walk through
+// readStateForMCP, which TAKES a.mu — so the send path, which holds that lock
+// across its whole head section and again across its tail, cannot call it
+// without deadlocking. §7 is explicit that the values are hydrated at the head
+// under the already-held first lock and carried down. The two walks are pinned
+// to the same shape by their shared caller in the tests; the follow-up that
+// owns mcp_backend.go can collapse them into one locked helper with two entry
+// points.
+func mcpSecretValuesLocked(state *AppState) []string {
+	if state == nil {
+		return nil
+	}
+	var values []string
+	collect := func(variables []Variable) {
+		for _, variable := range variables {
+			if !variable.Secret {
+				continue
+			}
+			if value := envsecrets.ValueToString(variable.Value); value != "" {
+				values = append(values, value)
+			}
+		}
+	}
+	for wi := range state.Workspaces {
+		workspace := &state.Workspaces[wi]
+		for ei := range workspace.GlobalEnvironments {
+			collect(workspace.GlobalEnvironments[ei].Variables)
+		}
+		for ci := range workspace.Collections {
+			collection := &workspace.Collections[ci]
+			collect(collection.Variables)
+			for ei := range collection.Environments {
+				collect(collection.Environments[ei].Variables)
+			}
+			for ii := range collection.Items {
+				collect(collection.Items[ii].Vars.Req)
+				collect(collection.Items[ii].Vars.Res)
+			}
+		}
+	}
+	return values
 }
 
 func scriptRunRequestTimelineItem(collectionPath string, item RequestItem, response Response, vars map[string]string) TimelineItem {

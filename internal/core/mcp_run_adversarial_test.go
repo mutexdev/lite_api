@@ -237,17 +237,29 @@ func TestMCPRunRequestUnfollowedRedirectLocationCarryingTheSecretIsMasked(t *tes
 // separately against net/http directly) — with no second guard check, no
 // approval prompt, and no denial.
 //
-// RULED AN ACCEPTED LIMITATION, and documented as such in mcp_guard.go's
-// header rather than changed: the redirect that carries the credential can
-// only be issued by a host that has ALREADY RECEIVED it, so the redirecting
-// party learns nothing it did not have — the residual exposure is a
-// same-hostname multi-tenant setup (in practice, loopback), reachable only
-// through an open redirect that targets its own hostname on another port.
-// Closing it would mean forking the transport's redirect policy away from
-// the user's own send path, the exact drift the run tier exists to avoid.
-// This test PINS the accepted behavior so any change to it — in either
-// direction — is a visible decision, not an accident.
-func TestMCPRunRequestRedirectToADifferentPortReachesAnUncheckedService(t *testing.T) {
+// THE LIMITATION IS CLOSED, AND THIS TEST NOW PINS THE CLOSURE. It was ruled
+// acceptable while the boundary was a per-secret host allowlist: the redirect
+// can only be issued by a host that already HAS the credential, so the
+// redirecting party learns nothing new, and closing it would have meant forking
+// the transport's redirect policy away from the user's own send path.
+//
+// The destination boundary closes it without that fork, which is why the ruling
+// changed. Two things did the work, and neither is a special case for
+// redirects:
+//
+//   - An Origin carries its PORT (§1.1, §1.4(9)), so :A and :B on 127.0.0.1 are
+//     two destinations rather than one — the premise of the finding is simply
+//     no longer true.
+//   - The guard RoundTripper sits under the same http.Client the user's send
+//     uses, and http.Client calls a transport once per hop, so every hop is
+//     checked with no redirect-policy code at all.
+//
+// The hop is DENIED rather than prompted: RoundTrip runs inside
+// client.Timeout, so there is no room to wait for a human (§4.2). A
+// non-blocking prompt is raised alongside the denial, which is what makes the
+// agent's retry succeed after an approve-and-remember — see
+// TestMCPRedirectHopDeniedThenRememberable.
+func TestMCPRunRequestRedirectToADifferentPortIsRefused(t *testing.T) {
 	f := newMCPRunFixture(t)
 
 	var secondServiceSawSecret string
@@ -286,22 +298,26 @@ func TestMCPRunRequestRedirectToADifferentPortReachesAnUncheckedService(t *testi
 	reqID := req.ID
 	f.app.mu.Unlock()
 
-	var prompted []string
 	f.app.mcpApprovalEmit = func(request types.MCPApprovalRequest) {
 		f.mu.Lock()
-		prompted = append(prompted, request.Host)
+		f.approvals = append(f.approvals, request)
 		f.mu.Unlock()
 		go func() { _ = f.app.ResolveMCPApproval(request.ID, false, false) }()
 	}
 
-	if _, err := f.run(context.Background(), reqID, nil); err != nil {
-		t.Fatalf("the run was denied outright: %v", err)
+	// The first hop is in Base — the request's own definition points there — so
+	// the run starts. The SECOND hop is a different origin, and the guard
+	// transport stops it.
+	_, err = f.run(context.Background(), reqID, nil)
+	if err == nil {
+		t.Fatal("a redirect onto a different port was followed without any check")
 	}
-	if len(prompted) != 0 {
-		t.Fatalf("got approval prompts %v; expected none under the accepted limitation (no check runs against a redirect target, only the request's own defined host) — if the guard now re-checks hops, update mcp_guard.go's header alongside this test", prompted)
+	if !errors.Is(err, mcpserver.ErrDenied) {
+		t.Errorf("the redirect refusal does not wrap ErrDenied: %v", err)
 	}
-	if secondServiceSawSecret != "Bearer "+runSentinelToken {
-		t.Fatalf("the second service did not receive the credential (Authorization=%q); the accepted limitation this test pins has changed — either redirect re-guarding was added (update mcp_guard.go's header alongside this test) or this environment stopped forwarding headers across ports", secondServiceSawSecret)
+	// THE ASSERTION THE WHOLE FINDING WAS ABOUT: the credential does not arrive.
+	if secondServiceSawSecret != "" {
+		t.Fatalf("the second service received the credential across a redirect: Authorization=%q", secondServiceSawSecret)
 	}
 }
 
@@ -374,13 +390,17 @@ func TestMCPRunRequestOverrideNameCaseVariantIsAllowedButInert(t *testing.T) {
 
 // --- 3. the new-host guard, attacked further ---------------------------------
 
-// Same host, different port, must pass without a prompt — mcpNormalizeHost
-// drops the port by design, so this is documented, wanted behavior. It was
-// only exercised before via a SIBLING request explicitly teaching the guard
-// about the second port; this proves the port-normalization itself, without
-// that scaffolding: a target the request has never been pointed at before,
-// on the same host as the request's own default, needs no teaching.
-func TestMCPRunRequestSameHostDifferentPortPassesWithoutApproval(t *testing.T) {
+// FLIPPED, AND THIS IS THE FIX §1.4(9) NAMES. The shipped host guard drops the
+// port on purpose — for real DNS names, "same operator, same DNS name" is a
+// reasonable reading — and this test pinned that as wanted behaviour.
+//
+// It is not wanted behaviour for a destination boundary. :3000 and :8080 on a
+// developer's machine are two unrelated services, frequently with different
+// owners and different trust, and a boundary that cannot tell them apart
+// authorizes the second the moment the user approves the first. An Origin
+// carries its port, so the retarget below is now a destination the request's
+// definition does not name, and it prompts like any other.
+func TestMCPRunRequestSameHostDifferentPortIsBlockedWithoutApproval(t *testing.T) {
 	f := newMCPRunFixture(t)
 
 	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -404,15 +424,22 @@ func TestMCPRunRequestSameHostDifferentPortPassesWithoutApproval(t *testing.T) {
 		t.Fatal("the two httptest servers landed on the same port; this test needs them to differ")
 	}
 
-	result, err := f.run(context.Background(), f.secretReqID, map[string]string{"baseUrl": second.URL})
-	if err != nil {
-		t.Fatalf("a same-host, different-port override was blocked: %v", err)
+	// The fixture's emitter records and never answers — a closed window, which
+	// denies. Shortened so the test does not sit out the full 60 s.
+	f.app.mcpApprovalTimeout = 50 * time.Millisecond
+
+	_, err = f.run(context.Background(), f.secretReqID, map[string]string{"baseUrl": second.URL})
+	if err == nil {
+		t.Fatal("a port variant of the request's own host was contacted without approval")
 	}
-	if result.Status != http.StatusOK {
-		t.Errorf("status is %d, want 200", result.Status)
+	if !errors.Is(err, mcpserver.ErrDenied) {
+		t.Errorf("the refusal does not wrap ErrDenied: %v", err)
 	}
-	if prompts := f.prompts(); len(prompts) != 0 {
-		t.Errorf("the guard prompted for a port variant of an already-known host: %+v", prompts)
+	if prompts := f.prompts(); len(prompts) == 0 {
+		t.Error("the user was never asked about the other port")
+	}
+	if !strings.Contains(err.Error(), secondHost.Port()) {
+		t.Errorf("the denial does not name the port that was refused, so the user cannot tell the two services apart: %v", err)
 	}
 }
 
