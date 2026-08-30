@@ -237,7 +237,7 @@ func fidelityFingerprintOf(collection Collection, ignoreItemOrder bool) string {
 		builder.WriteString("  post " + strings.TrimSpace(item.PostScript) + "\n")
 		builder.WriteString("  tests " + strings.TrimSpace(item.Tests) + "\n")
 		builder.WriteString("  body " + item.Body.Mode + " " + item.Body.Text + item.Body.JSON + item.Body.GraphQLQuery + item.Body.GraphQLVariables + "\n")
-		builder.WriteString(fmt.Sprintf("  settings tls=%s redirects=%s max=%d\n", boolText(item.Settings.VerifyTLS), boolText(item.Settings.FollowRedirects), item.Settings.MaxRedirects))
+		fmt.Fprintf(&builder, "  settings tls=%s redirects=%s max=%d\n", boolText(item.Settings.VerifyTLS), boolText(item.Settings.FollowRedirects), item.Settings.MaxRedirects)
 		for _, file := range types.FileBodyEntriesOf(item.Body) {
 			builder.WriteString("  file " + file.FilePath + " selected=" + boolText(file.Selected) + "\n")
 		}
@@ -251,7 +251,7 @@ func fidelityFingerprintOf(collection Collection, ignoreItemOrder bool) string {
 			builder.WriteString("  pathParam " + param.Name + "=" + param.Value + "\n")
 		}
 		for _, example := range item.Examples {
-			builder.WriteString(fmt.Sprintf("  example %s %d %s %s %s\n", example.Name, example.Response.Status, example.Response.StatusText, example.Response.BodyType, example.Response.Body))
+			fmt.Fprintf(&builder, "  example %s %d %s %s %s\n", example.Name, example.Response.Status, example.Response.StatusText, example.Response.BodyType, example.Response.Body)
 			for _, header := range example.Response.Headers {
 				builder.WriteString("    exampleHeader " + header.Name + "=" + header.Value + "\n")
 			}
