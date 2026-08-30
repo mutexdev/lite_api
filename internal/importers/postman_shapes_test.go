@@ -56,6 +56,29 @@ func TestPostmanHeaderBlockMayBeAString(t *testing.T) {
 	}
 }
 
+func TestPostmanHeaderBlockImportsCommentedRowsAsDisabled(t *testing.T) {
+	// "//" is how Postman's bulk-edit view spells an unticked header. Importing
+	// the marker as part of the name sent a header called "//X-Debug".
+	collection, _ := importPostmanForTest(t, `{"info":{"name":"A"},"item":[{"name":"r","request":{"method":"GET","url":"https://e.test","header":"Accept: application/json\n//X-Debug: on\n// X-Spaced: yes\nReferer: https://example.test/a\n"}}]}`)
+	headers := findItemByName(t, collection, "r").Headers
+	if len(headers) != 4 {
+		t.Fatalf("headers = %#v", headers)
+	}
+	if headers[0].Name != "Accept" || !headers[0].Enabled {
+		t.Fatalf("enabled row = %#v", headers[0])
+	}
+	if headers[1].Name != "X-Debug" || headers[1].Value != "on" || headers[1].Enabled {
+		t.Fatalf("commented row = %#v", headers[1])
+	}
+	if headers[2].Name != "X-Spaced" || headers[2].Value != "yes" || headers[2].Enabled {
+		t.Fatalf("commented row with a space = %#v", headers[2])
+	}
+	// The "//" in a URL value is not a comment marker.
+	if headers[3].Name != "Referer" || headers[3].Value != "https://example.test/a" || !headers[3].Enabled {
+		t.Fatalf("value containing // = %#v", headers[3])
+	}
+}
+
 func TestPostmanHeaderValuesMayBeScalars(t *testing.T) {
 	collection, _ := importPostmanForTest(t, `{"info":{"name":"A"},"item":[{"name":"r","request":{"method":"GET","url":"https://e.test","header":[{"key":"N","value":5},{"key":"B","value":true},{"key":"Z","value":null}]}}]}`)
 	headers := findItemByName(t, collection, "r").Headers

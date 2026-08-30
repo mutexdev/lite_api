@@ -127,20 +127,40 @@ func (list *postmanHeaderList) UnmarshalJSON(data []byte) error {
 
 // parsePostmanHeaderBlock reads a wire-format header block. A line without a
 // colon is not a header and is dropped rather than imported as a nameless row.
+//
+// A leading "//" marks the row DISABLED rather than commenting it out. That is
+// how Postman's bulk-edit view spells an unticked header, so treating the
+// marker as part of the name imported a header literally called
+// "//Content-Type" -- enabled, and sent on the wire. Dropping the line instead
+// would lose a row the user can see in the UI they exported from; a disabled
+// row is part of the request, not an absent one, which is the same rule the
+// .bru writer follows.
 func parsePostmanHeaderBlock(block string) postmanHeaderList {
 	if strings.TrimSpace(block) == "" {
 		return nil
 	}
 	rows := postmanHeaderList{}
 	for _, line := range strings.Split(strings.ReplaceAll(block, "\r\n", "\n"), "\n") {
-		if strings.TrimSpace(line) == "" {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
 			continue
 		}
-		key, value, found := strings.Cut(line, ":")
+		// Checked against the trimmed LINE, so a "//" inside a value -- the
+		// scheme in "Referer: https://example.test" -- is untouched.
+		disabled := false
+		if rest, marked := strings.CutPrefix(trimmed, "//"); marked {
+			disabled = true
+			trimmed = strings.TrimSpace(rest)
+		}
+		key, value, found := strings.Cut(trimmed, ":")
 		if !found || strings.TrimSpace(key) == "" {
 			continue
 		}
-		rows = append(rows, postmanHeader{Key: postmanFlexString(strings.TrimSpace(key)), Value: postmanFlexString(strings.TrimSpace(value))})
+		rows = append(rows, postmanHeader{
+			Key:      postmanFlexString(strings.TrimSpace(key)),
+			Value:    postmanFlexString(strings.TrimSpace(value)),
+			Disabled: disabled,
+		})
 	}
 	return rows
 }
