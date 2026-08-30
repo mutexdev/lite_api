@@ -11,7 +11,7 @@ so the next person changing the shape does not have to re-derive them.
 lite_api/
   main.go                  24 lines — the only .go file in the root
   internal/
-    core/                  the App: 197 bound methods, the state lock
+    core/                  the App: 201 bound methods, the state lock
     types/                 the domain structs everything speaks in
     ...35 more
   frontend/                Svelte 5 + the generated Wails bindings
@@ -69,7 +69,7 @@ Two consequences that bite if forgotten:
 ## What lives where
 
 `internal/core` is the application: the `App` struct, the state lock, and the
-197 bound methods. It is the largest package and is *supposed* to be — package
+201 bound methods. It is the largest package and is *supposed* to be — package
 main being large is idiomatic Go (`go.dev/blog/organizing-go-code`; the Go
 tool's own main package is 12,000+ lines across 34 files). What matters is that
 what remains there genuinely needs the App.

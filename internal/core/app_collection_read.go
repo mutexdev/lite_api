@@ -99,6 +99,12 @@ func readCollectionFromDisk(collectionPath string) (Collection, error) {
 			if openAPI := yamlstore.ParseOpenAPISyncConfigs(config["openapi"]); len(openAPI) > 0 {
 				collection.OpenAPI = openAPI
 			}
+			// Flows in a bru-format collection live in bruno.json, which is the
+			// only root config that format has. The yml side reads them in
+			// hydrateYAMLCollectionMetadata.
+			if flows := yamlstore.ParseFlows(config["flows"]); len(flows) > 0 {
+				collection.Flows = flows
+			}
 		}
 	}
 	if format == "yml" {
@@ -389,6 +395,9 @@ func hydrateYAMLCollectionMetadata(collection *Collection, path string) error {
 	}
 	if protobuf, ok := yamlstore.ParseCollectionProtobuf(config["protobuf"]); ok {
 		collection.Protobuf = types.NormalizeCollectionProtobuf(collection.Path, protobuf)
+	}
+	if flows := yamlstore.ParseFlows(root["flows"]); len(flows) > 0 {
+		collection.Flows = flows
 	}
 	if extensions, ok := mapValue(root["extensions"]); ok {
 		if bruno, ok := mapValue(extensions["bruno"]); ok {

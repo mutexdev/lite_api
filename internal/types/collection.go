@@ -7,15 +7,20 @@ package types
 import "time"
 
 type Collection struct {
-	ID                 string                    `json:"id"`
-	Name               string                    `json:"name"`
-	Version            string                    `json:"version,omitempty"`
-	Path               string                    `json:"path"`
-	Format             string                    `json:"format"`
-	Remote             string                    `json:"remote,omitempty"`
-	NotFoundLocally    bool                      `json:"notFoundLocally,omitempty"`
-	Scratch            bool                      `json:"scratch,omitempty"`
-	Items              []RequestItem             `json:"items"`
+	ID              string        `json:"id"`
+	Name            string        `json:"name"`
+	Version         string        `json:"version,omitempty"`
+	Path            string        `json:"path"`
+	Format          string        `json:"format"`
+	Remote          string        `json:"remote,omitempty"`
+	NotFoundLocally bool          `json:"notFoundLocally,omitempty"`
+	Scratch         bool          `json:"scratch,omitempty"`
+	Items           []RequestItem `json:"items"`
+	// Flows are LiteAPI-native multi-step chains over Items. They live on the
+	// collection rather than in a sidecar so that everything that already
+	// copies, clones, recovers or exports a collection carries them; see
+	// internal/types/flow.go for the schema.
+	Flows              []Flow                    `json:"flows,omitempty"`
 	Folders            []FolderConfig            `json:"folders"`
 	Environments       []Environment             `json:"environments"`
 	Variables          []Variable                `json:"variables"`

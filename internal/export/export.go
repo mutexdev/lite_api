@@ -151,6 +151,13 @@ func BuildZipFiles(collection types.Collection) ([]File, int, int, error) {
 	if len(collection.OpenAPI) > 0 {
 		config["openapi"] = yamlstore.JSONOpenAPISyncConfigs(collection.OpenAPI)
 	}
+	// Flows travel with a LiteAPI export in both formats — the yml branch above
+	// gets them through StringifyCollection, and bruno.json is where the bru
+	// format keeps them. A zip is a copy of the collection, so leaving them out
+	// would mean an export that re-imports as a collection missing work.
+	if len(collection.Flows) > 0 {
+		config["flows"] = yamlstore.JSONFlows(collection.Flows)
+	}
 	configData, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return nil, 0, 0, err
@@ -323,6 +330,15 @@ func BuildPostmanCollection(collection types.Collection) (string, int, []string,
 	return result.Content, result.RequestCount, result.SkippedTypes, nil
 }
 
+// BuildPostmanExport renders a collection as a Postman v2.1 collection.
+//
+// FLOWS ARE DELIBERATELY NOT CARRIED. collection.Flows is LiteAPI-native and
+// has no counterpart in the Postman schema: there is no shape to put a step
+// chain, its extractions or its assertions into that Postman would read back,
+// and inventing one under a `_liteapi` key would produce a file that neither
+// tool round-trips. A LiteAPI zip export (BuildZipFiles) is the export that
+// keeps them. This comment exists because everything else on the collection is
+// mapped here, so their absence would otherwise read as an oversight.
 func BuildPostmanExport(collection types.Collection) (PostmanExport, error) {
 	state := newPostmanExportState()
 	items, folderCount, requestCount := postmanCollectionItems(collection, state)

@@ -166,6 +166,10 @@ export function CreateEnvironment(arg1, arg2) {
   return window['go']['core']['App']['CreateEnvironment'](arg1, arg2);
 }
 
+export function CreateFlow(arg1, arg2) {
+  return window['go']['core']['App']['CreateFlow'](arg1, arg2);
+}
+
 export function CreateFolder(arg1, arg2, arg3, arg4) {
   return window['go']['core']['App']['CreateFolder'](arg1, arg2, arg3, arg4);
 }
@@ -204,6 +208,10 @@ export function DeleteCookie(arg1) {
 
 export function DeleteDotEnvFile(arg1, arg2, arg3, arg4) {
   return window['go']['core']['App']['DeleteDotEnvFile'](arg1, arg2, arg3, arg4);
+}
+
+export function DeleteFlow(arg1, arg2) {
+  return window['go']['core']['App']['DeleteFlow'](arg1, arg2);
 }
 
 export function DeleteFolder(arg1, arg2) {
@@ -570,6 +578,10 @@ export function RunCollectionWithOptions(arg1, arg2, arg3) {
   return window['go']['core']['App']['RunCollectionWithOptions'](arg1, arg2, arg3);
 }
 
+export function RunFlow(arg1, arg2, arg3, arg4) {
+  return window['go']['core']['App']['RunFlow'](arg1, arg2, arg3, arg4);
+}
+
 export function SaveAllTabs(arg1) {
   return window['go']['core']['App']['SaveAllTabs'](arg1);
 }
@@ -740,6 +752,10 @@ export function UpdateCollectionVariables(arg1, arg2) {
 
 export function UpdateEnvironmentVariables(arg1, arg2, arg3) {
   return window['go']['core']['App']['UpdateEnvironmentVariables'](arg1, arg2, arg3);
+}
+
+export function UpdateFlow(arg1, arg2) {
+  return window['go']['core']['App']['UpdateFlow'](arg1, arg2);
 }
 
 export function UpdateFolderSettings(arg1, arg2, arg3) {

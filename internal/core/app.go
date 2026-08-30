@@ -67,7 +67,11 @@ type App struct {
 	notifiedChannels map[string]string
 	// notificationEmit replaces the Wails event emit for error/warn
 	// notification pushes. nil in production; see pushNotification.
-	notificationEmit      func(Notification)
+	notificationEmit func(Notification)
+	// flowProgressEmit replaces the Wails event emit for the per-step
+	// "flow:progress" pushes a flow run makes. nil in production; the test
+	// seam, exactly like notificationEmit. See emitFlowProgress.
+	flowProgressEmit      func(types.FlowProgress)
 	oauth2OpenURL         func(context.Context, string) error
 	oauth2OpenInAppURL    func(context.Context, oauth2AuthorizationBrowserRequest) error
 	revealInFolder        func(string) error

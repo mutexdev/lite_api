@@ -126,6 +126,11 @@ func (a *App) writeCollectionFilesLocked(collection *Collection) error {
 	if len(collection.OpenAPI) > 0 {
 		config["openapi"] = yamlstore.JSONOpenAPISyncConfigs(collection.OpenAPI)
 	}
+	// A bru-format collection has no other root config to carry flows in; the
+	// yml branch above writes them through yamlstore.StringifyCollection.
+	if len(collection.Flows) > 0 {
+		config["flows"] = yamlstore.JSONFlows(collection.Flows)
+	}
 	configData, _ := json.MarshalIndent(config, "", "  ")
 	if err := a.writeCollectionFileLocked(filepath.Join(collection.Path, "bruno.json"), configData); err != nil {
 		return err

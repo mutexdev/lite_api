@@ -90,6 +90,11 @@ func StringifyCollection(collection types.Collection) string {
 	if len(config) > 0 {
 		root["config"] = config
 	}
+	// Flows sit at the root rather than under config: they are content, like
+	// the requests, not settings. See flow_codec.go.
+	if len(collection.Flows) > 0 {
+		root["flows"] = YAMLFlows(collection.Flows)
+	}
 	data, _ := yaml.Marshal(root)
 	return string(data)
 }
