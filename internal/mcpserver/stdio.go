@@ -83,7 +83,9 @@ func (s *Server) ServeStdio(ctx context.Context, in io.Reader, out io.Writer, lo
 			// SIGINT/SIGTERM. The caller shuts the app down and exits; saying so
 			// on stderr keeps a killed session distinguishable from a client
 			// that simply closed the pipe.
-			fmt.Fprintln(logs, "liteapi mcp: interrupted, shutting down")
+			// The diagnostic is best effort: stderr may itself be closed, and a
+			// failure to explain the shutdown must not change what is returned.
+			_, _ = fmt.Fprintln(logs, "liteapi mcp: interrupted, shutting down")
 			return nil
 		case line, open := <-lines:
 			if !open {
@@ -91,7 +93,7 @@ func (s *Server) ServeStdio(ctx context.Context, in io.Reader, out io.Writer, lo
 				return nil
 			}
 			if line.err != nil {
-				fmt.Fprintf(logs, "liteapi mcp: reading stdin: %v\n", line.err)
+				_, _ = fmt.Fprintf(logs, "liteapi mcp: reading stdin: %v\n", line.err)
 				return line.err
 			}
 			response, ok := s.stdioResponse(line)
@@ -99,7 +101,7 @@ func (s *Server) ServeStdio(ctx context.Context, in io.Reader, out io.Writer, lo
 				continue
 			}
 			if err := writeStdioMessage(out, response); err != nil {
-				fmt.Fprintf(logs, "liteapi mcp: writing to stdout: %v\n", err)
+				_, _ = fmt.Fprintf(logs, "liteapi mcp: writing to stdout: %v\n", err)
 				return err
 			}
 		}

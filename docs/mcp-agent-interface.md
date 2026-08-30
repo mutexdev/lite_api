@@ -48,11 +48,21 @@ tool descriptions.
 5. **Write tier is off by default.** `create_*`/`update_*` tools are rejected
    until the user enables writes in Settings. Even then, agents can reference
    secret variables by name but can never read or define secret values.
-6. **Everything is audited, from Phase 2.** Every MCP call is recorded (tool,
-   arguments summary, outcome, timestamp) and visible in the app's audit panel.
-   Auditing lands in Phase 2 alongside `run_request`, which is the phase that
-   first lets an agent change anything outside LiteAPI; the Phase 1 tools are
-   read-only and are not yet recorded.
+6. **Everything an agent does is audited.** Every `tools/call` is recorded
+   (tool, arguments summary, outcome, timestamp) and visible in the app's audit
+   panel, with a refusal recorded as `denied` rather than as one more failure.
+   Discovery calls — `initialize`, `tools/list`, `ping` — are not recorded:
+   every client makes them on connect, and burying the calls that touched the
+   user's data under that noise would make the panel useless.
+7. **Agents cannot author scripts, and cannot define secrets.** The new-host
+   guard reasons about a request's definition, so a script — which runs inside
+   the user's own engine and can rewrite a request after the guard has checked
+   it — would be a way past it. The write tier therefore refuses to author
+   scripts or tests outright, preserves the ones a request already has, and
+   refuses any authored row that declares itself secret. It also runs the
+   host guard at SAVE time: a request that would aim a secret at a host the
+   collections have never sent it to raises the same approval prompt a run
+   does, so authoring cannot quietly widen what running is allowed to do.
 
 ## Transport and pairing
 
@@ -211,12 +221,20 @@ Semantics:
 - `outputs` name what the flow hands back to its caller.
 - The same flow runs identically from the app's Flow tab and from `run_flow`.
 
-## Phasing
+## What shipped
 
-| Phase | Delivers |
+The interface was built in five phases, all of them delivered. The table is
+kept because it is the shortest map of where each capability lives.
+
+| Phase | Delivered |
 | --- | --- |
 | 1 | MCP server skeleton (localhost HTTP + token, Settings toggle), read-tier tools, redaction layer. |
 | 2 | `run_request`, audit log + panel, new-host guard + approval prompt. |
 | 3 | Flow model, runner, Flow tab UI, `run_flow`, `list_flows`/`get_flow`. |
-| 4 | Write tier (`create_*`/`update_*`), `describe_usage`. |
-| 5 | Headless `liteapi mcp` stdio mode, docs polish. |
+| 4 | Write tier (`create_*`/`update_*`) behind its gate, `describe_usage`. |
+| 5 | Headless `liteapi mcp` stdio mode. |
+
+An agent that has never read this document gets the same material from
+`describe_usage`, which is assembled from Go data in `internal/mcpserver` and
+reports the write tier's live state — so what it says about what is possible
+is true of the install it is talking to.
