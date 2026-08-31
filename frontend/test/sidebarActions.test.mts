@@ -64,13 +64,18 @@ test('delete is the final entry for every kind of object that offers it', () => 
 })
 
 test('the test ids every action carries are the ones already in the markup', () => {
+  const collection: SidebarObject = { kind: 'collection', collectionId: 'c1', folder: '', itemId: '', label: 'Alpha' }
   const ids = new Map(
-    [...sidebarActionsFor(folder, context), ...sidebarActionsFor(request, context)]
-      .map((action) => [action.id, action.testId])
+    [
+      ...sidebarActionsFor(collection, context),
+      ...sidebarActionsFor(folder, context),
+      ...sidebarActionsFor(request, context)
+    ].map((action) => [action.id, action.testId])
   )
 
   assert.deepEqual(Object.fromEntries(ids), {
     'new-request': 'collection-item-menu-new-request',
+    'new-flow': 'collection-item-menu-new-flow',
     reveal: 'collection-item-menu-show-in-folder',
     'generate-code': 'collection-item-menu-generate-code',
     info: 'collection-item-menu-info',
@@ -138,16 +143,26 @@ test('an unbound action renders no shortcut hint at all', () => {
   assert.equal(rename.shortcut, undefined)
 })
 
-// A collection is a container, so it offers the two creating actions and
-// nothing else. Rename, clone and delete exist for collections but move
-// directories on disk and live in the settings pane; putting them on the row is
-// a separate decision, not a free addition.
-test('a collection offers the creating actions only', () => {
+// A collection is a container, so it offers the creating actions and nothing
+// else. Rename, clone and delete exist for collections but move directories on
+// disk and live in the settings pane; putting them on the row is a separate
+// decision, not a free addition.
+//
+// New Flow is on the collection and ONLY on the collection: flows live in the
+// collection's root config file and carry no folder path, so offering it on a
+// folder would promise a placement that does not exist.
+test('a collection offers the creating actions only, New Flow among them', () => {
   const collection: SidebarObject = { kind: 'collection', collectionId: 'c1', folder: '', itemId: '', label: 'Alpha' }
   assert.deepEqual(
     sidebarActionsFor(collection, context).map((action) => action.id),
-    ['new-request', 'new-folder']
+    ['new-request', 'new-folder', 'new-flow']
   )
+  for (const object of [folder, request]) {
+    assert.ok(
+      !sidebarActionsFor(object, context).some((action) => action.id === 'new-flow'),
+      `New Flow should not be offered on a ${object.kind}`
+    )
+  }
 })
 
 test('a response example row maps to no object, because its actions belong to its request', () => {

@@ -4,7 +4,7 @@ package core
 // was released for network I/O.
 //
 // THE BUG, which was pre-existing and is not a race the detector can find.
-// sendRequestWithControlsContext resolved `ws` (a pointer INTO the
+// sendRequestWithControlsContextProvenance resolved `ws` (a pointer INTO the
 // a.state.Workspaces backing array), released a.mu for the round trip,
 // re-acquired it, and then handed that same pointer to
 // scripting.ApplyScriptVariableContextToState. Anything that appended a workspace past
@@ -36,7 +36,9 @@ import (
 // disturb it — the same reason the file-motion guard below exists.
 //
 // It used to read app.go alone. That made it fail the moment
-// sendRequestWithControlsContext moved to app_send.go during the file split —
+// sendRequestWithControlsContextProvenance (then still named
+// sendRequestWithControlsContextProvenance) moved to app_send.go during the
+// file split —
 // reporting a US-076 regression when nothing about the property had changed.
 // A guard that fires on code motion is a guard people learn to edit away.
 //
@@ -190,12 +192,12 @@ func TestRunnerResolvesWorkspaceAfterReacquiringTheLock(t *testing.T) {
 	source := readAppSourceForTest(t)
 	const call = "scripting.ApplyScriptVariableContextToState(&a.state, liveWorkspace, collection, environmentID, scriptVariables)"
 	if !strings.Contains(source, call) {
-		t.Errorf("sendRequestWithControlsContext no longer passes the re-resolved workspace to "+
+		t.Errorf("sendRequestWithControlsContextProvenance no longer passes the re-resolved workspace to "+
 			"scripting.ApplyScriptVariableContextToState.\nExpected to find:\n  %s\n"+
 			"If this call was legitimately restructured, keep the property: the workspace must be "+
 			"resolved AFTER a.mu is re-acquired, never captured across the release.", call)
 	}
 	if strings.Contains(source, "scripting.ApplyScriptVariableContextToState(&a.state, ws,") {
-		t.Error("sendRequestWithControlsContext passes the pre-I/O `ws` pointer again (US-076 regression)")
+		t.Error("sendRequestWithControlsContextProvenance passes the pre-I/O `ws` pointer again (US-076 regression)")
 	}
 }

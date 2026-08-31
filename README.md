@@ -15,6 +15,22 @@ to this in your browser, and you can call your Go code from devtools.
 
 To build a redistributable, production mode package, use `wails build`.
 
+## Command line
+
+The binary is a desktop app; run with no arguments it opens a window. It takes
+`--data-dir <path>` to root itself somewhere other than the default location,
+and one subcommand:
+
+```
+liteapi mcp [--data-dir <path>]
+```
+
+`liteapi mcp` serves LiteAPI's MCP interface over stdin/stdout for AI tools, so
+an agent can use the collections on a machine where the app is not running. It
+refuses to start while the app itself is open over the same data directory —
+connect to the running app's endpoint instead, using the one-liner in
+Settings → AI access. See [docs/mcp-agent-interface.md](docs/mcp-agent-interface.md).
+
 ## Downloading a release
 
 Every successful update to `main` creates a GitHub release named `v0.1.<run-number>` with four downloadable files:

@@ -9,6 +9,7 @@ package awsv4
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha1"
 	"crypto/sha256"
@@ -35,7 +36,17 @@ import (
 // map was only ever consumed by interpolation -- taking the resolver instead
 // means this package needs to know nothing about how variables are stored or
 // expanded, and the interpolator can move to its own package independently.
+//
+// Credential resolution -- STS, SSO, SSO-OIDC, credential_process -- runs
+// under req's context. That is where the deadline comes from, and where an
+// EgressGuard installed by WithEgressGuard is found. The signature is
+// unchanged because req already carries everything needed: adding a ctx
+// parameter would have offered callers a second, contradictable answer.
 func Sign(req *http.Request, auth types.AWSV4Auth, now time.Time, resolve func(string) string) error {
+	ctx := context.Background()
+	if req != nil {
+		ctx = req.Context()
+	}
 	accessKeyID := resolve(firstNonEmpty(auth.AccessKeyID, auth.AccessKey))
 	secretAccessKey := resolve(firstNonEmpty(auth.SecretAccessKey, auth.SecretKey))
 	sessionToken := resolve(auth.SessionToken)
@@ -43,11 +54,17 @@ func Sign(req *http.Request, auth types.AWSV4Auth, now time.Time, resolve func(s
 	region := resolve(auth.Region)
 	profileName := strings.TrimSpace(resolve(auth.ProfileName))
 	if profileName != "" {
-		if credentials, err := loadAWSV4ProfileCredentials(profileName); err == nil {
+		if credentials, err := loadAWSV4ProfileCredentials(ctx, profileName); err == nil {
 			accessKeyID = credentials.AccessKeyID
 			secretAccessKey = credentials.SecretAccessKey
 			sessionToken = credentials.SessionToken
-		} else if accessKeyID == "" || secretAccessKey == "" {
+		} else if egressGuardFrom(ctx) != nil || accessKeyID == "" || secretAccessKey == "" {
+			// Without a guard, a profile that fails to resolve falls back to
+			// any literal keys the auth also carried -- long-standing
+			// behaviour, and the UI path. Under a guard it does not: the
+			// failure may be the guard's own refusal, and quietly signing with
+			// the fallback would turn a refusal into a different-credentials
+			// success.
 			return err
 		}
 	}
@@ -120,7 +137,7 @@ type awsV4SSOTokenCachePayload struct {
 
 const awsV4SSOTokenRefreshWindow = 5 * time.Minute
 
-func loadAWSV4SSOToken(cacheKey string, ssoProfile awsV4SSOProfile, rawProfile map[string]string) (awsV4SSOToken, error) {
+func loadAWSV4SSOToken(ctx context.Context, cacheKey string, ssoProfile awsV4SSOProfile, rawProfile map[string]string) (awsV4SSOToken, error) {
 	cachePath := filepath.Join(awsV4SSOCacheDir(), awsV4SSOCacheFilename(cacheKey))
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
@@ -138,7 +155,7 @@ func loadAWSV4SSOToken(cacheKey string, ssoProfile awsV4SSOProfile, rawProfile m
 	}
 	now := time.Now().UTC()
 	if ssoProfile.Session != "" && awsV4SSOTokenShouldRefresh(token, now) {
-		refreshedPayload, refreshedToken, err := refreshAWSV4SSOToken(payload, ssoProfile, rawProfile, now)
+		refreshedPayload, refreshedToken, err := refreshAWSV4SSOToken(ctx, payload, ssoProfile, rawProfile, now)
 		if err != nil {
 			return awsV4SSOToken{}, err
 		}
@@ -176,7 +193,7 @@ func awsV4SSOTokenShouldRefresh(token awsV4SSOToken, now time.Time) bool {
 	return !token.ExpiresAt.IsZero() && !now.Before(token.ExpiresAt.Add(-awsV4SSOTokenRefreshWindow))
 }
 
-func refreshAWSV4SSOToken(payload awsV4SSOTokenCachePayload, ssoProfile awsV4SSOProfile, rawProfile map[string]string, now time.Time) (awsV4SSOTokenCachePayload, awsV4SSOToken, error) {
+func refreshAWSV4SSOToken(ctx context.Context, payload awsV4SSOTokenCachePayload, ssoProfile awsV4SSOProfile, rawProfile map[string]string, now time.Time) (awsV4SSOTokenCachePayload, awsV4SSOToken, error) {
 	clientID := strings.TrimSpace(payload.ClientID)
 	clientSecret := strings.TrimSpace(payload.ClientSecret)
 	refreshToken := strings.TrimSpace(payload.RefreshToken)
@@ -203,11 +220,14 @@ func refreshAWSV4SSOToken(payload awsV4SSOTokenCachePayload, ssoProfile awsV4SSO
 	if err != nil {
 		return awsV4SSOTokenCachePayload{}, awsV4SSOToken{}, fmt.Errorf("encode AWS SSO OIDC token refresh request: %w", err)
 	}
-	req, err := http.NewRequest(http.MethodPost, requestURL.String(), bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL.String(), bytes.NewReader(body))
 	if err != nil {
 		return awsV4SSOTokenCachePayload{}, awsV4SSOToken{}, fmt.Errorf("create AWS SSO OIDC token refresh request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if err := authorizeCredentialRequest(ctx, req); err != nil {
+		return awsV4SSOTokenCachePayload{}, awsV4SSOToken{}, err
+	}
 	// US-017: shared client, posture unchanged.
 	res, err := httpClient().Do(req)
 	if err != nil {

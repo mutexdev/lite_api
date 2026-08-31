@@ -60,40 +60,51 @@ func (settings OSProxySettings) Configured() bool {
 // told to consult; the evaluator it goes to is the one the manual PAC mode
 // already uses.
 func ProxyURLFromOSSettings(settings OSProxySettings, rawURL string) (*url.URL, error) {
+	proxyURL, pacURL, err := discoverProxyFromOSSettings(settings, rawURL)
+	if pacURL != "" {
+		return systemPACProxyURL(pacURL, rawURL)
+	}
+	return proxyURL, err
+}
+
+// discoverProxyFromOSSettings is ProxyURLFromOSSettings without the PAC
+// evaluation: a machine configured with a PAC gets its location reported, not
+// fetched and run. The bypass checks stay ahead of it, so a bypassed host is
+// still direct and no PAC location is reported for it at all.
+func discoverProxyFromOSSettings(settings OSProxySettings, rawURL string) (*url.URL, string, error) {
 	if !settings.Configured() {
-		return nil, nil
+		return nil, "", nil
 	}
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || parsed == nil || parsed.Scheme == "" {
-		return nil, nil
+		return nil, "", nil
 	}
 	if settings.BypassLocal && !strings.Contains(hostWithoutPort(parsed.Host), ".") {
-		return nil, nil
+		return nil, "", nil
 	}
 	if strings.TrimSpace(settings.Bypass) != "" && !ShouldUseManualProxy(rawURL, settings.Bypass) {
-		return nil, nil
+		return nil, "", nil
 	}
 	if pac := strings.TrimSpace(settings.PACURL); pac != "" {
-		proxyURL, ok, err := ResolvePACProxyURL(pac, rawURL)
-		if err != nil || !ok {
-			return nil, nil
-		}
-		return proxyURL, nil
+		return nil, pac, nil
 	}
 	switch strings.ToLower(parsed.Scheme) {
 	case "https", "wss":
 		if settings.HTTPSProxy != "" {
-			return osProxyURL("http", settings.HTTPSProxy)
+			proxyURL, err := osProxyURL("http", settings.HTTPSProxy)
+			return proxyURL, "", err
 		}
 	default:
 		if settings.HTTPProxy != "" {
-			return osProxyURL("http", settings.HTTPProxy)
+			proxyURL, err := osProxyURL("http", settings.HTTPProxy)
+			return proxyURL, "", err
 		}
 	}
 	if settings.SOCKSProxy != "" {
-		return osProxyURL("socks5", settings.SOCKSProxy)
+		proxyURL, err := osProxyURL("socks5", settings.SOCKSProxy)
+		return proxyURL, "", err
 	}
-	return nil, nil
+	return nil, "", nil
 }
 
 func hostWithoutPort(host string) string {

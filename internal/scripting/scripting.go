@@ -8,6 +8,7 @@
 package scripting
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -130,7 +131,37 @@ type ScriptRuntimeMeta struct {
 	// Postman's 0-based pm.info.iteration at the boundary.
 	IterationIndex int
 	IterationCount int
+
+	// EgressAuthorizer is consulted before a script reaches the network, and
+	// RequestContext is the context the script's own requests are built with.
+	//
+	// Both are OFF BY DEFAULT: a nil authorizer authorizes everything and a nil
+	// context is the background context, which is exactly what the runtime did
+	// before either field existed. The UI send path leaves both zero, so a user
+	// Send is never subject to any of this.
+	//
+	// The authorizer is called with the destination and the egress kind:
+	//
+	//	EgressKindScript     the first argument is the fully resolved request URL,
+	//	                     including the query parameters the config asked for,
+	//	                     because that is the URL that would go on the wire.
+	//	EgressKindScriptDNS  the first argument is a bare hostname (or, for the
+	//	                     reverse lookups, the address being looked up) — NOT a
+	//	                     URL. A resolver query has no scheme or port to name.
+	//
+	// A non-nil error stops the egress before it happens and surfaces into the
+	// script as a catchable error.
+	EgressAuthorizer func(rawURL string, kind string) error
+	RequestContext   context.Context
 }
+
+// The egress kinds a script can produce. They are the two script-shaped members
+// of the wider kind vocabulary the caller's policy understands; they live here
+// because this package is what names them at the call site.
+const (
+	EgressKindScript    = "script"
+	EgressKindScriptDNS = "script-dns"
+)
 
 var scriptRuntimeEventLoops sync.Map
 
@@ -349,7 +380,7 @@ func NewScriptRuntimeWithMeta(item types.RequestItem, response types.Response, v
 	}
 	installScriptProcess(runtime, loop, meta.CollectionPath, scriptVars.ProcessEnv, sandboxMode)
 	vars = scriptVars.Combined
-	installScriptFetch(runtime, vars)
+	installScriptFetch(runtime, vars, meta)
 	bodySnapshot := types.RequestBodySnapshot(item.Body)
 	reqState := &RequestState{headers: types.CloneKeyValues(item.Headers), runtime: runtime, bodySnapshot: bodySnapshot}
 	reqObject := runtime.NewObject()
@@ -780,7 +811,17 @@ func NewScriptRuntimeWithMeta(item types.RequestItem, response types.Response, v
 		return runtime.ToValue(true)
 	})
 	_ = runtime.Set("assert", assert)
+	// node:dns is built inside installScriptRequire, three call levels down,
+	// and the module installer's signature is not this task's to widen. The
+	// authorizer is handed over through a registration that lives exactly as
+	// long as the install: set here, captured by newScriptDNSObject into its
+	// bridge closures, and cleared on the way out. Nothing keyed by *goja.Runtime
+	// outlives this line, so there is no map to leak and no window in which a
+	// user script could reach the authorizer itself — no user code runs during
+	// the install.
+	setScriptDNSAuthorizer(runtime, meta.EgressAuthorizer)
 	installScriptRequire(runtime, meta.CollectionPath, sandboxMode)
+	clearScriptDNSAuthorizer(runtime)
 	_ = runtime.Set("test", func(call goja.FunctionCall) goja.Value {
 		name := strings.TrimSpace(call.Argument(0).String())
 		if name == "" {

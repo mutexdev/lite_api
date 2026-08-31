@@ -29,6 +29,27 @@ type Preferences struct {
 	OAuth2UseSystemBrowser bool                `json:"oauth2UseSystemBrowser"`
 	ProxyMode              string              `json:"proxyMode"`
 	Proxy                  ProxyPreferences    `json:"proxy"`
+	MCP                    MCPPreferences      `json:"mcp"`
+}
+
+// MCPPreferences is the user's half of the MCP agent interface
+// (docs/mcp-agent-interface.md): whether the local server runs, on which port,
+// and whether the write tier is unlocked.
+//
+// THE BEARER TOKEN IS NOT HERE, and its absence is the design. Preferences live
+// in state.json, which is written on every mutation, copied into bug reports,
+// and synced by whatever the user points at their data directory. The token
+// lives in its own owner-only file instead — see App.mcpToken.
+//
+// Port carries no "0 means ephemeral" case even though the server accepts one.
+// Pairing hands the user a `claude mcp add` command with the port baked into a
+// URL, and an ephemeral port would silently invalidate that command on every
+// restart; the normaliser therefore coerces 0 to the default rather than
+// passing it through.
+type MCPPreferences struct {
+	Enabled          bool `json:"enabled"`
+	Port             int  `json:"port"`
+	WriteTierEnabled bool `json:"writeTierEnabled"`
 }
 
 type LayoutPreferences struct {

@@ -1,0 +1,445 @@
+package core
+
+// The flow tier of the MCP agent interface: list_flows, get_flow, run_flow.
+//
+// TWO HALVES, TWO SETS OF RULES. list_flows and get_flow are read-tier work and
+// obey mcp_backend.go's rules to the letter: copy out from under the state lock,
+// report AS AUTHORED, resolve nothing. That is not a convention here but the
+// safety argument for get_flow specifically — a step var written as
+// {"token":"{{apiToken}}"} must arrive at the agent as those literal braces,
+// because flow scope never resolves it (see flow_run.go's header) and resolving
+// it here would invent the leak the runner is built to avoid.
+//
+// run_flow is run-tier work and reuses Phase 2 verbatim. The runner takes a
+// flowStepGuard — a seam built for this file — and what this file installs in it
+// is the same pair of calls RunRequest makes, once per step: mcpRunPlan to copy
+// the step's request and work out which secrets are in scope, then the step's
+// own definition scope becomes the policy's active authority and the read
+// boundary's secret-injection refusal runs. PER STEP rather than once for the
+// flow, because a chain's steps are different requests aimed at different
+// origins, and step A's authority must not carry step B (§4.1).
+//
+// AND ONE THING THAT IS ONLY TRUE WHILE THE WRITE TIER IS ON: a stored step var
+// whose value reaches a secret raises an approval prompt before the step runs.
+// See the guard below for why that is a prompt rather than the refusal the
+// AUTHORING path gives, and mcp_flow_stepvar_approval_test.go for what the
+// approval is keyed on.
+//
+// WHAT THE MASK COVERS, and why it is wider than run_request's. A flow reads
+// values OUT of live responses — that is what extract is — and a server can echo
+// a credential back into its body. So an extracted value, an assertion detail
+// quoting a body value, a step error quoting one, and an output built from any
+// of them can all carry a secret that no name-based rule would ever flag. All
+// four go through MaskKnownSecretValues with the hydrated secret values fetched
+// BEFORE the run, exactly as mcpRunResult does.
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/mutexdev/lite_api/internal/mcpserver"
+	"github.com/mutexdev/lite_api/internal/types"
+)
+
+// ListFlows returns one collection's flows in stored order.
+func (b *mcpBackend) ListFlows(collectionID string) ([]mcpserver.FlowSummary, error) {
+	flows, err := b.app.mcpCollectionFlows(collectionID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mcpserver.FlowSummary, 0, len(flows))
+	for _, flow := range flows {
+		out = append(out, mcpFlowSummary(flow))
+	}
+	return out, nil
+}
+
+// GetFlow returns one flow's full definition, as authored.
+func (b *mcpBackend) GetFlow(collectionID, flowID string) (mcpserver.FlowDetail, error) {
+	flowID = strings.TrimSpace(flowID)
+	if strings.TrimSpace(collectionID) == "" || flowID == "" {
+		return mcpserver.FlowDetail{}, errors.New("collectionId and flowId are both required")
+	}
+	flows, err := b.app.mcpCollectionFlows(collectionID)
+	if err != nil {
+		return mcpserver.FlowDetail{}, err
+	}
+	for _, flow := range flows {
+		if flow.ID != flowID {
+			continue
+		}
+		return mcpserver.FlowDetail{
+			FlowSummary: mcpFlowSummary(flow),
+			Steps:       mcpFlowSteps(flow.Steps),
+			Outputs:     mcpFlowOutputs(flow.Outputs),
+		}, nil
+	}
+	return mcpserver.FlowDetail{}, fmt.Errorf("no flow with id %q in collection %q; call list_flows for the ids that exist", flowID, strings.TrimSpace(collectionID))
+}
+
+// RunFlow executes one flow with a fresh definition scope, and the read
+// boundary's refusal, enforced before every step.
+//
+// THE OUTCOME AND THE ERROR ANSWER DIFFERENT QUESTIONS, and both are returned —
+// the same split runFlowProvenance itself draws. A non-nil error means the run was
+// REFUSED (unknown ids, an undeclared input, a missing required one, a guard
+// that said no); a nil error with OK false means the flow RAN and failed its own
+// checks. The outcome is populated as far as the run got either way, so a caller
+// in this package can see that step 1 completed even when step 2 was denied. An
+// MCP client sees only the error text for a refusal — that is mcpserver's split
+// between a result and an isError — which is why the guard's message has to be
+// self-contained, and it is — whether it came from the read boundary
+// (mcp_guard.go) or from a destination refusal (mcp_policy.go), both write for
+// the agent that reads them.
+//
+// The guard's error is returned with errors.Is(err, mcpserver.ErrDenied) still
+// holding, so the audit records "denied" rather than "error".
+func (b *mcpBackend) RunFlow(ctx context.Context, params mcpserver.RunFlowParams) (mcpserver.FlowRunOutcome, error) {
+	// Fetched BEFORE the run, so the mapping below cannot forget to scrub and
+	// cannot be handed a value that was written to the environment mid-run.
+	// Same argument as RunRequest's.
+	secretValues, err := b.app.mcpHydratedSecretValues()
+	if err != nil {
+		return mcpserver.FlowRunOutcome{}, err
+	}
+
+	// ONE POLICY FOR THE WHOLE FLOW, with the ACTIVE SCOPE REPLACED PER STEP
+	// (§4.1, §5 row 18). One policy because the execution overlay (§3) is
+	// per-execution and cross-step continuity rides on it; the scope replaced
+	// rather than accumulated because a flow's steps are siblings — step A's
+	// origins must not authorize step B's egress, which is the confused-deputy
+	// widening the scope stack exists to close.
+	policy, book := b.app.newMCPExecutionPolicy()
+
+	// READ ONCE, BEFORE THE RUN, for the same reason the secret values are: a
+	// preference the user flips mid-flow must not make step 3 obey a different
+	// rule from step 1. See the guard below for what it decides.
+	writeTierEnabled, err := b.app.mcpWriteTierEnabled()
+	if err != nil {
+		return mcpserver.FlowRunOutcome{}, err
+	}
+
+	// The flow's own id and NAME, read once before the run. The id is what a
+	// step-var approval is keyed on, so it is taken from the STORED flow rather
+	// than from the parameter, which may differ by whitespace; the name is
+	// display only — nothing is keyed on it, because a rename must not
+	// invalidate an approval.
+	flowID, flowName := b.app.mcpFlowIdentity(params.CollectionID, params.FlowID)
+
+	guard := func(_ int, stepID, requestID string, overrides map[string]string) error {
+		// The step's own plan: its effective request, its resolved variable
+		// scope, and the secrets in scope for it. Nothing here is flow-specific —
+		// it is the same copy-out RunRequest does, which is the point, because
+		// "what the guard checked" must not drift between the two tiers.
+		plan, planErr := b.app.mcpRunPlan(params.CollectionID, requestID, params.EnvironmentID)
+		if planErr != nil {
+			return planErr
+		}
+		// The step's own definition scope becomes the active one, keyed on the
+		// STEP'S request id (§9, T2). A flow whose steps hit three different
+		// services therefore has three different authorities, one at a time.
+		mcpEnterScope(policy, book, plan)
+		// The step's vars arrive here already interpolated against flow scope,
+		// and they are the map an agent-supplied value is walked through — so a
+		// step that carries an input onward is judged on the input, and a step
+		// that retargets {{baseUrl}} is caught at the egress by the scope that
+		// was just made active.
+		//
+		// THE AGENT'S OWN VALUES ARE THE INPUTS, NOT THE OVERRIDES. A step var is
+		// written by the USER, and one that reads {"token": "{{apiToken}}"} is
+		// the flow tier working as designed — flow scope leaves the braces
+		// alone and the send path resolves them inside LiteAPI. What the agent
+		// chooses is params.Inputs, and an input whose VALUE is itself a
+		// template is the smuggling channel: it lands in a step var, travels as
+		// an override, and the send path's multi-pass interpolation chases it to
+		// the real credential. So the inputs are what the guard refuses on.
+		//
+		// ...UNLESS THE WRITE TIER IS ON, in which case "a step var is written by
+		// the USER" stops being something this code can rely on. create_flow and
+		// update_flow let the agent author step vars directly — and update_flow
+		// takes any flow id in the collection, so even a flow the user wrote is
+		// one update_flow away from carrying an agent's. validateFlow refuses to
+		// author the smuggling shape now (flowRefuseSecretReachingStepVars), but
+		// a flow stored BEFORE that refusal existed is still on disk, and a
+		// stored flow records nothing about who wrote it.
+		if err := b.app.enforceMCPSecretInjection(plan, mcpGuardInput{
+			overrides:    overrides,
+			agentValues:  params.Inputs,
+			secretValues: secretValues,
+		}); err != nil {
+			return err
+		}
+		if !writeTierEnabled {
+			// The agent has no authoring channel at all, so the step var is
+			// provably the user's and is honoured exactly as the flow tier
+			// promises: silently, with no prompt.
+			return nil
+		}
+		// THE TIER IS ON, SO THE PROVENANCE IS AMBIGUOUS — AND AN AMBIGUITY IS
+		// ASKED ABOUT, NOT REFUSED. This used to refuse outright, and the cost
+		// was the user's own flows: aiming a credential at a request through a
+		// step var is the documented shape of this tier (rule 8 says so in as
+		// many words, and TestFlowStepVarBracesRemainLiteralWhileSendIsAuthorized
+		// pins it end to end), so enabling writes stopped those flows running
+		// through MCP at all. A step var that reaches a secret now raises an
+		// approval prompt instead, narrowly keyed and remembered on request
+		// (authorizeMCPFlowStepVarSecrets). Note that this is NOT the same answer
+		// the AUTHORING door gives: create_flow/update_flow still refuse the
+		// shape outright, with no approval path, because there the agent's own
+		// channel is the subject and an agent has no honest need to author a
+		// secret-aiming step var. Here the subject is a stored value whose author
+		// cannot be recovered, which is a different question and gets a different
+		// answer.
+		return b.app.authorizeMCPFlowStepVarSecrets(ctx, plan, mcpFlowStepVarSubjectInput{
+			flowID:   flowID,
+			flowName: flowName,
+			stepID:   stepID,
+			stepVars: overrides,
+		})
+	}
+
+	// mcpSendProvenance(policy) is what makes every step of this flow an
+	// agent-initiated send (§4.5); the flow root stamps it onto the context it
+	// hands each step, so the policy still travels the way the checkpoints expect
+	// while the classification itself is stated rather than inferred.
+	result, runErr := b.app.runFlowProvenance(mcpContextWithPolicy(ctx, policy), mcpSendProvenance(policy), params.CollectionID, params.FlowID, params.EnvironmentID, params.Inputs, guard)
+	if runErr == nil {
+		// A step the destination boundary blocked is a REFUSAL, and the runner
+		// reports it as a step that failed. See mcpClassifyFlowDenial.
+		runErr = mcpClassifyFlowDenial(result, policy)
+	}
+	outcome := mcpFlowRunOutcome(result, secretValues)
+	if runErr != nil {
+		// A refusal names variables and hosts, never values — but it is masked
+		// anyway. The scrub is free, and the one thing that must not happen is a
+		// path where a message reaches an agent without passing through it.
+		return outcome, mcpMaskedError(runErr, secretValues)
+	}
+	return outcome, nil
+}
+
+// mcpFlowIdentity resolves a flow id to the stored flow's own id and name.
+//
+// IT NEVER FAILS THE RUN. The runner re-reads and re-validates the flow itself
+// (flowRunPlan), and an id that names nothing is refused there with the message
+// written for it. All this needs to do is answer "what is this flow called" for
+// a prompt, and fall back to the trimmed id when it cannot — a prompt that named
+// an id is worse than one that named a name, and much better than no prompt.
+func (a *App) mcpFlowIdentity(collectionID, flowID string) (string, string) {
+	flowID = strings.TrimSpace(flowID)
+	flows, err := a.mcpCollectionFlows(collectionID)
+	if err != nil {
+		return flowID, ""
+	}
+	for _, flow := range flows {
+		if flow.ID == flowID {
+			return flow.ID, flow.Name
+		}
+	}
+	return flowID, ""
+}
+
+// mcpCollectionFlows copies one collection's flows out from under the state
+// lock. The clone is types.CloneFlows because a flow carries maps and slices and
+// nothing that leaves the lock may alias state — the rule the top of
+// mcp_backend.go states for every method here.
+func (a *App) mcpCollectionFlows(collectionID string) ([]types.Flow, error) {
+	collectionID = strings.TrimSpace(collectionID)
+	if collectionID == "" {
+		return nil, errors.New("collectionId is required")
+	}
+	var flows []types.Flow
+	found := false
+	if err := a.readStateForMCP(func(state *AppState) {
+		for wi := range state.Workspaces {
+			for ci := range state.Workspaces[wi].Collections {
+				collection := &state.Workspaces[wi].Collections[ci]
+				if collection.ID != collectionID {
+					continue
+				}
+				found = true
+				flows = types.CloneFlows(collection.Flows)
+				return
+			}
+		}
+	}); err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, fmt.Errorf("no collection with id %q; call list_collections for the ids that exist", collectionID)
+	}
+	return flows, nil
+}
+
+func mcpFlowSummary(flow types.Flow) mcpserver.FlowSummary {
+	return mcpserver.FlowSummary{
+		ID:          flow.ID,
+		Name:        flow.Name,
+		Description: flow.Description,
+		StepCount:   len(flow.Steps),
+		Inputs:      mcpFlowInputs(flow.Inputs),
+	}
+}
+
+func mcpFlowInputs(inputs []types.FlowInput) []mcpserver.FlowInput {
+	if len(inputs) == 0 {
+		return nil
+	}
+	out := make([]mcpserver.FlowInput, 0, len(inputs))
+	for _, input := range inputs {
+		out = append(out, mcpserver.FlowInput{
+			Name:        input.Name,
+			Required:    input.Required,
+			Description: input.Description,
+		})
+	}
+	return out
+}
+
+// mcpFlowSteps narrows each step to the contract's fields. The narrowing is the
+// same argument mcpKeyValueRows makes: there is no field on mcpserver.FlowStep
+// that anything else could ride along in, and vars are copied verbatim because
+// verbatim is what makes {{apiToken}} arrive unresolved.
+func mcpFlowSteps(steps []types.FlowStep) []mcpserver.FlowStep {
+	out := make([]mcpserver.FlowStep, 0, len(steps))
+	for _, step := range steps {
+		row := mcpserver.FlowStep{
+			ID:        step.ID,
+			RequestID: step.RequestID,
+			Extract:   mcpFlowExtracts(step.Extract),
+			Assert:    mcpFlowAsserts(step.Assert),
+		}
+		if len(step.Vars) > 0 {
+			row.Vars = make(map[string]string, len(step.Vars))
+			for name, value := range step.Vars {
+				row.Vars[name] = value
+			}
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+func mcpFlowExtracts(extracts []types.FlowExtract) []mcpserver.FlowExtract {
+	if len(extracts) == 0 {
+		return nil
+	}
+	out := make([]mcpserver.FlowExtract, 0, len(extracts))
+	for _, extract := range extracts {
+		out = append(out, mcpserver.FlowExtract{Name: extract.Name, From: extract.From, Path: extract.Path})
+	}
+	return out
+}
+
+func mcpFlowAsserts(assertions []types.FlowAssert) []mcpserver.FlowAssert {
+	if len(assertions) == 0 {
+		return nil
+	}
+	out := make([]mcpserver.FlowAssert, 0, len(assertions))
+	for _, assertion := range assertions {
+		row := mcpserver.FlowAssert{
+			Type:     assertion.Type,
+			Equals:   assertion.Equals,
+			Path:     assertion.Path,
+			Contains: assertion.Contains,
+			Exists:   assertion.Exists,
+		}
+		if assertion.In != nil {
+			row.In = append([]int(nil), assertion.In...)
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+func mcpFlowOutputs(outputs []types.FlowOutput) []mcpserver.FlowOutput {
+	if len(outputs) == 0 {
+		return nil
+	}
+	out := make([]mcpserver.FlowOutput, 0, len(outputs))
+	for _, output := range outputs {
+		out = append(out, mcpserver.FlowOutput{Name: output.Name, Value: output.Value})
+	}
+	return out
+}
+
+// mcpFlowRunOutcome maps a run report onto the contract, masking every field a
+// live response could have reached.
+func mcpFlowRunOutcome(result types.FlowRunResult, secretValues []string) mcpserver.FlowRunOutcome {
+	outcome := mcpserver.FlowRunOutcome{
+		OK: result.OK,
+		// The top-level error quotes the failing step's own error, which quotes
+		// an assertion detail, which quotes a body value. Three hops from a
+		// response body, and every one of them is why this is masked.
+		Error: mcpserver.MaskKnownSecretValues(result.Error, secretValues),
+		Steps: make([]mcpserver.FlowStepOutcome, 0, len(result.Steps)),
+	}
+	for _, step := range result.Steps {
+		row := mcpserver.FlowStepOutcome{
+			StepID:     step.StepID,
+			RequestID:  step.RequestID,
+			Status:     step.Status,
+			DurationMs: int(step.DurationMs),
+			Error:      mcpserver.MaskKnownSecretValues(step.Error, secretValues),
+		}
+		if len(step.Extracted) > 0 {
+			// THE FIELD THIS TIER EXISTS TO MASK. An extraction is a value read
+			// out of a live response body by JSONPath: an endpoint that echoes
+			// the credential it was called with puts a real secret here under
+			// whatever name the flow chose, and only an exact-value match finds
+			// it.
+			row.Extracted = make(map[string]string, len(step.Extracted))
+			for name, value := range step.Extracted {
+				row.Extracted[name] = mcpserver.MaskKnownSecretValues(value, secretValues)
+			}
+		}
+		for _, assertion := range step.Assertions {
+			row.Assertions = append(row.Assertions, mcpserver.FlowAssertionOutcome{
+				OK: assertion.OK,
+				// A failed body assertion renders the value it actually found.
+				Detail: mcpserver.MaskKnownSecretValues(assertion.Detail, secretValues),
+			})
+		}
+		outcome.Steps = append(outcome.Steps, row)
+	}
+	if len(result.Outputs) > 0 {
+		outcome.Outputs = make(map[string]string, len(result.Outputs))
+		for name, value := range result.Outputs {
+			// An output is an interpolation of flow scope, and flow scope is
+			// where extractions land, so it inherits their exposure.
+			outcome.Outputs[name] = mcpserver.MaskKnownSecretValues(value, secretValues)
+		}
+	}
+	return outcome
+}
+
+// mcpMaskedError scrubs an error's TEXT while keeping the error itself
+// matchable.
+//
+// The wrapper is what makes both halves possible at once: errors.Is still walks
+// through to mcpserver.ErrDenied, so the protocol layer audits a denial as
+// "denied", while the message the agent reads has been through the same scrub as
+// every other string this tier returns. Building a new error with fmt.Errorf
+// would preserve the chain too, but only by prefixing text onto a message the
+// guard wrote deliberately for its reader.
+func mcpMaskedError(err error, secretValues []string) error {
+	if err == nil {
+		return nil
+	}
+	masked := mcpserver.MaskKnownSecretValues(err.Error(), secretValues)
+	if masked == err.Error() {
+		return err
+	}
+	return maskedError{cause: err, message: masked}
+}
+
+type maskedError struct {
+	cause   error
+	message string
+}
+
+func (e maskedError) Error() string { return e.message }
+
+func (e maskedError) Unwrap() error { return e.cause }

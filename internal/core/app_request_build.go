@@ -7,6 +7,8 @@ package core
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -26,6 +28,7 @@ import (
 	"github.com/mutexdev/lite_api/internal/codegen"
 	"github.com/mutexdev/lite_api/internal/cookiejar"
 	"github.com/mutexdev/lite_api/internal/interp"
+	"github.com/mutexdev/lite_api/internal/mcpserver"
 	"github.com/mutexdev/lite_api/internal/scripting"
 )
 
@@ -176,9 +179,19 @@ func resolveBodyFilePath(filePath string, basePath ...string) string {
 	return filepath.Join(basePath[0], filepath.FromSlash(filePath))
 }
 
-func (a *App) applyAuth(req *http.Request, collectionPath string, item *RequestItem, vars map[string]string, recordTimeline func(TimelineItem)) error {
-	return applyAuthWithOAuth2Fetcher(req, item, vars, func(auth OAuth2Auth, vars map[string]string) (string, error) {
-		token, timelineEntries, err := a.fetchOAuth2TokenWithTimeline(auth, vars)
+// applyAuth attaches the request's credentials, fetching an OAuth2 token and
+// resolving AWS credentials over the network when the mode calls for it.
+//
+// IT TAKES THE SEND'S CONTEXT because two of those modes reach the network, and
+// under MCP provenance both are checkpoints (§4.3 item 2). Passing the context
+// rather than reading req.Context() keeps provenance explicit at the seam
+// (§4.5) and matches the ctx-aware OAuth2 chain the token checkpoint lives in.
+func (a *App) applyAuth(ctx context.Context, req *http.Request, collectionPath string, item *RequestItem, vars map[string]string, recordTimeline func(TimelineItem)) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return applyAuthWithOAuth2Fetcher(ctx, req, item, vars, func(auth OAuth2Auth, vars map[string]string) (string, error) {
+		token, timelineEntries, err := a.fetchOAuth2TokenWithTimelineContext(ctx, auth, vars)
 		if recordTimeline != nil {
 			for _, entry := range timelineEntries {
 				entry.ID = newID("timeline")
@@ -200,11 +213,20 @@ func (a *App) applyAuth(req *http.Request, collectionPath string, item *RequestI
 	})
 }
 
-func applyAuth(req *http.Request, item *RequestItem, vars map[string]string) error {
-	return applyAuthWithOAuth2Fetcher(req, item, vars, fetchOAuth2Token)
+// applyAuth is the cache-less, App-less sibling. Same context contract: the
+// package-level OAuth2 fetcher is the ctx-aware one, so a caller that has
+// provenance keeps it and a caller that does not passes context.Background()
+// and gets exactly today's behaviour.
+func applyAuth(ctx context.Context, req *http.Request, item *RequestItem, vars map[string]string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return applyAuthWithOAuth2Fetcher(ctx, req, item, vars, func(auth OAuth2Auth, vars map[string]string) (string, error) {
+		return fetchOAuth2TokenWithContext(ctx, auth, vars)
+	})
 }
 
-func applyAuthWithOAuth2Fetcher(req *http.Request, item *RequestItem, vars map[string]string, oauth2Fetcher func(OAuth2Auth, map[string]string) (string, error)) error {
+func applyAuthWithOAuth2Fetcher(ctx context.Context, req *http.Request, item *RequestItem, vars map[string]string, oauth2Fetcher func(OAuth2Auth, map[string]string) (string, error)) error {
 	auth := item.Auth
 	switch auth.Mode {
 	case "basic":
@@ -246,13 +268,111 @@ func applyAuthWithOAuth2Fetcher(req *http.Request, item *RequestItem, vars map[s
 		}
 		req.SetBasicAuth(username, interpolate(auth.Password, vars))
 	case "awsv4":
-		return awsv4.Sign(req, auth.AWSV4, time.Now().UTC(), func(value string) string { return interpolate(value, vars) })
+		return mcpClassifyAWSSigningRefusal(ctx, awsv4.Sign(mcpAWSSigningRequest(ctx, req), auth.AWSV4, time.Now().UTC(), func(value string) string { return interpolate(value, vars) }))
 	case "wsse":
 		wsse.ApplyHeader(req.Header, interpolate(auth.Username, vars), interpolate(auth.Password, vars), time.Now().UTC())
 	case "oauth1":
 		return oauth1.Sign(req, item, auth.OAuth1, vars, time.Now().UTC())
 	}
 	return nil
+}
+
+// mcpAWSSigningRequest hands awsv4.Sign the context its CREDENTIAL RESOLUTION
+// must run under, without disturbing the context the request itself is sent
+// with.
+//
+// Sign takes no ctx parameter by design — it reads req.Context(), because the
+// request already carries the deadline and now the guard. But the outgoing
+// request's own context is the main egress's, and narrowing that to kind `aws`
+// would make the backstop authorize the user's API call as an AWS credential
+// call. So the signing call gets a shallow copy (req.WithContext) carrying:
+//
+//   - egress kind `aws`, so the guard transport around the shared credential
+//     client authorizes STS/SSO/OIDC traffic in the aws CLASS rather than
+//     defaulting to `main` and denying an endpoint the in-package checkpoint
+//     just allowed; and
+//   - the EgressGuard itself, which is per-context and not process-wide
+//     (awsv4.WithEgressGuard) precisely because two sends can be in flight
+//     under different policies.
+//
+// The copy is safe to sign: WithContext copies the struct, so the Header map,
+// the URL pointer and the body are the same objects Sign would have mutated on
+// the original, and awsv4's payload hashing rewinds rather than replaces the
+// body.
+//
+// With no policy on the context the original request is passed through
+// unchanged, so a UI send signs byte-identically to before — including awsv4's
+// long-standing fallback to literal keys when a profile fails to resolve, which
+// Sign only suppresses when a guard is present.
+func mcpAWSSigningRequest(ctx context.Context, req *http.Request) *http.Request {
+	policy := mcpPolicyFromContext(ctx)
+	if policy == nil || req == nil {
+		return req
+	}
+	signingCtx := mcpContextWithEgressKind(ctx, egressKindAWS)
+	signingCtx = awsv4.WithEgressGuard(signingCtx, mcpAWSEgressGuard(policy))
+	return req.WithContext(signingCtx)
+}
+
+// mcpClassifyAWSSigningRefusal re-classes §2 row 2 on the core side.
+//
+// WHY IT CANNOT BE DONE WHERE IT IS DETECTED. internal/auth/awsv4 refuses
+// credential_process at the only site that reaches it (profile.go), before the
+// command line is even split, and it reports that with its own
+// *CredentialProcessRefusedError. It cannot wrap mcpserver.ErrDenied and it
+// cannot mark the policy: awsv4 imports neither package, deliberately — the
+// guard it takes is an interface precisely so the auth package stays ignorant
+// of what "authorized" means. So the refusal arrives here as a typed error with
+// no class and no mark, and by the time executeHTTP has written
+// `result.Error = err.Error()` there is nothing left for the audit layer to
+// recognise. This is the seam where the guard closure was installed
+// (mcpAWSSigningRequest, just above), which makes it the right place to give
+// the refusal back its class.
+//
+// errors.As rather than a string match, for the reason mcpClassifyFlowDenial
+// gives: matching on the wording breaks the first time the wording changes.
+//
+// UNDER A UI SEND NOTHING HAPPENS. awsv4 only refuses when a guard is on the
+// context, and a UI send installs none, so this cannot fire — and if it somehow
+// did, noteRefusal on a nil policy is a no-op and the error is returned as it
+// arrived.
+func mcpClassifyAWSSigningRefusal(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	var refused *awsv4.CredentialProcessRefusedError
+	if !errors.As(err, &refused) {
+		return err
+	}
+	mcpPolicyFromContext(ctx).noteRefusal()
+	if errors.Is(err, mcpserver.ErrDenied) {
+		return err
+	}
+	// mcpDeniedRunError carries the class and leaves the message alone: awsv4
+	// already wrote the §2 refusal sentence, verbatim as the doc's row 2 quotes
+	// it, and prefixing "denied:" onto it would render the refusal twice.
+	return mcpDeniedRunError{err: err}
+}
+
+// mcpAWSEgressGuard adapts the destination policy to awsv4's guard interface.
+//
+// The endpoint arrives as a FULL url — path and query included, since a
+// GetRoleCredentials call carries the role in its query — and origin arithmetic
+// is this side's job, which is the right split: awsv4 knows what it is about to
+// call, and only internal/core knows what "authorized" means.
+//
+// It authorizes with the BLOCKING Authorize rather than the backstop's
+// no-prompt form: credential resolution runs while the request is being built,
+// long before client.Timeout starts, so there is room to ask the user.
+func mcpAWSEgressGuard(policy *mcpEgressPolicy) awsv4.EgressGuard {
+	return awsv4.EgressGuardFunc(func(ctx context.Context, endpointURL string) error {
+		origin, ok := OriginOfURL(endpointURL)
+		if !ok {
+			return fmt.Errorf("%w: this run's AWS credential endpoint %q is not an http(s) destination LiteAPI can check; fix the AWS profile or run this request in the LiteAPI app",
+				mcpserver.ErrDenied, endpointURL)
+		}
+		return policy.Authorize(ctx, origin, egressKindAWS)
+	})
 }
 
 func setRequestBodyString(req *http.Request, value string) {

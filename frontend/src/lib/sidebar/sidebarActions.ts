@@ -44,6 +44,7 @@ export type SidebarObject = {
 
 export type SidebarActionID =
   | 'new-request'
+  | 'new-flow'
   | 'reveal'
   | 'generate-code'
   | 'info'
@@ -119,6 +120,12 @@ export const SIDEBAR_ACTION_BINDINGS: Partial<Record<SidebarActionID, string>> =
 const ORDER: readonly SidebarActionID[] = [
   'new-request',
   'new-folder',
+  // Last of the creating actions, because it is the rarest: a collection gains
+  // requests constantly and a flow occasionally. It is on the COLLECTION only —
+  // flows are stored in the collection's root config file and have no folder
+  // path, so offering "New Flow" on a folder would promise a placement that
+  // does not exist.
+  'new-flow',
   'reveal',
   'generate-code',
   'info',
@@ -130,6 +137,7 @@ const ORDER: readonly SidebarActionID[] = [
 
 const TEST_IDS: Record<SidebarActionID, string> = {
   'new-request': 'collection-item-menu-new-request',
+  'new-flow': 'collection-item-menu-new-flow',
   reveal: 'collection-item-menu-show-in-folder',
   'generate-code': 'collection-item-menu-generate-code',
   info: 'collection-item-menu-info',
@@ -142,11 +150,11 @@ const TEST_IDS: Record<SidebarActionID, string> = {
 
 /** Which actions each kind of object offers, in no particular order. */
 const AVAILABLE: Record<SidebarObjectKind, ReadonlySet<SidebarActionID>> = {
-  // A collection offers only the two creating actions for now. Rename, clone
+  // A collection offers only the creating actions for now. Rename, clone
   // and delete exist for collections but live in the collection settings pane
   // and take a different shape (they move directories on disk), so putting them
   // on the row is a separate decision rather than a free addition here.
-  collection: new Set<SidebarActionID>(['new-request', 'new-folder']),
+  collection: new Set<SidebarActionID>(['new-request', 'new-folder', 'new-flow']),
   folder: new Set<SidebarActionID>([
     'new-request', 'new-folder', 'reveal', 'info', 'open-terminal', 'rename', 'clone', 'delete'
   ]),
@@ -157,6 +165,7 @@ function labelFor(id: SidebarActionID, context: SidebarActionContext): string {
   if (id === 'reveal') return context.revealLabel
   return {
     'new-request': 'New Request',
+    'new-flow': 'New Flow',
     'generate-code': 'Generate Code',
     info: 'Info',
     'open-terminal': 'Open in Terminal',

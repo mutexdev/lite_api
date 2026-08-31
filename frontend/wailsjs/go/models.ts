@@ -460,7 +460,7 @@ export namespace core {
 	        this.proxy = this.convertValues(source["proxy"], DiscoveryProxyReport);
 	        this.shouldPrompt = source["shouldPrompt"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1236,6 +1236,22 @@ export namespace types {
 		    return a;
 		}
 	}
+	export class MCPPreferences {
+	    enabled: boolean;
+	    port: number;
+	    writeTierEnabled: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MCPPreferences(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.port = source["port"];
+	        this.writeTierEnabled = source["writeTierEnabled"];
+	    }
+	}
 	export class ProxyPACConfig {
 	    source: string;
 	
@@ -1412,6 +1428,7 @@ export namespace types {
 	    defaultLocation?: string;
 	    defaultWorkspacePath?: string;
 	    lastImportDirectory?: string;
+	    discoveryPromptedAt?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new GeneralPreferences(source);
@@ -1422,6 +1439,7 @@ export namespace types {
 	        this.defaultLocation = source["defaultLocation"];
 	        this.defaultWorkspacePath = source["defaultWorkspacePath"];
 	        this.lastImportDirectory = source["lastImportDirectory"];
+	        this.discoveryPromptedAt = source["discoveryPromptedAt"];
 	    }
 	}
 	export class KeepDefaultCaCertificatesPreferences {
@@ -1568,6 +1586,7 @@ export namespace types {
 	    oauth2UseSystemBrowser: boolean;
 	    proxyMode: string;
 	    proxy: ProxyPreferences;
+	    mcp: MCPPreferences;
 	
 	    static createFrom(source: any = {}) {
 	        return new Preferences(source);
@@ -1596,6 +1615,7 @@ export namespace types {
 	        this.oauth2UseSystemBrowser = source["oauth2UseSystemBrowser"];
 	        this.proxyMode = source["proxyMode"];
 	        this.proxy = this.convertValues(source["proxy"], ProxyPreferences);
+	        this.mcp = this.convertValues(source["mcp"], MCPPreferences);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1928,6 +1948,152 @@ export namespace types {
 	        this.postScript = source["postScript"];
 	        this.tests = source["tests"];
 	        this.docs = source["docs"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class FlowOutput {
+	    name: string;
+	    value: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FlowOutput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.value = source["value"];
+	    }
+	}
+	export class FlowAssert {
+	    type: string;
+	    equals?: any;
+	    in?: number[];
+	    path?: string;
+	    contains?: string;
+	    exists?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new FlowAssert(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.equals = source["equals"];
+	        this.in = source["in"];
+	        this.path = source["path"];
+	        this.contains = source["contains"];
+	        this.exists = source["exists"];
+	    }
+	}
+	export class FlowExtract {
+	    name: string;
+	    from: string;
+	    path?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FlowExtract(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.from = source["from"];
+	        this.path = source["path"];
+	    }
+	}
+	export class FlowStep {
+	    id: string;
+	    requestId: string;
+	    vars?: Record<string, string>;
+	    extract?: FlowExtract[];
+	    assert?: FlowAssert[];
+	
+	    static createFrom(source: any = {}) {
+	        return new FlowStep(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.requestId = source["requestId"];
+	        this.vars = source["vars"];
+	        this.extract = this.convertValues(source["extract"], FlowExtract);
+	        this.assert = this.convertValues(source["assert"], FlowAssert);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class FlowInput {
+	    name: string;
+	    required?: boolean;
+	    description?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FlowInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.required = source["required"];
+	        this.description = source["description"];
+	    }
+	}
+	export class Flow {
+	    id: string;
+	    name: string;
+	    description?: string;
+	    inputs?: FlowInput[];
+	    steps: FlowStep[];
+	    outputs?: FlowOutput[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Flow(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.inputs = this.convertValues(source["inputs"], FlowInput);
+	        this.steps = this.convertValues(source["steps"], FlowStep);
+	        this.outputs = this.convertValues(source["outputs"], FlowOutput);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -2895,6 +3061,7 @@ export namespace types {
 	    notFoundLocally?: boolean;
 	    scratch?: boolean;
 	    items: RequestItem[];
+	    flows?: Flow[];
 	    folders: FolderConfig[];
 	    environments: Environment[];
 	    variables: Variable[];
@@ -2933,6 +3100,7 @@ export namespace types {
 	        this.notFoundLocally = source["notFoundLocally"];
 	        this.scratch = source["scratch"];
 	        this.items = this.convertValues(source["items"], RequestItem);
+	        this.flows = this.convertValues(source["flows"], Flow);
 	        this.folders = this.convertValues(source["folders"], FolderConfig);
 	        this.environments = this.convertValues(source["environments"], Environment);
 	        this.variables = this.convertValues(source["variables"], Variable);
@@ -3345,6 +3513,107 @@ export namespace types {
 	
 	
 	
+	export class FlowAssertResult {
+	    ok: boolean;
+	    detail: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FlowAssertResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	        this.detail = source["detail"];
+	    }
+	}
+	
+	
+	
+	export class FlowStepResult {
+	    stepId: string;
+	    requestId: string;
+	    status: number;
+	    durationMs: number;
+	    extracted?: Record<string, string>;
+	    assertions?: FlowAssertResult[];
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FlowStepResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.stepId = source["stepId"];
+	        this.requestId = source["requestId"];
+	        this.status = source["status"];
+	        this.durationMs = source["durationMs"];
+	        this.extracted = source["extracted"];
+	        this.assertions = this.convertValues(source["assertions"], FlowAssertResult);
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class FlowRunResult {
+	    flowId: string;
+	    ok: boolean;
+	    steps: FlowStepResult[];
+	    outputs?: Record<string, string>;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FlowRunResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.flowId = source["flowId"];
+	        this.ok = source["ok"];
+	        this.steps = this.convertValues(source["steps"], FlowStepResult);
+	        this.outputs = source["outputs"];
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	
+	
 	
 	export class GRPCMethodInfo {
 	    path: string;
@@ -3557,6 +3826,68 @@ export namespace types {
 	
 	
 	
+	export class MCPAuditEntry {
+	    // Go type: time
+	    at: any;
+	    tool: string;
+	    argsSummary?: string;
+	    outcome: string;
+	    durationMs: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MCPAuditEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.at = this.convertValues(source["at"], null);
+	        this.tool = source["tool"];
+	        this.argsSummary = source["argsSummary"];
+	        this.outcome = source["outcome"];
+	        this.durationMs = source["durationMs"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class MCPStatus {
+	    enabled: boolean;
+	    running: boolean;
+	    port: number;
+	    token: string;
+	    command: string;
+	    lastError?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MCPStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.running = source["running"];
+	        this.port = source["port"];
+	        this.token = source["token"];
+	        this.command = source["command"];
+	        this.lastError = source["lastError"];
+	    }
+	}
 	
 	
 	

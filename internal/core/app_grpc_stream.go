@@ -255,15 +255,22 @@ func (a *App) connectGRPCStream(collectionID, itemID, environmentID string, prom
 	}
 	targetURL := interpolate(item.URL, vars)
 	response := Response{SentAt: start, Headers: map[string]string{}, PreviewMode: "grpc-stream", RequestedURL: targetURL}
-	dialConfig, err := a.grpcDialConfigForRequest(collection, item, targetURL, vars)
+	// §4.5: the live stream dial is a UI binding that opens a channel outside
+	// the send seam — it dials, reflects, and may fetch an OAuth2 token — so it
+	// labels its own egress. The ctx is built BEFORE the dial configuration
+	// because that is where the provenance is read (grpcDialConfigForRequest-
+	// Context); a UI label means the old body runs unchanged, unix sockets
+	// included.
+	ctx, cancel := context.WithCancel(mcpContextWithUIProvenance(context.Background()))
+	dialConfig, err := a.grpcDialConfigForRequestContext(ctx, collection, item, targetURL, vars)
 	if err != nil {
+		cancel()
 		response.Error = err.Error()
 		response.DurationMs = time.Since(start).Milliseconds()
 		return a.applyGRPCStreamResponse(collectionID, itemID, response, grpcStreamTimelineItem(item, response, "start"))
 	}
 	timelineEvents := []grpcStreamSessionEvent{}
 	timeout := requestTimeoutMilliseconds(item.Settings.TimeoutMs, a.appTLSSettingsSnapshot().Request)
-	ctx, cancel := context.WithCancel(context.Background())
 	conn, err := grpc.NewClient(dialConfig.Target, dialConfig.DialOptions()...)
 	if err != nil {
 		cancel()
@@ -271,7 +278,7 @@ func (a *App) connectGRPCStream(collectionID, itemID, environmentID string, prom
 		response.DurationMs = time.Since(start).Milliseconds()
 		return a.applyGRPCStreamResponse(collectionID, itemID, response, grpcStreamTimelineItem(item, response, "start"))
 	}
-	outgoingCtx, err := grpcexec.OutgoingContext(ctx, item, vars, a.fetchOAuth2Token)
+	outgoingCtx, err := grpcexec.OutgoingContext(ctx, item, vars, a.grpcOAuth2Fetcher(ctx))
 	if err != nil {
 		cancel()
 		_ = conn.Close()

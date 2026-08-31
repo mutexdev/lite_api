@@ -43,7 +43,11 @@ func TestExecuteHTTPSeparatesVerifyPosturesEndToEnd(t *testing.T) {
 		collection := Collection{ID: "posture-collection", Name: "posture", Format: "bru"}
 		item := RequestItem{ID: "posture-request", Type: "http", Method: http.MethodGet, URL: server.URL}
 		item.Settings.VerifyTLS = verifyTLS
-		return app.executeHTTP(t.Context(), collection.ID, collection, item, map[string]string{}, nil, func(TimelineItem) {})
+		// A UI SEND, SAID EXPLICITLY. executeHTTP's client is guard-wrapped, and
+		// strict provenance refuses an unlabeled request through it — so a test
+		// that drives the engine below its own root has to supply the label its
+		// root would have stamped (§4.5).
+		return app.executeHTTP(mcpContextWithUIProvenance(t.Context()), collection.ID, collection, item, map[string]string{}, nil, func(TimelineItem) {})
 	}
 
 	for _, order := range []struct {
@@ -77,8 +81,17 @@ func TestSharedOutboundClientsKeepTheirPreviousPosture(t *testing.T) {
 	if credential.Timeout != 30*time.Second {
 		t.Fatalf("credential client timeout changed: %s", credential.Timeout)
 	}
-	if credential.Transport != http.DefaultTransport {
-		t.Fatalf("credential client no longer uses http.DefaultTransport: %#v", credential.Transport)
+	// The posture claim is about what DIALS, and the guard does not dial: it
+	// reads the request's provenance, lets an unlabeled or UI-labeled request
+	// straight through, and delegates. So the assertion unwraps one layer and
+	// makes the same claim it always did — http.DefaultTransport underneath,
+	// i.e. verified TLS and the environment proxy.
+	guard, ok := credential.Transport.(mcpEgressGuardTransport)
+	if !ok {
+		t.Fatalf("credential client is no longer guard-wrapped, so OAuth2, AWS and script egress is unchecked: %#v", credential.Transport)
+	}
+	if guard.base != http.DefaultTransport {
+		t.Fatalf("credential client no longer uses http.DefaultTransport: %#v", guard.base)
 	}
 	if credential != sharedCredentialHTTPClient() {
 		t.Fatal("credential client is not shared across calls")
@@ -278,7 +291,7 @@ func TestExecuteHTTPReusesOneConnectionThroughProxyAndClientCertificate(t *testi
 			}
 		},
 	}
-	ctx := httptrace.WithClientTrace(context.Background(), trace)
+	ctx := httptrace.WithClientTrace(mcpContextWithUIProvenance(context.Background()), trace)
 
 	for i := 0; i < sends; i++ {
 		response := app.executeHTTP(ctx, collection.ID, collection, item, map[string]string{}, nil, func(TimelineItem) {})

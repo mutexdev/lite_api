@@ -23,31 +23,54 @@ type awsV4ProfileCredentials struct {
 	SessionToken    string
 }
 
-func loadAWSV4ProfileCredentials(profileName string) (awsV4ProfileCredentials, error) {
+func loadAWSV4ProfileCredentials(ctx context.Context, profileName string) (awsV4ProfileCredentials, error) {
 	profileName = strings.TrimSpace(profileName)
 	if profileName == "" {
 		return awsV4ProfileCredentials{}, errors.New("AWS SigV4 profile name is required")
 	}
+	configSections, credentialSections, err := awsSharedConfigSections()
+	if err != nil {
+		return awsV4ProfileCredentials{}, err
+	}
+	return resolveAWSV4ProfileCredentials(ctx, profileName, configSections, credentialSections, map[string]bool{})
+}
+
+// awsSharedConfigSections reads ~/.aws/config and ~/.aws/credentials, or
+// whatever the environment points at instead. A file that is not there yields
+// empty sections; any other read or parse failure is an error, because
+// silently treating an unreadable credentials file as absent would sign with
+// the wrong account.
+//
+// Shared with CredentialEndpointOrigins so that the endpoints predicted for a
+// configuration are derived from exactly the bytes resolution will read.
+func awsSharedConfigSections() (map[string]map[string]string, map[string]map[string]string, error) {
 	configSections := map[string]map[string]string{}
 	credentialSections := map[string]map[string]string{}
 	if path := awsSharedConfigPath(); path != "" {
 		if sections, err := parseAWSSharedConfigFile(path); err == nil {
 			configSections = sections
 		} else if !errors.Is(err, os.ErrNotExist) {
-			return awsV4ProfileCredentials{}, err
+			return nil, nil, err
 		}
 	}
 	if path := awsSharedCredentialsPath(); path != "" {
 		if sections, err := parseAWSSharedConfigFile(path); err == nil {
 			credentialSections = sections
 		} else if !errors.Is(err, os.ErrNotExist) {
-			return awsV4ProfileCredentials{}, err
+			return nil, nil, err
 		}
 	}
-	return resolveAWSV4ProfileCredentials(profileName, configSections, credentialSections, map[string]bool{})
+	return configSections, credentialSections, nil
 }
 
-func resolveAWSV4ProfileCredentials(profileName string, configSections, credentialSections map[string]map[string]string, seen map[string]bool) (awsV4ProfileCredentials, error) {
+// resolveAWSV4ProfileCredentials walks a profile to credentials, following
+// source_profile chains.
+//
+// ctx travels down the recursion unchanged, which is the whole reason the
+// egress guard rides on it: a chain that starts at a harmless static profile
+// and reaches credential_process three links later is refused at that link,
+// because the link is reached through this same function with this same ctx.
+func resolveAWSV4ProfileCredentials(ctx context.Context, profileName string, configSections, credentialSections map[string]map[string]string, seen map[string]bool) (awsV4ProfileCredentials, error) {
 	profileName = strings.TrimSpace(profileName)
 	if profileName == "" {
 		return awsV4ProfileCredentials{}, errors.New("AWS SigV4 profile name is required")
@@ -59,17 +82,17 @@ func resolveAWSV4ProfileCredentials(profileName string, configSections, credenti
 	defer delete(seen, profileName)
 	profile := awsV4ProfileValues(profileName, configSections, credentialSections)
 	if strings.TrimSpace(profile["web_identity_token_file"]) != "" {
-		return assumeAWSV4RoleWithWebIdentity(profileName, profile)
+		return assumeAWSV4RoleWithWebIdentity(ctx, profileName, profile)
 	}
 	if roleARN := strings.TrimSpace(profile["role_arn"]); roleARN != "" {
-		sourceCredentials, err := awsV4RoleSourceCredentials(profileName, profile, configSections, credentialSections, seen)
+		sourceCredentials, err := awsV4RoleSourceCredentials(ctx, profileName, profile, configSections, credentialSections, seen)
 		if err != nil {
 			return awsV4ProfileCredentials{}, err
 		}
-		return assumeAWSV4Role(profileName, profile, sourceCredentials)
+		return assumeAWSV4Role(ctx, profileName, profile, sourceCredentials)
 	}
 	if awsV4ProfileUsesSSO(profile) {
-		return loadAWSV4SSOProfileCredentials(profileName, profile, configSections)
+		return loadAWSV4SSOProfileCredentials(ctx, profileName, profile, configSections)
 	}
 	if strings.EqualFold(strings.TrimSpace(profile["credential_source"]), "environment") {
 		if credentials := awsV4EnvironmentCredentials(); credentials.AccessKeyID != "" && credentials.SecretAccessKey != "" {
@@ -78,7 +101,14 @@ func resolveAWSV4ProfileCredentials(profileName string, configSections, credenti
 	}
 	credentials := awsCredentialsFromProfileValues(profile)
 	if (credentials.AccessKeyID == "" || credentials.SecretAccessKey == "") && strings.TrimSpace(profile["credential_process"]) != "" {
-		processCredentials, err := loadAWSV4CredentialProcess(profile["credential_process"])
+		// Refuse before the command line is even split: under a guard nothing
+		// about credential_process — not the fork, not the argv parse — is
+		// allowed to happen, and this is the only site that reaches it, for
+		// the selected profile and for every source_profile link alike.
+		if egressGuardFrom(ctx) != nil {
+			return awsV4ProfileCredentials{}, &CredentialProcessRefusedError{Profile: profileName}
+		}
+		processCredentials, err := loadAWSV4CredentialProcess(ctx, profile["credential_process"])
 		if err != nil {
 			return awsV4ProfileCredentials{}, err
 		}
@@ -175,7 +205,12 @@ type awsV4SSOProfile struct {
 	Session   string
 }
 
-func loadAWSV4SSOProfileCredentials(profileName string, profile map[string]string, configSections map[string]map[string]string) (awsV4ProfileCredentials, error) {
+// awsV4SSOProfileValues reads the SSO fields of a profile, filling the start
+// URL and region from the referenced sso-session block when the profile itself
+// leaves them out. It validates nothing; the caller that is about to use the
+// values does that, and the caller that only wants the endpoint region does
+// not need to.
+func awsV4SSOProfileValues(profile map[string]string, configSections map[string]map[string]string) awsV4SSOProfile {
 	ssoProfile := awsV4SSOProfile{
 		StartURL:  strings.TrimSpace(profile["sso_start_url"]),
 		Region:    strings.TrimSpace(profile["sso_region"]),
@@ -192,6 +227,11 @@ func loadAWSV4SSOProfileCredentials(profileName string, profile map[string]strin
 			ssoProfile.Region = strings.TrimSpace(sessionValues["sso_region"])
 		}
 	}
+	return ssoProfile
+}
+
+func loadAWSV4SSOProfileCredentials(ctx context.Context, profileName string, profile map[string]string, configSections map[string]map[string]string) (awsV4ProfileCredentials, error) {
+	ssoProfile := awsV4SSOProfileValues(profile, configSections)
 	if ssoProfile.StartURL == "" {
 		return awsV4ProfileCredentials{}, fmt.Errorf("AWS SigV4 SSO profile %q requires sso_start_url", profileName)
 	}
@@ -208,11 +248,11 @@ func loadAWSV4SSOProfileCredentials(profileName string, profile map[string]strin
 	if ssoProfile.Session != "" {
 		cacheKey = ssoProfile.Session
 	}
-	token, err := loadAWSV4SSOToken(cacheKey, ssoProfile, profile)
+	token, err := loadAWSV4SSOToken(ctx, cacheKey, ssoProfile, profile)
 	if err != nil {
 		return awsV4ProfileCredentials{}, err
 	}
-	return requestAWSV4SSORoleCredentials(ssoProfile, profile, token.AccessToken)
+	return requestAWSV4SSORoleCredentials(ctx, ssoProfile, profile, token.AccessToken)
 }
 
 type awsV4CredentialProcessResponse struct {
@@ -222,7 +262,7 @@ type awsV4CredentialProcessResponse struct {
 	SessionToken    string `json:"SessionToken"`
 }
 
-func loadAWSV4CredentialProcess(commandLine string) (awsV4ProfileCredentials, error) {
+func loadAWSV4CredentialProcess(ctx context.Context, commandLine string) (awsV4ProfileCredentials, error) {
 	args, err := splitAWSCredentialProcessCommand(commandLine)
 	if err != nil {
 		return awsV4ProfileCredentials{}, err
@@ -230,7 +270,10 @@ func loadAWSV4CredentialProcess(commandLine string) (awsV4ProfileCredentials, er
 	if len(args) == 0 {
 		return awsV4ProfileCredentials{}, errors.New("AWS credential_process command is empty")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	output, err := cmd.CombinedOutput()

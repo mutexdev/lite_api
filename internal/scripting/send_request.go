@@ -6,6 +6,7 @@ package scripting
 // verbatim from their source offsets.
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -40,7 +41,12 @@ type scriptSendRequestConfig struct {
 	BodyEncoded     bool
 }
 
-func scriptSendRequest(runtime *goja.Runtime, dialect scriptSendDialect, configValue goja.Value, vars map[string]string) (goja.Value, goja.Value, *types.TimelineItem, error) {
+// scriptSendRequest is the ONE place a script's own HTTP request is built and
+// sent. bru.sendRequest and pm.sendRequest arrive through
+// makeScriptSendRequest, and fetch() arrives through the __liteApiFetchSend
+// bridge; all three land here. That is what makes a single authorization check
+// cover every script egress dialect rather than three that can drift apart.
+func scriptSendRequest(runtime *goja.Runtime, dialect scriptSendDialect, configValue goja.Value, vars map[string]string, meta ScriptRuntimeMeta) (goja.Value, goja.Value, *types.TimelineItem, error) {
 	config, err := scriptSendRequestConfigFromValue(runtime, dialect, configValue, vars)
 	if err != nil {
 		return nil, nil, nil, err
@@ -50,6 +56,18 @@ func scriptSendRequest(runtime *goja.Runtime, dialect scriptSendDialect, configV
 		At:     time.Now(),
 		Method: strings.ToUpper(scalar.FirstNonEmpty(config.Method, http.MethodGet)),
 		URL:    targetURL,
+	}
+	// Before anything is encoded, opened or dialled. A refusal here has to mean
+	// the request was not made, so it is checked against the URL that would
+	// actually go out — params appended, variables already interpolated — and
+	// checked before the first side effect rather than next to the Do.
+	if meta.EgressAuthorizer != nil {
+		if err := meta.EgressAuthorizer(targetURL, EgressKindScript); err != nil {
+			timelineEntry.Error = err.Error()
+			timelineEntry.StatusText = "Blocked"
+			timelineEntry.Message = fmt.Sprintf("%s %s -> %s", timelineEntry.Method, timelineEntry.URL, err.Error())
+			return nil, nil, timelineEntry, err
+		}
 	}
 	var bodyReader io.Reader
 	if config.HasBody {
@@ -62,7 +80,17 @@ func scriptSendRequest(runtime *goja.Runtime, dialect scriptSendDialect, configV
 			scriptSendRequestSetContentType(config.Headers, contentType)
 		}
 	}
-	req, err := http.NewRequest(config.Method, targetURL, bodyReader)
+	// Built with the run's context when there is one. http.NewRequest is
+	// defined as NewRequestWithContext(context.Background(), …), so a nil
+	// RequestContext produces the identical request the old call produced —
+	// while a real one carries the run's provenance into whatever transport the
+	// caller has installed under the script client, and cancels the script's
+	// request when the run is cancelled.
+	requestContext := meta.RequestContext
+	if requestContext == nil {
+		requestContext = context.Background()
+	}
+	req, err := http.NewRequestWithContext(requestContext, config.Method, targetURL, bodyReader)
 	if err != nil {
 		timelineEntry.Error = err.Error()
 		timelineEntry.StatusText = "Error"

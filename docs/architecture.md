@@ -3,17 +3,17 @@
 LiteAPI is a Wails v2 desktop app: Go behind a Svelte 5 frontend, one binary.
 
 The repository root holds **one Go file**. Everything else is under `internal/`,
-35 packages. This document says why the root looks like that, what decides
+37 packages. This document says why the root looks like that, what decides
 where a thing goes, and which constraints were verified rather than assumed —
 so the next person changing the shape does not have to re-derive them.
 
 ```
 lite_api/
-  main.go                  24 lines — the only .go file in the root
+  main.go                  44 lines — the only .go file in the root
   internal/
-    core/                  the App: 189 bound methods, the state lock
+    core/                  the App: 201 bound methods, the state lock
     types/                 the domain structs everything speaks in
-    ...33 more
+    ...35 more
   frontend/                Svelte 5 + the generated Wails bindings
   qa/                      the checks the ordinary build does not make
 ```
@@ -64,12 +64,12 @@ Two consequences that bite if forgotten:
 - **Bound types are addressed by SHORT package name.** `reflect.Type.String()`
   yields `types`, never the import path, so two packages with the same short
   name collide silently in the generated TypeScript rather than failing to
-  build. Check a new package name against the existing 35.
+  build. Check a new package name against the existing 37.
 
 ## What lives where
 
 `internal/core` is the application: the `App` struct, the state lock, and the
-189 bound methods. It is the largest package and is *supposed* to be — package
+201 bound methods. It is the largest package and is *supposed* to be — package
 main being large is idiomatic Go (`go.dev/blog/organizing-go-code`; the Go
 tool's own main package is 12,000+ lines across 34 files). What matters is that
 what remains there genuinely needs the App.

@@ -26,7 +26,7 @@ aws_session_token = CONFIGTOKEN
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	credentials, err := loadAWSV4ProfileCredentials("configdev")
+	credentials, err := loadAWSV4ProfileCredentials(t.Context(), "configdev")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ credential_process = "`+scriptPath+`" --ignored
 	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(dir, "missing-credentials"))
 	t.Setenv("AWS_CONFIG_FILE", configPath)
 
-	credentials, err := loadAWSV4ProfileCredentials("processdev")
+	credentials, err := loadAWSV4ProfileCredentials(t.Context(), "processdev")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ mfa_serial = arn:aws:iam::123456789012:mfa/alice
 	t.Setenv("AWS_MFA_CODE", "")
 	t.Setenv("AWS_TOKEN_CODE", "")
 
-	_, err := loadAWSV4ProfileCredentials("mfarequired")
+	_, err := loadAWSV4ProfileCredentials(t.Context(), "mfarequired")
 	if err == nil || !strings.Contains(err.Error(), "requires MFA token code") {
 		t.Fatalf("expected missing MFA token-code error, got %v", err)
 	}
@@ -144,7 +144,7 @@ region = us-west-2
 	t.Setenv("AWS_SESSION_TOKEN", envSessionToken)
 	t.Setenv("AWS_STS_ENDPOINT_URL", stsServer.URL)
 
-	credentials, err := loadAWSV4ProfileCredentials("envrole")
+	credentials, err := loadAWSV4ProfileCredentials(t.Context(), "envrole")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ sso_registration_scopes = sso:account:access
 	t.Setenv("AWS_SSO_CACHE_DIR", cacheDir)
 	t.Setenv("AWS_SSO_ENDPOINT_URL", ssoServer.URL)
 
-	credentials, err := loadAWSV4ProfileCredentials("ssosession")
+	credentials, err := loadAWSV4ProfileCredentials(t.Context(), "ssosession")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +318,7 @@ sso_registration_scopes = sso:account:access
 	t.Setenv("AWS_SSO_ENDPOINT_URL", ssoServer.URL)
 	t.Setenv("AWS_SSO_OIDC_ENDPOINT_URL", oidcServer.URL)
 
-	credentials, err := loadAWSV4ProfileCredentials("ssorefresh")
+	credentials, err := loadAWSV4ProfileCredentials(t.Context(), "ssorefresh")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -243,7 +243,8 @@ func BenchmarkExecuteHTTP(b *testing.B) {
 //
 //	linear  — the pre-US-024 sequence, five linear scans per request:
 //	          findCollectionWithWorkspaceLocked + findItem on entry to
-//	          sendRequestWithControlsContext, findCollectionLocked + findItem on
+//	          sendRequestWithControlsContextProvenance, findCollectionLocked +
+//	          findItem on
 //	          its tail, and findItemInState back in the runner loop.
 //	indexed — what the runner does now: the same two resolutions through the
 //	          scoped runnerLookupIndex, and no re-find at all in the loop.

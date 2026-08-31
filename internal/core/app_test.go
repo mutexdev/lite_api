@@ -22108,7 +22108,7 @@ func TestOAuth1RSASignsWithInlineAndFilePrivateKey(t *testing.T) {
 			PrivateKey:      privateKeyPEM,
 			PrivateKeyType:  "text",
 		}}
-		if err := applyAuth(req, &item, nil); err != nil {
+		if err := applyAuth(t.Context(), req, &item, nil); err != nil {
 			t.Fatal(err)
 		}
 		values := parseOAuth1Header(req.Header.Get("Authorization"))
@@ -22147,7 +22147,7 @@ func TestOAuth1RSASignsWithInlineAndFilePrivateKey(t *testing.T) {
 			PrivateKey:      "keys/private.pem",
 			PrivateKeyType:  "file",
 		}}
-		if err := applyAuth(req, &item, nil); err != nil {
+		if err := applyAuth(t.Context(), req, &item, nil); err != nil {
 			t.Fatal(err)
 		}
 		values := parseOAuth1Header(req.Header.Get("Authorization"))
@@ -22166,7 +22166,7 @@ func TestOAuth1QueryBodyAndBodyHashPlacement(t *testing.T) {
 		}
 		item := types.NewRequestItem("OAuth1", "http", 1)
 		item.Auth = AuthConfig{Mode: "oauth1", OAuth1: OAuth1Auth{ConsumerKey: "ck", ConsumerSecret: "cs", SignatureMethod: "PLAINTEXT", Timestamp: "1", Nonce: "n", Placement: "query"}}
-		if err := applyAuth(req, &item, nil); err != nil {
+		if err := applyAuth(t.Context(), req, &item, nil); err != nil {
 			t.Fatal(err)
 		}
 		if req.Header.Get("Authorization") != "" {
@@ -22185,7 +22185,7 @@ func TestOAuth1QueryBodyAndBodyHashPlacement(t *testing.T) {
 		}
 		item := types.NewRequestItem("OAuth1", "http", 1)
 		item.Auth = AuthConfig{Mode: "oauth1", OAuth1: OAuth1Auth{ConsumerKey: "ck", ConsumerSecret: "cs", SignatureMethod: "HMAC-SHA256", Timestamp: "1", Nonce: "n", Placement: "body", IncludeBodyHash: true}}
-		if err := applyAuth(req, &item, nil); err != nil {
+		if err := applyAuth(t.Context(), req, &item, nil); err != nil {
 			t.Fatal(err)
 		}
 		if got := req.Header.Get("Content-Type"); got != "application/x-www-form-urlencoded" {

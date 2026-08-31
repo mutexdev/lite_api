@@ -6,11 +6,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"math/big"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -347,5 +350,81 @@ func TestTransportCacheConcurrentPosturesStaySeparate(t *testing.T) {
 	}
 	if len(distinct) != 2 {
 		t.Fatalf("expected exactly 2 transports for 2 postures, got %d", len(distinct))
+	}
+}
+
+// --- the PAC-refusing system-proxy func (Phase 6 §4.4, §5 rows 14 and 16) ---
+
+// THE ZERO IS THE WHOLE ASSERTION. A PAC file is a remote JavaScript program
+// with its own fetch and its own DNS (proxy.go), so a refusal that arrives
+// after the script has been loaded and run has refused nothing: the fetch has
+// already happened, the resolver has already been asked, and the redirects the
+// PAC client follows have already been followed.
+//
+// So this counts both doors. The listener counts BYTES — did anything ask the
+// PAC server for the script — and pacEvaluations counts entries into
+// ResolvePACProxyURL, the single door to loading and running one. Both must
+// stay at zero.
+func TestMCPSystemPACZeroFetchZeroEval(t *testing.T) {
+	var fetches int32
+	pac := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&fetches, 1)
+		_, _ = w.Write([]byte("function FindProxyForURL(u, h) { return 'PROXY 127.0.0.1:1'; }"))
+	}))
+	defer pac.Close()
+
+	// Discovery consults the environment proxies first and the PAC variable
+	// second, so the static ones have to be out of the way for the PAC branch
+	// to be the one under test.
+	t.Setenv("HTTP_PROXY", "")
+	t.Setenv("HTTPS_PROXY", "")
+	t.Setenv("ALL_PROXY", "")
+	t.Setenv("NO_PROXY", "")
+	t.Setenv("LITEAPI_SYSTEM_PAC_URL", pac.URL)
+
+	request, err := http.NewRequest(http.MethodGet, "http://api.example.com/charge", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resetPACEvaluations()
+	proxyURL, err := SystemProxyFunc("http://api.example.com/charge", true)(request)
+	if !errors.Is(err, ErrSystemPACRefused) {
+		t.Fatalf("the refusing proxy func returned (%v, %v); want ErrSystemPACRefused", proxyURL, err)
+	}
+	if proxyURL != nil {
+		t.Errorf("a refused dial was still handed a proxy: %v", proxyURL)
+	}
+	if got := atomic.LoadInt32(&fetches); got != 0 {
+		t.Errorf("the PAC script was fetched %d times before the refusal", got)
+	}
+	if got := pacEvaluations(); got != 0 {
+		t.Errorf("the PAC script was evaluated %d times before the refusal", got)
+	}
+
+	// THE CONTROL, and it is what makes the zeros above mean something: with
+	// refusePAC off — every UI send — the same configuration IS evaluated. A
+	// test whose only evidence is "nothing happened" cannot tell a working
+	// refusal from a broken fixture.
+	resetPACEvaluations()
+	if _, err := SystemProxyFunc("http://api.example.com/charge", false)(request); err != nil {
+		t.Fatalf("the UI proxy func failed: %v", err)
+	}
+	if got := pacEvaluations(); got != 1 {
+		t.Fatalf("the UI path evaluated the PAC %d times, want 1 — the fixture is not exercising the PAC branch", got)
+	}
+	if got := atomic.LoadInt32(&fetches); got == 0 {
+		t.Fatal("the UI path never fetched the PAC script, so the refusal above proved nothing")
+	}
+}
+
+// The freeze's other half, keyed rather than behavioural: a ProxySystem spec
+// that refuses PAC must not share a transport with one that does not. Without
+// this, whichever send arrived first would decide the other's posture.
+func TestSpecRefuseSystemPACIsPartOfTheCacheKey(t *testing.T) {
+	permissive := Spec{VerifyTLS: true, ProxyMode: ProxySystem}
+	refusing := Spec{VerifyTLS: true, ProxyMode: ProxySystem, RefuseSystemPAC: true}
+	if permissive.CacheKey() == refusing.CacheKey() {
+		t.Fatal("a PAC-refusing system transport hashes to the same key as a PAC-evaluating one")
 	}
 }

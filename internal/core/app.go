@@ -19,6 +19,7 @@ import (
 	"github.com/mutexdev/lite_api/internal/grpcexec"
 	"github.com/mutexdev/lite_api/internal/history"
 	"github.com/mutexdev/lite_api/internal/localserver"
+	"github.com/mutexdev/lite_api/internal/mcpserver"
 	"github.com/mutexdev/lite_api/internal/openapisync"
 	"github.com/mutexdev/lite_api/internal/prefs"
 	"github.com/mutexdev/lite_api/internal/responsestore"
@@ -66,7 +67,11 @@ type App struct {
 	notifiedChannels map[string]string
 	// notificationEmit replaces the Wails event emit for error/warn
 	// notification pushes. nil in production; see pushNotification.
-	notificationEmit      func(Notification)
+	notificationEmit func(Notification)
+	// flowProgressEmit replaces the Wails event emit for the per-step
+	// "flow:progress" pushes a flow run makes. nil in production; the test
+	// seam, exactly like notificationEmit. See emitFlowProgress.
+	flowProgressEmit      func(types.FlowProgress)
 	oauth2OpenURL         func(context.Context, string) error
 	oauth2OpenInAppURL    func(context.Context, oauth2AuthorizationBrowserRequest) error
 	revealInFolder        func(string) error
@@ -152,6 +157,48 @@ type App struct {
 	docsMu      sync.Mutex
 	docsServers map[string]*localserver.DocsServer
 	responses   *responsestore.Store
+
+	// The MCP agent interface. mcpMu guards mcpServer and mcpLastError and
+	// nothing else; like mockMu and docsMu it is taken WITHOUT a.mu held,
+	// because binding a socket under the state lock is the failure mode
+	// mock_server.go was restructured to avoid. mcpTokenMu is separate from
+	// mcpMu so reading the token — a file read — never happens while the
+	// server lock is held, and so two concurrent readers of a token that does
+	// not exist yet cannot generate two different ones.
+	mcpMu        sync.Mutex
+	mcpServer    *mcpserver.Server
+	mcpLastError string
+	mcpTokenMu   sync.Mutex
+	// The Phase 2 run tier. Three independent locks, none of them ever held
+	// while taking a.mu, and none of them held while a request is in flight:
+	//
+	//   mcpApprovalMu guards the pending new-host approvals — the same waiter
+	//   shape as oauth2PendingMu, because the problem is the same one (a
+	//   goroutine blocked on a decision only the frontend can make).
+	//
+	//   mcpApprovalFileMu guards the REMEMBERED approvals and their lazy load
+	//   from disk. Separate from mcpApprovalMu so persisting a remembered
+	//   answer — a file write — never happens while a waiter is being resolved.
+	//
+	//   the audit store carries its own lock (mcp_audit.go); mcpAuditOnce only
+	//   builds it.
+	mcpApprovalMu sync.Mutex
+	mcpApprovals  map[string]*mcpPendingApproval
+	// mcpApprovalEmit replaces the Wails event emit for the approval prompt.
+	// nil in production; the test seam, exactly like notificationEmit.
+	mcpApprovalEmit func(types.MCPApprovalRequest)
+	// mcpApprovalTimeout bounds one prompt. Zero means the 60s default; tests
+	// shrink it rather than waiting out a minute to prove a timeout denies.
+	mcpApprovalTimeout     time.Duration
+	mcpApprovalFileMu      sync.Mutex
+	mcpApprovalsRemembered []types.MCPApproval
+	// mcpStepVarApprovalsRemembered is the second kind of remembered approval —
+	// "this flow step's var may resolve to this secret" — held in the same file
+	// and under the same lock, because one file means one load and one write.
+	mcpStepVarApprovalsRemembered []types.MCPStepVarApproval
+	mcpApprovalsLoaded            bool
+	mcpAuditOnce                  sync.Once
+	mcpAuditStore                 *mcpAuditStore
 
 	// US-013. Fingerprints of what each auxiliary file last contained, so a
 	// persist that changes nothing in a file does no work for that file.
@@ -353,6 +400,11 @@ func (a *App) startup(ctx context.Context) {
 		a.workspaceRuntime.restoreGeometry(ctx)
 	}
 	_ = a.ensureReady()
+	// After ensureReady, because the preference it reads is only settled once
+	// the state has been loaded and normalised — before that the port would
+	// still be a zero from an unnormalised struct. applyMCPPreferences takes no
+	// state lock of its own, so it must not be called from inside ensureReady.
+	a.applyMCPPreferences(a.mcpPreferencesSnapshot())
 }
 
 func (a *App) handleOpenURL(rawURL string) {
@@ -375,6 +427,9 @@ func (a *App) shutdown(ctx context.Context) {
 	// still holding the socket".
 	a.stopAllMockServers()
 	a.stopAllDocsServers()
+	// Same rationale, same position in the ordering: the MCP listener holds a
+	// fixed port that the next launch will try to bind again.
+	a.stopMCPServer()
 	// Retire the background writer before the flush, not after. It waits out a
 	// write already in flight, so the flush below is the last write of the
 	// process: nothing can land concurrently with — or after — the workspace
@@ -470,12 +525,17 @@ func (a *App) ListGRPCMethods(collectionID, itemID, environmentID string) ([]GRP
 		return nil, errors.New("active request is not gRPC")
 	}
 	timeout := requestTimeoutMilliseconds(requestCopy.Settings.TimeoutMs, a.appTLSSettingsSnapshot().Request)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Millisecond)
+	// §4.5: a UI binding that dials outside the send seam labels its own
+	// egress. This one reflects against the user's gRPC server and may fetch an
+	// OAuth2 token to do it, neither of which passes through
+	// sendRequestWithControlsContextProvenance — so the provenance has to be attached
+	// here or the egress is unlabeled, which strict mode refuses.
+	ctx, cancel := context.WithTimeout(mcpContextWithUIProvenance(context.Background()), time.Duration(timeout)*time.Millisecond)
 	defer cancel()
 	if grpcexec.HasProtoInputs(requestCopy, collectionCopy, vars) {
 		return grpcexec.ListMethodsFromProto(ctx, requestCopy, collectionCopy, vars)
 	}
-	dialConfig, err := a.grpcDialConfigForRequest(collectionCopy, requestCopy, interpolate(requestCopy.URL, vars), vars)
+	dialConfig, err := a.grpcDialConfigForRequestContext(ctx, collectionCopy, requestCopy, interpolate(requestCopy.URL, vars), vars)
 	if err != nil {
 		return nil, err
 	}
@@ -484,7 +544,7 @@ func (a *App) ListGRPCMethods(collectionID, itemID, environmentID string) ([]GRP
 		return nil, err
 	}
 	defer func() { _ = conn.Close() }()
-	outgoingCtx, err := grpcexec.OutgoingContext(ctx, requestCopy, vars, a.fetchOAuth2Token)
+	outgoingCtx, err := grpcexec.OutgoingContext(ctx, requestCopy, vars, a.grpcOAuth2Fetcher(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -503,13 +563,15 @@ func (a *App) GenerateGRPCMessage(collectionID, itemID, environmentID, methodPat
 		requestCopy.Method = methodPath
 	}
 	timeout := requestTimeoutMilliseconds(requestCopy.Settings.TimeoutMs, a.appTLSSettingsSnapshot().Request)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Millisecond)
+	// §4.5, as in ListGRPCMethods above: a UI binding that dials outside the
+	// send seam labels its own egress.
+	ctx, cancel := context.WithTimeout(mcpContextWithUIProvenance(context.Background()), time.Duration(timeout)*time.Millisecond)
 	defer cancel()
 	var binding grpcMethodBinding
 	if grpcexec.HasProtoInputs(requestCopy, collectionCopy, vars) {
 		binding, err = grpcexec.CompileMethod(ctx, requestCopy, collectionCopy, vars)
 	} else {
-		dialConfig, targetErr := a.grpcDialConfigForRequest(collectionCopy, requestCopy, interpolate(requestCopy.URL, vars), vars)
+		dialConfig, targetErr := a.grpcDialConfigForRequestContext(ctx, collectionCopy, requestCopy, interpolate(requestCopy.URL, vars), vars)
 		if targetErr != nil {
 			return "", targetErr
 		}
@@ -518,7 +580,7 @@ func (a *App) GenerateGRPCMessage(collectionID, itemID, environmentID, methodPat
 			return "", connErr
 		}
 		defer func() { _ = conn.Close() }()
-		outgoingCtx, ctxErr := grpcexec.OutgoingContext(ctx, requestCopy, vars, a.fetchOAuth2Token)
+		outgoingCtx, ctxErr := grpcexec.OutgoingContext(ctx, requestCopy, vars, a.grpcOAuth2Fetcher(ctx))
 		if ctxErr != nil {
 			return "", ctxErr
 		}
@@ -646,11 +708,33 @@ func firstNonZero(values ...int) int {
 
 // Cookie storage rules moved to internal/cookiejar.
 
+// UpdatePreferences stores the normalised preferences and applies the ones that
+// own something outside the state — currently the MCP listener.
+//
+// Split in two because of the lock. The body below holds a.mu for its whole
+// duration, and starting or stopping a listener under the state lock is the
+// failure mode mock_server.go documents; applyMCPPreferences must therefore run
+// after the lock is released, which a `defer a.mu.Unlock()` in one function
+// cannot express.
 func (a *App) UpdatePreferences(preferences Preferences) (AppState, error) {
+	state, mcp, mcpChanged, err := a.storePreferences(preferences)
+	if err != nil {
+		return AppState{}, err
+	}
+	if mcpChanged {
+		a.applyMCPPreferences(mcp)
+	}
+	return state, nil
+}
+
+// storePreferences is the locked half of UpdatePreferences. It reports the new
+// MCP preference and whether it differs from the one that was in force, so the
+// caller only touches the listener when something about it actually changed.
+func (a *App) storePreferences(preferences Preferences) (AppState, types.MCPPreferences, bool, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if err := a.ensureReadyLocked(); err != nil {
-		return AppState{}, err
+		return AppState{}, types.MCPPreferences{}, false, err
 	}
 	next := prefs.Normalize(preferences)
 	if tlsSessionPreferencesChanged(a.state.Preferences, next) {
@@ -666,8 +750,9 @@ func (a *App) UpdatePreferences(preferences Preferences) (AppState, error) {
 		// the flush retires sockets opened through the previous proxy.
 		a.transportCache.Flush()
 	}
+	mcpChanged := a.state.Preferences.MCP != next.MCP
 	a.state.Preferences = next
-	return a.state, a.markDirty(persistScopeState)
+	return a.state, next.MCP, mcpChanged, a.markDirty(persistScopeState)
 }
 
 func (a *App) ClearSSLSessionCache() (AppState, error) {
@@ -944,6 +1029,10 @@ func defaultState(dir string) AppState {
 			OAuth2UseSystemBrowser: false,
 			ProxyMode:              "system",
 			Proxy:                  prefs.DefaultProxy(),
+			// Off, but with a real port already chosen. The Settings panel shows
+			// the pairing command before the toggle is flipped, and a zero there
+			// would read as "no port yet" to a user who is about to copy it.
+			MCP: prefs.NormalizeMCP(types.MCPPreferences{}),
 		},
 	}
 }

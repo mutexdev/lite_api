@@ -55,7 +55,7 @@ func makeScriptSendRequest(runtime *goja.Runtime, dialect scriptSendDialect, var
 		// counting that against the budget killed the single most common thing
 		// a pre-request script does.
 		scriptBlockingCall(runtime, func() {
-			responseValue, errorValue, timelineEntry, err = scriptSendRequest(runtime, dialect, call.Argument(0), vars)
+			responseValue, errorValue, timelineEntry, err = scriptSendRequest(runtime, dialect, call.Argument(0), vars, meta)
 		})
 		if timelineEntry != nil && meta.RecordTimeline != nil {
 			entry := *timelineEntry

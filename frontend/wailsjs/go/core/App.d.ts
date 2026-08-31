@@ -10,7 +10,8 @@ import {history} from '../models';
 
 export function AddCookieFromHeader(arg1:string,arg2:string):Promise<types.AppState>;
 
-export function AdoptDiscoveredCACertificate(arg1:string):Promise<core.AppState>;
+export function AdoptDiscoveredCACertificate(arg1:string):Promise<types.AppState>;
+
 export function ApplyCollectionImport(arg1:core.CollectionImportApplyRequest):Promise<core.CollectionImportApplyResult>;
 
 export function ApplyOpenAPILocalDrift(arg1:string,arg2:types.OpenAPILocalDriftOptions):Promise<types.AppState>;
@@ -89,6 +90,8 @@ export function CreateCollectionGitBranch(arg1:string,arg2:string,arg3:boolean):
 
 export function CreateEnvironment(arg1:string,arg2:string):Promise<types.AppState>;
 
+export function CreateFlow(arg1:string,arg2:types.Flow):Promise<types.AppState>;
+
 export function CreateFolder(arg1:string,arg2:string,arg3:string,arg4:string):Promise<types.AppState>;
 
 export function CreateGlobalEnvironment(arg1:string,arg2:string):Promise<types.AppState>;
@@ -108,6 +111,8 @@ export function CreateWorkspace(arg1:string):Promise<types.AppState>;
 export function DeleteCookie(arg1:string):Promise<types.AppState>;
 
 export function DeleteDotEnvFile(arg1:string,arg2:string,arg3:string,arg4:string):Promise<Array<types.DotEnvFile>>;
+
+export function DeleteFlow(arg1:string,arg2:string):Promise<types.AppState>;
 
 export function DeleteFolder(arg1:string,arg2:string):Promise<types.AppState>;
 
@@ -134,7 +139,9 @@ export function DisconnectOpenAPISync(arg1:string):Promise<types.AppState>;
 export function DisconnectWebSocket(arg1:string,arg2:string):Promise<types.AppState>;
 
 export function DiscoverImportSources():Promise<core.DiscoveryReport>;
-export function DismissDiscoveryPrompt():Promise<core.AppState>;
+
+export function DismissDiscoveryPrompt():Promise<types.AppState>;
+
 export function DocsServerStatusFor(arg1:string):Promise<localserver.DocsServerStatus>;
 
 export function EndGRPCStream(arg1:string,arg2:string):Promise<types.AppState>;
@@ -173,6 +180,10 @@ export function GetHistoryBody(arg1:string):Promise<string>;
 
 export function GetHistoryEntry(arg1:string):Promise<history.HistoryEntry>;
 
+export function GetMCPAuditLog(arg1:number):Promise<Array<types.MCPAuditEntry>>;
+
+export function GetMCPStatus():Promise<types.MCPStatus>;
+
 export function GetOpenAPISyncSpec(arg1:string):Promise<types.OpenAPISyncSpecViewResult>;
 
 export function GetOpenAPISyncSpecDiff(arg1:string,arg2:types.OpenAPISyncOptions):Promise<types.OpenAPISyncSpecDiffResult>;
@@ -188,6 +199,7 @@ export function GitVersion():Promise<string>;
 export function ImportCollection(arg1:string,arg2:types.ImportPayload):Promise<types.AppState>;
 
 export function ImportDiscoveredCollections(arg1:string,arg2:string,arg3:Array<string>):Promise<core.CollectionImportApplyResult>;
+
 export function ImportGlobalEnvironment(arg1:string,arg2:string):Promise<types.AppState>;
 
 export function InitializeCollectionGit(arg1:string):Promise<gitworkbench.CollectionGitOperationResult>;
@@ -239,6 +251,7 @@ export function PullCollectionGit(arg1:string,arg2:string,arg3:string):Promise<g
 export function PushCollectionGit(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<gitworkbench.CollectionGitOperationResult>;
 
 export function ReadDiscoveredCollections(arg1:string):Promise<Array<core.DiscoveredCollection>>;
+
 export function ReadResponseBody(arg1:string,arg2:number,arg3:number):Promise<core.ResponseBodySlice>;
 
 export function RefreshChangedCollections():Promise<types.CollectionWatchRefreshResult>;
@@ -267,6 +280,8 @@ export function ResizeTerminalSession(arg1:string,arg2:number,arg3:number):Promi
 
 export function ResolveCollectionFolderPath(arg1:string,arg2:string):Promise<string>;
 
+export function ResolveMCPApproval(arg1:string,arg2:boolean,arg3:boolean):Promise<void>;
+
 export function ResolveProcessEnvValues(arg1:string,arg2:Array<string>):Promise<Record<string, string>>;
 
 export function RestoreRecoveryEntry(arg1:string):Promise<types.AppState>;
@@ -280,6 +295,8 @@ export function RevealRequestInFolder(arg1:string,arg2:string):Promise<void>;
 export function RunCollection(arg1:string,arg2:string):Promise<types.AppState>;
 
 export function RunCollectionWithOptions(arg1:string,arg2:string,arg3:types.RunnerOptions):Promise<types.AppState>;
+
+export function RunFlow(arg1:string,arg2:string,arg3:string,arg4:Record<string, string>):Promise<types.FlowRunResult>;
 
 export function SaveAllTabs(arg1:string):Promise<types.AppState>;
 
@@ -366,6 +383,8 @@ export function UpdateCollectionSecurityConfig(arg1:string,arg2:types.Collection
 export function UpdateCollectionVariables(arg1:string,arg2:Array<types.Variable>):Promise<types.AppState>;
 
 export function UpdateEnvironmentVariables(arg1:string,arg2:string,arg3:Array<types.Variable>):Promise<types.AppState>;
+
+export function UpdateFlow(arg1:string,arg2:types.Flow):Promise<types.AppState>;
 
 export function UpdateFolderSettings(arg1:string,arg2:string,arg3:types.FolderConfig):Promise<types.AppState>;
 

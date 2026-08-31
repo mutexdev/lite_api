@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -223,13 +224,20 @@ func (a *App) connectWebSocket(collectionID, itemID, environmentID string, promp
 	headers := wsexec.Headers(item, vars)
 	timeout := requestTimeoutMilliseconds(item.Settings.TimeoutMs, a.appTLSSettingsSnapshot().Request)
 	response := Response{SentAt: start, Headers: map[string]string{}, PreviewMode: "websocket", RequestedURL: targetURL}
-	dialer, err := a.websocketDialer(collectionID, item, targetURL, vars, time.Duration(timeout)*time.Millisecond)
+	// THE UI MARKER (§4.5). This is a Wails binding: a live WebSocket session
+	// the user opened from the app, which no MCP run can reach. It is labeled
+	// explicitly rather than left to be inferred from the absence of a policy —
+	// that inference is exactly what §4.5 exists to prevent — and DialContext
+	// with a background context is what Dial is defined as, so the handshake is
+	// byte-identical to before.
+	dialContext := mcpContextWithUIProvenance(context.Background())
+	dialer, err := a.websocketDialer(dialContext, collectionID, item, targetURL, vars, time.Duration(timeout)*time.Millisecond)
 	if err != nil {
 		response.Error = err.Error()
 		response.DurationMs = time.Since(start).Milliseconds()
 		return a.applyWebSocketResponse(collectionID, itemID, response, websocketTimelineItem(item, response, "connect"))
 	}
-	conn, res, err := dialer.Dial(targetURL, headers)
+	conn, res, err := dialer.DialContext(dialContext, targetURL, headers)
 	if res != nil {
 		response.Status = res.StatusCode
 		response.StatusText = res.Status
@@ -396,7 +404,34 @@ func websocketTimelineItem(item RequestItem, response Response, action string) T
 	}
 }
 
+// executeWebSocket is the context-free delegate. The send seam still calls this
+// name; the caller switch to executeWebSocketContext lands with the send path,
+// and until then this preserves today's behaviour exactly — a background
+// context, no policy, no checkpoint.
 func (a *App) executeWebSocket(collectionID string, item RequestItem, vars map[string]string) Response {
+	return a.executeWebSocketContext(context.Background(), collectionID, item, vars)
+}
+
+// executeWebSocketContext is the WebSocket send with the request's context
+// carried all the way to the handshake.
+//
+// TWO THINGS CHANGE HERE, and they are the same thing seen from two sides.
+//
+// THE HANDSHAKE IS NOW CANCELLABLE. gorilla's Dial runs the handshake on
+// context.Background(): a cancelled send left the dial running to its own
+// timeout, and no caller could stop it. DialContext is the same dial with the
+// send's context, so cancellation and deadlines reach the connection attempt.
+//
+// AND THE HANDSHAKE IS NOW CHECKED. A WebSocket handshake IS an HTTP request —
+// it carries the request's headers, cookies and auth to whatever host the
+// resolved URL names — so under MCP provenance it goes through the same
+// blocking checkpoint (§4.3, §5 row 10) as any other main egress, BEFORE the
+// dialer opens a socket. Frames then ride a connection that was authorized, so
+// nothing per-frame is needed: a connection cannot change its peer.
+func (a *App) executeWebSocketContext(ctx context.Context, collectionID string, item RequestItem, vars map[string]string) Response {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	start := time.Now()
 	result := Response{SentAt: start, Headers: map[string]string{}, PreviewMode: "websocket"}
 	targetURL := wsexec.TargetURL(item, vars)
@@ -404,14 +439,26 @@ func (a *App) executeWebSocket(collectionID string, item RequestItem, vars map[s
 
 	headers := wsexec.Headers(item, vars)
 
+	if policy := mcpPolicyFromContext(ctx); policy != nil {
+		// A URL that does not resolve to an origin yields the zero Origin,
+		// which Authorize denies with its own "did not resolve" message. That
+		// is deliberate: an unresolvable destination is one nothing checked.
+		origin, _ := OriginOfURL(targetURL)
+		if err := policy.Authorize(ctx, origin, egressKindMain); err != nil {
+			result.Error = err.Error()
+			result.DurationMs = time.Since(start).Milliseconds()
+			return result
+		}
+	}
+
 	timeout := requestTimeoutMilliseconds(item.Settings.TimeoutMs, a.appTLSSettingsSnapshot().Request)
-	dialer, err := a.websocketDialer(collectionID, item, targetURL, vars, time.Duration(timeout)*time.Millisecond)
+	dialer, err := a.websocketDialer(ctx, collectionID, item, targetURL, vars, time.Duration(timeout)*time.Millisecond)
 	if err != nil {
 		result.Error = err.Error()
 		result.DurationMs = time.Since(start).Milliseconds()
 		return result
 	}
-	conn, res, err := dialer.Dial(targetURL, headers)
+	conn, res, err := dialer.DialContext(ctx, targetURL, headers)
 	if res != nil {
 		result.Status = res.StatusCode
 		result.StatusText = res.Status
@@ -489,7 +536,19 @@ func (a *App) executeWebSocket(collectionID string, item RequestItem, vars map[s
 	return result
 }
 
-func (a *App) websocketDialer(collectionID string, item RequestItem, targetURL string, vars map[string]string, timeout time.Duration) (websocket.Dialer, error) {
+// websocketDialer builds the dialer one handshake travels on.
+//
+// THE MCP BRANCH IS §4.4 AT ITS SECOND SEAM. A WebSocket handshake reaches the
+// network through gorilla's dialer rather than an http.Client, so it never
+// touches requestTransport — but it makes the same two decisions from the same
+// two agent-shaped inputs (`targetURL`, `vars`), and therefore needs the same
+// answer. It gets it from the same function: mcpTransportPosture decides, and
+// applyToTransport writes the decision onto the clone whose Proxy and
+// TLSClientConfig the dialer lifts out. A refusal — PAC, or a certificate
+// meeting an https proxy — comes back as an error and no socket is opened.
+//
+// The UI branch below is the shipped chain, untouched.
+func (a *App) websocketDialer(ctx context.Context, collectionID string, item RequestItem, targetURL string, vars map[string]string, timeout time.Duration) (websocket.Dialer, error) {
 	baseTransport := http.RoundTripper(http.DefaultTransport)
 	if a.httpClient != nil && a.httpClient.Transport != nil {
 		baseTransport = a.httpClient.Transport
@@ -500,6 +559,20 @@ func (a *App) websocketDialer(collectionID string, item RequestItem, targetURL s
 	baseTransport, tlsErr = transportWithAppTLSSettings(baseTransport, tlsSettings, verifyTLS)
 	if tlsErr != nil {
 		return websocket.Dialer{}, tlsErr
+	}
+	if policy := mcpPolicyFromContext(ctx); policy != nil {
+		posture, err := a.mcpTransportPosture(ctx, policy, collectionID, targetURL)
+		if err != nil {
+			return websocket.Dialer{}, err
+		}
+		cloned := transport.CloneHTTPTransport(baseTransport)
+		posture.applyToTransport(cloned, targetURL)
+		return websocket.Dialer{
+			HandshakeTimeout: timeout,
+			Proxy:            cloned.Proxy,
+			TLSClientConfig:  cloned.TLSClientConfig,
+			NetDialContext:   cloned.DialContext,
+		}, nil
 	}
 	if collectionPath, certs, ok := a.collectionClientCertificateConfig(collectionID); ok {
 		var certErr error

@@ -6,6 +6,7 @@ package awsv4
 // verbatim from their source offsets.
 
 import (
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -20,9 +21,11 @@ import (
 	"github.com/mutexdev/lite_api/internal/types"
 )
 
-func awsV4RoleSourceCredentials(profileName string, profile map[string]string, configSections, credentialSections map[string]map[string]string, seen map[string]bool) (awsV4ProfileCredentials, error) {
+func awsV4RoleSourceCredentials(ctx context.Context, profileName string, profile map[string]string, configSections, credentialSections map[string]map[string]string, seen map[string]bool) (awsV4ProfileCredentials, error) {
 	if sourceProfile := strings.TrimSpace(profile["source_profile"]); sourceProfile != "" {
-		return resolveAWSV4ProfileCredentials(sourceProfile, configSections, credentialSections, seen)
+		// ctx, and with it the egress guard, follows the chain: the source
+		// profile is resolved under the same policy as the profile naming it.
+		return resolveAWSV4ProfileCredentials(ctx, sourceProfile, configSections, credentialSections, seen)
 	}
 	if strings.EqualFold(strings.TrimSpace(profile["credential_source"]), "environment") {
 		credentials := awsV4EnvironmentCredentials()
@@ -38,7 +41,7 @@ func awsV4RoleSourceCredentials(profileName string, profile map[string]string, c
 	return awsV4ProfileCredentials{}, fmt.Errorf("AWS SigV4 profile %q with role_arn requires source_profile or credential_source=Environment", profileName)
 }
 
-func assumeAWSV4Role(profileName string, profile map[string]string, source awsV4ProfileCredentials) (awsV4ProfileCredentials, error) {
+func assumeAWSV4Role(ctx context.Context, profileName string, profile map[string]string, source awsV4ProfileCredentials) (awsV4ProfileCredentials, error) {
 	roleARN := strings.TrimSpace(profile["role_arn"])
 	if roleARN == "" {
 		return awsV4ProfileCredentials{}, fmt.Errorf("AWS SigV4 profile %q role_arn is required", profileName)
@@ -64,7 +67,7 @@ func assumeAWSV4Role(profileName string, profile map[string]string, source awsV4
 	if duration := strings.TrimSpace(profile["duration_seconds"]); duration != "" {
 		form.Set("DurationSeconds", duration)
 	}
-	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
 	if err != nil {
 		return awsV4ProfileCredentials{}, fmt.Errorf("create AWS STS AssumeRole request: %w", err)
 	}
@@ -78,6 +81,9 @@ func assumeAWSV4Role(profileName string, profile map[string]string, source awsV4
 		Region:          region,
 	}, time.Now().UTC(), func(value string) string { return value }); err != nil {
 		return awsV4ProfileCredentials{}, fmt.Errorf("sign AWS STS AssumeRole request: %w", err)
+	}
+	if err := authorizeCredentialRequest(ctx, req); err != nil {
+		return awsV4ProfileCredentials{}, err
 	}
 	// US-017: shared client, posture unchanged — AWS credential calls keep
 	// verified TLS and the environment proxy, not the user's proxy settings.
@@ -144,7 +150,7 @@ func awsV4MFATokenEnvSuffix(profileName string) string {
 	return strings.Trim(b.String(), "_")
 }
 
-func assumeAWSV4RoleWithWebIdentity(profileName string, profile map[string]string) (awsV4ProfileCredentials, error) {
+func assumeAWSV4RoleWithWebIdentity(ctx context.Context, profileName string, profile map[string]string) (awsV4ProfileCredentials, error) {
 	roleARN := strings.TrimSpace(profile["role_arn"])
 	if roleARN == "" {
 		return awsV4ProfileCredentials{}, fmt.Errorf("AWS SigV4 profile %q role_arn is required for web identity", profileName)
@@ -175,12 +181,15 @@ func assumeAWSV4RoleWithWebIdentity(profileName string, profile map[string]strin
 	if providerID := strings.TrimSpace(profile["provider_id"]); providerID != "" {
 		form.Set("ProviderId", providerID)
 	}
-	req, err := http.NewRequest(http.MethodPost, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
 	if err != nil {
 		return awsV4ProfileCredentials{}, fmt.Errorf("create AWS STS AssumeRoleWithWebIdentity request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	setRequestBodyString(req, form.Encode())
+	if err := authorizeCredentialRequest(ctx, req); err != nil {
+		return awsV4ProfileCredentials{}, err
+	}
 	// US-017: shared client, posture unchanged.
 	res, err := httpClient().Do(req)
 	if err != nil {
@@ -279,7 +288,7 @@ func parseAWSV4AssumeRoleCredentials(body []byte) (awsV4ProfileCredentials, erro
 	return credentials, nil
 }
 
-func requestAWSV4SSORoleCredentials(profile awsV4SSOProfile, rawProfile map[string]string, accessToken string) (awsV4ProfileCredentials, error) {
+func requestAWSV4SSORoleCredentials(ctx context.Context, profile awsV4SSOProfile, rawProfile map[string]string, accessToken string) (awsV4ProfileCredentials, error) {
 	endpoint := awsV4SSOEndpoint(rawProfile, profile.Region)
 	requestURL, err := url.Parse(endpoint)
 	if err != nil {
@@ -290,11 +299,14 @@ func requestAWSV4SSORoleCredentials(profile awsV4SSOProfile, rawProfile map[stri
 	query.Set("account_id", profile.AccountID)
 	query.Set("role_name", profile.RoleName)
 	requestURL.RawQuery = query.Encode()
-	req, err := http.NewRequest(http.MethodGet, requestURL.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL.String(), nil)
 	if err != nil {
 		return awsV4ProfileCredentials{}, fmt.Errorf("create AWS SSO GetRoleCredentials request: %w", err)
 	}
 	req.Header.Set("x-amz-sso_bearer_token", accessToken)
+	if err := authorizeCredentialRequest(ctx, req); err != nil {
+		return awsV4ProfileCredentials{}, err
+	}
 	// US-017: shared client, posture unchanged.
 	res, err := httpClient().Do(req)
 	if err != nil {

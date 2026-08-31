@@ -8,11 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -37,16 +39,21 @@ func (a *App) executeGRPC(parent context.Context, collection Collection, item Re
 	targetURL := interpolate(item.URL, vars)
 	result.RequestedURL = targetURL
 
-	dialConfig, err := a.grpcDialConfigForRequest(collection, item, targetURL, vars)
+	if parent == nil {
+		parent = context.Background()
+	}
+	// §4.7 + §4.3: the target is validated and the pinned origin authorized on
+	// the PARENT context, before the request timeout is applied. An approval
+	// prompt can take up to a minute (mcp_approvals.go), and a 30-second request
+	// timeout wrapped around it would turn "the user was still reading the
+	// prompt" into "the request timed out".
+	dialConfig, err := a.grpcDialConfigForRequestContext(parent, collection, item, targetURL, vars)
 	if err != nil {
 		result.Error = err.Error()
 		result.DurationMs = time.Since(start).Milliseconds()
 		return result
 	}
 	timeout := requestTimeoutMilliseconds(item.Settings.TimeoutMs, a.appTLSSettingsSnapshot().Request)
-	if parent == nil {
-		parent = context.Background()
-	}
 	ctx, cancel := context.WithTimeout(parent, time.Duration(timeout)*time.Millisecond)
 	defer cancel()
 
@@ -58,7 +65,7 @@ func (a *App) executeGRPC(parent context.Context, collection Collection, item Re
 	}
 	defer func() { _ = conn.Close() }()
 
-	ctx, err = grpcexec.OutgoingContext(ctx, item, vars, a.fetchOAuth2Token)
+	ctx, err = grpcexec.OutgoingContext(ctx, item, vars, a.grpcOAuth2Fetcher(ctx))
 	if err != nil {
 		result.Error = err.Error()
 		result.DurationMs = time.Since(start).Milliseconds()
@@ -473,11 +480,54 @@ func grpcDialTarget(rawURL string) (grpcDialConfig, error) {
 	}
 }
 
-func (a *App) grpcDialConfigForRequest(collection Collection, item RequestItem, targetURL string, vars map[string]string) (grpcDialConfig, error) {
-	dialConfig, err := grpcDialTarget(targetURL)
-	if err != nil {
-		return grpcDialConfig{}, err
+// grpcDialConfigForRequestContext builds the dial configuration, and under MCP
+// provenance it is also the whole gRPC half of the destination boundary: §4.7's
+// target allowlist, §4.3's pre-dial checkpoint, and §4.4's client-certificate
+// contract, all before any caller reaches grpc.NewClient.
+//
+// THE UI PATH IS THE OLD BODY, UNCHANGED. A nil policy means this is not an
+// MCP-initiated execution (§1.2(4)), so the target still goes through
+// grpcDialTarget — unix sockets, grpc+unix, bare authorities and all — and the
+// certificate still matches against the runtime target with the runtime vars.
+func (a *App) grpcDialConfigForRequestContext(ctx context.Context, collection Collection, item RequestItem, targetURL string, vars map[string]string) (grpcDialConfig, error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
+	policy := mcpPolicyFromContext(ctx)
+
+	var (
+		dialConfig   grpcDialConfig
+		pinnedOrigin Origin
+		err          error
+	)
+	if policy == nil {
+		dialConfig, err = grpcDialTarget(targetURL)
+		if err != nil {
+			return grpcDialConfig{}, err
+		}
+	} else {
+		var pinnedTarget string
+		pinnedTarget, pinnedOrigin, err = mcpValidateGRPCTarget(targetURL)
+		if err != nil {
+			// §2 row 3 is a FEATURE refusal, not a destination denial, so
+			// nothing in this run has called Authorize and the ErrDenied class
+			// mcpGRPCTargetRefusal built would be lost the moment the error is
+			// stringified. Marked here rather than inside the validator because
+			// the validator is also used as a silent cert-matching probe below,
+			// where a parse failure means "no certificate", not "refused".
+			policy.noteRefusal()
+			return grpcDialConfig{}, err
+		}
+		dialConfig = mcpGRPCDialConfig(pinnedTarget, pinnedOrigin)
+		// The pre-dial checkpoint (§4.3). ONE authorized channel covers the
+		// reflection call, the invoke and every stream opened on it, because
+		// they all ride the connection this target opens and none of them can
+		// reach a different authority.
+		if err := policy.Authorize(ctx, pinnedOrigin, egressKindMain); err != nil {
+			return grpcDialConfig{}, err
+		}
+	}
+
 	if userAgent := grpcexec.UserAgentFromHeaders(item.Headers, vars); userAgent != "" {
 		dialConfig.Options = append(dialConfig.Options, grpc.WithUserAgent(userAgent))
 	}
@@ -495,7 +545,7 @@ func (a *App) grpcDialConfigForRequest(collection Collection, item RequestItem, 
 	if tlsSettings.ClientSessionCache != nil {
 		tlsConfig.ClientSessionCache = tlsSettings.ClientSessionCache
 	}
-	certificate, ok, err := transport.MatchingTLSClientCertificate(collection.Path, collection.ClientCertificates, targetURL, vars)
+	certificate, ok, err := grpcClientCertificate(policy, collection, targetURL, vars, pinnedOrigin)
 	if err != nil {
 		return grpcDialConfig{}, err
 	}
@@ -504,4 +554,291 @@ func (a *App) grpcDialConfigForRequest(collection Collection, item RequestItem, 
 	}
 	dialConfig.TLSConfig = tlsConfig
 	return dialConfig, nil
+}
+
+// grpcClientCertificate is §4.4's gRPC branch — a SEPARATE SEAM from
+// requestTransport, and one that is easy to miss precisely because it does not
+// go through it.
+//
+// Under MCP the matching seam must not see agent-shaped values. It receives the
+// active scope's agent-free mainURL and baseVars, so no override, flow input or
+// script-set variable can decide WHICH certificate is selected; and the selected
+// certificate is attached only when the §4.7-validated pinned target's origin
+// equals certOrigin — the origin of that same agent-free main destination — so
+// no retargeting can decide WHERE it is presented.
+//
+// THE ORIGIN COMPARISON HAPPENS FIRST, before the certificate is even loaded.
+// An off-origin dial then does no key-file I/O at all, and a load error for a
+// certificate that was never going to be presented cannot fail the send.
+//
+// THERE IS NO REDIRECT CONCEPT ON A GRPC CHANNEL, which is why this single
+// pre-dial equality check is the whole rule here, where the HTTP branch
+// additionally needs a per-hop guard.
+func grpcClientCertificate(policy *mcpEgressPolicy, collection Collection, targetURL string, vars map[string]string, pinnedOrigin Origin) (tls.Certificate, bool, error) {
+	if policy == nil {
+		return transport.MatchingTLSClientCertificate(collection.Path, collection.ClientCertificates, targetURL, vars)
+	}
+	scope, ok := policy.activeScope()
+	if !ok {
+		// No scope means no agent-free destination to match against. Authorize
+		// has already denied this send; returning "no certificate" keeps that
+		// failure from being reported as a certificate problem.
+		return tls.Certificate{}, false, nil
+	}
+	// certOrigin is computed with §4.7's grammar rather than OriginOfURL,
+	// because the agent-free main destination of a gRPC request is a gRPC
+	// target: its effective port is 443 whether or not it is a TLS channel.
+	_, certOrigin, err := mcpValidateGRPCTarget(scope.mainURL)
+	if err != nil || certOrigin != pinnedOrigin {
+		return tls.Certificate{}, false, nil
+	}
+	return transport.MatchingTLSClientCertificate(collection.Path, collection.ClientCertificates, scope.mainURL, scope.baseVars)
+}
+
+// grpcOAuth2Fetcher binds the send's context to the OAuth2 token fetch that
+// grpcexec.OutgoingContext may perform while assembling metadata.
+//
+// WHY A CLOSURE RATHER THAN A GRPCEXEC SIGNATURE CHANGE. grpcexec takes a
+// fetcher func and knows nothing about policies; the context it needs is the one
+// the caller already holds. Wrapping it here keeps grpcexec unchanged and puts
+// the provenance decision in the package that owns it.
+//
+// THE KIND IS NARROWED TO token. A token exchange is not the request's own
+// destination: Base(S, token) is the OAuth2 endpoints, and the backstop must not
+// authorize it as if it were the gRPC target (§1.1, kindClass).
+func (a *App) grpcOAuth2Fetcher(ctx context.Context) func(OAuth2Auth, map[string]string) (string, error) {
+	tokenCtx := mcpGRPCTokenContext(ctx)
+	return func(auth OAuth2Auth, vars map[string]string) (string, error) {
+		return a.fetchOAuth2TokenForGRPC(tokenCtx, auth, vars)
+	}
+}
+
+// mcpGRPCTokenContext is the context a gRPC send's OAuth2 token exchange runs
+// under: the send's own context, with the backstop kind narrowed to token.
+func mcpGRPCTokenContext(ctx context.Context) context.Context {
+	return mcpContextWithEgressKind(ctx, egressKindToken)
+}
+
+// fetchOAuth2TokenForGRPC runs the token exchange under the send's context, so
+// the exchange carries the run's provenance and is checked as a token egress
+// rather than travelling unlabeled.
+//
+// The context is ALSO consulted up front: a cancelled gRPC send must not block
+// for a 30-second token fetch whose result it will never use.
+func (a *App) fetchOAuth2TokenForGRPC(ctx context.Context, auth OAuth2Auth, vars map[string]string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return a.fetchOAuth2TokenWithContext(ctx, auth, vars)
+}
+
+// --- §4.7: the gRPC target allowlist --------------------------------------
+//
+// WHY AN ALLOWLIST AND NOT A DENYLIST. A gRPC "target" is not a URL — it is a
+// grpc-go resolver expression, and the set of things it can mean is open-ended:
+// `unix:/var/run/x` dials a filesystem socket, `unix-abstract:name` an abstract
+// one, `xds://…` fetches its endpoints from a control plane, `passthrough://`
+// and future schemes each bring their own resolver. None of those has an origin
+// this boundary can reason about, and a denylist would have to be right about
+// every scheme grpc-go ever adds. So: a grammar that admits exactly a TCP
+// authority, optionally spelled with grpc:// or grpcs://, and refuses the rest
+// (§2 row 3) BEFORE grpcDialTarget and before grpc.NewClient — zero dial, zero
+// resolver instantiation.
+//
+// THE COLON RULE IS THE WHOLE TRICK. Every scheme-spelled target either carries
+// a delimiter the parser rejects outright (`unix:/x`, `dns:///h`, `xds://h`,
+// `http://h` all contain "/") or leaves a non-numeric "port" after its single
+// colon (`unix:sock`, `unix-abstract:name`). Requiring the text after a lone
+// colon to be a 1-65535 number therefore rejects the entire scheme family
+// without enumerating it, while accepting `localhost:50051`.
+//
+// THE PIN IS ALWAYS EXPLICIT. The port is materialized (443 when absent, for
+// plaintext and TLS alike — grpc-go's DNS-resolver default) and the target is
+// generated as dns:///host:port, so what is dialed cannot be re-interpreted by
+// grpc-go's scheme sniffing or by a future change to its default port. The
+// authority the user's approval named and the authority the channel opens are
+// the same string.
+
+// mcpValidateGRPCTarget is §4.7. It returns the explicit dns:/// pin that must
+// reach grpc.NewClient — never the raw input — and the origin the checkpoint
+// authorizes.
+func mcpValidateGRPCTarget(raw string) (string, Origin, error) {
+	trimmed := strings.TrimSpace(raw)
+	authority := trimmed
+	scheme := "http"
+	switch {
+	case len(trimmed) >= 7 && strings.EqualFold(trimmed[:7], "grpc://"):
+		authority, scheme = trimmed[7:], "http"
+	case len(trimmed) >= 8 && strings.EqualFold(trimmed[:8], "grpcs://"):
+		authority, scheme = trimmed[8:], "https"
+	}
+	host, port, hasPort, err := mcpParseGRPCAuthority(authority)
+	if err != nil {
+		return "", Origin{}, mcpGRPCTargetRefusal(trimmed, err)
+	}
+	// The effective port is 443 with no port written down — for plaintext and
+	// TLS alike. This is NOT the http/https 80/443 rule (§1.1): it is grpc-go's
+	// DNS-resolver default, and applying the HTTP rule here would authorize
+	// :80 while dialing :443.
+	effectivePort := 443
+	if hasPort {
+		// Already validated as 1-65535 by the parser.
+		effectivePort, _ = strconv.Atoi(port)
+	}
+	origin, ok := newOrigin(scheme, host, effectivePort)
+	if !ok {
+		return "", Origin{}, mcpGRPCTargetRefusal(trimmed, errors.New("the host did not resolve to a usable origin"))
+	}
+	// net.JoinHostPort re-brackets an IPv6 literal, so [::1] pins to
+	// dns:///[::1]:443 and never to the unbracketed form grpc-go would read as
+	// a host with several colons. origin.Host is the normalized spelling, so
+	// the pinned target and the authorized origin cannot disagree.
+	return "dns:///" + net.JoinHostPort(origin.Host, strconv.Itoa(effectivePort)), origin, nil
+}
+
+// mcpGRPCTargetRefusal is §2 row 3's uniform refusal.
+func mcpGRPCTargetRefusal(target string, reason error) error {
+	return mcpRefusal(
+		fmt.Sprintf("the gRPC target %q is not a plain TCP authority (%v)", target, reason),
+		"Use a host:port, grpc:// or grpcs:// target, or run this request in the LiteAPI app.")
+}
+
+// mcpParseGRPCAuthority parses a bare TCP authority per §4.7.
+func mcpParseGRPCAuthority(s string) (host, port string, hasPort bool, err error) {
+	if s == "" {
+		return "", "", false, errors.New("the target is empty")
+	}
+	// No paths, no userinfo, no percent escapes, no authority-syntax schemes,
+	// and nothing that a later parser could read differently from this one.
+	for _, r := range s {
+		switch {
+		case r == '/' || r == '\\':
+			return "", "", false, errors.New("it contains a path separator")
+		case r == '?' || r == '#':
+			return "", "", false, errors.New("it contains a query or fragment delimiter")
+		case r == '@':
+			return "", "", false, errors.New("it contains userinfo")
+		case r == '%':
+			return "", "", false, errors.New("it contains a percent escape")
+		case unicode.IsSpace(r):
+			return "", "", false, errors.New("it contains whitespace")
+		case unicode.IsControl(r):
+			return "", "", false, errors.New("it contains a control character")
+		}
+	}
+
+	if strings.HasPrefix(s, "[") {
+		closing := strings.Index(s, "]")
+		if closing < 0 {
+			return "", "", false, errors.New("the bracketed host is not closed")
+		}
+		if strings.Contains(s[closing+1:], "]") {
+			return "", "", false, errors.New("the bracketed host has more than one closing bracket")
+		}
+		inner := s[1:closing]
+		// net.ParseIP rejects a zone suffix, and a "%" would already have been
+		// refused above; an IPv6 literal with a zone is not a destination this
+		// boundary can compare.
+		if net.ParseIP(inner) == nil {
+			return "", "", false, errors.New("the bracketed host is not an IP literal")
+		}
+		host = inner
+		rest := s[closing+1:]
+		if rest == "" {
+			return host, "", false, nil
+		}
+		if !strings.HasPrefix(rest, ":") {
+			return "", "", false, errors.New("the bracketed host is followed by something other than a port")
+		}
+		port = rest[1:]
+		if err := mcpValidateGRPCPort(port); err != nil {
+			return "", "", false, err
+		}
+		return host, port, true, nil
+	}
+
+	switch strings.Count(s, ":") {
+	case 0:
+		host = s
+	case 1:
+		index := strings.Index(s, ":")
+		host, port = s[:index], s[index+1:]
+		if err := mcpValidateGRPCPort(port); err != nil {
+			return "", "", false, err
+		}
+		hasPort = true
+	default:
+		// An unbracketed IPv6 literal, or anything else with several colons.
+		// Bracket it and it is accepted; unbracketed, grpc-go and this parser
+		// could disagree about where the host ends, and that disagreement is
+		// exactly what an allowlist must not permit.
+		return "", "", false, errors.New("it has more than one colon and is not a bracketed IPv6 literal")
+	}
+	if host == "" {
+		return "", "", false, errors.New("the host is empty")
+	}
+	if net.ParseIP(host) == nil && !mcpValidGRPCHostname(host) {
+		return "", "", false, errors.New("the host is neither an IP literal nor a hostname")
+	}
+	return host, port, hasPort, nil
+}
+
+// mcpValidateGRPCPort is §4.7's numeric-port rule: non-empty, all ASCII digits,
+// at most five of them, and in 1-65535. This is the rule that rejects
+// `unix:sock`, `unix-abstract:name`, `host:`, `host:0`, `host:70000` and
+// `host:abc` without knowing anything about schemes.
+func mcpValidateGRPCPort(port string) error {
+	if port == "" {
+		return errors.New("the port is empty")
+	}
+	if len(port) > 5 {
+		return errors.New("the port has too many digits")
+	}
+	for index := 0; index < len(port); index++ {
+		if port[index] < '0' || port[index] > '9' {
+			return errors.New("the port is not a number")
+		}
+	}
+	value, err := strconv.Atoi(port)
+	if err != nil || value < 1 || value > 65535 {
+		return errors.New("the port is outside 1-65535")
+	}
+	return nil
+}
+
+// mcpValidGRPCHostname is the RFC-1123 hostname rule: dot-separated labels of
+// [A-Za-z0-9-], 1-63 characters each, no leading or trailing hyphen, 253
+// characters in total. A trailing dot yields an empty final label and is
+// refused — fail-closed, and it costs an approval prompt at worst.
+func mcpValidGRPCHostname(host string) bool {
+	if host == "" || len(host) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if len(label) == 0 || len(label) > 63 {
+			return false
+		}
+		if label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for index := 0; index < len(label); index++ {
+			c := label[index]
+			isLetter := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+			isDigit := c >= '0' && c <= '9'
+			if !isLetter && !isDigit && c != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// mcpGRPCDialConfig builds the dial configuration for a validated target. The
+// TLS choice comes from the validated scheme and matches grpcDialTarget's own
+// branches: grpcs is TLS, grpc and a bare authority are insecure.
+func mcpGRPCDialConfig(pinnedTarget string, origin Origin) grpcDialConfig {
+	if origin.Scheme == "https" {
+		return grpcDialConfig{Target: pinnedTarget, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12}}
+	}
+	return grpcDialConfig{Target: pinnedTarget, Credentials: insecure.NewCredentials()}
 }

@@ -414,4 +414,117 @@ func ApplyScriptVariableContextToState(state *types.AppState, workspace *types.W
 	}
 }
 
+// RunVariableDeltas is one execution's worth of unpersisted variable mutation.
+//
+// It is the in-memory counterpart of what ApplyScriptVariableContextToState
+// would have written to disk, and it carries exactly the four scopes that
+// function writes: a dirty Collection scope becomes collection.Variables, a
+// dirty Runtime scope becomes collection.RuntimeVariables, a dirty Env scope
+// becomes the selected environment's variables, and a dirty Global scope
+// becomes the active global environment's. Folder, Request, Data, Prompt and
+// ProcessEnv are absent because nothing persists them, so there is nothing for
+// an overlay to stand in for.
+//
+// The point of the type is that a caller can hold it instead of writing it:
+// pass it back in through ApplyRunOverlayToContext before the next send and the
+// values are visible to that send, without any of them having reached AppState.
+type RunVariableDeltas struct {
+	Runtime    map[string]interface{}
+	Env        map[string]interface{}
+	Global     map[string]interface{}
+	Collection map[string]interface{}
+}
+
+func (deltas RunVariableDeltas) IsEmpty() bool {
+	return len(deltas.Runtime) == 0 && len(deltas.Env) == 0 &&
+		len(deltas.Global) == 0 && len(deltas.Collection) == 0
+}
+
+// ApplyRunOverlayToContext lays an execution's held deltas over a freshly built
+// VariableContext.
+//
+// Each scope goes back into the scope map it came from, which is what puts it
+// at the precedence the persisted value would have had. That precedence is not
+// a guess: ApplyScriptVariableContextToState writes ctx.Runtime into
+// collection.RuntimeVariables and ctx.Env into the selected environment, and
+// NewScriptVariableContext reads those two back into ctx.Runtime and ctx.Env
+// respectively — and Recompute layers Global, Collection, Env, Folder, Request,
+// Data, Runtime, Prompt in that order, later winning. So a setVar (Runtime)
+// outranks the environment, an environment value outranks the collection's, and
+// a folder or request var still outranks a persisted environment value exactly
+// as it does on the persisted path. Putting the deltas anywhere else — a flat
+// map merged into Combined, say — would silently promote a runtime value above
+// a request var, or demote it below the environment it is supposed to beat.
+//
+// The scopes carrying values are marked dirty, so a subsequent
+// DeltasFromContext returns the overlay plus whatever this execution added to
+// it. That is what lets a flow's step 1 bru.setVar reach step 3: each step
+// applies the overlay into its own fresh context, runs, and hands the grown
+// overlay to the next one, with nothing in between touching AppState.
+//
+// A zero-value deltas is a no-op, so the UI path — which never holds an
+// overlay — is unchanged by this function existing.
+func ApplyRunOverlayToContext(ctx *VariableContext, deltas RunVariableDeltas) {
+	if ctx == nil || deltas.IsEmpty() {
+		return
+	}
+	apply := func(target *map[string]interface{}, values map[string]interface{}, dirty *bool) {
+		if len(values) == 0 {
+			return
+		}
+		if *target == nil {
+			*target = map[string]interface{}{}
+		}
+		for name, value := range values {
+			if strings.TrimSpace(name) == "" {
+				continue
+			}
+			(*target)[name] = value
+		}
+		*dirty = true
+	}
+	apply(&ctx.Collection, deltas.Collection, &ctx.CollectionDirty)
+	apply(&ctx.Global, deltas.Global, &ctx.GlobalDirty)
+	apply(&ctx.Env, deltas.Env, &ctx.EnvDirty)
+	apply(&ctx.Runtime, deltas.Runtime, &ctx.RuntimeDirty)
+	ctx.Recompute()
+}
+
+// DeltasFromContext takes out what the persisted path would have written in.
+//
+// The scope granularity is deliberately the same one ApplyScriptVariableContextToState
+// uses: a dirty scope is carried whole, because that is what mergeScriptVariablesIntoSlice
+// writes whole. Carrying only the keys a script touched would diverge from the
+// persisted behaviour the overlay is standing in for, and re-applying a whole
+// scope is idempotent anyway — the values a fresh context already holds are the
+// values being written back over them.
+//
+// A clean scope yields nil, not an empty map, so IsEmpty means what it says and
+// a caller can tell "this execution changed nothing" from "this execution
+// cleared everything". The maps are copies: the caller holds them for the rest
+// of the run, and the context they came from is about to be discarded or
+// mutated further.
+func DeltasFromContext(ctx *VariableContext) RunVariableDeltas {
+	if ctx == nil {
+		return RunVariableDeltas{}
+	}
+	return RunVariableDeltas{
+		Runtime:    copyDirtyVariableScope(ctx.RuntimeDirty, ctx.Runtime),
+		Env:        copyDirtyVariableScope(ctx.EnvDirty, ctx.Env),
+		Global:     copyDirtyVariableScope(ctx.GlobalDirty, ctx.Global),
+		Collection: copyDirtyVariableScope(ctx.CollectionDirty, ctx.Collection),
+	}
+}
+
+func copyDirtyVariableScope(dirty bool, values map[string]interface{}) map[string]interface{} {
+	if !dirty || len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]interface{}, len(values))
+	for name, value := range values {
+		out[name] = value
+	}
+	return out
+}
+
 var promptVariableInterpolationPattern = regexp.MustCompile(`\{\{\?([^{}\s](?:[^{}]*[^{}\s])?)\}\}`)

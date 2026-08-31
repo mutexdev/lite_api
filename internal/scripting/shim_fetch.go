@@ -11,12 +11,17 @@ import (
 	"github.com/dop251/goja"
 )
 
-func installScriptFetch(runtime *goja.Runtime, vars map[string]string) {
+// installScriptFetch takes the runtime meta for the same reason
+// makeScriptSendRequest does: fetch() is a third entry point into
+// scriptSendRequest, and an authorizer that covered bru.sendRequest and
+// pm.sendRequest but not fetch() would leave the most web-idiomatic of the
+// three unguarded. An earlier design round missed exactly that.
+func installScriptFetch(runtime *goja.Runtime, vars map[string]string, meta ScriptRuntimeMeta) {
 	_ = runtime.Set("__liteApiFetchSend", func(call goja.FunctionCall) goja.Value {
 		// fetch() is the web API, not Postman's. Its `body` is a string or a
 		// FormData the JS shim has already encoded, so it takes the payload
 		// dialect — a `{mode: …}` object reaching here is somebody's JSON.
-		responseValue, errorValue, _, err := scriptSendRequest(runtime, dialectBruno, call.Argument(0), vars)
+		responseValue, errorValue, _, err := scriptSendRequest(runtime, dialectBruno, call.Argument(0), vars, meta)
 		if err != nil {
 			panic(runtime.NewGoError(err))
 		}
