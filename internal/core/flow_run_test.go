@@ -617,7 +617,7 @@ func TestFlowRunCallsTheStepGuardBeforeEachStepWithItsOverrides(t *testing.T) {
 		overrides map[string]string
 	}
 	calls := []guardCall{}
-	guard := func(index int, requestID string, overrides map[string]string) error {
+	guard := func(index int, _, requestID string, overrides map[string]string) error {
 		copied := map[string]string{}
 		for name, value := range overrides {
 			copied[name] = value
@@ -658,7 +658,7 @@ func TestFlowRunStopsWhenTheStepGuardRefuses(t *testing.T) {
 	f.install(flow)
 
 	denied := errors.New("host not approved")
-	guard := func(index int, requestID string, overrides map[string]string) error {
+	guard := func(index int, _, requestID string, overrides map[string]string) error {
 		if index == 1 {
 			return denied
 		}

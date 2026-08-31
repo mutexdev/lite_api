@@ -19,6 +19,12 @@ package core
 // flow, because a chain's steps are different requests aimed at different
 // origins, and step A's authority must not carry step B (§4.1).
 //
+// AND ONE THING THAT IS ONLY TRUE WHILE THE WRITE TIER IS ON: a stored step var
+// whose value reaches a secret raises an approval prompt before the step runs.
+// See the guard below for why that is a prompt rather than the refusal the
+// AUTHORING path gives, and mcp_flow_stepvar_approval_test.go for what the
+// approval is keyed on.
+//
 // WHAT THE MASK COVERS, and why it is wider than run_request's. A flow reads
 // values OUT of live responses — that is what extract is — and a server can echo
 // a credential back into its body. So an extracted value, an assertion detail
@@ -115,7 +121,14 @@ func (b *mcpBackend) RunFlow(ctx context.Context, params mcpserver.RunFlowParams
 		return mcpserver.FlowRunOutcome{}, err
 	}
 
-	guard := func(_ int, requestID string, overrides map[string]string) error {
+	// The flow's own id and NAME, read once before the run. The id is what a
+	// step-var approval is keyed on, so it is taken from the STORED flow rather
+	// than from the parameter, which may differ by whitespace; the name is
+	// display only — nothing is keyed on it, because a rename must not
+	// invalidate an approval.
+	flowID, flowName := b.app.mcpFlowIdentity(params.CollectionID, params.FlowID)
+
+	guard := func(_ int, stepID, requestID string, overrides map[string]string) error {
 		// The step's own plan: its effective request, its resolved variable
 		// scope, and the secrets in scope for it. Nothing here is flow-specific —
 		// it is the same copy-out RunRequest does, which is the point, because
@@ -150,20 +163,40 @@ func (b *mcpBackend) RunFlow(ctx context.Context, params mcpserver.RunFlowParams
 		// one update_flow away from carrying an agent's. validateFlow refuses to
 		// author the smuggling shape now (flowRefuseSecretReachingStepVars), but
 		// a flow stored BEFORE that refusal existed is still on disk, and a
-		// stored flow records nothing about who wrote it. So while the tier is
-		// on, the step's own vars are screened here too, by the same walk under
-		// their own sentence; while it is off, the agent has no authoring channel
-		// at all, the step var is provably the user's, and it is honoured exactly
-		// as the flow tier promises.
-		authoredValues := map[string]string(nil)
-		if writeTierEnabled {
-			authoredValues = overrides
+		// stored flow records nothing about who wrote it.
+		if err := b.app.enforceMCPSecretInjection(plan, mcpGuardInput{
+			overrides:    overrides,
+			agentValues:  params.Inputs,
+			secretValues: secretValues,
+		}); err != nil {
+			return err
 		}
-		return b.app.enforceMCPSecretInjection(plan, mcpGuardInput{
-			overrides:      overrides,
-			agentValues:    params.Inputs,
-			authoredValues: authoredValues,
-			secretValues:   secretValues,
+		if !writeTierEnabled {
+			// The agent has no authoring channel at all, so the step var is
+			// provably the user's and is honoured exactly as the flow tier
+			// promises: silently, with no prompt.
+			return nil
+		}
+		// THE TIER IS ON, SO THE PROVENANCE IS AMBIGUOUS — AND AN AMBIGUITY IS
+		// ASKED ABOUT, NOT REFUSED. This used to refuse outright, and the cost
+		// was the user's own flows: aiming a credential at a request through a
+		// step var is the documented shape of this tier (rule 8 says so in as
+		// many words, and TestFlowStepVarBracesRemainLiteralWhileSendIsAuthorized
+		// pins it end to end), so enabling writes stopped those flows running
+		// through MCP at all. A step var that reaches a secret now raises an
+		// approval prompt instead, narrowly keyed and remembered on request
+		// (authorizeMCPFlowStepVarSecrets). Note that this is NOT the same answer
+		// the AUTHORING door gives: create_flow/update_flow still refuse the
+		// shape outright, with no approval path, because there the agent's own
+		// channel is the subject and an agent has no honest need to author a
+		// secret-aiming step var. Here the subject is a stored value whose author
+		// cannot be recovered, which is a different question and gets a different
+		// answer.
+		return b.app.authorizeMCPFlowStepVarSecrets(ctx, plan, mcpFlowStepVarSubjectInput{
+			flowID:   flowID,
+			flowName: flowName,
+			stepID:   stepID,
+			stepVars: overrides,
 		})
 	}
 
@@ -185,6 +218,27 @@ func (b *mcpBackend) RunFlow(ctx context.Context, params mcpserver.RunFlowParams
 		return outcome, mcpMaskedError(runErr, secretValues)
 	}
 	return outcome, nil
+}
+
+// mcpFlowIdentity resolves a flow id to the stored flow's own id and name.
+//
+// IT NEVER FAILS THE RUN. The runner re-reads and re-validates the flow itself
+// (flowRunPlan), and an id that names nothing is refused there with the message
+// written for it. All this needs to do is answer "what is this flow called" for
+// a prompt, and fall back to the trimmed id when it cannot — a prompt that named
+// an id is worse than one that named a name, and much better than no prompt.
+func (a *App) mcpFlowIdentity(collectionID, flowID string) (string, string) {
+	flowID = strings.TrimSpace(flowID)
+	flows, err := a.mcpCollectionFlows(collectionID)
+	if err != nil {
+		return flowID, ""
+	}
+	for _, flow := range flows {
+		if flow.ID == flowID {
+			return flow.ID, flow.Name
+		}
+	}
+	return flowID, ""
 }
 
 // mcpCollectionFlows copies one collection's flows out from under the state

@@ -450,9 +450,20 @@ func TestMCPRunFlowHostileInputShapesDoNotPanic(t *testing.T) {
 //     tier refuses exactly what the run tier refuses. The refusal names the var
 //     and the secret, never a value, and wraps mcpserver.ErrDenied.
 //   - RUNNING. While the write tier is on, RunFlow's guard also screens the
-//     step's own vars (mcpGuardInput.authoredValues), so a flow authored BEFORE
-//     the gate existed cannot be run either. Both halves are asserted below,
-//     the second by installing the flow straight into state.
+//     step's own vars, so a flow authored BEFORE the gate existed cannot be run
+//     unattended either. Both halves are asserted below, the second by
+//     installing the flow straight into state.
+//
+// THE TWO HALVES DO NOT GIVE THE SAME ANSWER, and that is deliberate rather
+// than an inconsistency. AUTHORING is refused outright, with no approval path:
+// the subject there is the agent's own channel, and an agent has no honest need
+// to author a step var that aims a credential — the user writes those in the
+// app. RUNNING asks the user, because the subject there is a STORED value whose
+// author cannot be recovered, and refusing it outright broke the user's own
+// flows (the canonical POS chain in our own docs is written exactly this way).
+// The run half's prompt, and how narrowly its approval is keyed, is measured in
+// mcp_flow_stepvar_approval_test.go; what is asserted here is that an
+// unapproved run still refuses, and refuses with the same class.
 //
 // The refusal is provenance-conditioned: a HUMAN authoring the same step var in
 // the app's Flow editor is not refused. See
@@ -494,6 +505,9 @@ func TestCreateFlowStepVarValueIsRefusedForAnAgentAuthor(t *testing.T) {
 
 	// AND THE RUN DOOR, for a flow that got in before the gate existed:
 	// installed straight into state, exactly as a flow read off disk would be.
+	// The run door ASKS rather than refusing, so this arm answers no — the
+	// prompt-then-allow arm is TestMCPRunFlowStepVarPromptsAndRunsWhenApproved.
+	f.answerApprovals(false, false)
 	f.install(types.Flow{
 		ID:   "flow_preauthored_leak",
 		Name: "Authored before the gate existed",
@@ -510,6 +524,12 @@ func TestCreateFlowStepVarValueIsRefusedForAnAgentAuthor(t *testing.T) {
 	}
 	if !strings.Contains(runErr.Error(), `"storeId"`) {
 		t.Errorf("the run refusal should name the offending var: %v", runErr)
+	}
+	// It refused because the USER was asked and said no, not because nothing
+	// asked. A run that refused without prompting would be the old behaviour
+	// wearing the new test.
+	if got := len(f.prompts()); got != 1 {
+		t.Errorf("the run refused after %d prompts, want exactly 1", got)
 	}
 	for _, request := range f.recorded() {
 		if strings.Contains(request.body, mcpFlowSentinelToken) {
@@ -570,13 +590,29 @@ func TestUIFlowEditorMayStillAuthorAStepVarThatAimsASecret(t *testing.T) {
 	}
 
 	// The tier flag is the whole discriminator, so the other side of it is
-	// worth pinning here too: turn writes on and the same stored flow is
-	// refused, because from that moment the agent could have authored it.
-	f.app.mu.Lock()
-	f.app.state.Preferences.MCP.WriteTierEnabled = true
-	f.app.mu.Unlock()
+	// worth pinning here too: turn writes on and the same stored flow ASKS,
+	// because from that moment the agent could have authored it and the stored
+	// flow cannot say otherwise.
+	//
+	// IT ASKS — IT DOES NOT REFUSE. That distinction is the change this arm
+	// exists to hold: refusing outright would mean the user's own flow, the one
+	// this test just proved the app is happy to author, stops running through
+	// MCP the moment writes are enabled. Answering yes runs it.
+	f.enableWriteTier()
+	f.answerApprovals(true, false)
+	f.forgetPrompts()
+	if _, err := f.run("flow_ui_authored", nil); err != nil {
+		t.Fatalf("with the write tier on and the user's approval, the run was still refused: %v", err)
+	}
+	if got := len(f.prompts()); got != 1 {
+		t.Fatalf("with the write tier on the run raised %d prompts, want exactly 1", got)
+	}
+
+	// And the same run with the answer reversed is refused, with the class the
+	// audit reads.
+	f.answerApprovals(false, false)
 	if _, err := f.run("flow_ui_authored", nil); !errors.Is(err, mcpserver.ErrDenied) {
-		t.Fatalf("with the write tier on, the run error is %v, want an ErrDenied-class refusal", err)
+		t.Fatalf("a denied prompt gave %v, want an ErrDenied-class refusal", err)
 	}
 }
 

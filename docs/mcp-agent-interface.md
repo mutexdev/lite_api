@@ -98,13 +98,26 @@ tool descriptions.
    refused, with no approval path, because there is no honest use for it. An
    agent that needs a credential runs the request the user already wrote. This
    covers what an agent AUTHORS as well as what it passes: `create_flow` and
-   `update_flow` refuse a Flow step var whose value resolves to a secret, and
-   while the write tier is on `run_flow` refuses a stored one too — with writes
-   enabled, a step var that reaches a credential is one `update_flow` away from
-   being the agent's, and a stored Flow records nothing about who wrote it. The
-   user's own Flow editor is unaffected: aiming a secret at a request through a
-   step var is what the Flow tier is for, and rule 8 is about the agent's
-   read/write asymmetry, which the user does not have.
+   `update_flow` refuse a Flow step var whose value resolves to a secret, with no
+   approval path, because an agent has no honest need to author one.
+
+   **A STORED step var is a different question, and gets a different answer.** At
+   RUN time a Flow records nothing about who wrote it, so while the write tier is
+   on — when a step var that reaches a credential is one `update_flow` away from
+   being the agent's — LiteAPI cannot tell the user's own from an agent's. That
+   ambiguity is ASKED about rather than refused: `run_flow` raises an approval
+   prompt naming the flow, the step, the variable, the secret and the request the
+   variable feeds, and "allow and remember" is keyed on exactly that tuple plus
+   the environment, so the user answers once per variable and never for anything
+   else. A denial, a timeout, or a headless run with nobody to ask all refuse the
+   run. With the write tier OFF nothing is asked at all: the agent has no
+   authoring channel, so the step var is provably the user's and runs silently.
+
+   The user's own Flow editor is unaffected throughout: aiming a secret at a
+   request through a step var is what the Flow tier is for, and rule 8 is about
+   the agent's read/write asymmetry, which the user does not have. Refusing a
+   stored step var outright would have deleted that feature for anyone with the
+   write tier on, which is why the run-time answer is a prompt.
 
 ---
 

@@ -192,9 +192,13 @@ type App struct {
 	mcpApprovalTimeout     time.Duration
 	mcpApprovalFileMu      sync.Mutex
 	mcpApprovalsRemembered []types.MCPApproval
-	mcpApprovalsLoaded     bool
-	mcpAuditOnce           sync.Once
-	mcpAuditStore          *mcpAuditStore
+	// mcpStepVarApprovalsRemembered is the second kind of remembered approval —
+	// "this flow step's var may resolve to this secret" — held in the same file
+	// and under the same lock, because one file means one load and one write.
+	mcpStepVarApprovalsRemembered []types.MCPStepVarApproval
+	mcpApprovalsLoaded            bool
+	mcpAuditOnce                  sync.Once
+	mcpAuditStore                 *mcpAuditStore
 
 	// US-013. Fingerprints of what each auxiliary file last contained, so a
 	// persist that changes nothing in a file does no work for that file.

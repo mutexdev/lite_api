@@ -39,11 +39,22 @@
   // There is no × in the header, unlike the app's other dialogs. Every way out
   // of this one has to be an answer, and a close affordance that sits apart from
   // the three buttons invites the reading "neither" — which does not exist.
+  // TWO SUBJECTS, ONE DIALOG. Everything above describes the DESTINATION prompt,
+  // which is the one this component was built for and which reads exactly as it
+  // always has. The second subject — a stored Flow step variable whose value
+  // resolves to a secret, asked only while the write tier is on — is a different
+  // question and gets a different sentence: it is not about where a run may go
+  // but about whether a variable the app cannot attribute may carry a credential
+  // into a request. The three buttons are shared deliberately (the answers are
+  // the same three answers, and one set is one place to get the booleans right);
+  // only the title, the sentence, the note and the remember label differ.
   import Modal from '../../modals/Modal.svelte'
   import {
     approvalDestinationLabel,
     approvalEnvironmentLabel,
+    approvalFlowLabel,
     approvalKindLabel,
+    approvalRememberLabel,
     approvalSecretsLabel,
     type McpApprovalPrompt,
   } from '../../mcpSettings'
@@ -69,6 +80,15 @@
   const environmentLabel = $derived(approvalEnvironmentLabel(prompt))
   const destinationLabel = $derived(approvalDestinationLabel(prompt))
   const kindLabel = $derived(approvalKindLabel(prompt.kind))
+
+  const isStepVar = $derived(prompt.subject === 'flowStepVar')
+  const flowLabel = $derived(approvalFlowLabel(prompt))
+  // The step and the variable are both key fields, so both are shown as
+  // authored rather than prettified — a step id is what the user will see again
+  // in the Flow editor.
+  const stepLabel = $derived(prompt.stepId || 'a step')
+  const varLabel = $derived(prompt.varName || 'a variable')
+  const rememberLabel = $derived(approvalRememberLabel(prompt.subject))
 </script>
 
 <Modal
@@ -80,45 +100,76 @@
   closeOnBackdrop={false}
 >
   <header>
-    <h2 id="mcp-approval-title">Contact a new destination?</h2>
+    <h2 id="mcp-approval-title">
+      {isStepVar ? 'Let a flow step use a secret?' : 'Contact a new destination?'}
+    </h2>
   </header>
 
   <div class="prompt-fields" id="mcp-approval-body">
-    <!-- The §6 sentence, in the order the design writes it: which run, from
-         which site, wants to contact what, as which kind of egress. -->
-    <p class="mcp-approval-lede">
-      Run <strong data-testid="mcp-approval-run">{runLabel}</strong>
-      ({#if collectionLabel}collection
-        <span data-testid="mcp-approval-collection">{collectionLabel}</span>, {/if}request
-      <strong data-testid="mcp-approval-request">{requestLabel}</strong>, environment
-      <strong data-testid="mcp-approval-environment">{environmentLabel}</strong>) wants to contact
-      <strong data-testid="mcp-approval-origin">{destinationLabel}</strong>
-      as its <span data-testid="mcp-approval-kind">{kindLabel}</span>. Nothing in this request's
-      definition points there under this environment.
-      {#if secrets}
-        It references the secret
-        {prompt.secretNames.length > 1 ? 'variables' : 'variable'}
-        <strong data-testid="mcp-approval-secrets">{secrets}</strong>.
+    {#if isStepVar}
+      <!-- THE STEP-VAR SENTENCE. It names every field the approval is keyed on
+           — flow, step, variable, secrets, environment — plus the request the
+           variable feeds, which is the part that makes the question weighable:
+           a variable name alone says nothing about where the credential ends
+           up. -->
+      <p class="mcp-approval-lede">
+        Flow <strong data-testid="mcp-approval-flow">{flowLabel}</strong>
+        step <strong data-testid="mcp-approval-step">{stepLabel}</strong>
+        passes
+        {#if secrets}the secret
+          {prompt.secretNames.length > 1 ? 'variables' : 'variable'}
+          <strong data-testid="mcp-approval-secrets">{secrets}</strong>{:else}a secret{/if}
+        into variable <strong data-testid="mcp-approval-var">{varLabel}</strong>
+        for request <strong data-testid="mcp-approval-request">{requestLabel}</strong>
+        ({#if collectionLabel}collection
+          <span data-testid="mcp-approval-collection">{collectionLabel}</span>, {/if}environment
+        <strong data-testid="mcp-approval-environment">{environmentLabel}</strong>). LiteAPI cannot
+        tell whether an AI tool wrote this step variable, because the write tier is on and a stored
+        flow records no author.
+      </p>
+
+      <p class="mcp-approval-note">
+        Only names are shown. The value stays inside LiteAPI and never reaches the AI tool — this
+        asks whether this step variable may resolve the credential at send time. Remembering applies
+        to this variable, in this step of this flow, in this environment only.
+      </p>
+    {:else}
+      <!-- The §6 sentence, in the order the design writes it: which run, from
+           which site, wants to contact what, as which kind of egress. -->
+      <p class="mcp-approval-lede">
+        Run <strong data-testid="mcp-approval-run">{runLabel}</strong>
+        ({#if collectionLabel}collection
+          <span data-testid="mcp-approval-collection">{collectionLabel}</span>, {/if}request
+        <strong data-testid="mcp-approval-request">{requestLabel}</strong>, environment
+        <strong data-testid="mcp-approval-environment">{environmentLabel}</strong>) wants to contact
+        <strong data-testid="mcp-approval-origin">{destinationLabel}</strong>
+        as its <span data-testid="mcp-approval-kind">{kindLabel}</span>. Nothing in this request's
+        definition points there under this environment.
+        {#if secrets}
+          It references the secret
+          {prompt.secretNames.length > 1 ? 'variables' : 'variable'}
+          <strong data-testid="mcp-approval-secrets">{secrets}</strong>.
+        {/if}
+      </p>
+
+      <!-- Only when there is more than one. For a single secret the sentence
+           above already names it, and repeating it in a box adds emphasis
+           without adding information — which is how a prompt starts looking like
+           an alarm to be dismissed rather than a question to be read. -->
+      {#if prompt.secretNames.length > 1}
+        <ul class="mcp-approval-secrets" aria-label="Secrets this request references">
+          {#each prompt.secretNames as name (name)}
+            <li><span class="mcp-approval-secret-name">{name}</span> → {destinationLabel}</li>
+          {/each}
+        </ul>
       {/if}
-    </p>
 
-    <!-- Only when there is more than one. For a single secret the sentence
-         above already names it, and repeating it in a box adds emphasis without
-         adding information — which is how a prompt starts looking like an alarm
-         to be dismissed rather than a question to be read. -->
-    {#if prompt.secretNames.length > 1}
-      <ul class="mcp-approval-secrets" aria-label="Secrets this request references">
-        {#each prompt.secretNames as name (name)}
-          <li><span class="mcp-approval-secret-name">{name}</span> → {destinationLabel}</li>
-        {/each}
-      </ul>
+      <p class="mcp-approval-note">
+        Only names are shown. LiteAPI never gives an AI tool the value of a secret — this asks
+        whether this request, under this environment, may contact this destination. Remembering
+        applies to this request in this environment only.
+      </p>
     {/if}
-
-    <p class="mcp-approval-note">
-      Only names are shown. LiteAPI never gives an AI tool the value of a secret — this asks whether
-      this request, under this environment, may contact this destination. Remembering applies to
-      this request in this environment only.
-    </p>
   </div>
 
   <div class="button-row mcp-approval-actions">
@@ -141,7 +192,7 @@
       data-testid="mcp-approval-allow-remember"
       disabled={busy}
       onclick={() => onResolve(prompt.id, true, true)}
-    >Allow and remember for this request in this environment</button>
+    >{rememberLabel}</button>
   </div>
 
   <!-- No aria-live on the countdown. It changes every second, and a live region

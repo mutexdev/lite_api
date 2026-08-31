@@ -47,8 +47,15 @@ import (
 )
 
 // flowStepGuard is called immediately before each step's request is sent, with
-// the step's index, the request it is about to run and the overrides it will
-// run with. A non-nil error stops the step and, with it, the flow.
+// the step's index, its id, the request it is about to run and the overrides it
+// will run with. A non-nil error stops the step and, with it, the flow.
+//
+// THE STEP ID IS PASSED RATHER THAN LOOKED UP FROM THE INDEX, and that is a
+// correctness point, not a convenience. An MCP-side guard keys an approval on
+// (flow, step, var, ...); if it recovered the step from an index by re-reading
+// the flow, a concurrent update_flow between the two reads would let an approval
+// remembered for one step authorize a different one. The runner already holds
+// the step it is about to send, so it says which one it is.
 //
 // THIS IS THE SEAM THE MCP TIER USES. Phase 2's new-host guard (rule 4) asks
 // the user before a secret is resolved into a request aimed at a host it has
@@ -60,7 +67,7 @@ import (
 // server anywhere in the picture.
 //
 // A UI-initiated run passes nil: see RunFlow for why there is nothing to ask.
-type flowStepGuard func(stepIndex int, requestID string, overrides map[string]string) error
+type flowStepGuard func(stepIndex int, stepID, requestID string, overrides map[string]string) error
 
 // flowRunPlan is everything a run needs, copied out from under the state lock
 // before the first request goes anywhere.
@@ -123,7 +130,7 @@ func (a *App) runFlowProvenance(ctx context.Context, prov sendProvenance, collec
 		overrides := flowStepOverrides(step, scope)
 
 		if stepGuard != nil {
-			if guardErr := stepGuard(index, step.RequestID, overrides); guardErr != nil {
+			if guardErr := stepGuard(index, step.ID, step.RequestID, overrides); guardErr != nil {
 				stepResult.Error = guardErr.Error()
 				result.Steps = append(result.Steps, stepResult)
 				result.Error = fmt.Sprintf("step %q was not allowed to run: %s", step.ID, guardErr)

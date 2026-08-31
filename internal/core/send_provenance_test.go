@@ -282,7 +282,7 @@ bru.setVar("nestedURL", String(res.url || ""));
 	// execution, and a guard that makes each step's own definition the active
 	// scope.
 	policy, book := fixture.app.newMCPExecutionPolicy()
-	guard := func(_ int, requestID string, _ map[string]string) error {
+	guard := func(_ int, _, requestID string, _ map[string]string) error {
 		mcpEnterScope(policy, book, fixture.plan(t, requestID))
 		return nil
 	}

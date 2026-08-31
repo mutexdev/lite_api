@@ -36,6 +36,22 @@ package core
 // mcp_policy.go derives from the same approvalKey), so the two kinds of "yes"
 // can never come to mean different things.
 //
+// THERE ARE TWO KINDS OF APPROVAL, AND THEY ARE NOT THE SAME QUESTION. The one
+// above is about an ORIGIN — may this run send there. The second
+// (mcpStepVarSubject, types.MCPStepVarApproval) is about a VALUE: may a stored
+// flow step var resolve to a credential, at a moment when the write tier makes
+// its authorship ambiguous (mcp_flows.go). Its key is
+//
+//	"stepvar" \x00 workspacePath \x00 collectionID \x00 flowID \x00 stepID \x00
+//	varName \x00 join(secretNames, "\x1f") \x00 environmentID \x00
+//	join(globalEnvironmentIDs, "\x1f")
+//
+// — as narrow as the first, in the same directions, for the same reasons. They
+// are separate types and separate lists rather than one type with an unused half
+// because forcing a step var through Origin/KindClass would write a destination
+// into a file that has none, and a file that records something the user was
+// never shown is the one thing this store must not do.
+//
 // MIGRATION FAILS CLOSED AND DESTROYS NOTHING. A file whose Version is not 1, or
 // an entry still carrying the old secret/host fields, or one missing the request
 // or environment fields, is IGNORED — a pre-v6 approval must not authorize under
@@ -95,20 +111,30 @@ const mcpApprovalStoreVersion = 1
 
 // mcpPendingApproval is one prompt awaiting an answer.
 //
-// THE SITE IS HELD HERE, NOT TAKEN FROM THE ANSWER. The frontend replies with an
-// id and two booleans and must not be trusted to restate what it was asked; if
-// "remember this" read its key from the reply, a frontend bug — or anything else
-// that can call the binding — could persist an approval for a site the user was
-// never shown.
+// THE SUBJECT IS HELD HERE, NOT TAKEN FROM THE ANSWER. The frontend replies with
+// an id and two booleans and must not be trusted to restate what it was asked;
+// if "remember this" read its key from the reply, a frontend bug — or anything
+// else that can call the binding — could persist an approval for a site the user
+// was never shown.
+//
+// TWO SUBJECTS, EXACTLY ONE OF THEM SET. stepVar nil means this is a DESTINATION
+// prompt and (site, origin, class) is what a remember writes; stepVar non-nil
+// means it is a flow-step-var prompt and that is what a remember writes instead.
+// A discriminated pair rather than a `remember func() error` closure, because a
+// reader of ResolveMCPApproval should be able to see WHAT gets persisted without
+// following a callback back to where it was built.
 type mcpPendingApproval struct {
 	result chan bool
 	site   mcpDefinitionSite
 	origin Origin
 	class  string
+	// stepVar is the second subject (§6's step-var kind). See
+	// mcpStepVarSubject.
+	stepVar *mcpStepVarSubject
 }
 
-// requestMCPApproval raises the prompt and waits for the answer. It returns
-// true only for an explicit approval.
+// requestMCPApproval raises the DESTINATION prompt and waits for the answer. It
+// returns true only for an explicit approval.
 //
 // ctx is the run's context, so a client that gave up (or the run timeout in
 // mcpserver.RunTimeout) also ends the wait — a prompt outliving the run it
@@ -121,6 +147,28 @@ type mcpPendingApproval struct {
 // derived here, once, from the payload actually emitted, and held on the pending
 // entry.
 func (a *App) requestMCPApproval(ctx context.Context, request types.MCPApprovalRequest) bool {
+	site, origin, class := mcpApprovalSubject(request)
+	return a.awaitMCPApproval(ctx, request, &mcpPendingApproval{site: site, origin: origin, class: class})
+}
+
+// requestMCPStepVarApproval raises the OTHER prompt: a stored flow step var
+// whose value resolves to a secret, under a write tier that makes its authorship
+// ambiguous (mcp_flows.go states the argument).
+//
+// THE SUBJECT IS PASSED IN RATHER THAN READ BACK OUT OF THE PAYLOAD, unlike the
+// destination case, which derives it from the request it is about to emit. Both
+// are safe — neither reads the frontend's reply — but the caller here already
+// holds the exact tuple it screened, and handing it over is one fewer place the
+// key could be rebuilt slightly differently from the check that produced it.
+func (a *App) requestMCPStepVarApproval(ctx context.Context, subject mcpStepVarSubject, request types.MCPApprovalRequest) bool {
+	return a.awaitMCPApproval(ctx, request, &mcpPendingApproval{stepVar: &subject})
+}
+
+// awaitMCPApproval is the waiter both prompts share: register, emit, block, and
+// clean up whichever way the wait ends. Everything about the round trip — the
+// deny-by-default, the timeout, the headless answer — is here once, so the two
+// subjects can never come to have different lifetimes.
+func (a *App) awaitMCPApproval(ctx context.Context, request types.MCPApprovalRequest, pending *mcpPendingApproval) bool {
 	// Nobody to ask. a.ctx is nil until Wails calls startup and in every test,
 	// and wailsruntime.EventsEmit dereferences it — so this check is both the
 	// crash guard and the honest answer: with no window open there is no user to
@@ -131,15 +179,9 @@ func (a *App) requestMCPApproval(ctx context.Context, request types.MCPApprovalR
 
 	id := newID("mcp-approval")
 	request.ID = id
-	site, origin, class := mcpApprovalSubject(request)
-	pending := &mcpPendingApproval{
-		// Buffered, so a resolver never blocks even if the waiter has already
-		// given up on a timeout and stopped receiving.
-		result: make(chan bool, 1),
-		site:   site,
-		origin: origin,
-		class:  class,
-	}
+	// Buffered, so a resolver never blocks even if the waiter has already given
+	// up on a timeout and stopped receiving.
+	pending.result = make(chan bool, 1)
 	a.mcpApprovalMu.Lock()
 	if a.mcpApprovals == nil {
 		a.mcpApprovals = map[string]*mcpPendingApproval{}
@@ -245,7 +287,7 @@ func (a *App) ResolveMCPApproval(id string, approve bool, remember bool) error {
 	// channel is read, and it recomputes nothing — but a second run racing
 	// behind it should see the remembered approval rather than prompt again.
 	if approve && remember {
-		if err := a.rememberMCPApproval(pending.site, pending.origin, pending.class); err != nil {
+		if err := a.rememberMCPApprovalFor(pending); err != nil {
 			// The user said yes; a file that could not be written must not turn
 			// that into a denial. Let the run proceed and report the failure to
 			// remember, which is the part that actually did not happen.
@@ -258,6 +300,15 @@ func (a *App) ResolveMCPApproval(id string, approve bool, remember bool) error {
 }
 
 // --- remembered approvals -------------------------------------------------
+
+// rememberMCPApprovalFor persists whichever subject this prompt was about. The
+// branch is on what the PROMPT held, never on what the reply said.
+func (a *App) rememberMCPApprovalFor(pending *mcpPendingApproval) error {
+	if pending.stepVar != nil {
+		return a.rememberMCPStepVarApproval(*pending.stepVar)
+	}
+	return a.rememberMCPApproval(pending.site, pending.origin, pending.class)
+}
 
 // rememberMCPApproval persists one (site, origin, class) approval.
 //
@@ -351,13 +402,156 @@ func mcpStoredApprovalKey(approval types.MCPApproval) string {
 	return site.approvalKey(origin, class)
 }
 
+// --- the step-var subject ----------------------------------------------------
+
+// mcpStepVarSubject is the identity a flow-step-var approval is keyed on: which
+// var, in which step, of which flow, reaching which secrets, under which
+// environment configuration.
+//
+// IT IS AS NARROW AS THE DESTINATION KEY, AND FOR THE SAME REASONS. Every field
+// is a way the user's "yes" could otherwise be stretched past what they were
+// shown: a yes for `storeId` is not a yes for `region`; a yes for step
+// "createTerminal" is not a yes for step "activate"; a yes in one flow is not a
+// yes in a flow the agent writes tomorrow with the same step id.
+//
+// THE ENVIRONMENT IS IN THE KEY BECAUSE THE QUESTION DEPENDS ON IT. Whether a
+// name resolves to a secret at all — and to WHICH secret — is decided by the
+// selected collection environment and the active globals (mcpSecretNamesInScope).
+// An approval given while dev is selected must not answer for production, where
+// the same var reaches the production credential.
+//
+// secretNames IS A SET, SORTED. A var that reaches one more credential than the
+// user approved produces a different key, so the run asks again rather than
+// carrying the old yes onto a wider fact.
+type mcpStepVarSubject struct {
+	workspacePath        string
+	collectionID         string
+	flowID               string
+	stepID               string
+	varName              string
+	secretNames          []string
+	environmentID        string
+	globalEnvironmentIDs []string
+}
+
+// approvalKey renders the subject as the store's key.
+//
+// THE SAME SEPARATORS AS THE DESTINATION KEY (mcp_policy.go), so the two files
+// cannot drift on what a field boundary is, and the same "\x1f" for a list
+// inside a field. The leading tag makes the two key spaces disjoint by
+// construction: nothing about a destination key could ever collide with one of
+// these, whatever a future field is named.
+func (s mcpStepVarSubject) approvalKey() string {
+	return strings.Join([]string{
+		"stepvar",
+		s.workspacePath,
+		s.collectionID,
+		s.flowID,
+		s.stepID,
+		s.varName,
+		strings.Join(s.secretNames, mcpGlobalEnvironmentSeparator),
+		s.environmentID,
+		strings.Join(s.globalEnvironmentIDs, mcpGlobalEnvironmentSeparator),
+	}, mcpSiteKeySeparator)
+}
+
+// complete reports whether this subject names everything the key needs.
+//
+// A HOLE IN A KEY MATCHES MORE THAN THE USER AGREED TO, which is the same
+// argument rememberMCPApproval makes about a zero origin. A subject missing its
+// flow, step, var or secret list is not written and never matches a lookup, so
+// the run asks every time rather than being authorized by a partial key.
+func (s mcpStepVarSubject) complete() bool {
+	return strings.TrimSpace(s.collectionID) != "" &&
+		strings.TrimSpace(s.flowID) != "" &&
+		strings.TrimSpace(s.stepID) != "" &&
+		strings.TrimSpace(s.varName) != "" &&
+		len(s.secretNames) > 0
+}
+
+// rememberMCPStepVarApproval persists one step-var approval.
+func (a *App) rememberMCPStepVarApproval(subject mcpStepVarSubject) error {
+	if !subject.complete() {
+		return nil
+	}
+	a.mcpApprovalFileMu.Lock()
+	defer a.mcpApprovalFileMu.Unlock()
+	if err := a.loadMCPApprovalsLocked(); err != nil {
+		return err
+	}
+	key := subject.approvalKey()
+	for _, approval := range a.mcpStepVarApprovalsRemembered {
+		if mcpStoredStepVarApprovalKey(approval) == key {
+			// Already remembered. Approving the same var twice must not grow the
+			// file.
+			return nil
+		}
+	}
+	a.mcpStepVarApprovalsRemembered = append(a.mcpStepVarApprovalsRemembered, types.MCPStepVarApproval{
+		WorkspacePath: subject.workspacePath,
+		CollectionID:  subject.collectionID,
+		FlowID:        subject.flowID,
+		StepID:        subject.stepID,
+		VarName:       subject.varName,
+		SecretNames:   append([]string{}, subject.secretNames...),
+		EnvironmentID: subject.environmentID,
+		// Never nil, for the reason MCPApproval's list is never nil: an omitted
+		// list reloads as a MISSING field and the migration rule ignores it.
+		GlobalEnvironmentIDs: append([]string{}, subject.globalEnvironmentIDs...),
+		ApprovedAt:           time.Now().UTC(),
+	})
+	return a.writeMCPApprovalsLocked()
+}
+
+// mcpRememberedStepVarApproved reports whether the user has already remembered
+// this exact subject. EXACT FULL-KEY MATCH, no prefix rule and no wildcard —
+// every looser comparison is a widening of an approval given about one specific
+// variable.
+func (a *App) mcpRememberedStepVarApproved(subject mcpStepVarSubject) (bool, error) {
+	if !subject.complete() {
+		return false, nil
+	}
+	a.mcpApprovalFileMu.Lock()
+	defer a.mcpApprovalFileMu.Unlock()
+	if err := a.loadMCPApprovalsLocked(); err != nil {
+		return false, err
+	}
+	key := subject.approvalKey()
+	for _, approval := range a.mcpStepVarApprovalsRemembered {
+		if mcpStoredStepVarApprovalKey(approval) == key {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// mcpStoredStepVarApprovalKey renders a stored entry through the SAME function
+// that builds a lookup key, so the two can never drift.
+func mcpStoredStepVarApprovalKey(approval types.MCPStepVarApproval) string {
+	subject := mcpStepVarSubject{
+		workspacePath:        approval.WorkspacePath,
+		collectionID:         approval.CollectionID,
+		flowID:               approval.FlowID,
+		stepID:               approval.StepID,
+		varName:              approval.VarName,
+		secretNames:          approval.SecretNames,
+		environmentID:        approval.EnvironmentID,
+		globalEnvironmentIDs: approval.GlobalEnvironmentIDs,
+	}
+	if !subject.complete() {
+		return ""
+	}
+	return subject.approvalKey()
+}
+
 // --- the file ---------------------------------------------------------------
 
 // mcpApprovalFileOnDisk is the file as read: entries stay raw so each can be
 // examined for the fields it carries before anything is decoded into the model.
 type mcpApprovalFileOnDisk struct {
-	Version   int               `json:"version"`
-	Approvals []json.RawMessage `json:"approvals"`
+	Version          int               `json:"version"`
+	Approvals        []json.RawMessage `json:"approvals"`
+	StepVarApprovals []json.RawMessage `json:"stepVarApprovals"`
 }
 
 // mcpApprovalProbe answers "which fields does this entry actually carry".
@@ -405,6 +599,45 @@ func (p mcpApprovalProbe) usable() bool {
 	return p.KindClass != nil && strings.TrimSpace(*p.KindClass) != ""
 }
 
+// mcpStepVarApprovalProbe is the same presence question for the second kind, and
+// it is a separate probe rather than more optional fields on the first: the two
+// entries live in two lists and share not one key field, so a combined probe
+// would have to say "either all of these or all of those", which is two probes
+// written as one.
+//
+// EVERY FIELD IS A POINTER, for the reason above: an ABSENT environmentId is an
+// entry written before the environment was part of the key, while an empty one
+// is the ordinary "no collection environment selected".
+type mcpStepVarApprovalProbe struct {
+	WorkspacePath        *string   `json:"workspacePath"`
+	CollectionID         *string   `json:"collectionId"`
+	FlowID               *string   `json:"flowId"`
+	StepID               *string   `json:"stepId"`
+	VarName              *string   `json:"varName"`
+	SecretNames          *[]string `json:"secretNames"`
+	EnvironmentID        *string   `json:"environmentId"`
+	GlobalEnvironmentIDs *[]string `json:"globalEnvironmentIds"`
+}
+
+func (p mcpStepVarApprovalProbe) usable() bool {
+	if p.WorkspacePath == nil || p.CollectionID == nil {
+		return false
+	}
+	if p.FlowID == nil || strings.TrimSpace(*p.FlowID) == "" {
+		return false
+	}
+	if p.StepID == nil || strings.TrimSpace(*p.StepID) == "" {
+		return false
+	}
+	if p.VarName == nil || strings.TrimSpace(*p.VarName) == "" {
+		return false
+	}
+	if p.SecretNames == nil || len(*p.SecretNames) == 0 {
+		return false
+	}
+	return p.EnvironmentID != nil && p.GlobalEnvironmentIDs != nil
+}
+
 // loadMCPApprovalsLocked reads the file once per process.
 //
 // A missing file is empty rather than an error — no approval has ever been
@@ -437,8 +670,9 @@ func (a *App) loadMCPApprovalsLocked() error {
 		return err
 	}
 
-	approvals, ignored := mcpDecodeApprovalFile(data)
+	approvals, stepVarApprovals, ignored := mcpDecodeApprovalFile(data)
 	a.mcpApprovalsRemembered = approvals
+	a.mcpStepVarApprovalsRemembered = stepVarApprovals
 	if !ignored {
 		return nil
 	}
@@ -446,13 +680,19 @@ func (a *App) loadMCPApprovalsLocked() error {
 	return nil
 }
 
-// mcpDecodeApprovalFile splits a file's bytes into the entries this build may
-// honour and whether anything at all was refused.
-func mcpDecodeApprovalFile(data []byte) (approvals []types.MCPApproval, ignored bool) {
+// mcpDecodeApprovalFile splits a file's bytes into the entries of each kind this
+// build may honour, and whether anything at all was refused.
+//
+// THE SECOND LIST IS NOT A SECOND VERSION. A Version 1 file written before
+// step-var approvals existed carries no stepVarApprovals array at all, which
+// decodes to an empty slice and means "nothing was ever approved" — the correct
+// reading, and the one that asks the user rather than assuming. Nothing is
+// ignored on that account, so no backup and no warning: nothing was lost.
+func mcpDecodeApprovalFile(data []byte) (approvals []types.MCPApproval, stepVarApprovals []types.MCPStepVarApproval, ignored bool) {
 	var file mcpApprovalFileOnDisk
 	if err := json.Unmarshal(data, &file); err != nil {
 		// Not decodable at all. Every entry it might have held is refused.
-		return nil, true
+		return nil, nil, true
 	}
 	if file.Version != mcpApprovalStoreVersion {
 		// Includes the shipped file, which has no version field at all and
@@ -463,7 +703,7 @@ func mcpDecodeApprovalFile(data []byte) (approvals []types.MCPApproval, ignored 
 		// AN EMPTY ONE IS NOT A MIGRATION. Nothing was refused, so warning the
 		// user that their approvals were dropped would be false, and moving an
 		// empty file aside would leave a backup of nothing.
-		return nil, len(file.Approvals) > 0
+		return nil, nil, len(file.Approvals)+len(file.StepVarApprovals) > 0
 	}
 	for _, raw := range file.Approvals {
 		var probe mcpApprovalProbe
@@ -485,7 +725,24 @@ func mcpDecodeApprovalFile(data []byte) (approvals []types.MCPApproval, ignored 
 		}
 		approvals = append(approvals, approval)
 	}
-	return approvals, ignored
+	for _, raw := range file.StepVarApprovals {
+		var probe mcpStepVarApprovalProbe
+		if err := json.Unmarshal(raw, &probe); err != nil || !probe.usable() {
+			ignored = true
+			continue
+		}
+		var approval types.MCPStepVarApproval
+		if err := json.Unmarshal(raw, &approval); err != nil {
+			ignored = true
+			continue
+		}
+		if mcpStoredStepVarApprovalKey(approval) == "" {
+			ignored = true
+			continue
+		}
+		stepVarApprovals = append(stepVarApprovals, approval)
+	}
+	return approvals, stepVarApprovals, ignored
 }
 
 // retireMCPApprovalFile moves the current file aside and says so.
@@ -555,9 +812,22 @@ func (a *App) writeMCPApprovalsLocked() error {
 			sorted[index].GlobalEnvironmentIDs = []string{}
 		}
 	}
+	sortedStepVars := append([]types.MCPStepVarApproval{}, a.mcpStepVarApprovalsRemembered...)
+	sort.Slice(sortedStepVars, func(i, j int) bool {
+		return mcpStoredStepVarApprovalKey(sortedStepVars[i]) < mcpStoredStepVarApprovalKey(sortedStepVars[j])
+	})
+	for index := range sortedStepVars {
+		if sortedStepVars[index].GlobalEnvironmentIDs == nil {
+			sortedStepVars[index].GlobalEnvironmentIDs = []string{}
+		}
+		if sortedStepVars[index].SecretNames == nil {
+			sortedStepVars[index].SecretNames = []string{}
+		}
+	}
 	encoded, err := json.MarshalIndent(types.MCPApprovalFile{
-		Version:   mcpApprovalStoreVersion,
-		Approvals: sorted,
+		Version:          mcpApprovalStoreVersion,
+		Approvals:        sorted,
+		StepVarApprovals: sortedStepVars,
 	}, "", "  ")
 	if err != nil {
 		return err
@@ -642,6 +912,7 @@ func mcpApprovalRequestFor(site mcpDefinitionSite, labels mcpSiteLabels, origin 
 		class = kindClass(kind)
 	}
 	return types.MCPApprovalRequest{
+		Subject:                types.MCPApprovalSubjectDestination,
 		RunLabel:               labels.runLabel,
 		WorkspacePath:          site.workspacePath,
 		CollectionID:           site.collectionID,
@@ -657,5 +928,39 @@ func mcpApprovalRequestFor(site mcpDefinitionSite, labels mcpSiteLabels, origin 
 		KindClass:              class,
 		Host:                   origin.Host,
 		SecretNames:            append([]string(nil), labels.advisorySecretNames...),
+	}
+}
+
+// mcpStepVarApprovalRequestFor builds the OTHER prompt's payload: which flow,
+// which step, which var, which secrets, and the request the var feeds.
+//
+// THE REQUEST IS IN THE SENTENCE BECAUSE THE VARIABLE ALONE IS UNANSWERABLE.
+// "May storeId resolve to apiToken" is a question about nothing; "may the step
+// that runs Create terminal pass apiToken in through storeId" is a question a
+// person can weigh. RequestID/RequestName carry it, from the step's own run plan.
+//
+// The environment fields are the SAME ones the destination prompt shows, and
+// they are here for the same reason: they are in the key, so they have to be on
+// screen.
+func mcpStepVarApprovalRequestFor(subject mcpStepVarSubject, labels mcpSiteLabels, flowName, requestID string) types.MCPApprovalRequest {
+	return types.MCPApprovalRequest{
+		Subject:                types.MCPApprovalSubjectFlowStepVar,
+		RunLabel:               labels.runLabel,
+		WorkspacePath:          subject.workspacePath,
+		CollectionID:           subject.collectionID,
+		CollectionName:         labels.collectionName,
+		RequestID:              requestID,
+		RequestName:            labels.requestName,
+		EnvironmentID:          subject.environmentID,
+		EnvironmentName:        labels.environmentName,
+		GlobalEnvironmentIDs:   append([]string(nil), subject.globalEnvironmentIDs...),
+		GlobalEnvironmentNames: append([]string(nil), labels.globalEnvironmentNames...),
+		// NOT advisory here: these names are part of the key, and the dialog's
+		// remember button grants exactly this set.
+		SecretNames: append([]string(nil), subject.secretNames...),
+		FlowID:      subject.flowID,
+		FlowName:    flowName,
+		StepID:      subject.stepID,
+		VarName:     subject.varName,
 	}
 }

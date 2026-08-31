@@ -316,7 +316,10 @@ var toolRegistry = []toolEntry{
 			"Flows cannot read secrets: a step var like {{apiToken}} is not resolved into flow scope, it passes through to the send path unresolved and is " +
 			"resolved there, inside LiteAPI, or not at all. The new-host guard applies to EVERY step, so a flow that would send a secret to a host the " +
 			"collection has never sent it to PAUSES for the user's approval and may come back denied: a denial names its reason, and the fix is never to " +
-			"retry or to work around it but to ASK THE USER to approve the host (or to point you at the right one). The result carries ok, per-step outcomes " +
+			"retry or to work around it but to ASK THE USER to approve the host (or to point you at the right one). While the write tier is on, a stored step " +
+			"var whose value reaches a secret also pauses for approval — with writes enabled LiteAPI cannot tell the user's own step var from one an agent " +
+			"wrote, so it asks once and remembers the answer; a denial there is answered the same way, by asking the user, never by rewriting the flow. " +
+			"The result carries ok, per-step outcomes " +
 			"(stepId, requestId, status, durationMs, the values extracted with any secret masked, assertion results, and an error when the step failed) and " +
 			"the flow's declared outputs. Steps run fail-fast, so a run that stopped at step 2 reports two steps and not three — that is the report that " +
 			"step 3 never ran, not a truncated answer.",

@@ -15,8 +15,11 @@ import {
   MCP_NO_ENVIRONMENT_LABEL,
   approvalDestinationLabel,
   approvalEnvironmentLabel,
+  approvalFlowLabel,
   approvalKindLabel,
+  approvalRememberLabel,
   approvalSecretsLabel,
+  approvalSubject,
   approvalTimeRemaining,
   dropApprovalPrompt,
   expireApprovalPrompts,
@@ -77,6 +80,9 @@ test('a prompt is queued with the fields the dialog renders', () => {
   assert.equal(queue[0].origin, 'https://api.stripe.com:443')
   assert.equal(queue[0].kind, 'main')
   assert.equal(queue[0].kindClass, 'request')
+  // The default subject: everything that does not say otherwise is the
+  // destination question this dialog was built for.
+  assert.equal(queue[0].subject, 'destination')
 })
 
 // A payload with nothing but an id must still render. Every optional field
@@ -92,6 +98,11 @@ test('a sparse payload is normalized rather than left undefined', () => {
   assert.equal(queue[0].kindClass, '')
   assert.deepEqual(queue[0].globalEnvironmentIds, [])
   assert.deepEqual(queue[0].secretNames, [])
+  assert.equal(queue[0].flowId, '')
+  assert.equal(queue[0].flowName, '')
+  assert.equal(queue[0].stepId, '')
+  assert.equal(queue[0].varName, '')
+  assert.equal(queue[0].subject, 'destination')
 })
 
 // FIFO, and appended rather than swapped in. A prompt that replaced the one on
@@ -335,8 +346,18 @@ test('the dialog names the whole site it is asking about', () => {
 test('the remember button states the scope it grants', () => {
   const button = dialog.slice(dialog.indexOf('data-testid="mcp-approval-allow-remember"'))
   assert.ok(
-    /Allow and remember for this request in this environment</.test(button),
-    'the remember button no longer says which site it remembers for',
+    /\{rememberLabel\}</.test(button),
+    'the remember button no longer renders the subject-specific label',
+  )
+  // The label itself is a pure function, so the two scopes can be measured
+  // rather than read off the markup — and neither of them may be generic.
+  assert.equal(
+    approvalRememberLabel('destination'),
+    'Allow and remember for this request in this environment',
+  )
+  assert.equal(
+    approvalRememberLabel('flowStepVar'),
+    'Allow and remember for this variable in this flow step and environment',
   )
 })
 
@@ -350,5 +371,100 @@ test('the dialog defines no new CSS custom property', () => {
   assert.ok(
     !/^\s*--[\w-]+\s*:/m.test(css),
     'the approval dialog defines a CSS custom property; it would resolve in no theme',
+  )
+})
+
+// --- the second subject: a flow step variable that reaches a secret ---------
+//
+// The write tier makes a stored step var's authorship unrecoverable, so run_flow
+// asks instead of refusing (internal/core/mcp_guard.go). That prompt is a
+// DIFFERENT QUESTION from the destination one and is keyed on a different tuple,
+// and the failure mode these cases guard is a dialog that renders one as the
+// other: a user shown "wants to contact https://..." about a variable is being
+// asked something that has no answer.
+
+test('an unrecognised subject reads as the destination question', () => {
+  // The fallback is deliberate: every field the destination sentence names is
+  // present on any payload, whereas a step-var sentence about a payload with no
+  // flow, step or variable would describe nothing.
+  assert.equal(approvalSubject({}), 'destination')
+  assert.equal(approvalSubject({ subject: '' }), 'destination')
+  assert.equal(approvalSubject({ subject: 'something-new' }), 'destination')
+  assert.equal(approvalSubject({ subject: 'destination' }), 'destination')
+  assert.equal(approvalSubject({ subject: 'flowStepVar' }), 'flowStepVar')
+  assert.equal(approvalSubject({ subject: '  flowStepVar  ' }), 'flowStepVar')
+})
+
+test('a step-var prompt keeps every field its key is built from', () => {
+  const queue = queueApprovalPrompt(
+    [],
+    request({
+      subject: 'flowStepVar',
+      flowId: 'flow_provision',
+      flowName: 'Provision POS terminal',
+      stepId: 'createTerminal',
+      varName: 'storeId',
+      secretNames: ['apiToken'],
+      origin: undefined,
+      kind: undefined,
+      kindClass: undefined,
+      host: undefined,
+    }),
+    1_000,
+  )
+
+  assert.equal(queue[0].subject, 'flowStepVar')
+  assert.equal(queue[0].flowId, 'flow_provision')
+  assert.equal(queue[0].flowName, 'Provision POS terminal')
+  assert.equal(queue[0].stepId, 'createTerminal')
+  assert.equal(queue[0].varName, 'storeId')
+  assert.deepEqual(queue[0].secretNames, ['apiToken'])
+  // The environment is in this key too, so it must survive normalization.
+  assert.equal(queue[0].environmentId, 'env_production')
+  assert.deepEqual(queue[0].globalEnvironmentIds, ['global_team'])
+})
+
+test('the flow reads as its name, falling back to its id', () => {
+  assert.equal(approvalFlowLabel({ flowName: 'Provision POS terminal' }), 'Provision POS terminal')
+  assert.equal(approvalFlowLabel({ flowName: '  ', flowId: 'flow_7' }), 'flow_7')
+  assert.equal(approvalFlowLabel({}), 'a flow')
+})
+
+// THE STEP-VAR SENTENCE NAMES EVERY DIMENSION ITS APPROVAL IS KEYED ON, exactly
+// as the destination one does. Each missing testid is a way for the dialog to
+// grant more than it showed: an unnamed step spans the flow, an unnamed variable
+// spans the step, an unnamed secret spans every credential the var might reach.
+test('the dialog renders the step-var variant with its own fields', () => {
+  for (const testid of [
+    'mcp-approval-flow',
+    'mcp-approval-step',
+    'mcp-approval-var',
+    'mcp-approval-secrets',
+    'mcp-approval-request',
+    'mcp-approval-environment',
+  ]) {
+    assert.ok(
+      new RegExp(`data-testid="${testid}"`).test(dialog),
+      `the dialog does not render ${testid}; the step-var approval would be keyed on more than it showed`,
+    )
+  }
+  assert.ok(
+    /isStepVar\s*\?/.test(dialog) || /\{#if isStepVar\}/.test(dialog),
+    'the dialog does not branch on the subject at all',
+  )
+  assert.ok(
+    /Let a flow step use a secret\?/.test(dialog),
+    'the step-var prompt does not have its own title',
+  )
+})
+
+// The destination sentence is unchanged by the second subject, and that is worth
+// pinning: the two variants share one component, and the cheap way to add the
+// new one is to generalise the old one into something that reads as neither.
+test('the destination sentence still reads as it did', () => {
+  assert.ok(/Contact a new destination\?/.test(dialog), 'the destination title changed')
+  assert.ok(
+    /wants to contact/.test(dialog) && /Nothing in this request's/.test(dialog),
+    'the destination sentence changed',
   )
 })

@@ -63,14 +63,27 @@ type MCPAuditEntry struct {
 // approval it produces, which is how a user ends up granting something they were
 // never shown.
 //
-// SECRET NAMES, NEVER VALUES, AND ONLY AS ADVICE. SecretNames says which
-// credentials the request references, because that is what makes the decision
-// feel real to the person answering. It is advisory text only: nothing keys an
-// approval on it, and no enforcement anywhere consults it.
+// SECRET NAMES, NEVER VALUES. SecretNames says which credentials are involved,
+// because that is what makes the decision feel real to the person answering.
+// For the DESTINATION subject it is advisory text only — nothing keys an
+// approval on it and no enforcement consults it. For the FLOW STEP VAR subject
+// below it is part of the key, because "may this variable be allowed to reach
+// apiToken" is the whole question being asked.
+//
+// TWO SUBJECTS, ONE PAYLOAD, DISCRIMINATED BY Subject. The destination prompt
+// asks about an ORIGIN; the flow-step-var prompt asks whether a stored step var
+// may resolve to a credential while the write tier makes its authorship
+// ambiguous. They are different sentences and different keys, and forcing the
+// second through Origin/KindClass would put a lie in the data — so the payload
+// carries both sets of fields and says which one it means.
 //
 // The frontend answers with App.ResolveMCPApproval(id, approve, remember).
 type MCPApprovalRequest struct {
 	ID string `json:"id"`
+	// Subject is which question this prompt asks: MCPApprovalSubjectDestination
+	// (the default, and what an empty value means) or
+	// MCPApprovalSubjectFlowStepVar.
+	Subject string `json:"subject,omitempty"`
 	// RunLabel is what the run calls itself in the first line of the prompt —
 	// the request's name for a single run, the flow's for a flow step.
 	RunLabel string `json:"runLabel,omitempty"`
@@ -101,9 +114,34 @@ type MCPApprovalRequest struct {
 	// enforcing boundary; the destination boundary keys on Origin, and the final
 	// wave that retires the old guard retires this field with it.
 	Host string `json:"host,omitempty"`
-	// SecretNames is advisory text — the credentials the request references.
+	// SecretNames is the credentials involved: advisory for the destination
+	// subject, part of the key for the flow-step-var one (see above).
 	SecretNames []string `json:"secretNames,omitempty"`
+
+	// --- the flow step var (Subject == MCPApprovalSubjectFlowStepVar only)
+	//
+	// FlowID, StepID and VarName are key fields; FlowName is a display name and
+	// is not, for the same reason CollectionName is not. RequestID/RequestName
+	// above name the request the var feeds, which is what makes the sentence
+	// answerable — a variable name alone says nothing about where the credential
+	// would end up.
+	FlowID   string `json:"flowId,omitempty"`
+	FlowName string `json:"flowName,omitempty"`
+	StepID   string `json:"stepId,omitempty"`
+	VarName  string `json:"varName,omitempty"`
 }
+
+// The values of MCPApprovalRequest.Subject.
+const (
+	// MCPApprovalSubjectDestination is "may this run contact this origin".
+	// The empty string means this too: a payload from an older build, or one
+	// built by a caller that predates the second subject, is a destination
+	// prompt.
+	MCPApprovalSubjectDestination = "destination"
+	// MCPApprovalSubjectFlowStepVar is "may this flow step's var resolve to this
+	// secret".
+	MCPApprovalSubjectFlowStepVar = "flowStepVar"
+)
 
 // MCPApproval is one remembered "this request, under this environment, may
 // contact this origin" decision. Persisted to <dataDir>/mcp-approvals.json.
@@ -142,6 +180,52 @@ type MCPApproval struct {
 	ApprovedAt time.Time `json:"approvedAt"`
 }
 
+// MCPStepVarApproval is one remembered "this flow step's var may resolve to
+// these secrets, under this environment" decision. Persisted alongside the
+// destination approvals in <dataDir>/mcp-approvals.json.
+//
+// A SECOND KIND RATHER THAN A REUSE OF MCPApproval, deliberately. That type is
+// about an ORIGIN — where a run may send — and every field of it exists to name
+// a destination. This one is about a VALUE: a stored step var whose braces
+// resolve to a credential, which the write tier makes ambiguous in authorship
+// (see internal/core/mcp_flows.go). Squeezing it into Origin/KindClass would
+// mean writing a fake origin into a file whose whole job is to record exactly
+// what the user was shown.
+//
+// EVERY FIELD IS PART OF THE KEY EXCEPT ApprovedAt, and every one narrows. An
+// approval for one var does not speak for another var, another step, another
+// flow, another secret, or the same flow under a different environment. The
+// environment is in the key for the same reason it is in MCPApproval's: whether
+// a NAME resolves to a secret, and to WHICH secret, depends on which
+// environments are active, so a "yes" under dev must not answer for prod.
+//
+// SecretNames is the SORTED set of secrets this var was found to reach, and it
+// is keyed as a set: a var that later reaches one more credential than the user
+// approved produces a different key and therefore a fresh prompt, which is the
+// conservative direction.
+//
+// NO OMITEMPTY ON THE KEY FIELDS, for the reason MCPApproval gives: an absent
+// field and an empty one must stay distinguishable on reload, because the
+// migration rule ignores an entry that is MISSING one.
+type MCPStepVarApproval struct {
+	WorkspacePath string `json:"workspacePath"`
+	CollectionID  string `json:"collectionId"`
+	FlowID        string `json:"flowId"`
+	StepID        string `json:"stepId"`
+	// VarName is the step var's name — the key in FlowStep.Vars.
+	VarName string `json:"varName"`
+	// SecretNames is the sorted set of secret names the var's value reaches.
+	// Always written as an array, never null.
+	SecretNames []string `json:"secretNames"`
+	// EnvironmentID is the selected collection environment; "" means none.
+	EnvironmentID string `json:"environmentId"`
+	// GlobalEnvironmentIDs is the ordered list of active global environments.
+	// Always written as an array, never null.
+	GlobalEnvironmentIDs []string `json:"globalEnvironmentIds"`
+	// ApprovedAt is for the user reading the file; nothing keys off it.
+	ApprovedAt time.Time `json:"approvedAt"`
+}
+
 // MCPApprovalFile is the on-disk shape of the remembered approvals.
 //
 // Version is what makes the store safe to change. A file this build does not
@@ -149,7 +233,18 @@ type MCPApproval struct {
 // older, wider key must never authorize anything under the narrower one — and
 // the original is renamed aside rather than deleted. See
 // mcpApprovalStoreVersion in internal/core/mcp_approvals.go.
+//
+// THE SECOND LIST NEEDED NO VERSION BUMP, and that is the version field working
+// rather than being ignored. A Version 1 file written before step-var approvals
+// existed simply carries none, and "none remembered" is the correct reading of
+// it: nothing was ever approved, so nothing is authorized and the next run asks.
+// A bump would have been required only if the meaning of an EXISTING entry had
+// changed, and none did.
 type MCPApprovalFile struct {
 	Version   int           `json:"version"`
 	Approvals []MCPApproval `json:"approvals"`
+	// StepVarApprovals is the second kind. Its own list rather than a variant
+	// row in Approvals: two shapes in one array is a file nobody can read
+	// without a discriminator, and a discriminator is what separate lists are.
+	StepVarApprovals []MCPStepVarApproval `json:"stepVarApprovals"`
 }

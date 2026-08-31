@@ -150,6 +150,16 @@ export const MCP_APPROVAL_TIMEOUT_MS = 60_000
  */
 export interface McpApprovalRequest {
   id: string
+  /**
+   * Which question this prompt asks. Mirrors types.MCPApprovalSubject*.
+   *
+   * TWO SUBJECTS, TWO SENTENCES. 'destination' (the default, and what a missing
+   * value means) asks whether a run may contact an origin. 'flowStepVar' asks
+   * whether a stored Flow step variable may resolve to a credential — a
+   * different question, keyed on a different tuple, and the dialog must not
+   * render one as the other.
+   */
+  subject?: string
   /** What the run calls itself: the request's name, or the flow step's. */
   runLabel?: string
 
@@ -174,8 +184,18 @@ export interface McpApprovalRequest {
    * that guard is still enforcing; `origin` is what the approval is keyed on.
    */
   host?: string
-  /** Advisory only: which credentials the request references. Nothing keys on it. */
+  /**
+   * Which credentials are involved. Advisory for the destination subject —
+   * nothing keys on it — and part of the KEY for a flow step var, where the
+   * question is precisely "may this variable reach these secrets".
+   */
   secretNames?: string[]
+
+  /** The flow, step and variable — 'flowStepVar' subject only. */
+  flowId?: string
+  flowName?: string
+  stepId?: string
+  varName?: string
 }
 
 /**
@@ -190,6 +210,8 @@ export interface McpApprovalRequest {
  */
 export interface McpApprovalPrompt {
   id: string
+  /** Normalized: anything unrecognised reads as a destination prompt. */
+  subject: McpApprovalSubject
   runLabel: string
   collectionId: string
   collectionName: string
@@ -204,8 +226,29 @@ export interface McpApprovalPrompt {
   kindClass: string
   host: string
   secretNames: string[]
+  flowId: string
+  flowName: string
+  stepId: string
+  varName: string
   /** Epoch ms. The expiry clock runs from here, NOT from when it is shown. */
   receivedAt: number
+}
+
+/** The two questions the dialog can ask. */
+export type McpApprovalSubject = 'destination' | 'flowStepVar'
+
+/**
+ * Which question a payload asks, normalized.
+ *
+ * ANYTHING UNRECOGNISED IS A DESTINATION PROMPT, including a missing value. That
+ * is the subject every existing payload carries, and it is also the safer
+ * fallback: the destination sentence names the origin, the request and the
+ * environment, all of which are present on any payload, whereas rendering an
+ * unknown subject as a step-var prompt would produce a sentence about a variable
+ * that is not there.
+ */
+export function approvalSubject(request: { subject?: string }): McpApprovalSubject {
+  return (request.subject ?? '').trim() === 'flowStepVar' ? 'flowStepVar' : 'destination'
 }
 
 /**
@@ -247,6 +290,7 @@ export function queueApprovalPrompt(
     ...queue,
     {
       id,
+      subject: approvalSubject(request),
       runLabel: text(request.runLabel),
       collectionId: text(request.collectionId),
       collectionName: text(request.collectionName),
@@ -261,6 +305,10 @@ export function queueApprovalPrompt(
       kindClass: text(request.kindClass),
       host: text(request.host),
       secretNames: [...new Set(list(request.secretNames))],
+      flowId: text(request.flowId),
+      flowName: text(request.flowName),
+      stepId: text(request.stepId),
+      varName: text(request.varName),
       receivedAt,
     },
   ]
@@ -393,6 +441,30 @@ export function approvalKindLabel(kind: string | undefined): string {
     default:
       return 'destination'
   }
+}
+
+/**
+ * The remember button's label, which IS the scope of what the button writes.
+ *
+ * TWO SUBJECTS, TWO SCOPES, TWO LABELS. A destination approval is remembered for
+ * (this request, this environment); a step-var approval for (this variable, this
+ * step, this flow, these secrets, this environment). A single generic label
+ * would overstate one of them, and a button that overstates its grant is one the
+ * user regrets.
+ */
+export function approvalRememberLabel(subject: McpApprovalSubject): string {
+  return subject === 'flowStepVar'
+    ? 'Allow and remember for this variable in this flow step and environment'
+    : 'Allow and remember for this request in this environment'
+}
+
+/**
+ * How the flow reads in the step-var sentence: its name when it has one, its id
+ * otherwise. A flow saved without a name is legal, and "a flow" would leave the
+ * user unable to tell which of theirs is asking.
+ */
+export function approvalFlowLabel(prompt: { flowName?: string; flowId?: string }): string {
+  return (prompt.flowName ?? '').trim() || (prompt.flowId ?? '').trim() || 'a flow'
 }
 
 // --- the recent activity list ---------------------------------------------

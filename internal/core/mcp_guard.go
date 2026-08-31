@@ -37,8 +37,15 @@ package core
 //     them a request's authored fields reference, still drives the advisory
 //     secret list on an approval prompt (§6) and the write tier's refusal to
 //     author a secret row.
+//
+// AND ONE THING THAT IS NEITHER: authorizeMCPFlowStepVarSecrets, at the bottom
+// of this file. It uses the same walk as (1) and asks about the same shape, but
+// it PROMPTS instead of refusing, because the value it screens is a STORED one
+// whose author cannot be recovered. Its own comment states why the two answers
+// differ, and the difference is deliberate rather than an inconsistency.
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"sort"
@@ -199,7 +206,7 @@ type mcpGuardInput struct {
 	// map an agent-supplied value is walked THROUGH, not the thing judged.
 	overrides map[string]string
 	// agentValues is the subset the AGENT itself chose: run_request's variables,
-	// run_flow's inputs. This is what is judged.
+	// run_flow's inputs. This is what is judged, and refused outright.
 	//
 	// THE SPLIT MATTERS AND IS NOT COSMETIC. A flow step var of
 	// {"token": "{{apiToken}}"} is legitimate and documented — the USER wrote
@@ -210,28 +217,14 @@ type mcpGuardInput struct {
 	// reference arriving from the agent, which for a flow means an INPUT value,
 	// not the derived override it ends up inside.
 	agentValues map[string]string
-	// authoredValues are STORED values the agent did not supply on this call but
-	// could have WRITTEN on an earlier one: a flow step's own vars, when the
-	// write tier is on.
+	// THE STORED HALF IS NOT HERE. A flow step's own vars are screened too while
+	// the write tier is on, but they are not judged by this check and they do not
+	// produce a refusal — they produce an approval PROMPT
+	// (authorizeMCPFlowStepVarSecrets below). Keeping them out of this struct is
+	// the point: everything in here is refused with no approval path, and a field
+	// that sometimes meant "ask the user" would blur the one rule this check
+	// states.
 	//
-	// WHY THEY ARE A SEPARATE FIELD AND NOT MORE agentValues. The distinction the
-	// comment above draws is real and stays real — a step var is authored, not
-	// supplied — so the refusal they produce has to say so, or an agent is told
-	// to "drop the variable you supplied" about a variable it did not supply on
-	// this call. They also get the NAME walk only, never the resolved-value
-	// backstop: a step var is interpolated against flow scope first, so its
-	// resolved text can legitimately be an EXTRACTED value, and a login chain
-	// whose step 1 extracts a token that happens to equal a stored secret is the
-	// flow tier working, not smuggling.
-	//
-	// WHY THEY ARE SCREENED AT ALL, given the write tier refuses to author one
-	// now. Because the refusal is only as old as the fix, and because with the
-	// write tier ON the agent can rewrite any flow in the collection one
-	// update_flow earlier — so at run time "a human wrote this step var" is not
-	// something the stored flow can attest to. With the write tier OFF the agent
-	// has no authoring channel at all and the step var IS the user's own, which
-	// is why mcp_flows.go only fills this field when the tier is on.
-	authoredValues map[string]string
 	// secretValues is the process's hydrated secret values, fetched by the
 	// caller before the run, for the backstop below.
 	secretValues []string
@@ -322,13 +315,91 @@ func mcpRefuseSecretInjectingValues(plan mcpRunPlan, effective map[string]string
 		// values it turned out to contain, and only when they can be attributed.
 		return mcpSecretInjectionRefusal(key, mcpSecretNamesResolvingInto(resolved, plan))
 	}
-	// The stored half, second: same walk, different sentence. See
-	// mcpGuardInput.authoredValues for why these are screened at all and why
-	// they do not get the value backstop.
-	for _, key := range mcpSortedNames(mcpMapKeys(input.authoredValues)) {
-		if names := mcpSecretsReachedByTemplate(input.authoredValues[key], effective, plan.secretsInScope); len(names) > 0 {
-			return mcpAuthoredSecretInjectionRefusal(key, names)
+	return nil
+}
+
+// --- the stored half: a flow step's own vars --------------------------------
+
+// mcpFlowStepVarSubjectInput is which step of which flow is being screened. The
+// vars are the step's own, already interpolated against flow scope — the same
+// map the send path will apply as overrides.
+type mcpFlowStepVarSubjectInput struct {
+	flowID   string
+	flowName string
+	stepID   string
+	stepVars map[string]string
+}
+
+// authorizeMCPFlowStepVarSecrets is the STORED half of rule 8, and it PROMPTS
+// where the agent-supplied half refuses.
+//
+// WHY THE TWO HALVES GIVE DIFFERENT ANSWERS TO WHAT LOOKS LIKE ONE QUESTION:
+//
+//   - The AUTHORING refusal (flowRefuseSecretReachingStepVars, flows.go) is
+//     about the agent's CHANNEL. create_flow/update_flow are the agent writing,
+//     and an agent has no legitimate need to author a step var that aims a
+//     credential — the user writes those in the app's Flow editor. There is
+//     nothing ambiguous to ask about, so it is refused outright, with no
+//     approval path, exactly as before.
+//   - This check is about PROVENANCE THAT CANNOT BE RECOVERED. A stored flow
+//     records nothing about who wrote it. With the write tier OFF the agent has
+//     no authoring channel at all, so the step var is provably the user's and
+//     runs silently (mcp_flows.go does not even call this). With it ON, the same
+//     stored var might be the user's own — aiming a credential at a request
+//     through a step var is the documented shape of this tier — or it might be
+//     one update_flow old. That is a genuine ambiguity, and the honest answer to
+//     an ambiguity is to ask the person who knows, once, rather than to refuse
+//     the user's own flow.
+//
+// ONE PROMPT PER (var, secrets) FINDING, in sorted order, each answered before
+// the next is raised. Approve-and-remember persists the narrow subject so the
+// second run of the same flow is silent; allow-once unblocks just this run.
+//
+// DENY IS STILL EVERY UNCERTAIN PATH'S ANSWER. Nobody to ask (headless, no
+// window), a timeout, an unreadable approval store: all refuse, with the same
+// ErrDenied class the outright refusal carried, so the audit still files the
+// call as `denied`.
+//
+// THE NAME WALK ONLY, NEVER THE RESOLVED-VALUE BACKSTOP the agent half gets. A
+// step var is interpolated against flow scope first, so its resolved text can
+// legitimately BE an extracted value — a login chain whose step 1 extracts a
+// token that happens to equal a stored secret is the flow tier working, not
+// smuggling.
+func (a *App) authorizeMCPFlowStepVarSecrets(ctx context.Context, plan mcpRunPlan, step mcpFlowStepVarSubjectInput) error {
+	if len(step.stepVars) == 0 || len(plan.secretsInScope) == 0 {
+		return nil
+	}
+	effective := mcpEffectiveGuardVars(plan.vars, step.stepVars)
+	for _, name := range mcpSortedNames(mcpMapKeys(step.stepVars)) {
+		reached := mcpSecretsReachedByTemplate(step.stepVars[name], effective, plan.secretsInScope)
+		if len(reached) == 0 {
+			continue
 		}
+		subject := mcpStepVarSubject{
+			workspacePath: plan.site.workspacePath,
+			collectionID:  plan.site.collectionID,
+			flowID:        step.flowID,
+			stepID:        step.stepID,
+			varName:       name,
+			// Already sorted and de-duplicated by the walk; the key is a set.
+			secretNames:          reached,
+			environmentID:        plan.site.environmentID,
+			globalEnvironmentIDs: append([]string(nil), plan.site.globalEnvironmentIDs...),
+		}
+		approved, err := a.mcpRememberedStepVarApproved(subject)
+		if err != nil {
+			// Fail closed, the same way consultPersisted does: a store that
+			// cannot be read has not said yes.
+			return fmt.Errorf("%w: the remembered approvals could not be read, so this flow step's var %q could not be authorized to resolve %s: %v",
+				mcpserver.ErrDenied, name, mcpJoinSecretNames(reached), err)
+		}
+		if approved {
+			continue
+		}
+		if a.requestMCPStepVarApproval(ctx, subject, mcpStepVarApprovalRequestFor(subject, plan.labels, step.flowName, plan.requestID)) {
+			continue
+		}
+		return mcpAuthoredSecretInjectionRefusal(name, reached)
 	}
 	return nil
 }
@@ -344,24 +415,29 @@ func mcpSecretInjectionRefusal(key string, names []string) error {
 		mcpserver.ErrDenied, key, reached)
 }
 
-// mcpAuthoredSecretInjectionRefusal is the refusal for a STORED value the agent
-// could have authored — today only a flow step's own vars, and only while the
-// write tier is on.
+// mcpAuthoredSecretInjectionRefusal is what an UNAPPROVED stored step var
+// produces — today only a flow step's own vars, and only while the write tier is
+// on.
 //
 // A SEPARATE SENTENCE FROM mcpSecretInjectionRefusal, because the fix is a
 // different one. There is nothing for the agent to drop from THIS call: the
-// value is on disk, and the two honest ways forward are to edit the flow (which
-// the write tier will now refuse if the edit keeps the smuggle) or to leave the
-// credential where the user put it and run the request as authored. The message
-// also names the write tier, because a user who turns it off gets their own
-// human-authored flow back — that is the only thing separating this shape from
-// the flow tier's documented one.
+// value is on disk, and the honest ways forward are for the user to approve the
+// prompt, to run the flow in the app, or to leave the credential where they put
+// it and have the agent run the request as authored.
+//
+// IT SAYS THE USER WAS ASKED, because they were. This used to be an outright
+// refusal, and its old wording ("LiteAPI cannot tell an agent-authored step var
+// from the user's own, so it refuses") is no longer what happened: with the
+// write tier on, a step var reaching a secret now raises an approval prompt, and
+// this error is what a deny, a timeout or a headless run with nobody to ask
+// produces. Telling the agent to retry into a question that was already answered
+// no would be the one unhelpful thing to say.
 func mcpAuthoredSecretInjectionRefusal(key string, names []string) error {
 	reached := "a value this workspace holds as a secret"
 	if len(names) > 0 {
 		reached = "the secret " + mcpJoinSecretNames(names)
 	}
-	return fmt.Errorf("%w: this flow step sets the var %q to a value that resolves to %s, and while the write tier is on LiteAPI cannot tell an agent-authored step var from the user's own — so it refuses rather than resolving a credential into a field an agent may have chosen. Run the request the credential belongs to as authored, or ask the user to run this flow in the LiteAPI app. Do not rewrite the flow to hide the reference and do not retry",
+	return fmt.Errorf("%w: this flow step sets the var %q to a value that resolves to %s, and while the write tier is on LiteAPI cannot tell an agent-authored step var from the user's own — so it asked the user, and the answer was no (or there was nobody to ask). Ask the user to approve the prompt in LiteAPI, or to run this flow in the app; or run the request the credential belongs to as authored and let LiteAPI resolve it. Do not rewrite the flow to hide the reference and do not retry",
 		mcpserver.ErrDenied, key, reached)
 }
 
