@@ -12,6 +12,7 @@
   // new components in this tree use them.
   import type { types } from '../../../../wailsjs/go/models'
   import Modal from '../Modal.svelte'
+  import IconButton from '../../ui/IconButton.svelte'
 
   type Props = {
     target: { flow: types.Flow }
@@ -25,7 +26,7 @@
   const name = $derived(target.flow.name?.trim() || target.flow.id)
 </script>
 
-<Modal labelledBy="delete-flow-title" onClose={onCancel} closeOnBackdrop={false}>
+<Modal labelledBy="delete-flow-title" onClose={onCancel} closeOnBackdrop={false} size="medium" busy={busy !== ''}>
   <form
     onsubmit={(event) => {
       event.preventDefault()
@@ -34,13 +35,7 @@
   >
     <header>
       <h2 id="delete-flow-title">Delete Flow</h2>
-      <button
-        type="button"
-        class="icon-button"
-        title="Cancel"
-        data-testid="modal-close-button"
-        onclick={onCancel}
-      >x</button>
+      <IconButton icon="close" label="Close" onclick={onCancel} testId="modal-close-button" />
     </header>
     <div class="prompt-fields">
       <p>
@@ -55,7 +50,7 @@
         type="submit"
         data-testid="modal-submit-btn"
         disabled={busy !== ''}
-      >{busy === 'delete flow' ? 'Deleting...' : 'Delete'}</button>
+      >{busy === 'delete flow' ? 'Deleting…' : 'Delete'}</button>
     </div>
   </form>
 </Modal>

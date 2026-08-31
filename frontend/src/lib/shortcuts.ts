@@ -54,9 +54,33 @@ export interface ShortcutContext {
   canCancel: boolean
   /** False when the user has turned custom keybindings off in preferences. */
   keybindingsEnabled: boolean
+  /**
+   * Focus is inside a code editor, which claims a few keys for itself.
+   *
+   * Only ONE action is withheld — see `EDITOR_OWNED_ACTIONS`. Suppressing the
+   * whole configurable set while typing would be the obvious reading and the
+   * wrong one: ⌘S, ⌘Enter and ⌘W are used constantly WHILE editing a body, and
+   * an editor that swallowed them would be a much worse bug than the one this
+   * fixes.
+   */
+  editingInCodeEditor: boolean
   /** Resolves a configured binding against the event. */
   matches: (action: string) => boolean
 }
+
+/**
+ * Actions a focused code editor takes precedence over.
+ *
+ * ⌘F is bound globally to Search Sidebar and, inside a CodeMirror editor, to
+ * that editor's own find. Neither side guarded, so pressing ⌘F with the caret
+ * in a request body opened the editor's find AND yanked focus to the sidebar
+ * filter — the reported "search opens somewhere else while I'm typing".
+ *
+ * Resolved in favour of the editor because that is where the caret is: a find
+ * invoked from inside a document means "find in this document". The sidebar
+ * filter is still one click or one Escape away.
+ */
+const EDITOR_OWNED_ACTIONS: readonly ShortcutAction[] = ['sidebarSearch']
 
 /**
  * The bindings checked in order, after the fixed pre-checks.
@@ -141,10 +165,17 @@ export function resolveShortcut(
   if (!context.keybindingsEnabled) return undefined
 
   for (const action of CONFIGURABLE_ACTIONS) {
-    if (context.matches(action)) return action
+    if (!context.matches(action)) continue
+    // Checked here rather than before the loop so the key still falls THROUGH
+    // to any later action bound to the same combo, instead of being swallowed.
+    if (context.editingInCodeEditor && EDITOR_OWNED_ACTIONS.includes(action)) continue
+    return action
   }
   return undefined
 }
+
+/** The actions a focused code editor claims for itself. */
+export const editorOwnedShortcutActions = EDITOR_OWNED_ACTIONS
 
 /** The 1-based tab number for a `switchToTabN` action, or undefined. */
 export function shortcutTabNumber(action: ShortcutAction): number | undefined {

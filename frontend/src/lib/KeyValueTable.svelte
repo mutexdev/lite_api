@@ -2,6 +2,8 @@
   import { rowsToBulkText, parseBulkText, bulkTextIsLossy } from './bulkEdit'
   import VariableTextOverlay from './VariableTextOverlay.svelte'
   import SuggestionListbox from './SuggestionListbox.svelte'
+  import RowActions from './RowActions.svelte'
+  import SegmentedControl from './ui/SegmentedControl.svelte'
   import { moveSuggestionIndex } from './httpHeaders'
 
   type KeyValueRow = { name: string; value: string; enabled: boolean; secret?: boolean; description?: string }
@@ -48,6 +50,18 @@
   // so the edit would be silently discarded on save.
   type Props = {
     rows?: KeyValueRow[]
+    /**
+     * Accessible name for the table itself.
+     *
+     * Not one `<table>` in the app has ever had one, so a screen reader
+     * announces eleven structurally identical name/value grids — params,
+     * headers, folder headers, collection headers, request vars — with nothing
+     * to tell them apart but the surrounding heading, which table navigation
+     * skips past. Optional rather than required only because App.svelte owns
+     * the call sites and cannot be edited from here; every one of them should
+     * pass it.
+     */
+    label?: string
     readonly?: boolean
     readonlyNames?: boolean
     showEnabled?: boolean
@@ -55,7 +69,33 @@
     showAddRow?: boolean
     showMove?: boolean
     showBulkEdit?: boolean
+    /**
+     * The bulk textarea's accessible name.
+     *
+     * Optional now rather than defaulted to a constant: five of the eleven call
+     * sites spell out "Request headers bulk edit", "Example request params bulk
+     * edit" and so on, and the rest fall back to the same literal string
+     * "Bulk edit rows" — so a page with two bulk-editable tables on it announces
+     * two textareas with one name. Given `label`, the name is derived from it
+     * and the call site has nothing to keep in step.
+     */
     bulkLabel?: string
+    /**
+     * A1-08. Renders `row.description` as a trailing read-only column.
+     *
+     * The Vars tab has been computing `description: v.dataType` per row since
+     * the variable data-type feature landed, and this component has never had a
+     * rendering path for `description` anywhere in its template — the value was
+     * mapped on every keystroke and dropped on the floor. It is read-only
+     * because it is DERIVED: the data type is a fact about the value the user
+     * typed, not a fifth thing to type, and making it an input would invite
+     * edits that the next recomputation silently discards.
+     *
+     * Off by default, because switching it on changes the column count and
+     * eleven call sites share this table.
+     */
+    showDescription?: boolean
+    descriptionLabel?: string
     variableOverlay?: boolean
     multilineValues?: boolean
     busy?: string
@@ -84,6 +124,7 @@
 
   let {
     rows = [],
+    label = undefined,
     readonly = false,
     readonlyNames = false,
     showEnabled = true,
@@ -91,7 +132,9 @@
     showAddRow = true,
     showMove = false,
     showBulkEdit = false,
-    bulkLabel = 'Bulk edit rows',
+    bulkLabel = undefined,
+    showDescription = false,
+    descriptionLabel = 'Description',
     variableOverlay = false,
     multilineValues = false,
     busy = '',
@@ -117,6 +160,30 @@
   let valueScrollLeft = $state<Record<number, number>>({})
   let valueScrollTop = $state<Record<number, number>>({})
   let bulkMode = $state(false)
+
+  const bulkEditLabel = $derived(bulkLabel ?? (label ? `${label} bulk edit` : 'Bulk edit rows'))
+
+  /**
+   * A9-10, and the part of it the audit read as a style inconsistency.
+   *
+   * Bulk edit is not a view of the rows, it is a REWRITE of them: the textarea
+   * is parsed back into a whole new row array, so it can rename a row, delete
+   * one and add one. Which means it is only sound where all three of those are
+   * things the table already permits.
+   *
+   * Path Params is where that mattered. It passes showBulkEdit alongside
+   * readonlyNames, showAddRow={false} and showActions={false} — the names are
+   * derived from the URL and the row set with them — and got a Bulk Edit tab
+   * that let a user rename `:id`, delete it, and invent a path parameter the
+   * URL does not contain, in a table whose entire grid is otherwise locked
+   * against exactly that. The audit filed this as "odd: bulk edit shown on a
+   * table with no per-row actions". It was not odd, it was a hole.
+   *
+   * Deriving the condition here rather than fixing the one call site is the
+   * point: this is now a property of what the table permits, so no future
+   * caller can reopen the hole by passing the same pair of props again.
+   */
+  const bulkEditAvailable = $derived(showBulkEdit && !readonly && !readonlyNames && showAddRow)
 
   // US-056. One popup at a time, identified by the row and which cell it
   // belongs to. Held here rather than per-cell so that opening one closes any
@@ -278,11 +345,29 @@
   }
 </script>
 
-{#if showBulkEdit && !readonly}
-  <div class="kv-bulk-toggle">
-    <button type="button" data-testid="kv-mode-rows" class:active={!bulkMode} onclick={() => (bulkMode = false)}>Key/Value Edit</button>
-    <button type="button" data-testid="kv-mode-bulk" class:active={bulkMode} onclick={enterBulkMode}>Bulk Edit</button>
-  </div>
+{#if bulkEditAvailable}
+  <!--
+    The two-button pill group this replaces was one of the hand-rolled
+    segmented controls the primitive exists for: plain buttons with a `.active`
+    class, no role, no grouping, and two tab stops for a one-of-two choice.
+    SegmentedControl is a real radiogroup — one tab stop, arrows to switch — and
+    it is what the body-mode and response-view pickers already are, so the same
+    gesture now works on all three.
+
+    `data-testid="kv-mode"` sits on the group; the old per-button ids are gone
+    and the buttons are addressable by `data-value` instead, which is the
+    primitive's convention.
+  -->
+  <SegmentedControl
+    testId="kv-mode"
+    ariaLabel={label ? `${label} edit mode` : 'Edit mode'}
+    options={[
+      { value: 'rows', label: 'Key/Value Edit' },
+      { value: 'bulk', label: 'Bulk Edit' }
+    ]}
+    value={bulkMode ? 'bulk' : 'rows'}
+    onChange={(next) => (next === 'bulk' ? enterBulkMode() : (bulkMode = false))}
+  />
   {#if bulkMode && bulkTextIsLossy(rows)}
     <p class="muted" data-testid="kv-bulk-warning">
       A name in this table contains <code>:</code>, <code>=</code> or a leading disabled marker, which bulk text cannot represent. Editing here will rewrite it.
@@ -290,16 +375,16 @@
   {/if}
 {/if}
 
-{#if showBulkEdit && bulkMode}
+{#if bulkEditAvailable && bulkMode}
   <textarea
     class="kv-bulk-textarea"
-    aria-label={bulkLabel}
+    aria-label={bulkEditLabel}
     spellcheck="false"
     value={bulkDraft}
     oninput={(event) => applyBulkDraft(event.currentTarget.value)}
   ></textarea>
 {:else}
-	<table class="kv-table">
+	<table class="kv-table" aria-label={label}>
 	  <thead>
 	    <tr>
 	      {#if showEnabled}
@@ -307,6 +392,9 @@
 	      {/if}
 	      <th>Name</th>
 	      <th>Value</th>
+	      {#if showDescription}
+	        <th>{descriptionLabel}</th>
+	      {/if}
 	      {#if showActions}
 	        <th></th>
 	      {/if}
@@ -455,15 +543,20 @@
             {/if}
           {/if}
         </td>
+	        {#if showDescription}
+	          <!--
+	            A `<code>` cell, not an input. The value is a computed data type —
+	            the same category of string as a header value, and the app's rule
+	            is that those are monospaced. Falls back to an em dash rather than
+	            an empty cell so a row whose type has not been derived yet reads
+	            as "not known", not as a cell that failed to render.
+	          -->
+	          <td class="kv-description"><code>{row.description || '—'}</code></td>
+	        {/if}
 	        {#if showActions}
 	          <td>
 	            {#if !readonly}
-	              {#if showMove}
-	                <button class="icon-button drag-handle" title="Drag row" aria-label="Drag row to reorder">::</button>
-	                <button class="icon-button" title="Move row up" aria-label="Move row up" disabled={index === 0} onclick={() => onMove(index, -1)}>^</button>
-	                <button class="icon-button" title="Move row down" aria-label="Move row down" disabled={index === rows.length - 1} onclick={() => onMove(index, 1)}>v</button>
-	              {/if}
-	              <button class="icon-button" title="Remove row" aria-label="Remove row" onclick={() => onRemove(index)}>x</button>
+	              <RowActions {index} count={rows.length} {showMove} {onMove} {onRemove} />
 	            {/if}
 	          </td>
 	        {/if}
@@ -473,6 +566,50 @@
 	</table>
 {/if}
 
-{#if !readonly && showAddRow && !(showBulkEdit && bulkMode)}
-	  <button onclick={onAdd}>Add row</button>
+{#if !readonly && showAddRow && !(bulkEditAvailable && bulkMode)}
+	  <button type="button" onclick={onAdd}>Add row</button>
 {/if}
+
+<!--
+  A9-12. Row feedback, and what it means on a table you can type into.
+
+  Until now exactly one table in the app — the DevTools network log — showed
+  anything on hover or selection, and the audit was right that the rest reads as
+  "one table got more attention" rather than as a rule. The rule it proposed
+  ("hover only where clicking a row does something") would have left every
+  editable table with nothing, which is the wrong answer for a different reason:
+  these grids are rows of near-identical inputs, and the mistake they invite is
+  editing the wrong row, not failing to click one.
+
+  So the two states are kept and remapped rather than copied. Hover is the same
+  55% tint of --selected-bg the network table uses, and means the same thing
+  there as here: this is the row under the pointer. What the network table calls
+  "selected" is, in a table with no selection, the row that has the caret — so
+  :focus-within carries the full --selected-bg, and the row being typed into is
+  marked as plainly as the row being read.
+
+  focus-within is written after hover deliberately: they have equal specificity,
+  so source order decides, and a row that is both focused and hovered should
+  read as focused. No cursor: pointer and no focus ring on the <tr> — the row is
+  not a control here, its cells are.
+
+  This block is byte-identical in KeyValueTable, MultipartTable and
+  FileBodyTable, and tableRowActions.test.mts asserts that it stays that way.
+  style.css would be the one right home for it; that file belongs to another
+  owner this wave, and the paste is in the handoff.
+-->
+<style>
+  tbody tr:hover td {
+    background: color-mix(in srgb, var(--selected-bg) 55%, transparent);
+  }
+
+  tbody tr:focus-within td {
+    background: var(--selected-bg);
+  }
+
+  /* Not part of the shared pair above: only this table has the column. */
+  .kv-description {
+    color: var(--muted-strong);
+    white-space: nowrap;
+  }
+</style>

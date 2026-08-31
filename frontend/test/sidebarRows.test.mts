@@ -269,3 +269,98 @@ test('a nested folder row is labelled with its own name, not its path', () => {
   assert.equal(folder?.folder, 'api/v2/admin')
   assert.equal(folder?.key, 'f:c1:api/v2/admin')
 })
+
+// ── Flows ───────────────────────────────────────────────────────────────────
+//
+// FLOW ROWS WERE DRAWN AND NOT WALKED, and the gap was load-bearing: because
+// walkSidebar never emitted them, a keyboard cursor pointing at a flow resolved
+// to index -1, so App.svelte's markup carried a comment refusing to move the
+// cursor onto one at all. That left flows with no arrow-key route, no
+// role="treeitem", and no ⋯ menu — every guarantee the tree had just built,
+// skipped for one row type.
+//
+// These pin the two properties that make the rest of it work: the rows come out
+// where the markup draws them, and their keys are the ones flowView.ts's
+// flowRowKey already builds the DOM ids from.
+
+const flowFixture: SidebarRowsInput = {
+  collections: [{ id: 'c1', name: 'Alpha' }],
+  groupsFor: () => [
+    { folder: 'auth', items: [{ id: 'r1', name: 'Login' }] },
+    { folder: '', items: [{ id: 'r2', name: 'Health' }] }
+  ],
+  collapsedCollections: {},
+  collapsedFolders: {},
+  searchQuery: '',
+  folderKey,
+  flowsFor: () => [{ id: 'f1', name: 'Signup' }, { id: 'f2', name: 'Checkout' }]
+}
+
+test('flows are rows, drawn after every folder and request in their collection', () => {
+  const rows = sidebarRows(flowFixture)
+
+  assert.deepEqual(
+    rows.map((row) => `${row.kind}:${row.label}`),
+    ['collection:Alpha', 'folder:auth', 'request:Login', 'request:Health', 'flow:Signup', 'flow:Checkout']
+  )
+})
+
+test('a flow row carries the key flowRowKey builds, and its id in itemId', () => {
+  const rows = sidebarRows(flowFixture)
+  const flow = rows.find((row) => row.kind === 'flow')
+
+  // `fl:` is flowView.ts's prefix. The markup derives its DOM ids from that
+  // function, so a walk that invented its own would emit rows whose keys never
+  // resolve to an element on screen.
+  assert.equal(flow?.key, 'fl:c1:f1')
+  assert.equal(flow?.itemId, 'f1')
+  assert.equal(flow?.collectionId, 'c1')
+  // A flow belongs to the collection, never to a folder.
+  assert.equal(flow?.folder, '')
+  assert.equal(flow?.depth, 1)
+})
+
+test('omitting flowsFor leaves the walk exactly as it was', () => {
+  const { flowsFor, ...withoutFlows } = flowFixture
+  assert.ok(flowsFor, 'the fixture supplies no flows to omit')
+
+  assert.ok(!sidebarRows(withoutFlows).some((row) => row.kind === 'flow'))
+  assert.deepEqual(
+    sidebarRows(withoutFlows).map((row) => row.key),
+    sidebarRows(flowFixture).filter((row) => row.kind !== 'flow').map((row) => row.key)
+  )
+})
+
+test('a collapsed or missing collection draws no flow rows either', () => {
+  assert.deepEqual(
+    sidebarRows({ ...flowFixture, collapsedCollections: { c1: true } }).map((row) => row.kind),
+    ['collection']
+  )
+  assert.deepEqual(
+    sidebarRows({ ...flowFixture, collections: [{ id: 'c1', name: 'Alpha', notFoundLocally: true }] }).map((row) => row.kind),
+    ['collection']
+  )
+})
+
+// COUNTED IN THE WINDOW ARITHMETIC, unlike examples. A flow row sets the same
+// min-height a request row does, so it occupies a slot the offsets must know
+// about; a later collection whose offset was short by its predecessor's flow
+// count would window itself wrong the moment anybody scrolled.
+test('flow rows advance the offsets that later collections are measured from', () => {
+  const twoCollections: SidebarRowsInput = {
+    ...flowFixture,
+    collections: [{ id: 'c1', name: 'Alpha' }, { id: 'c2', name: 'Beta' }],
+    groupsFor: (id) => (id === 'c1'
+      ? [{ folder: '', items: [{ id: 'r1', name: 'Login' }] }]
+      : [{ folder: '', items: [{ id: 'r9', name: 'Ping' }] }]),
+    flowsFor: (id) => (id === 'c1' ? [{ id: 'f1', name: 'Signup' }] : [])
+  }
+
+  const walk = walkSidebar(twoCollections)
+  // Alpha header, Alpha's request, Alpha's flow, Beta header — so Beta's root
+  // group starts at 4.
+  assert.equal(sidebarGroupOffset(walk, 'c2', ''), 4)
+
+  const withoutFlow = walkSidebar({ ...twoCollections, flowsFor: () => [] })
+  assert.equal(sidebarGroupOffset(withoutFlow, 'c2', ''), 3)
+})

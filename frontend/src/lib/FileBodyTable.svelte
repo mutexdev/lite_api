@@ -1,4 +1,6 @@
 <script lang="ts">
+  import RowActions from './RowActions.svelte'
+
   type FileBodyRow = {
     filePath: string
     contentType: string
@@ -9,6 +11,8 @@
   // rows by value and mutates through the callbacks, so no $bindable.
   type Props = {
     rows?: FileBodyRow[]
+    /** Accessible name for the table itself; see KeyValueTable's `label`. */
+    label?: string
     readonly?: boolean
     onAdd?: () => void
     onChange?: (index: number, field: keyof FileBodyRow, value: string | boolean) => void
@@ -20,6 +24,7 @@
 
   let {
     rows = [],
+    label = undefined,
     readonly = false,
     onAdd = () => {},
     onChange = () => {},
@@ -67,7 +72,7 @@
   }
 </script>
 
-<table class="kv-table file-body-table">
+<table class="kv-table file-body-table" aria-label={label}>
   <thead>
     <tr>
       <th>File</th>
@@ -114,12 +119,7 @@
         </td>
         <td>
           {#if !readonly}
-            {#if showMove}
-              <button class="icon-button drag-handle" title="Drag file" aria-label="Drag file to reorder">::</button>
-              <button class="icon-button" title="Move file up" aria-label="Move file up" disabled={index === 0} onclick={() => onMove(index, -1)}>^</button>
-              <button class="icon-button" title="Move file down" aria-label="Move file down" disabled={index === rows.length - 1} onclick={() => onMove(index, 1)}>v</button>
-            {/if}
-            <button class="icon-button" title="Remove file" aria-label="Remove file" onclick={() => onRemove(index)}>x</button>
+            <RowActions {index} count={rows.length} noun="file" {showMove} {onMove} {onRemove} />
           {/if}
         </td>
       </tr>
@@ -127,6 +127,50 @@
   </tbody>
 </table>
 
+<!--
+  "Add file", not "Add File". The three body tables render one below the other
+  as the body mode changes, and this one was the only one title-casing its
+  second word — the same drift that made the row-delete control two different
+  controls. The noun still differs because the rows differ; the casing must not.
+-->
 {#if !readonly}
-  <button onclick={onAdd}>Add File</button>
+  <button type="button" onclick={onAdd}>Add file</button>
 {/if}
+
+<!--
+  A9-12. Row feedback, and what it means on a table you can type into.
+
+  Until now exactly one table in the app — the DevTools network log — showed
+  anything on hover or selection, and the audit was right that the rest reads as
+  "one table got more attention" rather than as a rule. The rule it proposed
+  ("hover only where clicking a row does something") would have left every
+  editable table with nothing, which is the wrong answer for a different reason:
+  these grids are rows of near-identical inputs, and the mistake they invite is
+  editing the wrong row, not failing to click one.
+
+  So the two states are kept and remapped rather than copied. Hover is the same
+  55% tint of --selected-bg the network table uses, and means the same thing
+  there as here: this is the row under the pointer. What the network table calls
+  "selected" is, in a table with no selection, the row that has the caret — so
+  :focus-within carries the full --selected-bg, and the row being typed into is
+  marked as plainly as the row being read.
+
+  focus-within is written after hover deliberately: they have equal specificity,
+  so source order decides, and a row that is both focused and hovered should
+  read as focused. No cursor: pointer and no focus ring on the <tr> — the row is
+  not a control here, its cells are.
+
+  This block is byte-identical in KeyValueTable, MultipartTable and
+  FileBodyTable, and tableRowActions.test.mts asserts that it stays that way.
+  style.css would be the one right home for it; that file belongs to another
+  owner this wave, and the paste is in the handoff.
+-->
+<style>
+  tbody tr:hover td {
+    background: color-mix(in srgb, var(--selected-bg) 55%, transparent);
+  }
+
+  tbody tr:focus-within td {
+    background: var(--selected-bg);
+  }
+</style>

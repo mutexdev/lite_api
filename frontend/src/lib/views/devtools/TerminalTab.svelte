@@ -4,6 +4,7 @@
   // Last of the small DevTools tabs. Network remains and is the largest, with
   // its own nested request-details panel.
   import type { types } from '../../../../wailsjs/go/models'
+  import IconButton from '../../ui/IconButton.svelte'
 
   // Bindable: the input line writes back to App.svelte.
   export let terminalInput: string
@@ -34,8 +35,17 @@
                 <div class="terminal-body">
                   <aside>
                     <strong>Sessions</strong>
+                    <!--
+                      `.empty-state` with no modifier, in a 200px-wide rail.
+                      The class carries 24px of padding and a dashed border, so
+                      the sentence wrapped to three lines inside a box taller
+                      than the session rows it was standing in for. Every other
+                      empty state inside a DevTools sub-panel already uses
+                      `compact` (see RequestDetailsPanel); this one had simply
+                      never been given a modifier.
+                    -->
                     {#if terminalSessions.length === 0}
-                      <div class="empty-state">No active sessions</div>
+                      <div class="empty-state compact">No active sessions</div>
                     {:else}
                       <div class="terminal-session-list">
                         {#each terminalSessions as session (session.id)}
@@ -45,7 +55,16 @@
                               <span>{terminalSessionStatus(session)}</span>
                               <small>{session.cwd}</small>
                             </button>
-                            <button type="button" class="icon-button subtle" title="Close terminal session" aria-label="Close terminal session" on:click={() => closeTerminalSession(session.id)}>×</button>
+                            <!--
+                              `class="icon-button subtle"` — `.subtle` has no
+                              rule anywhere in the stylesheet, the same
+                              class-name-that-does-nothing that left 24 empty
+                              states unstyled. Nothing is lost by dropping it,
+                              because nothing was ever applied. The `×` it held
+                              was a glyph in the text font sitting beside SVG
+                              icons everywhere else in the app.
+                            -->
+                            <IconButton icon="close" label="Close terminal session" onclick={() => closeTerminalSession(session.id)} />
                           </div>
                         {/each}
                       </div>
@@ -66,7 +85,19 @@
                         <p class="error-text">{terminalError}</p>
                       {/if}
                     {:else}
-                      <div class="empty-state">No terminal session selected</div>
+                      <!--
+                        The tab-level "nothing here yet" state, which the
+                        Console tab renders as a centred headline plus a line
+                        explaining what would fill it. This one was a bare
+                        sentence in a dashed box pinned to the top of the pane,
+                        so the two DevTools tabs disagreed about what an empty
+                        tab looks like — the only two places in the panel where
+                        the question comes up.
+                      -->
+                      <div class="empty-state devtools-empty">
+                        <strong>No terminal session selected</strong>
+                        <span>Start a session to run commands alongside your requests</span>
+                      </div>
                       {#if terminalError}
                         <p class="error-text">{terminalError}</p>
                       {/if}

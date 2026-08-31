@@ -3,6 +3,7 @@
   // initial chunk. Imported dynamically from inside the {#if} that gates it.
   import type { types } from '../../../../wailsjs/go/models'
   import Modal from '../Modal.svelte'
+  import IconButton from '../../ui/IconButton.svelte'
 
   // Mirrors App.svelte's local CollectionItemInfoTarget. Written out rather
   // than widened to `any`: eslint forbids `any`, and the discriminated union is
@@ -17,10 +18,10 @@
   export let closeItemInfoModal: () => void
 </script>
 
-<Modal labelledBy="item-info-title" onClose={closeItemInfoModal} dialogClass="prompt-dialog item-info-dialog">
+<Modal labelledBy="item-info-title" onClose={closeItemInfoModal} size="medium">
       <header>
         <h2 id="item-info-title">Info</h2>
-        <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={closeItemInfoModal}>x</button>
+        <IconButton icon="close" label="Close" onclick={closeItemInfoModal} testId="modal-close-button" />
       </header>
       <div class="prompt-fields">
         <table class="item-info-table">

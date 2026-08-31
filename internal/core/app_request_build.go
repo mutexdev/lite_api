@@ -30,6 +30,7 @@ import (
 	"github.com/mutexdev/lite_api/internal/interp"
 	"github.com/mutexdev/lite_api/internal/mcpserver"
 	"github.com/mutexdev/lite_api/internal/scripting"
+	"github.com/mutexdev/lite_api/internal/types"
 )
 
 func (t cookieCapturingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -242,7 +243,7 @@ func applyAuthWithOAuth2Fetcher(ctx context.Context, req *http.Request, item *Re
 		if key == "" {
 			return nil
 		}
-		if auth.APILocation == "query" {
+		if types.APIKeyInQuery(auth.APILocation) {
 			q := req.URL.Query()
 			q.Set(key, value)
 			req.URL.RawQuery = q.Encode()

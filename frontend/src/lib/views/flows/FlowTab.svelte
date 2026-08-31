@@ -35,7 +35,21 @@
   type Props = {
     collection: types.Collection
     flow: types.Flow
-    busy: boolean
+    /**
+     * A8-04 — the NAME of the operation in flight, or '' for none.
+     *
+     * This was a `boolean` while RunnerPanel, HistoryPanel, ImportPanel,
+     * GenerateDocsModal, ShareCollectionModal and SyncSettingsModal all took
+     * the app's `busy: string`, and App.svelte collapsed the string to
+     * `busy !== ''` at this one call site to feed it. That threw away the only
+     * thing the convention exists for: ShareCollectionModal can say
+     * "Exporting…" because it can check `busy === 'share collection'`, and
+     * Flow structurally could not say "Saving…" for the same reason.
+     *
+     * The operation names are App.svelte's runAction labels: 'save flow' and
+     * 'delete flow'.
+     */
+    busy: string
     /** The backend's refusal of the last save, verbatim. */
     saveError: string
     running: boolean
@@ -67,6 +81,10 @@
   // this component must not have — see the note above about half-typed edits.
   let draft = $state<FlowDraft>(untrack(() => flowDraftFrom(flow)))
 
+  // Everything on this tab is disabled by ANY in-flight operation; the two
+  // buttons that can name theirs read `busy` directly, just below.
+  const disabled = $derived(busy !== '')
+
   const requests = $derived(collection.items ?? [])
   const saved = $derived(JSON.stringify(flowFromDraft(flowDraftFrom(flow))))
   const dirty = $derived(JSON.stringify(flowFromDraft(draft)) !== saved)
@@ -89,16 +107,16 @@
         type="button"
         class="primary"
         data-testid="flow-save-button"
-        disabled={busy || !dirty}
+        disabled={disabled || !dirty}
         onclick={() => void onSave(flowFromDraft(draft))}
-      >{dirty ? 'Save' : 'Saved'}</button>
+      >{busy === 'save flow' ? 'Saving…' : dirty ? 'Save' : 'Saved'}</button>
       <button
         type="button"
         class="danger-button"
         data-testid="flow-delete-button"
-        disabled={busy}
+        disabled={disabled}
         onclick={() => void onDelete(flow)}
-      >Delete flow</button>
+      >{busy === 'delete flow' ? 'Deleting…' : 'Delete flow'}</button>
     </div>
   </header>
 
@@ -117,7 +135,7 @@
           aria-label="Flow name"
           data-testid="flow-name-input"
           value={draft.name}
-          disabled={busy}
+          disabled={disabled}
           oninput={(event) => (draft = { ...draft, name: event.currentTarget.value })}
         />
         <span class="field-label">Description</span>
@@ -125,7 +143,7 @@
           aria-label="Flow description"
           placeholder="What this chain does"
           value={draft.description}
-          disabled={busy}
+          disabled={disabled}
           oninput={(event) => (draft = { ...draft, description: event.currentTarget.value })}
         />
       </div>
@@ -137,7 +155,7 @@
           <button
             type="button"
             data-testid="flow-add-input"
-            disabled={busy}
+            disabled={disabled}
             onclick={() => (draft = { ...draft, inputs: [...draft.inputs, { name: '', required: false, description: '' }] })}
           >Add input</button>
         </div>
@@ -151,7 +169,7 @@
                   aria-label={`Input ${index + 1} name`}
                   placeholder="storeCode"
                   value={input.name}
-                  disabled={busy}
+                  disabled={disabled}
                   oninput={(event) => {
                     const inputs = [...draft.inputs]
                     inputs[index] = { ...inputs[index], name: event.currentTarget.value }
@@ -163,7 +181,7 @@
                     type="checkbox"
                     aria-label={`Input ${index + 1} required`}
                     checked={input.required}
-                    disabled={busy}
+                    disabled={disabled}
                     onchange={(event) => {
                       const inputs = [...draft.inputs]
                       inputs[index] = { ...inputs[index], required: event.currentTarget.checked }
@@ -176,7 +194,7 @@
                   aria-label={`Input ${index + 1} description`}
                   placeholder="Store short code, e.g. DHK-04"
                   value={input.description}
-                  disabled={busy}
+                  disabled={disabled}
                   oninput={(event) => {
                     const inputs = [...draft.inputs]
                     inputs[index] = { ...inputs[index], description: event.currentTarget.value }
@@ -187,7 +205,7 @@
                   type="button"
                   class="icon-button"
                   aria-label={`Remove input ${index + 1}`}
-                  disabled={busy}
+                  disabled={disabled}
                   onclick={() => (draft = { ...draft, inputs: draft.inputs.filter((_, position) => position !== index) })}
                 >×</button>
               </div>
@@ -203,7 +221,7 @@
           <button
             type="button"
             data-testid="flow-add-step"
-            disabled={busy}
+            disabled={disabled}
             onclick={() => (draft = { ...draft, steps: [...draft.steps, blankFlowStepDraft(draft.steps.map((step) => step.id))] })}
           >Add step</button>
         </div>
@@ -217,7 +235,7 @@
                 {index}
                 stepCount={draft.steps.length}
                 {requests}
-                disabled={busy}
+                disabled={disabled}
                 onChange={(next) => updateStep(index, next)}
                 onMove={(delta) => (draft = { ...draft, steps: [...moveFlowStep(draft.steps, index, delta)] })}
                 onRemove={() => (draft = { ...draft, steps: draft.steps.filter((_, position) => position !== index) })}
@@ -234,7 +252,7 @@
           <button
             type="button"
             data-testid="flow-add-output"
-            disabled={busy}
+            disabled={disabled}
             onclick={() => (draft = { ...draft, outputs: [...draft.outputs, { name: '', value: '' }] })}
           >Add output</button>
         </div>
@@ -248,7 +266,7 @@
                   aria-label={`Output ${index + 1} name`}
                   placeholder="terminalId"
                   value={output.name}
-                  disabled={busy}
+                  disabled={disabled}
                   oninput={(event) => {
                     const outputs = [...draft.outputs]
                     outputs[index] = { ...outputs[index], name: event.currentTarget.value }
@@ -259,7 +277,7 @@
                   aria-label={`Output ${index + 1} value`}
                   placeholder="{'{{terminalId}}'}"
                   value={output.value}
-                  disabled={busy}
+                  disabled={disabled}
                   oninput={(event) => {
                     const outputs = [...draft.outputs]
                     outputs[index] = { ...outputs[index], value: event.currentTarget.value }
@@ -270,7 +288,7 @@
                   type="button"
                   class="icon-button"
                   aria-label={`Remove output ${index + 1}`}
-                  disabled={busy}
+                  disabled={disabled}
                   onclick={() => (draft = { ...draft, outputs: draft.outputs.filter((_, position) => position !== index) })}
                 >×</button>
               </div>

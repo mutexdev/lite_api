@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   configurableShortcutActions,
+  editorOwnedShortcutActions,
   resolveShortcut,
   shortcutTabNumber,
   type ShortcutContext,
@@ -15,6 +16,7 @@ function context(over: Partial<ShortcutContext> = {}): ShortcutContext {
     activeView: 'request',
     canCancel: false,
     keybindingsEnabled: true,
+    editingInCodeEditor: false,
     matches: () => false,
     ...over,
   }
@@ -183,4 +185,57 @@ test('the modal probe is only read when escape has a request to cancel', () => {
   assert.equal(modalReads, 0)
   resolveShortcut(escape, probe({ canCancel: true }))
   assert.equal(modalReads, 1)
+})
+
+// --- the code editor's claim on ⌘F ---------------------------------------
+//
+// ⌘F was bound to Search Sidebar globally AND to find-in-document by CodeMirror,
+// with no guard on either side. Pressing it with the caret in a request body
+// opened the editor's find and simultaneously threw focus to the sidebar
+// filter — two search UIs answering one keypress.
+
+test('the sidebar search shortcut yields to a focused code editor', () => {
+  const ctx = context({ ...bound('sidebarSearch'), editingInCodeEditor: true })
+  assert.equal(resolveShortcut(other, ctx), undefined)
+})
+
+test('the sidebar search shortcut still fires when focus is anywhere else', () => {
+  // Including plain inputs: ⌘F in the URL bar should reach the sidebar filter,
+  // which is why the guard tests for a code editor and not for "is typing".
+  const ctx = context({ ...bound('sidebarSearch'), editingInCodeEditor: false })
+  assert.equal(resolveShortcut(other, ctx), 'sidebarSearch')
+})
+
+test('a focused editor withholds only the actions it actually claims', () => {
+  // The failure this guards against is over-correction: suppressing the whole
+  // configurable set while typing would break ⌘S, ⌘Enter and ⌘W in the exact
+  // place they are used most — inside a body being edited.
+  for (const action of configurableShortcutActions) {
+    if (editorOwnedShortcutActions.includes(action)) continue
+    const ctx = context({ ...bound(action), editingInCodeEditor: true })
+    assert.equal(resolveShortcut(other, ctx), action, `${action} must survive editor focus`)
+  }
+})
+
+test('save and send in particular survive editor focus', () => {
+  // Named explicitly rather than left to the loop above, because these three
+  // are the ones a regression would be reported for.
+  for (const action of ['save', 'sendRequest', 'closeTab']) {
+    const ctx = context({ ...bound(action), editingInCodeEditor: true })
+    assert.equal(resolveShortcut(other, ctx), action)
+  }
+})
+
+test('escape still cancels a request from inside an editor', () => {
+  // Escape is resolved before the configurable gate, so editor focus must not
+  // reach it. If it did, a long request started from the body editor would
+  // become uncancellable without first clicking away.
+  const ctx = context({ canCancel: true, editingInCodeEditor: true })
+  assert.equal(resolveShortcut(escape, ctx), 'cancelActiveRequest')
+})
+
+test('every editor-owned action is a real configurable action', () => {
+  for (const action of editorOwnedShortcutActions) {
+    assert.ok(configurableShortcutActions.includes(action), `${action} is not configurable, so the guard is dead code`)
+  }
 })

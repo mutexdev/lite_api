@@ -3,6 +3,7 @@
   // initial chunk. Imported dynamically from inside the {#if} that gates it.
   import type { types } from '../../../../wailsjs/go/models'
   import Modal from '../Modal.svelte'
+  import IconButton from '../../ui/IconButton.svelte'
 
   // Bindable: both form fields write back to App.svelte.
   export let requestName: string
@@ -24,14 +25,14 @@
     : (activeCollection?.name ?? 'the active collection')
 </script>
 
-<Modal labelledBy="new-request-title" onClose={() => void closeCreationFlow()} dialogClass="prompt-dialog compact-create-dialog">
+<Modal labelledBy="new-request-title" onClose={() => void closeCreationFlow()} dialogClass="prompt-dialog compact-create-dialog" size="small">
     <form on:submit|preventDefault={submitCreationFlow}>
       <header>
         <div>
-          <h2 id="new-request-title">New request</h2>
+          <h2 id="new-request-title">New Request</h2>
           <p>Create a local scratch request in {destination}.</p>
         </div>
-        <button type="button" class="icon-button" aria-label="Close new request" title="Close" on:click={() => void closeCreationFlow()}>×</button>
+        <IconButton icon="close" label="Close" onclick={() => void closeCreationFlow()} />
       </header>
       <label>
         <span>Name</span>
@@ -48,7 +49,7 @@
       </label>
       <footer class="button-row">
         <button type="button" on:click={() => void closeCreationFlow()}>Cancel</button>
-        <button class="primary" type="submit" disabled={!activeCollection}>Create request</button>
+        <button class="primary" type="submit" disabled={!activeCollection}>Create</button>
       </footer>
     </form>
 </Modal>

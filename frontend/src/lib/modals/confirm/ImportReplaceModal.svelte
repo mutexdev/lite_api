@@ -4,7 +4,10 @@
   // the {#if} that gates it.
   import Modal from '../Modal.svelte'
 
-  // Bindable: App.svelte holds the cancel button so it can focus it on open.
+  // Bindable, and now only that. The dialog names its own first focus with
+  // data-modal-autofocus below, which is the mechanism Modal.svelte already
+  // implements; App.svelte's tick().then(cancelButton.focus()) targets the same
+  // element from outside the component and can be deleted with this binding.
   export let importReplaceConfirmationCancelButton: HTMLButtonElement | null = null
 
   export let cancelImportReplaceConfirmation: () => Promise<void> | void
@@ -17,13 +20,14 @@
     onClose={() => void cancelImportReplaceConfirmation()}
     testId="import-replace-confirmation-modal"
     closeOnBackdrop={false}
+    size="medium"
   >
       <header>
         <h2 id="import-replace-confirmation-title">Replace existing collections?</h2>
       </header>
       <p id="import-replace-confirmation-description">Replace the selected existing collection folders? Backups are retained until import persistence succeeds.</p>
-      <div class="button-row modal-footer">
-        <button type="button" bind:this={importReplaceConfirmationCancelButton} data-testid="import-replace-confirmation-cancel" on:click={cancelImportReplaceConfirmation}>Cancel</button>
-        <button class="danger-button" type="button" data-testid="import-replace-confirmation-confirm" on:click={confirmImportReplace}>Replace collections</button>
+      <div class="button-row">
+        <button type="button" data-modal-autofocus bind:this={importReplaceConfirmationCancelButton} data-testid="import-replace-confirmation-cancel" on:click={cancelImportReplaceConfirmation}>Cancel</button>
+        <button class="danger-button" type="button" data-testid="import-replace-confirmation-confirm" on:click={confirmImportReplace}>Replace Collections</button>
       </div>
 </Modal>

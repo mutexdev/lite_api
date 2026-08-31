@@ -10,6 +10,15 @@
   // calls it on mount and again after each write round-trips. Re-fetching after
   // rather than before the write is what makes the line agree with the toggle
   // the user just flipped.
+  //
+  // WHY THIS FILE IS STILL PRE-RUNES while its seven siblings were converted
+  // alongside the SettingRow migration: four source-text tests pin the exact
+  // spelling of the wiring in here, and one of them matches the literal
+  // `maskedCommand = maskToken(pairingCommand)`, which `$derived` cannot
+  // produce. Converting the file means editing test/mcpSection.test.mts in the
+  // same change, and the two are owned by different passes. The conversion is
+  // recorded as a follow-up rather than done half-way — a file that is runes in
+  // its markup and legacy in its state is the worst of both.
   import { onDestroy, onMount } from 'svelte'
   import type { types } from '../../../../wailsjs/go/models'
   import { GetMCPAuditLog, GetMCPStatus } from '../../../../wailsjs/go/core/App'
@@ -21,6 +30,8 @@
     mcpStatusSummary,
     normalizeMcpPort,
   } from '../../mcpSettings'
+  import SettingRow from './SettingRow.svelte'
+  import SettingSection from './SettingSection.svelte'
 
   export let state: types.AppState
   export let onUpdateMcp: (patch: Partial<types.MCPPreferences>) => Promise<void> | void
@@ -49,10 +60,32 @@
     }
   }
 
+  /*
+   * A6-11's equivalent here. `applyMcp` is the slowest write in the whole panel
+   * and the only one that was completely silent: turning the toggle on saves
+   * the preference, then asks Go for the listener state, which means binding a
+   * socket. Until both legs land, `state.preferences.mcp` still holds the old
+   * value and the Status row still shows the old line, so the checkbox springs
+   * back and the section reads as if the click did nothing — on the one setting
+   * in this panel where "did that take effect?" actually matters.
+   *
+   * Named per field rather than a boolean, because the three rows that call
+   * applyMcp must not all show "Starting..." when one of them was changed.
+   */
+  let applying: '' | 'enabled' | 'port' | 'writeTierEnabled' = ''
+
   /** Writes the preference, then re-reads what the backend made of it. */
   async function applyMcp(patch: Partial<types.MCPPreferences>): Promise<void> {
-    await onUpdateMcp(patch)
-    await refreshStatus()
+    const field = (Object.keys(patch)[0] ?? '') as typeof applying
+    applying = field
+    try {
+      await onUpdateMcp(patch)
+      await refreshStatus()
+    } finally {
+      // Cleared in `finally` so a backend that refuses the write does not leave
+      // the row saying it is still working on it.
+      applying = ''
+    }
   }
 
   async function copyPairingCommand(): Promise<void> {
@@ -140,160 +173,150 @@
   })
 </script>
 
-            <section>
-              <div class="settings-section-header">
-                <h3>AI access (MCP)</h3>
-              </div>
+<SettingSection title="AI access (MCP)">
+  <SettingRow
+    label="Let AI tools connect to LiteAPI"
+    description="Serves your collections, requests, flows and environment variable names to MCP clients such as Claude Code. Secret values never cross the boundary — templates stay unresolved and credential-bearing response headers are redacted — and the server listens on 127.0.0.1 only, behind a token generated for this install."
+    checkboxId="mcpEnabled"
+    data-testid="mcp-enabled-toggle"
+    busy={applying === 'enabled'}
+    busyLabel={mcp?.enabled ? 'Stopping…' : 'Starting…'}
+    checked={mcp?.enabled ?? false}
+    onCheckedChange={(value) => applyMcp({ enabled: value })}
+  />
 
-              <label class="inline-toggle">
-                <input
-                  id="mcpEnabled"
-                  data-testid="mcp-enabled-toggle"
-                  type="checkbox"
-                  checked={mcp?.enabled ?? false}
-                  on:change={(event) => applyMcp({ enabled: event.currentTarget.checked })}
-                />
-                Let AI tools connect to LiteAPI
-              </label>
-              <p class="settings-hint">
-                Serves your collections, requests, flows and environment variable names to MCP
-                clients such as Claude Code. Secret values never cross the boundary — templates
-                stay unresolved and credential-bearing response headers are redacted — and the
-                server listens on 127.0.0.1 only, behind a token generated for this install.
-              </p>
+  <SettingRow
+    label="Port"
+    labelFor="mcpPort"
+    busy={applying === 'port'}
+    busyLabel="Rebinding…"
+    description="The port is written into the pairing command below, so after changing it you have to re-add LiteAPI in your agent. An agent left on the old command keeps the stale URL and reports a connection failure that says nothing about the port having moved."
+  >
+    {#snippet control()}
+      <input
+        id="mcpPort"
+        data-testid="mcp-port-input"
+        type="number"
+        min="1"
+        max="65535"
+        value={mcp?.port ?? DEFAULT_MCP_PORT}
+        on:change={(event) => applyMcp({ port: normalizeMcpPort(event.currentTarget.value) })}
+      />
+    {/snippet}
+  </SettingRow>
 
-              <div class="field-grid compact-preference-grid">
-                <label class="field-label" for="mcpPort">Port</label>
-                <input
-                  id="mcpPort"
-                  data-testid="mcp-port-input"
-                  type="number"
-                  min="1"
-                  max="65535"
-                  value={mcp?.port ?? DEFAULT_MCP_PORT}
-                  on:change={(event) => applyMcp({ port: normalizeMcpPort(event.currentTarget.value) })}
-                />
-              </div>
-              <p class="settings-hint">
-                The port is written into the pairing command below, so after changing it you have
-                to re-add LiteAPI in your agent. An agent left on the old command keeps the stale
-                URL and reports a connection failure that says nothing about the port having moved.
-              </p>
+  <SettingRow label="Status">
+    {#snippet control()}
+      <!--
+        WHAT WENT WRONG. This line carried `data-tone` — running, warning or off
+        — and `grep data-tone style.css` returned nothing, so the attribute was
+        written for tests and read by no stylesheet at all. The listener state
+        rendered as identical grey text in all three cases, three lines above
+        badges that colour-code exactly the same kind of information. The state
+        that most needed to stand out is the middle one: the toggle reads ON
+        while nothing is listening, and grey text is how that looked like
+        success.
+      -->
+      <span class="status-tone" data-testid="mcp-status" data-tone={summary.tone}>
+        {summary.stateLabel}{#if summary.lastError} — {summary.lastError}{/if}
+      </span>
+    {/snippet}
+  </SettingRow>
 
-              <p class="settings-hint" data-testid="mcp-status" data-tone={summary.tone}>
-                {summary.stateLabel}{#if summary.lastError} — {summary.lastError}{/if}
-              </p>
+  {#if pairingCommand}
+    <SettingRow
+      label="Pairing command"
+      description="Run this once in a terminal where Claude Code is installed. The token is shortened here for display; Copy puts the full command on the clipboard."
+    >
+      {#snippet control()}
+        <span class="selected-path-chip" data-testid="mcp-pairing-command">{maskedCommand}</span>
+        <button
+          type="button"
+          class="copy-button"
+          class:copy-success={copied}
+          data-testid="mcp-copy-command-btn"
+          on:click={copyPairingCommand}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      {/snippet}
+    </SettingRow>
+  {/if}
 
-              {#if pairingCommand}
-                <div class="button-row">
-                  <span class="selected-path-chip" data-testid="mcp-pairing-command">{maskedCommand}</span>
-                  <button
-                    type="button"
-                    class="copy-button"
-                    class:copy-success={copied}
-                    data-testid="mcp-copy-command-btn"
-                    on:click={copyPairingCommand}
-                  >
-                    {copied ? 'Copied' : 'Copy'}
-                  </button>
-                </div>
-                <p class="settings-hint">
-                  Run this once in a terminal where Claude Code is installed. The token is shortened
-                  here for display; Copy puts the full command on the clipboard.
-                </p>
-              {/if}
+  <SettingRow
+    label="Allow AI tools to create and edit requests"
+    description="Off by default. Switched on, an agent can add and edit requests and Flows in your collections — the same files your own edits write. Three things stay impossible either way: it can never read or define a secret value (only reference one by name), it can never write or change a pre-request script, post-response script or test, and pointing a secret at a host your collections have never used still stops here for your approval."
+    checkboxId="mcpWriteTier"
+    data-testid="mcp-write-tier-toggle"
+    busy={applying === 'writeTierEnabled'}
+    checked={mcp?.writeTierEnabled ?? false}
+    onCheckedChange={(value) => applyMcp({ writeTierEnabled: value })}
+  />
+</SettingSection>
 
-              <label class="inline-toggle">
-                <input
-                  id="mcpWriteTier"
-                  data-testid="mcp-write-tier-toggle"
-                  type="checkbox"
-                  checked={mcp?.writeTierEnabled ?? false}
-                  on:change={(event) => applyMcp({ writeTierEnabled: event.currentTarget.checked })}
-                />
-                Allow AI tools to create and edit requests
-              </label>
-              <p class="settings-hint">
-                Off by default. Switched on, an agent can add and edit requests and Flows in your
-                collections — the same files your own edits write. Three things stay impossible
-                either way: it can never read or define a secret value (only reference one by name),
-                it can never write or change a pre-request script, post-response script or test, and
-                pointing a secret at a host your collections have never used still stops here for
-                your approval.
-              </p>
+<SettingSection
+  title="Recent activity"
+  note="The last {MCP_AUDIT_LIMIT} tool calls an AI tool made, newest first. Denied is kept apart from failed: a denial is a rule holding, not something going wrong."
+>
+  {#snippet status()}
+    <button
+      type="button"
+      data-testid="mcp-audit-refresh-btn"
+      disabled={auditLoading}
+      on:click={refreshAudit}
+    >{auditLoading ? 'Refreshing…' : 'Refresh'}</button>
+  {/snippet}
 
-              <div class="settings-section-header mcp-activity-header">
-                <h3>Recent activity</h3>
-                <button
-                  type="button"
-                  data-testid="mcp-audit-refresh-btn"
-                  disabled={auditLoading}
-                  on:click={refreshAudit}
-                >{auditLoading ? 'Refreshing...' : 'Refresh'}</button>
-              </div>
-              <p class="settings-hint">
-                The last {MCP_AUDIT_LIMIT} tool calls an AI tool made, newest first. Denied is kept
-                apart from failed: a denial is a rule holding, not something going wrong.
-              </p>
+  {#if auditError}
+    <p class="mcp-note mcp-audit-error" data-testid="mcp-audit-error">
+      The activity log could not be read — {auditError}
+    </p>
+  {/if}
 
-              {#if auditError}
-                <p class="settings-hint mcp-audit-error" data-testid="mcp-audit-error">
-                  The activity log could not be read — {auditError}
-                </p>
-              {/if}
-
-              {#if auditRows.length === 0}
-                <p class="settings-hint" data-testid="mcp-audit-empty">
-                  {auditEntries === undefined && !auditError
-                    ? 'Loading recent activity...'
-                    : 'No agent activity recorded yet.'}
-                </p>
-              {:else}
-                <ul class="mcp-audit-list" data-testid="mcp-audit-list">
-                  {#each auditRows as row (row.key)}
-                    <li class="mcp-audit-row">
-                      <div class="mcp-audit-line">
-                        <span class="mcp-audit-time">{row.time}</span>
-                        <span class="mcp-audit-tool">{row.tool}</span>
-                        <span
-                          class="mcp-audit-outcome"
-                          data-outcome={row.outcome}
-                          data-testid="mcp-audit-outcome"
-                        >{row.outcomeLabel}</span>
-                        <span class="mcp-audit-duration">{row.duration}</span>
-                      </div>
-                      {#if row.argsSummary}
-                        <p class="mcp-audit-args">{row.argsSummary}</p>
-                      {/if}
-                    </li>
-                  {/each}
-                </ul>
-              {/if}
-            </section>
+  {#if auditRows.length === 0}
+    <p class="mcp-note" data-testid="mcp-audit-empty">
+      {auditEntries === undefined && !auditError
+        ? 'Loading recent activity…'
+        : 'No agent activity recorded yet.'}
+    </p>
+  {:else}
+    <ul class="mcp-audit-list" data-testid="mcp-audit-list">
+      {#each auditRows as row (row.key)}
+        <li class="mcp-audit-row">
+          <div class="mcp-audit-line">
+            <span class="mcp-audit-time">{row.time}</span>
+            <span class="mcp-audit-tool">{row.tool}</span>
+            <span
+              class="status-tone badge"
+              data-tone={row.outcome}
+              data-testid="mcp-audit-outcome"
+            >{row.outcomeLabel}</span>
+            <span class="mcp-audit-duration">{row.duration}</span>
+          </div>
+          {#if row.argsSummary}
+            <p class="mcp-audit-args">{row.argsSummary}</p>
+          {/if}
+        </li>
+      {/each}
+    </ul>
+  {/if}
+</SettingSection>
 
 <style>
-  /* Matches GeneralSection's hint styling. Scoped styles are per-component, so
-     this is a copy of that rule rather than a shared class — and no custom
-     property is defined here, because a new `--` name would have to be added to
-     all 12 theme blocks to mean anything. */
-  .settings-hint {
-    grid-column: 1 / -1;
-    margin: -4px 0 4px;
+  /* Matches a SettingRow description exactly, for the two paragraphs in this
+     section that belong to no row — the log's error and its empty state. No
+     custom property is defined here, because a new `--` name would have to be
+     added to all 12 theme blocks to mean anything. */
+  .mcp-note {
     max-width: 62ch;
-    font-size: 0.8rem;
-    opacity: 0.8;
-  }
-
-  /* .settings-section-header already supplies the flex row; this only separates
-     the second heading from the hint above it, so the section reads as two
-     groups rather than one long list. */
-  .mcp-activity-header {
-    margin-top: var(--space-18);
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--font-size-12);
+    line-height: 1.5;
   }
 
   .mcp-audit-error {
     color: var(--danger-strong);
-    opacity: 1;
   }
 
   .mcp-audit-list {
@@ -303,7 +326,7 @@
        one off the settings page. */
     max-height: 260px;
     overflow-y: auto;
-    margin: 0 0 var(--space-8);
+    margin: 0;
     padding: 0;
     list-style: none;
     border: 1px solid var(--border);
@@ -348,39 +371,68 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .mcp-audit-outcome {
+  /* ONE BADGE FOR EVERY "HOW DID THAT GO" IN THIS SECTION. The listener state
+     and the per-call outcomes are the same kind of information — a severity —
+     so they are the same element with the same six-value tone vocabulary, and a
+     reader learns the palette once. Splitting them was how one of them ended up
+     with no palette at all. */
+  .status-tone {
+    display: inline-block;
+    max-width: 100%;
     padding: var(--space-1) var(--space-6);
     border: 1px solid var(--border);
     border-radius: var(--radius-pill);
     color: var(--muted-strong);
-    font-size: var(--font-size-10);
+    font-size: var(--font-size-11);
     font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+
+  /* One vocabulary, two form factors. A per-call outcome is one word repeated
+     down a list, so it is set small and uppercase to read as a marker rather
+     than as text. The listener status is a sentence — it can carry a backend
+     error after its state word — so it keeps sentence case and is allowed to
+     wrap. Same tones, same shapes, different amount to say. */
+  .status-tone.badge {
+    font-size: var(--font-size-10);
     letter-spacing: 0.02em;
     text-transform: uppercase;
     white-space: nowrap;
   }
 
-  /* THE THREE BADGES ARE THREE DIFFERENT STATEMENTS, and the palette says which.
-     "ok" stays quiet — it is most of the list and should not be read. "denied"
-     wears the warning colours because the boundary held: it is a thing to
-     notice, not a thing that broke. "error" is the only one on the danger
-     palette. Folding denied into that red is what would make a refusal
-     indistinguishable from a fault, which is the exact question this list is
-     opened to answer. */
-  .mcp-audit-outcome[data-outcome='ok'] {
+  /* THE TONES ARE FOUR DIFFERENT STATEMENTS, and the palette says which.
+     "ok" and "running" stay quiet — between them they are almost every line
+     this section ever renders, and a page where everything is coloured has
+     nothing highlighted. "denied" and "warning" wear the warning colours
+     because a boundary held or a listener did not come up: things to notice,
+     not things that broke. "error" is the only one on the danger palette.
+     Folding denied into that red is what would make a refusal indistinguishable
+     from a fault, which is the exact question this list is opened to answer.
+
+     "off" is the deliberate absence of all of it: nothing is running because
+     nobody asked for anything to run. */
+  .status-tone[data-tone='ok'],
+  .status-tone[data-tone='running'] {
+    border-color: color-mix(in srgb, var(--success) 40%, transparent);
     background: var(--success-bg);
+    color: var(--success);
   }
 
-  .mcp-audit-outcome[data-outcome='denied'] {
-    border-color: color-mix(in srgb, var(--warning-strong) 40%, transparent);
-    background: var(--warning-bg);
+  .status-tone[data-tone='denied'],
+  .status-tone[data-tone='warning'] {
+    border-color: var(--warning-border);
+    background: var(--warning-bg-soft);
     color: var(--warning-text);
   }
 
-  .mcp-audit-outcome[data-outcome='error'] {
+  .status-tone[data-tone='error'] {
     border-color: var(--danger-border);
     background: var(--danger-bg);
     color: var(--danger-strong);
+  }
+
+  .status-tone[data-tone='off'] {
+    color: var(--muted);
   }
 
   /* Monospace and muted: the summary is evidence, not prose. `anywhere` rather

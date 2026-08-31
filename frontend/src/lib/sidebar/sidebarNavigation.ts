@@ -62,7 +62,16 @@ export type SidebarNavContext = {
   typeAhead: string
 }
 
-/** Collections and folders can be opened and closed; requests and examples cannot. */
+/**
+ * Collections and folders can be opened and closed; requests, examples and
+ * flows cannot.
+ *
+ * A flow is a leaf even though it has steps, because its steps are not sidebar
+ * rows — they live in the flow's own editor. Arrow-Right on one therefore does
+ * nothing rather than expanding an empty branch, and Arrow-Left walks out to
+ * the collection, which is where `parentIndex` already lands it: a flow row is
+ * emitted at depth 1, so the nearest shallower row above it is its collection.
+ */
 export function isExpandable(row: SidebarRow | undefined): boolean {
   return row?.kind === 'collection' || row?.kind === 'folder'
 }

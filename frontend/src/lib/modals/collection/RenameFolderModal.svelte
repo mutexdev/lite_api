@@ -3,6 +3,7 @@
   // is not in the initial chunk. Imported dynamically from inside the {#if}
   // that gates it; a static import would leave it in the initial graph.
   import Modal from '../Modal.svelte'
+  import IconButton from '../../ui/IconButton.svelte'
 
   // Bindable: the directory field and both toggles write back to App.svelte.
   export let renameFolderDirectoryDraft: string
@@ -20,11 +21,11 @@
   export let cancelRenameFolderModal: () => void
 </script>
 
-<Modal labelledBy="rename-folder-title" onClose={cancelRenameFolderModal} testId="rename-folder-modal">
+<Modal labelledBy="rename-folder-title" onClose={cancelRenameFolderModal} testId="rename-folder-modal" size="medium" busy={busy !== ''}>
       <form on:submit|preventDefault={confirmRenameFolder}>
         <header>
           <h2 id="rename-folder-title">Rename Folder</h2>
-          <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={cancelRenameFolderModal}>x</button>
+          <IconButton icon="close" label="Close" onclick={cancelRenameFolderModal} testId="modal-close-button" />
         </header>
         <div class="prompt-fields">
           <label>
@@ -89,7 +90,7 @@
             type="submit"
             data-testid="rename-item-button"
             disabled={busy !== '' || renameFolderNameDraft.trim() === '' || !renameFolderDirectoryNameIsValid()}
-          >{busy === 'rename folder' ? 'Renaming...' : 'Rename'}</button>
+          >{busy === 'rename folder' ? 'Renaming…' : 'Rename'}</button>
         </div>
       </form>
 </Modal>

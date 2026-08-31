@@ -97,30 +97,46 @@
 {/if}
 
 <style>
+  /*
+    The literals and the fallback chains are both gone, and the fallbacks are
+    the more dangerous half.
+
+    `var(--surface-raised, var(--surface, #fff))` reads as defensive and behaves
+    as a landmine: --surface-raised IS declared, so the chain never fired here —
+    but if it ever stops being declared, this popup paints itself white in all
+    twelve themes, including the six dark ones, and the hardcoded shadow was
+    already a black wash regardless of theme. The token audit found the same
+    identifier standing behind four different fallbacks in four files, which
+    means "raised" meant four colours depending on which file you opened.
+
+    0.85rem was the last relative font size in the component tree; it scales off
+    the root rather than the app's own type scale, so this list was the one
+    surface that did not follow --app-zoom.
+  */
   .suggestion-listbox {
     position: fixed;
     z-index: 60;
-    margin: 2px 0 0;
-    padding: 4px;
+    margin: var(--space-2) 0 0;
+    padding: var(--space-4);
     list-style: none;
     max-height: 15rem;
     overflow-y: auto;
-    background: var(--surface-raised, var(--surface, #fff));
-    border: 1px solid var(--border, rgba(0, 0, 0, 0.15));
-    border-radius: 6px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-    font-size: 0.85rem;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-6);
+    box-shadow: 0 var(--space-8) var(--space-24) var(--shadow-soft);
+    font-size: var(--font-size-12);
   }
 
   .suggestion-listbox li {
-    padding: 4px 8px;
-    border-radius: 4px;
+    padding: var(--space-4) var(--space-8);
+    border-radius: var(--radius-4);
     cursor: pointer;
     white-space: nowrap;
   }
 
   .suggestion-listbox li.active,
   .suggestion-listbox li:hover {
-    background: var(--accent-soft, rgba(0, 0, 0, 0.08));
+    background: var(--accent-soft);
   }
 </style>

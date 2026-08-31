@@ -3,6 +3,7 @@
   // initial chunk. Imported dynamically from inside the {#if} that gates it;
   // a static import would leave it in the initial graph and save nothing.
   import Modal from '../Modal.svelte'
+  import IconButton from '../../ui/IconButton.svelte'
 
   // Bindable: the dialog writes these back to App.svelte.
   export let openAPISyncSettingsSourceURL: string
@@ -15,11 +16,11 @@
   export let disconnectOpenAPISync: () => void
 </script>
 
-<Modal labelledBy="openapi-settings-title" onClose={cancelOpenAPISyncSettings} dialogClass="prompt-dialog openapi-settings-dialog" testId="openapi-sync-settings-modal">
+<Modal labelledBy="openapi-settings-title" onClose={cancelOpenAPISyncSettings} testId="openapi-sync-settings-modal" size="medium" busy={busy !== ''}>
 		      <form on:submit|preventDefault={saveOpenAPISyncSettings}>
 	        <header>
 	          <h2 id="openapi-settings-title">Connection Settings</h2>
-	          <button type="button" class="icon-button" title="Cancel" on:click={cancelOpenAPISyncSettings}>x</button>
+	          <IconButton icon="close" label="Close" onclick={cancelOpenAPISyncSettings} />
 	        </header>
 	        <div class="prompt-fields">
 	          <label>
@@ -53,9 +54,15 @@
 	            </div>
 	          {/if}
 	        </div>
-	        <div class="button-row modal-footer">
-	          <button type="button" class="danger-button" data-testid="openapi-sync-settings-disconnect" on:click={disconnectOpenAPISync} disabled={busy !== ''}>Disconnect sync</button>
+	        <!--
+	          FOOTER ORDER: neutral first, destructive last. "Disconnect sync" led
+	          the row and so was the first tab stop after the form — the one control
+	          here that throws the connection away sat where every other dialog in
+	          the app puts Cancel.
+	        -->
+	        <div class="button-row">
 	          <button type="button" data-testid="openapi-sync-settings-cancel" on:click={cancelOpenAPISyncSettings}>Cancel</button>
+	          <button type="button" class="danger-button" data-testid="openapi-sync-settings-disconnect" on:click={disconnectOpenAPISync} disabled={busy !== ''}>Disconnect Sync</button>
 	          <button class="primary" type="submit" data-testid="openapi-sync-settings-save" disabled={busy !== ''}>Save</button>
 	        </div>
 	      </form>

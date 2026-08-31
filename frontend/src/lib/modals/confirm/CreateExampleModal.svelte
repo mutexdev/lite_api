@@ -2,6 +2,7 @@
   // US-036 — the Save Response Example dialog, lifted out of App.svelte so its markup is not in the
   // initial chunk. Imported dynamically from inside the {#if} that gates it.
   import Modal from '../Modal.svelte'
+  import IconButton from '../../ui/IconButton.svelte'
 
   // Bindable: both fields and the input element reference write back.
   export let createResponseExampleName: string
@@ -13,16 +14,22 @@
   export let cancelCreateResponseExample: () => void
 </script>
 
-<Modal labelledBy="create-example-title" onClose={cancelCreateResponseExample} dialogClass="prompt-dialog create-example-dialog">
+<Modal labelledBy="create-example-title" onClose={cancelCreateResponseExample} dialogClass="prompt-dialog create-example-dialog" size="medium" busy={busy !== ''}>
       <form on:submit|preventDefault={createResponseExample}>
         <header>
           <h2 id="create-example-title">Create Response Example</h2>
-          <button type="button" class="icon-button" title="Cancel" on:click={cancelCreateResponseExample}>x</button>
+          <IconButton icon="close" label="Close" onclick={cancelCreateResponseExample} />
         </header>
         <div class="prompt-fields">
+          <!--
+            The field names itself here rather than being focused from outside.
+            App.svelte reached in with tick() + createResponseExampleInput.focus()
+            — a second, parallel focus mechanism for a shell that already has
+            one. The binding stays because App.svelte also calls .select() on it.
+          -->
           <label>
             <span>Example Name</span>
-            <input
+            <input data-modal-autofocus
               bind:this={createResponseExampleInput}
               aria-label="Create example name"
               value={createResponseExampleName}
@@ -41,7 +48,7 @@
         </div>
         <div class="button-row">
           <button type="button" on:click={cancelCreateResponseExample}>Cancel</button>
-          <button class="primary" type="submit" disabled={busy !== '' || !createResponseExampleName.trim()}>Create Example</button>
+          <button class="primary" type="submit" disabled={busy !== '' || !createResponseExampleName.trim()}>Create</button>
         </div>
       </form>
 </Modal>

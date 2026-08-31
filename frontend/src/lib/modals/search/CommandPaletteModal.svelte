@@ -14,36 +14,80 @@
   // not on a global command — and those use a `sidebar:` prefixed id that is not
   // a WorkbenchCommandID and never will be. App.svelte's handler was widened to
   // match, so this widening is the one that fits rather than the one that fails.
+  //
+  // THIS FILE IS THE TEMPLATE ITS SIBLING NOW COPIES. GlobalSearchModal had no
+  // listbox semantics at all; it has this file's, verbatim. The two are kept
+  // legible side by side on purpose — same prop shape, same option-id helper,
+  // same `{:else}` empty state inside the listbox — because the pair drifting
+  // apart unnoticed is exactly how one of them ended up with no ARIA.
   import Modal from '../Modal.svelte'
+  import IconButton from '../../ui/IconButton.svelte'
+  import { emptyStateMessage } from '../../sidebar/emptyState'
 
   type CommandPaletteAction = { id: string; label: string; shortcut?: string }
 
-  // Bindable: the query, the active index and the input reference are all
-  // driven by App.svelte's keyboard handling.
-  export let commandPaletteQuery: string
-  export let commandPaletteActiveIndex: number
-  export let commandPaletteInput: HTMLInputElement | null = null
+  type Props = {
+    // Bindable: the query, the active index and the input reference are all
+    // driven by App.svelte's keyboard handling.
+    commandPaletteQuery: string
+    commandPaletteActiveIndex: number
+    commandPaletteInput?: HTMLInputElement | null
+    visibleCommandPaletteActions: CommandPaletteAction[]
+    handleCommandPaletteKeydown: (event: KeyboardEvent) => void
+    runCommandPaletteAction: (action: CommandPaletteAction) => void
+    closeCommandPalette: () => Promise<void> | void
+  }
 
-  export let visibleCommandPaletteActions: CommandPaletteAction[]
-  export let handleCommandPaletteKeydown: (event: KeyboardEvent) => void
-  export let runCommandPaletteAction: (action: CommandPaletteAction) => void
-  export let closeCommandPalette: () => Promise<void> | void
+  let {
+    commandPaletteQuery = $bindable(),
+    commandPaletteActiveIndex = $bindable(),
+    commandPaletteInput = $bindable(null),
+    visibleCommandPaletteActions,
+    handleCommandPaletteKeydown,
+    runCommandPaletteAction,
+    closeCommandPalette
+  }: Props = $props()
+
+  const optionId = (id: string) => `command-palette-option-${id}`
+
+  const activeAction = $derived(visibleCommandPaletteActions[commandPaletteActiveIndex])
 </script>
 
 <Modal labelledBy="command-palette-title" onClose={() => void closeCommandPalette()} dialogClass="global-search-modal command-palette">
       <header>
         <div><h2 id="command-palette-title">Command palette</h2></div>
-        <button type="button" class="icon-button" aria-label="Close command palette" title="Close" on:click={() => void closeCommandPalette()}>×</button>
+        <IconButton icon="close" label="Close" onclick={() => void closeCommandPalette()} />
       </header>
-      <input data-modal-autofocus class="global-search-input" bind:this={commandPaletteInput} bind:value={commandPaletteQuery} on:input={() => (commandPaletteActiveIndex = 0)} on:keydown={handleCommandPaletteKeydown} aria-label="Filter commands" aria-controls="command-palette-commands" aria-activedescendant={visibleCommandPaletteActions[commandPaletteActiveIndex] ? `command-palette-option-${visibleCommandPaletteActions[commandPaletteActiveIndex].id}` : undefined} placeholder="Type a command" />
+      <input
+        data-modal-autofocus
+        class="global-search-input"
+        aria-label="Filter commands"
+        aria-controls="command-palette-commands"
+        aria-activedescendant={activeAction ? optionId(activeAction.id) : undefined}
+        placeholder="Type a command"
+        bind:this={commandPaletteInput}
+        bind:value={commandPaletteQuery}
+        oninput={() => (commandPaletteActiveIndex = 0)}
+        onkeydown={handleCommandPaletteKeydown}
+      />
       <div id="command-palette-commands" class="global-search-results" role="listbox" aria-label="Commands">
         {#each visibleCommandPaletteActions as action, index (action.id)}
-          <button id={`command-palette-option-${action.id}`} type="button" role="option" aria-selected={index === commandPaletteActiveIndex} class:active={index === commandPaletteActiveIndex} on:mouseenter={() => (commandPaletteActiveIndex = index)} on:click={() => runCommandPaletteAction(action)}>
+          <button
+            id={optionId(action.id)}
+            type="button"
+            role="option"
+            aria-selected={index === commandPaletteActiveIndex}
+            class:active={index === commandPaletteActiveIndex}
+            onmouseenter={() => (commandPaletteActiveIndex = index)}
+            onclick={() => runCommandPaletteAction(action)}
+          >
             <span class="global-search-main"><strong>{action.label}</strong></span>
             {#if action.shortcut}<kbd>{action.shortcut}</kbd>{/if}
           </button>
         {:else}
-          <div class="empty-state">No commands match.</div>
+          <!-- Was "No commands match." — the only one of the six empty-result
+               strings that ended in a period. One rule, one sentence shape. -->
+          <div class="empty-state">{emptyStateMessage({ query: commandPaletteQuery, noun: 'commands' })}</div>
         {/each}
       </div>
 </Modal>

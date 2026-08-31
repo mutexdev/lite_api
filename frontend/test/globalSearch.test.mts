@@ -250,3 +250,62 @@ test('results equal on rank and type are ordered by name', () => {
   ] as unknown as Parameters<typeof sortGlobalSearchResults>[0][]
   assert.deepEqual([...rows].sort(sortGlobalSearchResults).map((r) => r.name), ['alpha', 'beta'])
 })
+
+// ── ⌘K and ⌘⇧P are one pair, and must stay one pair ─────────────────────────
+//
+// They are documented as a matched set — "keep Cmd+K search and add Cmd+Shift+P
+// for commands" — and they shipped with two different accessibility stories.
+// The palette was a real single-select listbox: aria-controls,
+// aria-activedescendant, role="listbox", role="option", aria-selected. Global
+// Search, the more used of the two, had none of it, so a screen reader was
+// handed a bag of buttons and the arrow keys moved a highlight nothing
+// announced.
+//
+// Asserted against the source, the way brandMark.test.mts and
+// sidebarTree.test.mts already do, because the repo has no component-rendering
+// harness. That makes this weak about pixels and strong about the wiring —
+// which is the half that silently went missing.
+
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+
+const modalSource = (name: string) =>
+  readFileSync(fileURLToPath(new URL(`../src/lib/modals/search/${name}`, import.meta.url)), 'utf8')
+
+test('both search modals implement the same listbox semantics', () => {
+  for (const name of ['GlobalSearchModal.svelte', 'CommandPaletteModal.svelte']) {
+    const source = modalSource(name)
+    for (const required of [
+      /role="listbox"/,
+      /role="option"/,
+      /aria-selected=\{/,
+      /aria-controls="/,
+      /aria-activedescendant=\{/
+    ]) {
+      assert.match(source, required, `${name} is missing ${required}`)
+    }
+  }
+})
+
+// The highlight must not be carried by a CSS class ALONE, which is what the ⌘K
+// results were: `class:active` and nothing else. The class stays — it is what
+// paints the row — but it now travels with aria-selected on the same element.
+test('the ⌘K result rows carry aria-selected, not just a CSS class', () => {
+  const source = modalSource('GlobalSearchModal.svelte')
+  const activeUses = source.match(/class:active=\{/g) ?? []
+  const selectedUses = source.match(/aria-selected=\{/g) ?? []
+  assert.equal(activeUses.length, selectedUses.length, 'a highlighted row is styled but not announced')
+})
+
+// aria-activedescendant must name an id that an option actually renders, and
+// both modals build theirs from one helper for exactly that reason: two
+// separate template literals is how the attribute ends up pointing at nothing.
+test('each modal builds its option ids from a single helper', () => {
+  for (const name of ['GlobalSearchModal.svelte', 'CommandPaletteModal.svelte']) {
+    const source = modalSource(name)
+    assert.match(source, /const optionId = \(id: string\) =>/, `${name} does not centralise its option ids`)
+    // Once for aria-activedescendant on the input, once for the option's id.
+    const uses = source.match(/optionId\(/g) ?? []
+    assert.equal(uses.length, 2, `${name} uses optionId ${uses.length} times, expected 2`)
+  }
+})

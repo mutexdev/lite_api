@@ -98,6 +98,7 @@
   testId="mcp-approval-dialog"
   {busy}
   closeOnBackdrop={false}
+  size="medium"
 >
   <header>
     <h2 id="mcp-approval-title">

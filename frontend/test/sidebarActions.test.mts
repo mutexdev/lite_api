@@ -175,3 +175,55 @@ test('a response example row maps to no object, because its actions belong to it
     { kind: 'request', collectionId: 'c1', folder: 'auth', itemId: 'r1', label: 'Login' }
   )
 })
+
+// ── Flows ───────────────────────────────────────────────────────────────────
+//
+// The flow row was the one row type with no ⋯ menu at all, so a flow could not
+// be deleted from the sidebar — only from inside its own open tab. It now
+// answers the same question every other object answers.
+
+const flow: SidebarObject = { kind: 'flow', collectionId: 'c1', folder: '', itemId: 'f1', label: 'Signup' }
+
+test('a flow offers the two actions that have real handlers behind them', () => {
+  assert.deepEqual(sidebarActionsFor(flow, context).map((action) => action.id), ['reveal', 'delete'])
+})
+
+// RENAME IS ABSENT ON PURPOSE, and this test is the guard on that reasoning
+// rather than on the omission: there is no RenameFlowModal, so listing Rename
+// would put an entry in the menu that opens nothing — the same dead-promise
+// failure the ⌘R and ⌘D bindings in Preferences shipped with for a year. When
+// the dialog lands, this test changes in the same commit.
+test('a flow does not advertise an action the app cannot perform', () => {
+  const ids = sidebarActionsFor(flow, context).map((action) => action.id)
+  assert.ok(!ids.includes('rename'))
+  assert.ok(!ids.includes('clone'))
+  // Nor the container actions: nothing is created inside a flow from the tree.
+  assert.ok(!ids.includes('new-request'))
+  assert.ok(!ids.includes('new-folder'))
+  assert.ok(!ids.includes('new-flow'))
+})
+
+test('delete is still last and alone once flows are in the registry', () => {
+  const actions = sidebarActionsFor(flow, context)
+  assert.equal(actions.at(-1)?.id, 'delete')
+  assert.equal(actions.at(-1)?.tone, 'danger')
+})
+
+test('a flow row resolves to a flow object, carrying the flow id', () => {
+  const object = sidebarObjectForRow({
+    kind: 'flow', collectionId: 'c1', folder: '', itemId: 'f1', label: 'Signup'
+  })
+
+  assert.deepEqual(object, { kind: 'flow', collectionId: 'c1', folder: '', itemId: 'f1', label: 'Signup' })
+})
+
+// An example row still has no actions of its own: it is a view of a request,
+// and the request's own menu is one row up. Re-pinned here because widening
+// sidebarObjectForRow to admit flows is exactly the edit that would let an
+// example slip through with it.
+test('a response example row still resolves to no object', () => {
+  assert.equal(
+    sidebarObjectForRow({ kind: 'example', collectionId: 'c1', folder: '', itemId: 'r1', label: 'OK' }),
+    undefined
+  )
+})

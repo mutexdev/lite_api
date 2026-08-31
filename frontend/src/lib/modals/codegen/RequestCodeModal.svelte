@@ -2,6 +2,7 @@
   // US-036 — the request Generate Code dialog, lifted out of App.svelte so its markup is not in the
   // initial chunk. Imported dynamically from inside the {#if} that gates it.
   import Modal from '../Modal.svelte'
+  import IconButton from '../../ui/IconButton.svelte'
 
   export let requestCodeLanguage: string
   // US-054. The option list comes from the backend rather than being written
@@ -15,10 +16,10 @@
   export let closeRequestCode: () => void
 </script>
 
-<Modal labelledBy="request-code-title" onClose={closeRequestCode} dialogClass="prompt-dialog code-generator-dialog">
+<Modal labelledBy="request-code-title" onClose={closeRequestCode} size="large">
       <header>
         <h2 id="request-code-title">Generate Code</h2>
-        <button type="button" class="icon-button" title="Close" on:click={closeRequestCode}>x</button>
+        <IconButton icon="close" label="Close" onclick={closeRequestCode} />
       </header>
       <div class="field-grid code-generator-controls">
         <span class="field-label">Language</span>

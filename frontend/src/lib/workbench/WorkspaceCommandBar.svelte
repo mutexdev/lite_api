@@ -3,6 +3,8 @@
   import type { Snippet } from 'svelte'
   import CommandOverflowMenu from './CommandOverflowMenu.svelte'
   import EnvironmentContextMenu from './EnvironmentContextMenu.svelte'
+  import OrientationToggleButton from './OrientationToggleButton.svelte'
+  import { normalizedResponsePaneOrientation } from '../preferences'
   import type { WorkbenchCommandID, WorkbenchCommandItem } from './workbenchCommands'
 
   // US-026 — fourteen data props collapsed to store reads.
@@ -57,6 +59,16 @@
   const gitConnected = $derived(Boolean(workspaceStore.activeCollection?.remote))
   const canCreateRequest = $derived(workspaceStore.canCreateRequest)
   const canCreateFolder = $derived(workspaceStore.canCreateFolder)
+
+  // A4-02. Read from the store rather than taken as a prop, for the reason
+  // US-026 gives above and for one more: `App.svelte` mounts this component and
+  // is owned by another pass this wave, so a new prop would sit at its default
+  // until someone pasted a line in — and the default would be a lie half the
+  // time. The store already holds the preference the request strip reads, so
+  // both copies of this control describe the same layout from the same source.
+  const responseOrientation = $derived(
+    normalizedResponsePaneOrientation(workspaceStore.preferences?.layout?.responsePaneOrientation),
+  )
 
   const newItems = $derived([
     { id: 'new-http', label: 'HTTP', group: 'Request', disabled: !canCreateRequest, disabledReason: 'Open a collection first' },
@@ -159,9 +171,11 @@
       {#if notificationCount > 0}<strong>{notificationCount}</strong>{/if}
     </button>
 
-    <button class="command-icon" type="button" aria-label="Change response orientation" title="Change response orientation (⌘J)" data-testid="command-layout-button" onclick={(event) => void onCommand('change-orientation', event.currentTarget)}>
-      <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3" width="15" height="14" rx="2" /><path d="M10 3v14" /></svg>
-    </button>
+    <OrientationToggleButton
+      orientation={responseOrientation}
+      testId="command-layout-button"
+      onclick={() => void onCommand('change-orientation', null)}
+    />
 
     <button class="command-icon command-palette-button" type="button" aria-label="Open command palette" title="Command palette (⌘⇧P)" onclick={(event) => void onCommand('command-palette', event.currentTarget)}>
       <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5" /><path d="m12.2 12.2 4 4" /></svg><span>Commands</span>
@@ -218,18 +232,32 @@
   .run-button.running { color: var(--warning-text); }
   .notification-button { position: relative; }
   .notification-button strong { position: absolute; top: 0; right: 0; min-width: 14px; padding: 1px 3px; border-radius: 999px; background: var(--danger-strong); color: var(--on-dark); font-size: 9px; line-height: 12px; }
+  /*
+    A4-11. These were 1180 / 800 / 610, chosen without reference to the shell
+    they sit on top of, which reflows at 1180 / 960 / 680. The visible defect
+    was the 960px step: the sidebar turns into an overlay there — the largest
+    shape change the app makes — while this bar carried on unchanged until 800,
+    and then took its own step at a width where nothing underneath moved. The
+    chrome and the content were reflowing on unrelated schedules.
+
+    The numbers now come from `layout.ts`'s SHELL_BREAKPOINTS. CSS cannot read a
+    TypeScript constant, so they are still literals here; `layout.test.mts`
+    greps this file and fails on any width that is not in that scale, which is
+    what stops a fourth number from appearing the next time this bar gets a
+    button.
+  */
   @media (max-width: 1180px) {
     .workspace-command-bar { grid-template-columns: minmax(0, auto) minmax(36px, 1fr) minmax(0, auto); }
     .cookie-button span, .run-button span, .git-status span:last-child, .command-palette-button span { display: none; }
     .workspace-select, .workspace-button { max-width: 120px; }
   }
-  @media (max-width: 800px) {
+  @media (max-width: 960px) {
     .workspace-command-bar { grid-template-columns: minmax(0, 1fr) auto; }
     .command-context { display: none; }
     .workspace-select, .workspace-button { max-width: 105px; }
     .git-status { display: none; }
   }
-  @media (max-width: 610px) {
+  @media (max-width: 680px) {
     .workspace-select, .workspace-button, .cookie-button { display: none; }
   }
 </style>

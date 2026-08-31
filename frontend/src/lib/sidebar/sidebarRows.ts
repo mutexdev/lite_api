@@ -50,6 +50,12 @@ export type SidebarRowGroup = {
   items: readonly SidebarRowItem[]
 }
 
+/** One flow, reduced to what a row needs. */
+export type SidebarRowFlow = {
+  id: string
+  name: string
+}
+
 export type SidebarRowCollection = {
   id: string
   name: string
@@ -75,9 +81,35 @@ export type SidebarRowsInput = {
    * which is what the tests use.
    */
   examplesFor?: (item: SidebarRowItem) => readonly SidebarRowExample[]
+  /**
+   * A collection's flows, drawn after all of its folders and requests.
+   *
+   * FLOW ROWS WERE THE ONE DRAWN ROW THIS WALK DID NOT KNOW ABOUT, and the
+   * markup carried a comment saying so: the keyboard cursor was "deliberately
+   * NOT moved onto a flow row", because a cursor naming a row the walk never
+   * emitted resolves to index -1, and the next arrow key jumps to the top of
+   * the tree instead of moving by one. That was the honest behaviour while the
+   * walk was blind — but the cost is that a flow, which is a first-class object
+   * one click from every other row, is unreachable by keyboard, invisible to a
+   * screen reader's tree navigation, and has no ⋯ menu, while its siblings have
+   * all three.
+   *
+   * Supplied as a callback for the same reason `groupsFor` is: the caller reads
+   * flows off its own collection type, and the walk should not know that type.
+   * Omitted entirely, no flow rows are emitted and every existing caller and
+   * test behaves exactly as before.
+   *
+   * NOT FILTERED BY THE SEARCH QUERY, because the markup does not filter them
+   * either — a collection's flows are drawn whenever the collection is drawn.
+   * The walk's contract is to match what is on screen row for row; making the
+   * two disagree here is precisely the silent-drift failure this file exists to
+   * prevent. Filtering flows is a change to the markup and to this callback
+   * together, in that order.
+   */
+  flowsFor?: (collectionId: string) => readonly SidebarRowFlow[]
 }
 
-export type SidebarRowKind = 'collection' | 'folder' | 'request' | 'example'
+export type SidebarRowKind = 'collection' | 'folder' | 'request' | 'example' | 'flow'
 
 /**
  * One drawn row.
@@ -97,6 +129,15 @@ export type SidebarRow = {
   key: string
   collectionId: string
   folder: string
+  /**
+   * The leaf this row names: a request's id on a request or example row, and a
+   * FLOW's id on a flow row.
+   *
+   * Sharing the field rather than adding `flowId` beside it is what lets
+   * sidebarObjectForRow stay a single mapping — and what lets every consumer
+   * that already narrows on `kind` before reading this keep working untouched.
+   * '' on a collection or folder row.
+   */
   itemId: string
   exampleId: string
   /** 0 for a collection, 1 for a folder or a root request, and so on down. */
@@ -154,6 +195,9 @@ const groupOffsetKey = (collectionId: string, folder: string) =>
  */
 export function walkSidebar(input: SidebarRowsInput): SidebarWalk {
   const { collections, groupsFor, collapsedCollections, collapsedFolders, searchQuery, folderKey } = input
+  // No flows unless the caller supplies them, so every existing caller — and
+  // every existing test — walks exactly the tree it walked before.
+  const flowsFor = input.flowsFor ?? (() => [])
   // The fallback resolves a missing id to the name, which is the same rule
   // workbench/tabPresentation applies — an example with no id is identified by
   // what it is called.
@@ -253,6 +297,45 @@ export function walkSidebar(input: SidebarRowsInput): SidebarWalk {
           // Deliberately not `offset += 1`. See the note above.
         }
       }
+    }
+
+    // Flows come last, after every folder and request, because that is where
+    // the markup draws them — and a walk that agrees with the DOM about
+    // ordering is the entire contract here.
+    //
+    // COUNTED IN `offset`, unlike examples, and the difference is height. The
+    // window arithmetic multiplies ONE measured row height, sampled from
+    // `.request-row-shell`; `.sidebar-flow-row` sets the same `min-height:
+    // 28px` that `.request-row` does, so a flow row IS that height and
+    // counting it makes the offsets of every later collection more correct
+    // rather than differently wrong. An example row sets no height at all,
+    // which is why it stays excluded.
+    //
+    // The residual imprecision is the `Flows` heading, which occupies height
+    // and is not a row. It is one heading per collection that has flows, it is
+    // the same class of error the examples note already describes, and closing
+    // it means variable-height windowing in virtualList.ts rather than a
+    // different sum here.
+    for (const flow of flowsFor(collection.id)) {
+      rows.push({
+        kind: 'flow',
+        // The prefix matches flowView.ts's flowRowKey exactly. The markup
+        // already builds its DOM ids from that function, so a walk that
+        // invented its own prefix would emit rows whose keys never resolve to
+        // an element — aria-activedescendant pointing at nothing, and focus
+        // landing nowhere.
+        key: `fl:${collection.id}:${flow.id}`,
+        collectionId: collection.id,
+        folder: '',
+        itemId: flow.id,
+        exampleId: '',
+        // A sibling of a root request: a flow belongs to the collection, not to
+        // any folder, so it can never sit deeper than one.
+        depth: 1,
+        label: flow.name,
+        windowIndex: offset
+      })
+      offset += 1
     }
   }
 

@@ -5,6 +5,7 @@
   // initial graph and save nothing.
   import type { types } from '../../../../wailsjs/go/models'
   import Modal from '../Modal.svelte'
+  import IconButton from '../../ui/IconButton.svelte'
 
   export let activeCollection: types.Collection
   export let generateDocsFolderCount: number
@@ -23,13 +24,28 @@
   // `generateDocsSelectAllInput` reference via bind:selectAllInput, so the
   // indeterminate-state logic there is untouched.
   export let selectAllInput: HTMLInputElement | null = null
+
+  // What an environment with no colour set is drawn as.
+  //
+  // This list used to answer #64748b (grey) and the environment editor answers
+  // #2f8cff (blue), for the identical state — so the same uncoloured
+  // environment had two different "no colour yet" appearances one screen apart.
+  // The editor's answer wins because it is the consequential one: its value is
+  // pre-filled into a <input type="color">, so blue is what actually gets saved
+  // the moment anyone touches that control. The swatch here now predicts that
+  // rather than contradicting it.
+  //
+  // Still a literal rather than a token because the other site is that colour
+  // input, which takes a hex attribute and cannot take a var(). Extracting the
+  // pair into one shared constant needs an App.svelte edit; see the handoff.
+  const defaultEnvironmentColor = '#2f8cff'
 </script>
 
-<Modal labelledBy="generate-docs-title" onClose={cancelGenerateDocsModal} dialogClass="prompt-dialog generate-docs-dialog" testId="generate-docs-modal">
+<Modal labelledBy="generate-docs-title" onClose={cancelGenerateDocsModal} testId="generate-docs-modal" size="medium" busy={busy !== ''}>
       <form on:submit|preventDefault={generateCollectionDocs}>
         <header>
           <h2 id="generate-docs-title">Generate Documentation</h2>
-          <button type="button" class="icon-button" title="Cancel" on:click={cancelGenerateDocsModal}>x</button>
+          <IconButton icon="close" label="Close" onclick={cancelGenerateDocsModal} />
         </header>
         <div class="generate-docs-content">
           <h3 data-testid="generate-docs-heading">Interactive API Documentation</h3>
@@ -51,7 +67,7 @@
               <div class="card-divider"></div>
               <div class="env-section-header">
                 <div class="env-section-heading">
-                  <h4 class="env-section-title" data-testid="env-section-title">Environments to include</h4>
+                  <h4 class="env-section-title" data-testid="env-section-title">Environments to Include</h4>
                   <span class="env-section-count" data-testid="env-selected-count">({generateDocsSelectedCount}/{generateDocsEnvironments.length} selected)</span>
                 </div>
                 <label class="env-select-all">
@@ -74,7 +90,7 @@
                       checked={generateDocsSelectedEnvIds.includes(env.id)}
                       on:change={(event) => toggleGenerateDocsEnvironment(env.id, event.currentTarget.checked)}
                     />
-                    <span class="env-color" style={`background: ${env.color || '#64748b'}`}></span>
+                    <span class="env-color" style={`background: ${env.color || defaultEnvironmentColor}`}></span>
                     <span>{env.name}</span>
                   </label>
                 {/each}

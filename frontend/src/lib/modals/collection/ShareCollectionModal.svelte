@@ -3,6 +3,7 @@
   // markup is not in the initial chunk. Imported dynamically from inside the
   // {#if} that gates it.
   import Modal from '../Modal.svelte'
+  import IconButton from '../../ui/IconButton.svelte'
   import type { types } from '../../../../wailsjs/go/models'
 
   // Bindable: the format cards assign to this directly, so it has to write back
@@ -24,16 +25,16 @@
   export let shareCollectionResult: types.CollectionExportResult | undefined = undefined
 </script>
 
-<Modal labelledBy="share-collection-title" onClose={cancelShareCollectionModal} dialogClass="prompt-dialog share-collection-dialog" testId="share-collection-modal">
+<Modal labelledBy="share-collection-title" onClose={cancelShareCollectionModal} testId="share-collection-modal" size="large" busy={busy !== ''}>
       <form on:submit|preventDefault={shareCollectionProceed}>
         <header>
           <h2 id="share-collection-title">Share Collection</h2>
-          <button type="button" class="icon-button" title="Cancel" on:click={cancelShareCollectionModal}>x</button>
+          <IconButton icon="close" label="Close" onclick={cancelShareCollectionModal} />
         </header>
         <div class="share-collection-content">
           <p>Bruno-compatible collection exports use <a href="https://opencollection.com" target="_blank" rel="noreferrer">OpenCollection</a>, an open format for API collections.</p>
 
-          <div class="share-section-title">Bruno-compatible format</div>
+          <div class="share-section-title">Bruno-Compatible Format</div>
           <div class="share-format-grid">
             <button
               type="button"
@@ -124,9 +125,16 @@
             </div>
           {/if}
         </div>
-        <div class="button-row modal-footer">
+        <div class="button-row">
           <button type="button" on:click={cancelShareCollectionModal}>{shareCollectionResult ? 'Close' : 'Cancel'}</button>
-          <button class="primary" type="submit" data-testid="share-collection-proceed" disabled={busy !== ''}>{busy === 'share collection' ? 'Exporting...' : 'Proceed'}</button>
+          <!--
+            "Export", not "Proceed". Proceed named no action at all — it was the
+            only confirm button in the app that did not say what pressing it
+            would do — while this same button's own busy label said "Exporting…"
+            and the result panel above says "Exported {filename}". The dialog
+            already used the word twice; the button was the one place it did not.
+          -->
+          <button class="primary" type="submit" data-testid="share-collection-proceed" disabled={busy !== ''}>{busy === 'share collection' ? 'Exporting…' : 'Export'}</button>
         </div>
       </form>
 </Modal>

@@ -21,6 +21,8 @@
   // chunk repeatedly, and each new instance would flash its placeholder again
   // even though the code was already in memory.
 
+  import type { Snippet } from 'svelte'
+
   type Language = 'json' | 'xml' | 'javascript' | 'markdown' | 'text' | 'graphql'
   type VariableInfo = { name: string; scope: string; resolvedValue: string; secret: boolean; found: boolean; validName: boolean }
 
@@ -34,6 +36,8 @@
     fontSize?: number
     onChange: (value: string) => void
     variableInfo?: VariableInfo[]
+    /** Forwarded verbatim; see CodeEditor's own note on this slot. */
+    toolbarStart?: Snippet
   }
 
   let {
@@ -44,7 +48,8 @@
     testId = 'code-editor',
     fontSize = 13,
     onChange,
-    variableInfo = []
+    variableInfo = [],
+    toolbarStart = undefined
   }: Props = $props()
 
   const editorModule = import('./CodeEditor.svelte')
@@ -66,6 +71,7 @@
     {fontSize}
     {onChange}
     {variableInfo}
+    {toolbarStart}
   />
 {:catch error}
   <!-- A failed chunk load is a real, if rare, condition (an interrupted update

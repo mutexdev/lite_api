@@ -3,6 +3,7 @@
   // initial chunk. Imported dynamically from inside the {#if} that gates it.
   import type { types } from '../../../../wailsjs/go/models'
   import Modal from '../Modal.svelte'
+  import IconButton from '../../ui/IconButton.svelte'
 
   export let generatedExample: types.ResponseExample
   export let responseExampleCodeLanguage: string
@@ -12,10 +13,10 @@
   export let closeResponseExampleCode: () => void
 </script>
 
-<Modal labelledBy="response-example-code-title" onClose={closeResponseExampleCode} dialogClass="prompt-dialog code-generator-dialog">
+<Modal labelledBy="response-example-code-title" onClose={closeResponseExampleCode} size="large">
         <header>
           <h2 id="response-example-code-title">Generate Code - {generatedExample.name}</h2>
-          <button type="button" class="icon-button" title="Close" on:click={closeResponseExampleCode}>x</button>
+          <IconButton icon="close" label="Close" onclick={closeResponseExampleCode} />
         </header>
         <div class="field-grid code-generator-controls">
           <span class="field-label">Language</span>

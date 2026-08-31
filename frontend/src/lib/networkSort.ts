@@ -1,11 +1,24 @@
-// Sorting the DevTools network table.
+// Sorting — and, since the network table became a component, presenting — the
+// network log.
 //
 // A column header is a tri-state control: click once to sort ascending, again
 // for descending, again to turn sorting off entirely. The third state matters —
 // without it there is no way back to the log's natural chronological order,
 // which is the order that makes a request sequence readable.
+//
+// The cell formatters at the bottom of this file used to be six private
+// functions inside App.svelte, three of which were then passed down to
+// RequestDetailsPanel as props so that the detail pane could render the same
+// strings as the table. That is a component taking a formatter as a parameter
+// because the formatter lives in a file it cannot import from — and it meant
+// the legacy `activeView === 'network'` table, which is in the same file, still
+// rendered `row.status` and `row.durationMs` raw rather than calling any of
+// them. Sorting and formatting are the same subject here (`networkSortValue`
+// and `networkDomain` already lived together), so they now live in one module
+// that every network surface imports.
 
 import type { types } from '../../wailsjs/go/models'
+import { formatBytes, formatWallClockTime } from './formatting.ts'
 
 export type NetworkSortKey = 'method' | 'status' | 'domain' | 'path' | 'time' | 'duration' | 'size'
 export type NetworkSortDirection = 'asc' | 'desc' | ''
@@ -127,6 +140,20 @@ export function networkSortValue(row: types.NetworkLog, key: NetworkSortKey): st
 }
 
 /**
+ * Keeps only the rows whose method the filter bar has ticked.
+ *
+ * An UNKNOWN method — anything outside NETWORK_METHODS — is filtered OUT, which
+ * is the behaviour App.svelte had and is worth stating rather than inheriting:
+ * `filters[method] === true` is false for a method the bar has no checkbox for,
+ * so a TRACE request is invisible with no way to reveal it. Preserved here
+ * because changing it is a product decision, not a refactor; noted in the
+ * handoff.
+ */
+export function filteredNetworkRows(rows: types.NetworkLog[], filters: Record<string, boolean>): types.NetworkLog[] {
+  return rows.filter((row) => filters[normalizedNetworkMethod(row)] === true)
+}
+
+/**
  * Sorts the rows, or returns them untouched when sorting is off.
  *
  * Untouched means the SAME ARRAY, not a copy: the off state exists to show the
@@ -153,7 +180,33 @@ export function sortNetworkRows(
   })
 }
 
-/** The column widths a table that has never been resized starts with. */
+/**
+ * The columns, in order, and the widths a table that has never been resized
+ * starts with.
+ *
+ * These two are declared next to each other because `normalizedNetworkColumnWidths`
+ * rejects a stored array whose LENGTH does not match the default — that is the
+ * guard against a build that adds a column shifting every restored width onto
+ * the wrong header. The guard only works if the default width list and the
+ * column list stay the same length, and until now they were seven entries in
+ * `networkSort.ts` and seven entries in `App.svelte` with nothing but luck
+ * holding them equal. `networkSort.test.mts` now asserts it.
+ */
+export const NETWORK_COLUMNS: { key: NetworkSortKey; label: string }[] = [
+  { key: 'method', label: 'Method' },
+  { key: 'status', label: 'Status' },
+  { key: 'domain', label: 'Domain' },
+  { key: 'path', label: 'Path' },
+  { key: 'time', label: 'Time' },
+  { key: 'duration', label: 'Duration' },
+  { key: 'size', label: 'Size' }
+]
+
+export const NETWORK_SORT_KEYS: NetworkSortKey[] = NETWORK_COLUMNS.map((column) => column.key)
+
+/** The methods the filter bar offers, in the order it offers them. */
+export const NETWORK_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']
+
 export const DEFAULT_NETWORK_COLUMN_WIDTHS = [80, 70, 180, 300, 110, 100, 80]
 
 /** The narrowest a column may be dragged or restored to. */
@@ -242,4 +295,57 @@ export function resizeAdjacentColumns(
   next[index] = left + clamped
   next[index + 1] = right - clamped
   return next
+}
+
+/* ---------------------------------------------------------------------------
+   Cell formatters.
+
+   Every one of these keeps the exact output App.svelte produced, including the
+   choice of "-" for a missing value. That "-" disagrees with formatting.ts,
+   which writes "—" for an absent status and "" for an absent time; the two
+   vocabularies should converge, but converging them here would change what the
+   network table renders as part of a change about where the code lives, and
+   those are two different reviews. Flagged in the handoff instead.
+   --------------------------------------------------------------------------- */
+
+/** The Time column: a wall-clock reading, or "-" when the row has no usable timestamp. */
+export function networkLogTime(row: types.NetworkLog): string {
+  return formatWallClockTime(row.at as string | undefined) || '-'
+}
+
+/** The Status column. 0 and undefined both mean "no response arrived". */
+export function networkStatusDisplay(status: number | undefined): string {
+  return status ? String(status) : '-'
+}
+
+/** The Size column. */
+export function networkSizeDisplay(value: number | undefined): string {
+  return formatBytes(value)
+}
+
+/**
+ * The header pairs of one request or response, sorted by name.
+ *
+ * Sorted rather than in wire order because the pane exists to answer "is this
+ * header set, and to what" — a question answered by looking a name up, which
+ * needs a stable place to look.
+ */
+export function networkHeaderRows(headers: Record<string, string> | undefined): Array<[string, string]> {
+  return Object.entries(headers ?? {}).sort(([left], [right]) => left.localeCompare(right))
+}
+
+/** A request or response body, or "" when there is nothing but whitespace to show. */
+export function networkLogBody(value: string | undefined): string {
+  return value?.trim() ? value : ''
+}
+
+/** The Network subtab's summary lines. The error line is dropped when there is no error. */
+export function networkLogLines(row: types.NetworkLog | undefined): string[] {
+  if (!row) return []
+  return [
+    `Started: ${networkLogTime(row)}`,
+    `Duration: ${row.durationMs ?? 0} ms`,
+    `Size: ${networkSizeDisplay(row.size)}`,
+    row.error ? `Error: ${row.error}` : ''
+  ].filter(Boolean)
 }

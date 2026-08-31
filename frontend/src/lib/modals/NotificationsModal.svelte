@@ -4,6 +4,7 @@
   // that gates it; a static import would leave it in the initial graph.
   import type { types } from '../../../wailsjs/go/models'
   import Modal from './Modal.svelte'
+  import IconButton from '../ui/IconButton.svelte'
 
   export let unreadNotificationCount: number
   // Mirrors App.svelte's local NotificationTab. Declared here rather than
@@ -28,13 +29,27 @@
   export let closeNotifications: () => void
 </script>
 
-<Modal labelledBy="notifications-title" onClose={closeNotifications} dialogClass="notification-modal">
+<!--
+  dialogClass now leads with prompt-dialog, which it did not before.
+
+  This was one of three dialogs that took no part in the shared box treatment:
+  .notification-modal re-declared the border, radius, background and shadow that
+  .prompt-dialog already sets, to the same values, so restyling the shell meant
+  finding and editing four rules instead of one. Composing means the duplicates
+  can go.
+
+  PAIRED WITH A style.css EDIT, which is in the handoff and has to land with
+  this line: .prompt-dialog also sets padding, and this dialog is an
+  edge-to-edge list/detail grid that must have none. Until .notification-modal
+  declares `padding: 0`, this dialog renders with a 16px inset it does not want.
+-->
+<Modal labelledBy="notifications-title" onClose={closeNotifications} dialogClass="prompt-dialog notification-modal" size="large" busy={busy !== ''}>
       <header>
         <div>
           <h2 id="notifications-title">Notifications</h2>
           <p>{unreadNotificationCount} unread</p>
         </div>
-        <button type="button" class="icon-button" title="Close notifications" on:click={closeNotifications}>x</button>
+        <IconButton icon="close" label="Close" onclick={closeNotifications} />
       </header>
       <div class="notification-tabs">
         <div class="segmented compact">
@@ -47,8 +62,8 @@
           </button>
         </div>
         <div class="button-row compact">
-          <button type="button" on:click={markAllNotificationsRead} disabled={unreadNotificationCount === 0 || busy !== ''}>Mark all as read</button>
-          <button type="button" on:click={clearNotifications} disabled={visibleNotifications.length === 0 || busy !== ''}>Clear all</button>
+          <button type="button" on:click={markAllNotificationsRead} disabled={unreadNotificationCount === 0 || busy !== ''}>Mark All as Read</button>
+          <button type="button" on:click={clearNotifications} disabled={visibleNotifications.length === 0 || busy !== ''}>Clear All</button>
         </div>
       </div>
       <div class="notification-content">
