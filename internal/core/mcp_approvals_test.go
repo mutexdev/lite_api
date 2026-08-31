@@ -526,23 +526,3 @@ func TestAMixedApprovalFileKeepsTheUsableEntriesAndStillWarns(t *testing.T) {
 		t.Errorf("the mixed file was not kept: %v", err)
 	}
 }
-
-// --- the shipped host guard's remembered half -------------------------------
-
-// The (secret, host) lookup answers "nothing", deliberately: the store no longer
-// holds such pairs, and honouring the ones the migration ignored would
-// reintroduce exactly the wider scope §6 removed. The direction of the change is
-// one extra prompt, never one extra destination.
-func TestLegacyRememberedHostLookupIsEmpty(t *testing.T) {
-	app := newAppForTest(t)
-	if err := app.rememberMCPApproval(testSite("req_charge"), mustOrigin(t, "https://api.example.com"), kindClassRequest); err != nil {
-		t.Fatalf("rememberMCPApproval: %v", err)
-	}
-	hosts, err := app.mcpRememberedHostsForSecret("apiToken")
-	if err != nil {
-		t.Fatalf("mcpRememberedHostsForSecret: %v", err)
-	}
-	if len(hosts) != 0 {
-		t.Errorf("the legacy per-secret lookup returned %v, want nothing", hosts)
-	}
-}

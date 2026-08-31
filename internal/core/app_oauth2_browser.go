@@ -22,7 +22,7 @@ import (
 )
 
 func requestOAuth2AuthorizationCodeTokenWithTimeline(cfg OAuth2Auth, code, codeVerifier, redirectURI string) (oauth2TokenResponse, *TimelineItem, error) {
-	return requestOAuth2AuthorizationCodeTokenWithTimelineContext(context.Background(), cfg, code, codeVerifier, redirectURI)
+	return requestOAuth2AuthorizationCodeTokenWithTimelineContext(uiEntryPointContext(), cfg, code, codeVerifier, redirectURI)
 }
 
 func requestOAuth2AuthorizationCodeTokenWithTimelineContext(ctx context.Context, cfg OAuth2Auth, code, codeVerifier, redirectURI string) (oauth2TokenResponse, *TimelineItem, error) {
@@ -117,7 +117,7 @@ func (a *App) openOAuth2AuthorizationURL(authorizeURL, callbackURL, grantType st
 }
 
 func (a *App) requestOAuth2AuthorizationCodeTokenWithTimeline(cfg OAuth2Auth) (oauth2TokenResponse, []TimelineItem, error) {
-	return a.requestOAuth2AuthorizationCodeTokenWithTimelineContext(context.Background(), cfg)
+	return a.requestOAuth2AuthorizationCodeTokenWithTimelineContext(uiEntryPointContext(), cfg)
 }
 
 // requestOAuth2AuthorizationCodeTokenWithTimelineContext carries a SECOND copy
@@ -202,7 +202,7 @@ func (a *App) requestOAuth2AuthorizationCodeTokenWithTimelineContext(ctx context
 }
 
 func (a *App) requestOAuth2ImplicitTokenWithTimeline(cfg OAuth2Auth) (oauth2TokenResponse, []TimelineItem, error) {
-	return a.requestOAuth2ImplicitTokenWithTimelineContext(context.Background(), cfg)
+	return a.requestOAuth2ImplicitTokenWithTimelineContext(uiEntryPointContext(), cfg)
 }
 
 // requestOAuth2ImplicitTokenWithTimelineContext refuses under MCP provenance for

@@ -38,20 +38,10 @@ func (a *App) sendRequestWithControls(collectionID, itemID, environmentID string
 	return state, controls, err
 }
 
-// sendRequestWithControlsContext is the MIGRATION DELEGATE (§4.5). It exists so
-// that a caller which has not yet been given provenance still compiles and still
-// behaves, and it is deleted in the final wave once a grep proves it has none.
-//
-// IT DOES NOT READ THE POLICY OFF THE CONTEXT, deliberately. Recovering the
-// policy here would reinstate exactly the inference the required argument
-// exists to abolish: "no policy on the context" would once again mean "UI", and
-// an MCP path that forgot to pass provenance would sail through wearing a UI
-// label. Every real MCP caller passes mcpSendProvenance explicitly.
-func (a *App) sendRequestWithControlsContext(parent context.Context, collectionID, itemID, environmentID string, promptValues map[string]string, index *runnerLookupIndex, iteration runner.Iteration) (AppState, scripting.Controls, *Response, error) {
-	return a.sendRequestWithControlsContextProvenance(parent, legacyUnlabeled(), collectionID, itemID, environmentID, promptValues, index, iteration)
-}
-
-// sendRequestWithControlsContextProvenance is the send path's root.
+// sendRequestWithControlsContextProvenance is the send path's root, and the
+// ONLY way into it. A migration delegate under the old name
+// (sendRequestWithControlsContext) carried unmigrated callers for one wave and
+// was deleted once a grep proved it had none.
 //
 // PROVENANCE IS AN ARGUMENT, NOT AN INFERENCE (§4.5). It used to be derived from
 // the context — a policy meant "MCP", its absence meant "UI" — which made the
@@ -171,15 +161,22 @@ func (a *App) sendRequestWithControlsContextProvenance(parent context.Context, p
 	// §5 rows 11 and 12. A nested bru.runRequest inherits the parent execution's
 	// context, which is how its own sends land inside the same policy and the
 	// same cancellation; and the script sandbox's sendRequest/fetch/DNS shims
-	// consult the authorizer before they reach the network. Both are left nil
-	// for a UI send, which is scripting's documented "permissive, unchanged"
-	// shape.
+	// consult the authorizer before they reach the network.
 	scriptMeta.RunRequest = func(target string) (Response, *TimelineItem, error) {
 		return a.runScriptedCollectionRequest(executionContext, collectionID, target, environmentID, scriptVariables, scriptCookieJar, &scriptLogs, &scriptRunDepth, scriptMeta.RecordTimeline)
 	}
+	// THE CONTEXT IS SET FOR EVERY SEND, UI INCLUDED, and only the AUTHORIZER is
+	// MCP-only. The script client is one of the three the guard transport wraps
+	// (§4.3), and under strict provenance an unlabeled request through it is
+	// refused — so a UI send whose script calls out has to carry the UI label,
+	// which executionContext already holds because the root stamped it. Leaving
+	// it nil would build the script's request on context.Background() and turn
+	// every scripted fetch in the app into a refusal. The kind narrowing is
+	// inert for a UI send; the authorizer, which is the part that can say no,
+	// stays nil, so scripting's "permissive, unchanged" shape is preserved.
+	scriptMeta.RequestContext = mcpContextWithEgressKind(executionContext, egressKindScript)
 	if mcpPolicy != nil {
 		scriptMeta.EgressAuthorizer = mcpScriptEgressAuthorizer(executionContext, mcpPolicy)
-		scriptMeta.RequestContext = mcpContextWithEgressKind(executionContext, egressKindScript)
 	}
 
 	var response Response
@@ -825,6 +822,10 @@ func (a *App) runScriptedCollectionRequest(ctx context.Context, collectionID, ta
 	nestedMeta.RunRequest = func(target string) (Response, *TimelineItem, error) {
 		return a.runScriptedCollectionRequest(ctx, collectionID, target, environmentID, nestedVariables, jar, logs, depth, recordTimeline)
 	}
+	// UNCONDITIONAL, for the reason the outer send gives: the script client is
+	// guard-wrapped, so a nested UI send whose script calls out must carry the
+	// UI label too or strict provenance refuses it.
+	nestedMeta.RequestContext = mcpContextWithEgressKind(ctx, egressKindScript)
 	a.mu.Unlock()
 
 	// PUSHED HERE, WITH THE POP DEFERRED IMMEDIATELY (§4.1). Outside the lock
@@ -839,7 +840,6 @@ func (a *App) runScriptedCollectionRequest(ctx context.Context, collectionID, ta
 		policy.PushScope(mcpDefinitionOrigins(*nestedScope))
 		defer policy.PopScope()
 		nestedMeta.EgressAuthorizer = mcpScriptEgressAuthorizer(ctx, policy)
-		nestedMeta.RequestContext = mcpContextWithEgressKind(ctx, egressKindScript)
 	}
 
 	var response Response

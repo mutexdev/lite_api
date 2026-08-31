@@ -524,7 +524,7 @@ func (a *App) ListGRPCMethods(collectionID, itemID, environmentID string) ([]GRP
 	// §4.5: a UI binding that dials outside the send seam labels its own
 	// egress. This one reflects against the user's gRPC server and may fetch an
 	// OAuth2 token to do it, neither of which passes through
-	// sendRequestWithControlsContext — so the provenance has to be attached
+	// sendRequestWithControlsContextProvenance — so the provenance has to be attached
 	// here or the egress is unlabeled, which strict mode refuses.
 	ctx, cancel := context.WithTimeout(mcpContextWithUIProvenance(context.Background()), time.Duration(timeout)*time.Millisecond)
 	defer cancel()

@@ -15,11 +15,10 @@ package core
 //     rule anyone has to remember: the overlay is a policy field that never
 //     reaches AppState, and Base derives only from AppState reads).
 //
-// AND IT IS NEVER A UNION OVER ENVIRONMENTS. This is the deliberate divergence
-// from the shipped host guard, which resolves each candidate request under every
-// environment its collection defines (mcp_guard.go's mcpKnownHostsForSecret).
-// That widening is right for "which hosts does this credential already serve";
-// it is wrong here. A run holding PRODUCTION credentials has exactly
+// AND IT IS NEVER A UNION OVER ENVIRONMENTS. This was the deliberate divergence
+// from the retired host guard, which resolved each candidate request under every
+// environment its collection defined. That widening is right for "which hosts
+// does this credential already serve"; it is wrong here. A run holding PRODUCTION credentials has exactly
 // production's origins, and a dev-only origin prompts — because sending
 // production's credential to the dev host is precisely the mistake the boundary
 // exists to catch, and unioning the environments would authorize it silently.

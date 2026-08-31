@@ -187,6 +187,36 @@ var toolRegistry = []toolEntry{
 		Handler: toolGetRequest,
 	},
 	{
+		Name: "inspect_request",
+		Description: "Returns the EFFECTIVE request — what a run would actually be built from — plus the variable report you need before you can compose a call. " +
+			"Call this INSTEAD OF get_request whenever you are about to run, reproduce, or write a request that resembles this one; get_request shows only what is " +
+			"written ON the request, and a request that carries no headers, no auth and no variables of its own can still send all three because a folder, the " +
+			"collection or an environment supplied them. It returns: request (get_request's whole payload, so you never need both calls, and it now includes " +
+			"graphqlVariables for a GraphQL request); headers (the merged set in send order, each row labelled with the level that contributed it — \"request\", " +
+			"\"folder\" with its path, or \"collection\" — where a name the request sets itself suppresses the inherited row); variables (every variable in scope, " +
+			"one row per name, labelled with the level that actually WINS for it: request, folder, collection, environment, global or runtime); scripts (every " +
+			"pre/post/tests level that runs, in execution order, with its level — a request with an empty preScript can still be running two inherited ones); " +
+			"references (every {{token}} the request reads, with kind, whether it resolves, where it resolves from, and where in the request it appears); " +
+			"unresolvedVariables (the short answer: ordinary variable names nothing in scope defines — pass these in run_request's variables, or pick an " +
+			"environment that defines them, rather than discovering them from a failed run); environment (the environment actually in effect); and settings (the " +
+			"transport posture a run really uses, which can differ from the stored one because the app's own preferences gate it). " +
+			"WHAT IT DOES NOT RESOLVE, and the notResolved field repeats this: nothing is interpolated, so every value is as authored and a {{template}} is a " +
+			"reference and never a value; scripts are reported but NOT executed, so a request with scripts can send something no static inspection can show; " +
+			"{{process.env.NAME}} references are listed but never checked, because .env is where credentials live; and {{?name}} prompt variables need the USER, " +
+			"so a run started from here cannot supply one. Redaction is get_request's, unchanged: secret variables travel as a name with an empty value and a " +
+			"secret flag, credential-shaped literals in header, param and auth rows are masked to \"<masked>\", and body content and scripts pass through exactly " +
+			"as authored and are not scanned.",
+		InputSchema: objectSchema(map[string]schemaProperty{
+			"collectionId": {Type: "string", Description: "Id of the collection holding the request, from list_collections."},
+			"requestId":    {Type: "string", Description: "Id of the request, from list_requests or search_requests."},
+			"environmentId": {Type: "string", Description: "Id of the COLLECTION environment to resolve variable names against, from list_environments — the same argument run_request takes, " +
+				"so inspecting with one id and running with it gives the same answer. Omitting it means NO collection environment applies, which is a real " +
+				"configuration and not a fallback to whatever is selected in the app's window: that selection is frontend state this server cannot read. The " +
+				"workspace's active global environment applies either way and cannot be chosen here."},
+		}, "collectionId", "requestId"),
+		Handler: toolInspectRequest,
+	},
+	{
 		Name: "list_environments",
 		Description: "Lists the global and per-collection environments with their variable names, each variable's secret flag and enabled flag, " +
 			"and which environment is active. Non-secret values come back as authored; the value of a secret variable is ALWAYS empty — you can " +
@@ -258,9 +288,19 @@ var toolRegistry = []toolEntry{
 			"masked, and testResults for the request's scripted tests. Read get_request first if you need to know what the call will send. " +
 			"Chaining several requests together is not this tool's job: call list_flows, and run_flow to execute a chain the user has already written.",
 		InputSchema: objectSchema(map[string]schemaProperty{
-			"collectionId":  {Type: "string", Description: "Id of the collection holding the request, from list_collections."},
-			"requestId":     {Type: "string", Description: "Id of the request to run, from list_requests or search_requests."},
-			"environmentId": {Type: "string", Description: "Id of the environment to resolve variables against, from list_environments. Omit it to use whichever environment is active in the app."},
+			"collectionId": {Type: "string", Description: "Id of the collection holding the request, from list_collections."},
+			"requestId":    {Type: "string", Description: "Id of the request to run, from list_requests or search_requests."},
+			// THE TRUTH, not the convenient claim this used to make. Omitting
+			// environmentId does NOT fall back to the app's selection: that
+			// selection is frontend state, persisted in the WebView and never
+			// written to the app state this server reads, so there is nothing
+			// to fall back TO. The run resolves with no collection environment
+			// at all, which for a collection that keeps its baseUrl in an
+			// environment is a materially different call.
+			"environmentId": {Type: "string", Description: "Id of the COLLECTION environment to resolve variables against, from list_environments. Omitting it means NO collection environment applies — it does " +
+				"NOT pick up whichever environment is selected in the app's window, because that selection is frontend state this server cannot read. If the request " +
+				"needs one (its {{baseUrl}} usually lives there), pass the id; call inspect_request to see what a given environment does and does not resolve. The " +
+				"workspace's active global environment applies either way and cannot be selected here — passing a global environment's id is refused."},
 			"variables": stringValuedObject("Non-secret variable overrides for this run only, as an object of string values, e.g. {\"storeId\":\"str_42\"}. " +
 				"Numbers and booleans must be quoted. Overriding a secret variable is refused."),
 		}, "collectionId", "requestId"),
@@ -281,9 +321,12 @@ var toolRegistry = []toolEntry{
 			"the flow's declared outputs. Steps run fail-fast, so a run that stopped at step 2 reports two steps and not three — that is the report that " +
 			"step 3 never ran, not a truncated answer.",
 		InputSchema: objectSchema(map[string]schemaProperty{
-			"collectionId":  {Type: "string", Description: "Id of the collection holding the flow, from list_collections."},
-			"flowId":        {Type: "string", Description: "Id of the flow to run, from list_flows."},
-			"environmentId": {Type: "string", Description: "Id of the environment to resolve variables against, from list_environments. Omit it to use whichever environment is active in the app."},
+			"collectionId": {Type: "string", Description: "Id of the collection holding the flow, from list_collections."},
+			"flowId":       {Type: "string", Description: "Id of the flow to run, from list_flows."},
+			// Same correction as run_request's: see the note there.
+			"environmentId": {Type: "string", Description: "Id of the COLLECTION environment every step resolves variables against, from list_environments. Omitting it means NO collection environment applies to " +
+				"any step — it does NOT pick up whichever environment is selected in the app's window, because that selection is frontend state this server cannot " +
+				"read. The workspace's active global environment applies either way and cannot be selected here."},
 			"inputs": stringValuedObject("Values for the flow's declared inputs, as an object of string values, e.g. {\"storeCode\":\"DHK-04\"}. " +
 				"Numbers and booleans must be quoted. A name the flow does not declare is refused, and so is a missing required input."),
 		}, "collectionId", "flowId"),
@@ -438,6 +481,14 @@ func toolSearchRequests(backend Backend, args toolArgs) (any, error) {
 
 func toolGetRequest(backend Backend, args toolArgs) (any, error) {
 	return backend.GetRequest(argString(args, "collectionId"), argString(args, "requestId"))
+}
+
+func toolInspectRequest(backend Backend, args toolArgs) (any, error) {
+	return backend.InspectRequest(
+		argString(args, "collectionId"),
+		argString(args, "requestId"),
+		argString(args, "environmentId"),
+	)
 }
 
 func toolListEnvironments(backend Backend, _ toolArgs) (any, error) {

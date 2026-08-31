@@ -713,15 +713,15 @@ func (o *mcpExecutionOverlay) setScopeMapLocked(scope mcpOverlayScope, values ma
 // to thread provenance would then silently behave as a UI send and skip every
 // refusal and every checkpoint. Instead it produces a zero value, which is
 // rejected.
+//
+// THERE ARE EXACTLY TWO CONSTRUCTORS, and that is now the whole story. A third,
+// legacyUnlabeled, existed for one wave so that the send and flow roots could
+// keep one-line delegates for callers nobody had migrated yet; it was deleted
+// with those delegates once a grep proved they had no callers left. Nothing can
+// produce a send that declines to say who asked for it.
 type sendProvenance struct {
 	ui     bool
 	policy *mcpEgressPolicy
-	// legacy marks the MIGRATION provenance produced by legacyUnlabeled: a send
-	// that reached a root through a delegate which could not say who asked for
-	// it. It behaves as a UI send while strict is off and is refused once strict
-	// flips, which is what makes the delegates' removal verifiable rather than
-	// hopeful. Deleted with legacyUnlabeled in the final wave.
-	legacy bool
 }
 
 // uiSendProvenance labels a user-initiated send: SendRequest, the collection
@@ -743,24 +743,6 @@ func mcpSendProvenance(p *mcpEgressPolicy) sendProvenance {
 	return sendProvenance{policy: p}
 }
 
-// legacyUnlabeled is the MIGRATION-ONLY third constructor, and it exists to be
-// deleted.
-//
-// The old send/flow entry points survive one wave longer as one-line delegates
-// so that a caller nobody has migrated yet still compiles and still works. What
-// they cannot do is claim to be a UI send: they pass this, which says "nobody
-// told me". While strict is off that reads as UI, so behavior is unchanged;
-// once strict flips it is refused at the root, before any work — so a delegate
-// that was missed becomes a loud failure rather than an unchecked egress
-// wearing a UI label.
-//
-// The final wave deletes this function together with the delegates, after a
-// grep proving they have no callers left, leaving uiSendProvenance and
-// mcpSendProvenance as the only two ways to produce provenance.
-func legacyUnlabeled() sendProvenance {
-	return sendProvenance{ui: true, legacy: true}
-}
-
 // valid reports whether this provenance was produced by one of the
 // constructors. A zero value is not.
 func (p sendProvenance) valid() bool {
@@ -770,24 +752,17 @@ func (p sendProvenance) valid() bool {
 // mcpRequireSendProvenance is the gate both send roots run BEFORE any work —
 // before the state lock, before a script, before a byte moves (§4.5).
 //
-// TWO REFUSALS, AND NEITHER IS A PANIC. A zero value means an engine path
-// reached a root without saying who asked for the send; that is a bug in
-// LiteAPI, and the honest response is a refusal the caller can render and a test
-// can assert on, not a crash that takes the app down and not a silent "assume
-// UI" that would defeat the entire type. A legacy value under strict is the
-// migration's own failure mode, reported separately so the message names the
-// actual fix (label the caller) rather than sending someone hunting for a
-// missing argument.
+// IT IS A REFUSAL AND NOT A PANIC. A zero value means an engine path reached a
+// root without saying who asked for the send; that is a bug in LiteAPI, and the
+// honest response is a refusal the caller can render and a test can assert on,
+// not a crash that takes the app down and not a silent "assume UI" that would
+// defeat the entire type.
 //
 // entryPoint is the root's own name, so the message points at the seam rather
 // than at whatever egress happened to be next.
 func mcpRequireSendProvenance(prov sendProvenance, entryPoint string) error {
 	if !prov.valid() {
 		return fmt.Errorf("%w: %s was reached with no send provenance, so LiteAPI could not tell whether this send belongs to an agent run; this is a bug in LiteAPI — report it rather than retrying",
-			mcpserver.ErrDenied, entryPoint)
-	}
-	if prov.legacy && mcpStrictEgressProvenance {
-		return fmt.Errorf("%w: %s was reached through the unlabeled migration path, which is no longer allowed to send; this is a bug in LiteAPI — report it rather than retrying",
 			mcpserver.ErrDenied, entryPoint)
 	}
 	return nil
@@ -829,6 +804,24 @@ func mcpContextWithUIProvenance(ctx context.Context) context.Context {
 		ctx = context.Background()
 	}
 	return context.WithValue(ctx, mcpPolicyContextKey{}, uiSendProvenance())
+}
+
+// uiEntryPointContext is the context a CONTEXT-LESS UI entry point starts from.
+//
+// WHY IT EXISTS. Several engine-adjacent entry points take no context — the
+// OAuth2 token helpers under their original names, the gRPC and WebSocket
+// bindings the Wails frontend calls — and they reach the network through the
+// same guard-wrapped clients an agent run uses. Under strict provenance an
+// unlabeled request through one of those clients is refused, so "no context"
+// cannot be left to mean "no label": the entry point has to say what it is, and
+// what it is, is a UI send (§4.5, §1.2(4)).
+//
+// IT IS NOT AN INFERENCE. The rule is not "a background context means UI" — it
+// is that a FUNCTION WHOSE ONLY CALLERS ARE THE UI states so at its own entry.
+// Every MCP path takes the ctx-carrying variant and passes the run's own
+// context; none of them can reach this.
+func uiEntryPointContext() context.Context {
+	return mcpContextWithUIProvenance(context.Background())
 }
 
 // mcpContextWithSendProvenance stamps an already-constructed provenance onto
@@ -896,11 +889,20 @@ func mcpBackstopEgressKind(ctx context.Context) egressKind {
 
 // mcpStrictEgressProvenance flips unlabeled egress from "allowed" to "refused".
 //
-// OFF UNTIL THE FINAL WAVE, deliberately. Every intermediate wave leaves some
-// engine path unlabeled, and refusing those before they are labeled would break
-// the app rather than harden it. Flipping it last turns "a path nobody
-// remembered to label" from an invisible hole into a loud, test-visible refusal.
-var mcpStrictEgressProvenance = false
+// ON. It was off through the migration, deliberately, because every
+// intermediate wave left some engine path unlabeled and refusing those before
+// they were labeled would have broken the app rather than hardened it. It is
+// the last thing the campaign turned on, and turning it on is what makes §1.2's
+// engineering property — "every egress through the wrapped clients carries
+// explicit provenance" — enforced rather than merely intended: a path nobody
+// remembered to label is now a loud, test-visible refusal instead of an
+// invisible hole.
+//
+// IT IS A VARIABLE AND NOT A CONSTANT ONLY SO TESTS CAN TURN IT OFF, which they
+// do to prove that the refusal is what changed behavior rather than something
+// else (mcp_policy_test.go's withStrictEgressProvenance). No production code
+// writes it.
+var mcpStrictEgressProvenance = true
 
 // mcpEgressGuardTransport is the backstop wrapped around exactly the three
 // clients that carry engine egress: the per-send copy in executeHTTP, the shared

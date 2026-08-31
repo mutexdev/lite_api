@@ -70,7 +70,9 @@ type flowRunPlan struct {
 	flow          types.Flow
 }
 
-// runFlow executes one flow.
+// runFlowProvenance executes one flow. It is the flow root, and the ONLY way
+// into it: a migration delegate under the old name (runFlow) carried unmigrated
+// callers for one wave and was deleted once a grep proved it had none.
 //
 // THE ERROR AND THE RESULT ANSWER DIFFERENT QUESTIONS, and both are returned.
 // A non-nil error means the run was REFUSED — unknown ids, a flow that no
@@ -84,15 +86,8 @@ type flowRunPlan struct {
 // The result is populated as far as the run got in both cases, so a guard that
 // stops step 3 still hands back what steps 1 and 2 did.
 //
-// THE MIGRATION DELEGATE (§4.5), deleted in the final wave. Like the send
-// path's, it does not recover a policy from the context: a flow that reaches
-// here unlabeled is unlabeled, and says so.
-func (a *App) runFlow(ctx context.Context, collectionID, flowID, environmentID string, inputs map[string]string, stepGuard flowStepGuard) (types.FlowRunResult, error) {
-	return a.runFlowProvenance(ctx, legacyUnlabeled(), collectionID, flowID, environmentID, inputs, stepGuard)
-}
-
-// runFlowProvenance is the flow root. See runFlow for what the run means and
-// sendRequestWithControlsContextProvenance for why provenance is an argument.
+// PROVENANCE IS AN ARGUMENT: see
+// sendRequestWithControlsContextProvenance for why.
 //
 // THE FLOW'S OWN PROVENANCE REACHES EVERY STEP, unchanged and by hand. A flow is
 // one execution: its steps share the policy (and therefore the execution

@@ -54,21 +54,25 @@ func oauth2TokenResponseFromStorage(storage oauth2TokenStorage) oauth2TokenRespo
 // THE OAUTH2 FETCH CHAIN COMES IN PAIRS (§4.5 of the Phase 6 design).
 //
 // Every function below that reaches the network has a *Context variant taking
-// the execution's context, and the ORIGINAL NAME SURVIVES as a one-line delegate
-// passing context.Background(). That is not politeness towards old code: the
-// callers of this chain live in files other tasks own — app_grpc.go:61,
-// app_grpc_stream.go:274 and app.go:538 attach the UI marker in their own wave,
-// and app_request_build.go's applyAuth threads the send's context in its own —
-// so a signature flip here would break files this task must not touch. The
-// delegates behave exactly as before, because a context with no provenance
-// carries no policy and mcpPolicyFromContext returns nil, which every checkpoint
-// below treats as "not an MCP run, do not check anything" (§1.2(4)).
+// the execution's context, and the ORIGINAL NAME SURVIVES as a one-line
+// delegate. The delegate is not a compatibility shim any more — every
+// production caller of this chain threads a real context — it is the UI ENTRY
+// POINT for a call that has no execution to belong to, and it says so by
+// starting from uiEntryPointContext() (§4.5).
 //
-// The delegates are deleted in the final wave, once every caller passes a
-// context of its own.
+// THAT LABEL IS LOAD-BEARING NOW THAT STRICT PROVENANCE IS ON. These helpers
+// reach the network through sharedCredentialHTTPClient, which is one of the
+// three clients the guard transport wraps, and an unlabeled request through it
+// is refused. Passing a bare context.Background() here would not mean "behaves
+// as before"; it would mean "cannot send at all".
+//
+// It is also not the inference §4.5 abolishes. The rule is not that a
+// background context reads as UI — mcpProvenanceFromContext still says
+// "unlabeled" for one, and the guard still refuses it. The rule is that a
+// function whose only callers are the UI states what it is at its own entry.
 
 func (a *App) fetchOAuth2Token(auth OAuth2Auth, vars map[string]string) (string, error) {
-	return a.fetchOAuth2TokenWithContext(context.Background(), auth, vars)
+	return a.fetchOAuth2TokenWithContext(uiEntryPointContext(), auth, vars)
 }
 
 func (a *App) fetchOAuth2TokenWithContext(ctx context.Context, auth OAuth2Auth, vars map[string]string) (string, error) {
@@ -77,7 +81,7 @@ func (a *App) fetchOAuth2TokenWithContext(ctx context.Context, auth OAuth2Auth, 
 }
 
 func (a *App) fetchOAuth2TokenWithTimeline(auth OAuth2Auth, vars map[string]string) (string, []TimelineItem, error) {
-	return a.fetchOAuth2TokenWithTimelineContext(context.Background(), auth, vars)
+	return a.fetchOAuth2TokenWithTimelineContext(uiEntryPointContext(), auth, vars)
 }
 
 // fetchOAuth2TokenWithTimelineContext is the whole grant decision: serve the
@@ -183,7 +187,7 @@ func (a *App) fetchOAuth2TokenWithTimelineContext(ctx context.Context, auth OAut
 }
 
 func fetchOAuth2Token(auth OAuth2Auth, vars map[string]string) (string, error) {
-	return fetchOAuth2TokenWithContext(context.Background(), auth, vars)
+	return fetchOAuth2TokenWithContext(uiEntryPointContext(), auth, vars)
 }
 
 // fetchOAuth2TokenWithContext is the cache-less package-level fetcher used by
@@ -254,7 +258,7 @@ func oauth2CacheKey(cfg OAuth2Auth) string {
 }
 
 func requestOAuth2Token(cfg OAuth2Auth) (oauth2TokenResponse, error) {
-	return requestOAuth2TokenContext(context.Background(), cfg)
+	return requestOAuth2TokenContext(uiEntryPointContext(), cfg)
 }
 
 func requestOAuth2TokenContext(ctx context.Context, cfg OAuth2Auth) (oauth2TokenResponse, error) {
@@ -263,7 +267,7 @@ func requestOAuth2TokenContext(ctx context.Context, cfg OAuth2Auth) (oauth2Token
 }
 
 func requestOAuth2TokenWithTimeline(cfg OAuth2Auth) (oauth2TokenResponse, *TimelineItem, error) {
-	return requestOAuth2TokenWithTimelineContext(context.Background(), cfg)
+	return requestOAuth2TokenWithTimelineContext(uiEntryPointContext(), cfg)
 }
 
 func requestOAuth2TokenWithTimelineContext(ctx context.Context, cfg OAuth2Auth) (oauth2TokenResponse, *TimelineItem, error) {
@@ -271,7 +275,7 @@ func requestOAuth2TokenWithTimelineContext(ctx context.Context, cfg OAuth2Auth) 
 }
 
 func requestOAuth2RefreshTokenWithTimeline(cfg OAuth2Auth, refreshToken string) (oauth2TokenResponse, *TimelineItem, error) {
-	return requestOAuth2RefreshTokenWithTimelineContext(context.Background(), cfg, refreshToken)
+	return requestOAuth2RefreshTokenWithTimelineContext(uiEntryPointContext(), cfg, refreshToken)
 }
 
 // requestOAuth2RefreshTokenWithTimelineContext is the refresh half of the
@@ -296,7 +300,7 @@ func requestOAuth2RefreshTokenWithTimelineContext(ctx context.Context, cfg OAuth
 }
 
 func requestOAuth2TokenWithGrantTimeline(cfg OAuth2Auth, grantType, refreshToken string) (oauth2TokenResponse, *TimelineItem, error) {
-	return requestOAuth2TokenWithGrantTimelineContext(context.Background(), cfg, grantType, refreshToken)
+	return requestOAuth2TokenWithGrantTimelineContext(uiEntryPointContext(), cfg, grantType, refreshToken)
 }
 
 func requestOAuth2TokenWithGrantTimelineContext(ctx context.Context, cfg OAuth2Auth, grantType, refreshToken string) (oauth2TokenResponse, *TimelineItem, error) {
@@ -343,7 +347,7 @@ func requestOAuth2TokenWithGrantTimelineContext(ctx context.Context, cfg OAuth2A
 }
 
 func requestOAuth2TokenFormWithTimeline(cfg OAuth2Auth, tokenURL string, form url.Values, params []OAuth2AdditionalParam) (oauth2TokenResponse, *TimelineItem, error) {
-	return requestOAuth2TokenFormWithTimelineContext(context.Background(), cfg, tokenURL, form, params)
+	return requestOAuth2TokenFormWithTimelineContext(uiEntryPointContext(), cfg, tokenURL, form, params)
 }
 
 // requestOAuth2TokenFormWithTimelineContext is the bottom of the chain and the

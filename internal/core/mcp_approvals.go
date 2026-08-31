@@ -351,27 +351,6 @@ func mcpStoredApprovalKey(approval types.MCPApproval) string {
 	return site.approvalKey(origin, class)
 }
 
-// mcpRememberedHostsForSecret is what is LEFT of the shipped host guard's
-// remembered-approval half, and it deliberately answers "nothing".
-//
-// WHY IT STILL EXISTS. Two callers outside this task's scope still ask the
-// question — the shipped host guard (mcp_guard.go) and the write-tier authoring
-// guard (mcp_write.go) — and both keep enforcing until the wave that retires
-// them. Deleting the function would be a compile break in files this change does
-// not own.
-//
-// WHY IT IS EMPTY. The store no longer holds (secret, host) pairs; §6 replaced
-// them with full-site approvals, and the migration rule below ignores every
-// legacy pair precisely so that an approval made under the old, wider scope
-// cannot authorize anything under the new one. Honouring them here would
-// reintroduce that scope through the back door. The consequence is one extra
-// prompt on a path where the user had remembered a pair — strictly the
-// fail-closed direction — and the run-tier guard makes it back up by consulting
-// the new store directly for the run's own site (enforceMCPHostGuard).
-func (a *App) mcpRememberedHostsForSecret(string) (map[string]bool, error) {
-	return map[string]bool{}, nil
-}
-
 // --- the file ---------------------------------------------------------------
 
 // mcpApprovalFileOnDisk is the file as read: entries stay raw so each can be

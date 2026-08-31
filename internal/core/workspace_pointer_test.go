@@ -37,7 +37,8 @@ import (
 //
 // It used to read app.go alone. That made it fail the moment
 // sendRequestWithControlsContextProvenance (then still named
-// sendRequestWithControlsContext) moved to app_send.go during the file split —
+// sendRequestWithControlsContextProvenance) moved to app_send.go during the
+// file split —
 // reporting a US-076 regression when nothing about the property had changed.
 // A guard that fires on code motion is a guard people learn to edit away.
 //

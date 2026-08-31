@@ -574,8 +574,14 @@ func TestMCPRunFlowGuardDeniesAStepThatRetargetsASecret(t *testing.T) {
 	if !errors.Is(err, mcpserver.ErrDenied) {
 		t.Fatalf("error is %v, want one that errors.Is(ErrDenied) so the audit records a denial", err)
 	}
-	if !strings.Contains(err.Error(), "exfil.attacker.example") || !strings.Contains(err.Error(), "apiToken") {
-		t.Errorf("the denial should name the host and the secret: %v", err)
+	// THE DENIAL NAMES THE DESTINATION, NOT THE CREDENTIAL, and that is the
+	// boundary's shape rather than a loss. Base(S, k) knows nothing about
+	// secrets (§1.2(1)): this step is refused because its origin is not in its
+	// own request's Base, and it would be refused identically if it carried no
+	// credential at all. Which secret happens to be travelling survives only as
+	// the prompt's advisory list (§6).
+	if !strings.Contains(err.Error(), "exfil.attacker.example") {
+		t.Errorf("the denial should name the origin it refused: %v", err)
 	}
 	if strings.Contains(err.Error(), mcpFlowSentinelToken) {
 		t.Fatalf("the denial carried the secret VALUE: %v", err)

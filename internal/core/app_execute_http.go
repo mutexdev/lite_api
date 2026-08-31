@@ -18,6 +18,7 @@ import (
 
 	"github.com/mutexdev/lite_api/internal/auth/digest"
 	"github.com/mutexdev/lite_api/internal/codegen"
+	"github.com/mutexdev/lite_api/internal/mcpserver"
 	"github.com/mutexdev/lite_api/internal/prefs"
 	"github.com/mutexdev/lite_api/internal/responsestore"
 	"github.com/mutexdev/lite_api/internal/scripting"
@@ -34,8 +35,8 @@ import (
 // Nothing in the name says so: there is no Locked suffix to carry the
 // convention, and until this file existed the invariant was expressed only by
 // the fact that the two callers sat a few hundred lines above. They are now
-// ~3,000 lines away in app.go (sendRequestWithControlsContext and
-// runScriptedCollectionRequest), so the invariant is written down instead.
+// ~3,000 lines away in app_send.go (sendRequestWithControlsContextProvenance
+// and runScriptedCollectionRequest), so the invariant is written down instead.
 func (a *App) executeHTTP(ctx context.Context, collectionID string, collection Collection, item RequestItem, vars map[string]string, onFailState *scripting.RequestState, recordTimeline func(TimelineItem)) Response {
 	if ctx == nil {
 		ctx = context.Background()
@@ -66,6 +67,36 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 		targetURL = scripting.EncodeRequestURL(targetURL)
 	}
 	result.RequestedURL = targetURL
+	// A DESTINATION THAT CANNOT BE READ IS REFUSED HERE, before anything else
+	// happens (§1.2(1)).
+	//
+	// The main checkpoint below would catch it too — Authorize denies the zero
+	// Origin with this same wording — but only after buildBody has read files
+	// off disk and applyAuth has resolved the request's credentials, which for
+	// OAuth2 means a token exchange. None of that should happen for a URL that
+	// can never be dialled. It also keeps the whole unresolvable family on one
+	// classification: a URL Go cannot parse used to escape as an ordinary
+	// request-construction failure, which is not a denial and does not wrap
+	// ErrDenied, so the same unusable destination was reported two different
+	// ways depending on how it was unusable.
+	//
+	// Non-prompting on purpose: there is no origin to ask the user about.
+	if policy := mcpPolicyFromContext(ctx); policy != nil {
+		if _, ok := OriginOfURL(targetURL); !ok {
+			// Asked of the policy rather than written here, so the message the
+			// agent reads is the one every other unresolvable destination
+			// produces. The zero Origin is never authorizable, so err is always
+			// non-nil; the fallback exists so a future change to that rule
+			// cannot turn a refusal into a nil-pointer panic.
+			err := policy.AuthorizeNoPrompt(Origin{}, egressKindMain)
+			if err == nil {
+				err = fmt.Errorf("%w: this run's main destination did not resolve to a usable origin, so it could not be checked; fix the URL or the variables it depends on", mcpserver.ErrDenied)
+			}
+			result.Error = err.Error()
+			result.DurationMs = time.Since(start).Milliseconds()
+			return result
+		}
+	}
 	method := strings.ToUpper(item.Method)
 	if method == "" {
 		method = http.MethodGet

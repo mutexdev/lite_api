@@ -6,7 +6,8 @@ package core
 //
 // A collection run resolves the same collection and the same request by ID five
 // times per request: findCollectionWithWorkspaceLocked + findItem on entry to
-// sendRequestWithControlsContext, findCollectionLocked + findItem on its tail,
+// sendRequestWithControlsContextProvenance, findCollectionLocked + findItem on
+// its tail,
 // and findItemInState back in the runner loop. Every one of those is a linear
 // scan, so a run of N requests over C collections costs O(N * (C + N/C)) in
 // lookups alone — quadratic in the number of requests.

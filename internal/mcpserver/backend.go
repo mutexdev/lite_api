@@ -52,6 +52,24 @@ type Backend interface {
 	SearchRequests(query string, limit int) ([]RequestSummary, error)
 	// GetRequest returns one request's full definition, redacted.
 	GetRequest(collectionID, requestID string) (RequestDetail, error)
+	// InspectRequest returns the EFFECTIVE request — what a run would
+	// actually be built from once the folder chain and the collection have
+	// contributed — plus the variable report an agent needs before it can
+	// compose a call: which {{names}} the request reads, which of them the
+	// chosen environment resolves, and which it must supply itself.
+	//
+	// environmentID selects the collection environment to resolve against.
+	// Empty means NO collection environment, which is a real configuration
+	// and not "whatever the app has selected": see RequestInspection's
+	// Environment field for why the app's own selection is unknowable here.
+	//
+	// The redaction rules are GetRequest's, unchanged — templates stay
+	// unresolved, a secret variable travels as its name with an empty value,
+	// credential-shaped literals are masked — and this method must not
+	// interpolate anything, for the reason at the top of the internal/core
+	// adapter: resolving a template here is exactly how a secret would reach
+	// the agent.
+	InspectRequest(collectionID, requestID, environmentID string) (RequestInspection, error)
 	// ListEnvironments returns global and collection environments with
 	// variable names; secret values are always empty.
 	ListEnvironments() ([]EnvironmentSummary, error)
@@ -327,14 +345,216 @@ type RequestDetail struct {
 	// which level supplied it ("request", "folder", "collection", or empty
 	// when nothing configures auth). Auth rows keep {{template}} values as
 	// written; literal credential values arrive masked (MaskAuthRows).
-	AuthType   string          `json:"authType,omitempty"`
-	AuthSource string          `json:"authSource,omitempty"`
-	Auth       []KeyValue      `json:"auth,omitempty"`
-	Vars       []KeyValue      `json:"vars,omitempty"`
-	PreScript  string          `json:"preScript,omitempty"`
-	PostScript string          `json:"postScript,omitempty"`
-	Tests      string          `json:"tests,omitempty"`
-	Settings   RequestSettings `json:"settings"`
+	AuthType   string     `json:"authType,omitempty"`
+	AuthSource string     `json:"authSource,omitempty"`
+	Auth       []KeyValue `json:"auth,omitempty"`
+	Vars       []KeyValue `json:"vars,omitempty"`
+	// GraphQLVariables is the variables document of a graphql body, as
+	// authored. Body carries only the QUERY for a graphql request, so without
+	// this field an agent reading a GraphQL request could not see which
+	// variables the query declares — it would have to infer them from the
+	// query text and would miss the defaults the user wrote. Like Body it is
+	// unscanned and unresolved: a {{template}} inside it arrives literal.
+	GraphQLVariables string          `json:"graphqlVariables,omitempty"`
+	PreScript        string          `json:"preScript,omitempty"`
+	PostScript       string          `json:"postScript,omitempty"`
+	Tests            string          `json:"tests,omitempty"`
+	Settings         RequestSettings `json:"settings"`
+}
+
+// The levels that can contribute a piece of an effective request, and the
+// scopes a variable can resolve from. They are the vocabulary of
+// InheritedRow.Level, InheritedScript.Level and VariableReference.Level, and
+// they are exported because an agent reads them and a test asserts them.
+//
+// The first three are the inheritance chain proper — a header, a script or a
+// variable written on the request, on a folder in its path, or on the
+// collection. The rest only ever appear on a variable, because only variables
+// have scopes beyond the tree: the selected collection environment, the
+// workspace's active global environments, and the runtime values a script
+// persisted with bru.setVar.
+const (
+	LevelRequest     = "request"
+	LevelFolder      = "folder"
+	LevelCollection  = "collection"
+	LevelEnvironment = "environment"
+	LevelGlobal      = "global"
+	LevelRuntime     = "runtime"
+)
+
+// The kinds a {{token}} in a request can be. Only KindVariable is answerable
+// from the collection: the other three resolve somewhere this adapter
+// deliberately does not look.
+const (
+	// KindVariable is an ordinary {{name}}, resolved from the variable scopes.
+	KindVariable = "variable"
+	// KindDynamic is {{$timestamp}}, {{$guid}} and the rest of the generated
+	// set. LiteAPI produces a fresh value at send time, so it always resolves
+	// and never needs supplying.
+	KindDynamic = "dynamic"
+	// KindPrompt is {{?name}}, which asks the USER for a value in the app. A
+	// headless run has nobody to ask, so it is reported and never resolved.
+	KindPrompt = "prompt"
+	// KindProcessEnv is {{process.env.NAME}}, resolved at send time from the
+	// process environment and the collection's .env file. Whether one is set,
+	// and what it holds, is deliberately not reported: .env is where
+	// credentials live, and even a present/absent answer is an oracle over it.
+	KindProcessEnv = "processEnv"
+)
+
+// InheritedRow is one row of an EFFECTIVE request — a header or a variable —
+// together with the level that contributed it.
+//
+// Level attribution is the whole point of the type. "Authorization: Bearer
+// {{apiToken}}" tells an agent what the call sends; "…and it comes from the
+// collection, not from this request" tells it what happens if it authors a
+// sibling request, and which file the user has to edit to change it.
+//
+// LevelPath disambiguates a level that can occur more than once: the folder's
+// path for LevelFolder, the environment's name for LevelEnvironment and
+// LevelGlobal. It is empty for the levels that are unique.
+//
+// Value obeys the same rules as KeyValue's: templates unresolved, a secret
+// variable's value always empty with Secret set, credential-shaped literals
+// masked.
+type InheritedRow struct {
+	Name      string `json:"name"`
+	Value     string `json:"value"`
+	Enabled   bool   `json:"enabled"`
+	Level     string `json:"level"`
+	LevelPath string `json:"levelPath,omitempty"`
+	Secret    bool   `json:"secret,omitempty"`
+}
+
+// InheritedScript is one script level that runs for this request, in the order
+// it runs. Phase is "pre", "post" or "tests".
+//
+// Scripts travel verbatim, exactly as get_request reports them, and for the
+// same reason: they are code the user wrote and an agent may need to read to
+// understand what the request actually does. The value of listing them here is
+// that a request with an empty preScript can still be running two inherited
+// ones, which get_request cannot show.
+type InheritedScript struct {
+	Phase     string `json:"phase"`
+	Level     string `json:"level"`
+	LevelPath string `json:"levelPath,omitempty"`
+	Script    string `json:"script"`
+}
+
+// InspectedEnvironment is the environment configuration this inspection was
+// resolved against — and, because the two halves behave differently, it
+// reports them separately.
+//
+// CollectionEnvironment is per call: it is the environmentId argument, and
+// omitting that argument means NO collection environment applied, not "the one
+// the app has selected". LiteAPI's collection-environment selection is
+// frontend state, persisted in the WebView rather than in the app state this
+// server reads, so there is no active collection environment for a tool to
+// fall back to and nothing here is guessing at one.
+//
+// Global is per workspace, persisted, and applies to every run whatever
+// environmentId says — including when it is omitted.
+type InspectedEnvironment struct {
+	CollectionEnvironmentID   string `json:"collectionEnvironmentId,omitempty"`
+	CollectionEnvironmentName string `json:"collectionEnvironmentName,omitempty"`
+	// GlobalEnvironmentNames are the workspace's active global environments,
+	// in the order their variables layer.
+	GlobalEnvironmentIDs   []string `json:"globalEnvironmentIds,omitempty"`
+	GlobalEnvironmentNames []string `json:"globalEnvironmentNames,omitempty"`
+	// Note states the selection rule in words, so an agent that reads only
+	// this payload is not left to infer it from two empty fields.
+	Note string `json:"note"`
+}
+
+// VariableReference is one {{token}} the effective request reads, with
+// everything an agent needs to decide whether it can run the call as it
+// stands.
+//
+// Resolved is the question the reviewer asked for: false means the selected
+// environment does not define this name and a run would send the braces
+// through literally, so the agent must pass it in run_request's variables (or
+// ask the user which environment to use) rather than discovering it from a
+// confusing 404.
+//
+// Where names every place the reference appears — "url", "header:Authorization",
+// "body", "auth:token", "variable:baseUrl" for one reached through another
+// variable's value — because "storeId is unresolved" and "storeId is unresolved
+// and it is in the URL" are different amounts of help.
+type VariableReference struct {
+	Name string `json:"name"`
+	// Kind is variable, dynamic, prompt or processEnv (the Kind* constants).
+	Kind     string `json:"kind"`
+	Resolved bool   `json:"resolved"`
+	// Level and LevelPath say where a resolved variable resolves FROM, in the
+	// vocabulary of the Level* constants.
+	Level     string `json:"level,omitempty"`
+	LevelPath string `json:"levelPath,omitempty"`
+	// Secret marks a reference that resolves to a secret variable. It resolves
+	// fine — inside LiteAPI — and its value is not readable here or anywhere.
+	Secret bool     `json:"secret,omitempty"`
+	Where  []string `json:"where,omitempty"`
+	// Note explains a kind that cannot simply be looked up.
+	Note string `json:"note,omitempty"`
+}
+
+// EffectiveSettings is the transport posture a run would actually use, which
+// is not the same as the request's stored settings: the app's own preferences
+// override or gate several of them.
+type EffectiveSettings struct {
+	// VerifyTLS is the request's flag ANDed with the app's SSL-verification
+	// preference, which is what the send path computes. RequestSettings on
+	// RequestDetail reports the stored flag alone, so the two can disagree —
+	// and when they do, this one is what happens.
+	VerifyTLS bool `json:"verifyTls"`
+	// VerifyTLSDisabledBy names which side turned verification off
+	// ("request", "appPreference", or empty when it is on), because the fix
+	// is in a different place for each.
+	VerifyTLSDisabledBy string `json:"verifyTlsDisabledBy,omitempty"`
+	FollowRedirects     bool   `json:"followRedirects"`
+	MaxRedirects        int    `json:"maxRedirects"`
+	// TimeoutMs is the effective timeout: the app preference when it is set,
+	// otherwise the request's own, otherwise LiteAPI's 30s default.
+	TimeoutMs int `json:"timeoutMs"`
+}
+
+// RequestInspection is everything an agent needs to author a correct call
+// against one stored request, in one call.
+//
+// It exists because get_request answers "what is written on this request",
+// which is not the question. A request that inherits its auth from the
+// collection, its Accept header from a folder and its baseUrl from an
+// environment sends none of that from its own definition, and an agent reading
+// get_request alone would rebuild the call without any of it. Everything here
+// is the EFFECTIVE view, labelled with the level that contributed it.
+//
+// Request is get_request's own payload, embedded unchanged so that an agent
+// never has to make both calls.
+type RequestInspection struct {
+	Request     RequestDetail        `json:"request"`
+	Environment InspectedEnvironment `json:"environment"`
+	// Headers are the merged header set in send order: inherited rows first
+	// (collection, then outermost folder to innermost), then the request's
+	// own. A name the request sets itself suppresses the inherited row
+	// entirely, so a name appears at most once.
+	Headers []InheritedRow `json:"headers"`
+	// Variables are every variable in scope for this request, one row per
+	// NAME, carrying the level that actually wins for it. A collection
+	// variable shadowed by an environment one appears once, at level
+	// "environment" — because that is the value the request will see.
+	Variables []InheritedRow `json:"variables"`
+	// Scripts are the script levels that run, in execution order.
+	Scripts []InheritedScript `json:"scripts,omitempty"`
+	// References is every {{token}} the request reads, deduplicated by name.
+	References []VariableReference `json:"references"`
+	// UnresolvedVariables is the short answer: the names of ordinary
+	// variables the request reads that nothing in scope defines. Empty means
+	// the request is runnable as it stands.
+	UnresolvedVariables []string          `json:"unresolvedVariables"`
+	Settings            EffectiveSettings `json:"settings"`
+	// NotResolved lists, in words, what this tool deliberately does not
+	// answer, so an agent does not read an empty UnresolvedVariables as a
+	// promise that the call will succeed.
+	NotResolved []string `json:"notResolved"`
 }
 
 // EnvironmentVariable is a variable an agent may reference by name. When

@@ -141,7 +141,7 @@ func TestMCPRunFlowGuardCatchesASecretAimedAtARequestThroughAStepVar(t *testing.
 	f.app.mcpApprovalEmit = nil
 
 	// A NAMED host rather than another httptest server, deliberately: every
-	// httptest server is 127.0.0.1, and mcpNormalizeHost drops the port, so a
+	// httptest server is 127.0.0.1, and the retired host guard dropped the port, so a
 	// second local server would be the SAME host as the fixture's own and the
 	// guard would be right to allow it.
 	evilHost := "exfil.step-var.attacker.example"
@@ -180,10 +180,12 @@ func TestMCPRunFlowGuardCatchesASecretAimedAtARequestThroughAStepVar(t *testing.
 	if !errors.Is(err, mcpserver.ErrDenied) {
 		t.Fatalf("error is %v, want one that wraps mcpserver.ErrDenied", err)
 	}
-	// A DENIAL, not the injection refusal: it names the host, because this is
-	// the new-host guard doing its job on a legitimately authored flow.
-	if !strings.Contains(err.Error(), "apiToken") || !strings.Contains(err.Error(), evilHost) {
-		t.Errorf("the denial should name the secret and the host: %v", err)
+	// A DESTINATION DENIAL, not the injection refusal: it names the ORIGIN,
+	// because this is the boundary doing its job on a legitimately authored
+	// flow. It does not name the secret — the boundary is secret-blind, and the
+	// step would be refused the same way carrying nothing at all.
+	if !strings.Contains(err.Error(), evilHost) {
+		t.Errorf("the denial should name the origin it refused: %v", err)
 	}
 	for _, request := range f.recorded() {
 		if strings.Contains(request.authHeader, mcpFlowSentinelToken) {
@@ -275,8 +277,8 @@ func TestMCPRunFlowGuardCatchesAChainedHostChosenByTheUpstreamResponseNotTheFlow
 	if !errors.Is(err, mcpserver.ErrDenied) {
 		t.Fatalf("error is %v, want one that wraps mcpserver.ErrDenied", err)
 	}
-	if !strings.Contains(err.Error(), "exfil.attacker.example") || !strings.Contains(err.Error(), "apiToken") {
-		t.Errorf("the denial should name the host and the secret: %v", err)
+	if !strings.Contains(err.Error(), "exfil.attacker.example") {
+		t.Errorf("the denial should name the origin it refused: %v", err)
 	}
 	// Step 1 (the namer) ran and its extraction is reported; step 2 (the
 	// retargeted create) is the denial.

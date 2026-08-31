@@ -642,7 +642,7 @@ func TestMCPWriteRefusesAnyRowThatDeclaresItselfSecret(t *testing.T) {
 
 // The attack the tier is shaped around, end to end.
 //
-// mcpKnownHostsForSecret builds each secret's allowlist FROM the requests that
+// The retired host guard built each secret's allowlist FROM the requests that
 // reference it. So an agent that could save a request aiming {{apiToken}} at a
 // host it controls would not merely have written a file — it would have taught
 // the guard that the host is legitimate, and the run tier would then send the
@@ -810,7 +810,7 @@ func TestMCPAuthoringGuardStaysQuietWhenItShould(t *testing.T) {
 
 	t.Run("a URL that resolves to no host yet", func(t *testing.T) {
 		// Nothing to approve: an unresolved URL contributes no host to the
-		// allowlist either (mcpKnownHostsForSecret skips it), so it teaches the
+		// allowlist either (the retired host guard skipped it too), so it teaches the
 		// guard nothing, and the run guard is what checks once it resolves.
 		if _, err := f.create(mcpserver.CreateRequestParams{
 			Name:    "Not wired up yet",

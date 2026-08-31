@@ -230,6 +230,15 @@ func TestMCPBackendLeaksNoSecretFromAnyMethod(t *testing.T) {
 	detail, err := backend.GetRequest(fixture.collectionID, fixture.requestID)
 	results["GetRequest"] = marshalledMCPResult(t, "GetRequest", detail, err)
 
+	// Both environment configurations, because they put different variable
+	// scopes in play: with "env-collection" the collection environment's
+	// secret is in scope, and with "" it is not.
+	inspection, err := backend.InspectRequest(fixture.collectionID, fixture.requestID, "env-collection")
+	results["InspectRequest"] = marshalledMCPResult(t, "InspectRequest", inspection, err)
+
+	noEnvironment, err := backend.InspectRequest(fixture.collectionID, fixture.requestID, "")
+	results["InspectRequest(noEnvironment)"] = marshalledMCPResult(t, "InspectRequest(noEnvironment)", noEnvironment, err)
+
 	environments, err := backend.ListEnvironments()
 	results["ListEnvironments"] = marshalledMCPResult(t, "ListEnvironments", environments, err)
 
@@ -263,6 +272,9 @@ func TestMCPBackendLeaksNoSecretFromAnyMethod(t *testing.T) {
 	}
 	if detail.ID != fixture.requestID {
 		t.Errorf("GetRequest returned request %q, want %q", detail.ID, fixture.requestID)
+	}
+	if inspection.Request.ID != fixture.requestID || len(inspection.Headers) == 0 || len(inspection.Variables) == 0 {
+		t.Errorf("InspectRequest returned an empty inspection, so its leak assertions measured nothing: %+v", inspection)
 	}
 }
 

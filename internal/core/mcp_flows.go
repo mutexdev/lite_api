@@ -13,11 +13,11 @@ package core
 // run_flow is run-tier work and reuses Phase 2 verbatim. The runner takes a
 // flowStepGuard — a seam built for this file — and what this file installs in it
 // is the same pair of calls RunRequest makes, once per step: mcpRunPlan to copy
-// the step's request and work out which secrets are in scope, then
-// enforceMCPHostGuard to decide whether the credential may go where this step
-// would send it. PER STEP rather than once for the flow, because a chain's steps
-// are different requests aimed at different hosts, and a guard that checked only
-// the first would wave through every later one.
+// the step's request and work out which secrets are in scope, then the step's
+// own definition scope becomes the policy's active authority and the read
+// boundary's secret-injection refusal runs. PER STEP rather than once for the
+// flow, because a chain's steps are different requests aimed at different
+// origins, and step A's authority must not carry step B (§4.1).
 //
 // WHAT THE MASK COVERS, and why it is wider than run_request's. A flow reads
 // values OUT of live responses — that is what extract is — and a server can echo
@@ -73,17 +73,20 @@ func (b *mcpBackend) GetFlow(collectionID, flowID string) (mcpserver.FlowDetail,
 	return mcpserver.FlowDetail{}, fmt.Errorf("no flow with id %q in collection %q; call list_flows for the ids that exist", flowID, strings.TrimSpace(collectionID))
 }
 
-// RunFlow executes one flow with the new-host guard enforced before every step.
+// RunFlow executes one flow with a fresh definition scope, and the read
+// boundary's refusal, enforced before every step.
 //
 // THE OUTCOME AND THE ERROR ANSWER DIFFERENT QUESTIONS, and both are returned —
-// the same split runFlow itself draws. A non-nil error means the run was
+// the same split runFlowProvenance itself draws. A non-nil error means the run was
 // REFUSED (unknown ids, an undeclared input, a missing required one, a guard
 // that said no); a nil error with OK false means the flow RAN and failed its own
 // checks. The outcome is populated as far as the run got either way, so a caller
 // in this package can see that step 1 completed even when step 2 was denied. An
 // MCP client sees only the error text for a refusal — that is mcpserver's split
 // between a result and an isError — which is why the guard's message has to be
-// self-contained, and it is (mcp_guard.go writes it for the agent that reads it).
+// self-contained, and it is — whether it came from the read boundary
+// (mcp_guard.go) or from a destination refusal (mcp_policy.go), both write for
+// the agent that reads them.
 //
 // The guard's error is returned with errors.Is(err, mcpserver.ErrDenied) still
 // holding, so the audit records "denied" rather than "error".
@@ -102,10 +105,6 @@ func (b *mcpBackend) RunFlow(ctx context.Context, params mcpserver.RunFlowParams
 	// rather than accumulated because a flow's steps are siblings — step A's
 	// origins must not authorize step B's egress, which is the confused-deputy
 	// widening the scope stack exists to close.
-	//
-	// Nothing consults the policy yet: the per-step host guard below is still
-	// the enforcing boundary this wave. What changes here is that the flow now
-	// carries the authority object its steps will be judged against.
 	policy, book := b.app.newMCPExecutionPolicy()
 
 	guard := func(_ int, requestID string, overrides map[string]string) error {
@@ -122,9 +121,10 @@ func (b *mcpBackend) RunFlow(ctx context.Context, params mcpserver.RunFlowParams
 		// services therefore has three different authorities, one at a time.
 		mcpEnterScope(policy, book, plan)
 		// The step's vars arrive here already interpolated against flow scope,
-		// and they are what the guard resolves the target host WITH — so a step
-		// that retargets {{baseUrl}} is caught exactly as a run_request override
-		// would be.
+		// and they are the map an agent-supplied value is walked through — so a
+		// step that carries an input onward is judged on the input, and a step
+		// that retargets {{baseUrl}} is caught at the egress by the scope that
+		// was just made active.
 		//
 		// THE AGENT'S OWN VALUES ARE THE INPUTS, NOT THE OVERRIDES. A step var is
 		// written by the USER, and one that reads {"token": "{{apiToken}}"} is
@@ -134,7 +134,7 @@ func (b *mcpBackend) RunFlow(ctx context.Context, params mcpserver.RunFlowParams
 		// template is the smuggling channel: it lands in a step var, travels as
 		// an override, and the send path's multi-pass interpolation chases it to
 		// the real credential. So the inputs are what the guard refuses on.
-		return b.app.enforceMCPHostGuard(ctx, plan, mcpGuardInput{
+		return b.app.enforceMCPSecretInjection(plan, mcpGuardInput{
 			overrides:    overrides,
 			agentValues:  params.Inputs,
 			secretValues: secretValues,
@@ -146,6 +146,11 @@ func (b *mcpBackend) RunFlow(ctx context.Context, params mcpserver.RunFlowParams
 	// hands each step, so the policy still travels the way the checkpoints expect
 	// while the classification itself is stated rather than inferred.
 	result, runErr := b.app.runFlowProvenance(mcpContextWithPolicy(ctx, policy), mcpSendProvenance(policy), params.CollectionID, params.FlowID, params.EnvironmentID, params.Inputs, guard)
+	if runErr == nil {
+		// A step the destination boundary blocked is a REFUSAL, and the runner
+		// reports it as a step that failed. See mcpClassifyFlowDenial.
+		runErr = mcpClassifyFlowDenial(result, policy)
+	}
 	outcome := mcpFlowRunOutcome(result, secretValues)
 	if runErr != nil {
 		// A refusal names variables and hosts, never values — but it is masked

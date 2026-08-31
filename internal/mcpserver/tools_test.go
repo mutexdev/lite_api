@@ -44,6 +44,13 @@ type fixtureBackend struct {
 	// reached" would be indistinguishable without a counter.
 	searchCalls int
 
+	// inspect_request. inspectCalls exists for the same reason searchCalls
+	// does: an OMITTED environmentId is the interesting case and is also the
+	// zero value of lastInspectEnvironmentID.
+	inspection               RequestInspection
+	inspectCalls             int
+	lastInspectEnvironmentID string
+
 	// The run tier. runResult is what RunRequest answers with unless runErr is
 	// set; runErr stands in for a refusal (wrapping ErrDenied) or a plain
 	// failure. The lastRun* fields record what the tool actually handed over,
@@ -94,6 +101,35 @@ func newFixtureBackend() *fixtureBackend {
 				Auth:     []KeyValue{{Name: "token", Value: "{{apiToken}}", Enabled: true}},
 				Settings: RequestSettings{VerifyTLS: true, FollowRedirects: true, MaxRedirects: 5},
 			},
+		},
+		// One request that inherits from both a folder and the collection, so
+		// the level attribution has something to be wrong about.
+		inspection: RequestInspection{
+			Environment: InspectedEnvironment{
+				CollectionEnvironmentID:   "env_stage",
+				CollectionEnvironmentName: "Staging",
+				GlobalEnvironmentNames:    []string{"Shared"},
+				Note:                      "Resolved against this collection environment.",
+			},
+			Headers: []InheritedRow{
+				{Name: "Accept", Value: "application/json", Enabled: true, Level: LevelCollection},
+				{Name: "X-Tenant", Value: "{{tenant}}", Enabled: true, Level: LevelFolder, LevelPath: "Terminals"},
+				{Name: "Content-Type", Value: "application/json", Enabled: true, Level: LevelRequest},
+			},
+			Variables: []InheritedRow{
+				{Name: "apiToken", Enabled: true, Level: LevelEnvironment, LevelPath: "Staging", Secret: true},
+				{Name: "baseUrl", Value: "https://pos.stage.example.test", Enabled: true, Level: LevelEnvironment, LevelPath: "Staging"},
+			},
+			Scripts: []InheritedScript{
+				{Phase: "pre", Level: LevelCollection, Script: "bru.setVar('traceId', '1')"},
+			},
+			References: []VariableReference{
+				{Name: "baseUrl", Kind: KindVariable, Resolved: true, Level: LevelEnvironment, LevelPath: "Staging", Where: []string{"url"}},
+				{Name: "storeId", Kind: KindVariable, Where: []string{"body"}, Note: "Nothing in scope defines this name."},
+			},
+			UnresolvedVariables: []string{"storeId"},
+			Settings:            EffectiveSettings{VerifyTLS: true, FollowRedirects: true, MaxRedirects: 5, TimeoutMs: 30000},
+			NotResolved:         []string{"Nothing is interpolated."},
 		},
 		environments: []EnvironmentSummary{
 			{
@@ -195,6 +231,27 @@ func (backend *fixtureBackend) GetRequest(collectionID, requestID string) (Reque
 		return RequestDetail{}, errors.New("request " + requestID + " is not in collection " + collectionID)
 	}
 	return detail, nil
+}
+
+// InspectRequest answers with a fixture inspection of the same request
+// GetRequest details, and records the environmentId it was handed — the
+// argument the tool descriptions used to describe wrongly, so the plumbing for
+// it is worth pinning.
+func (backend *fixtureBackend) InspectRequest(collectionID, requestID, environmentID string) (RequestInspection, error) {
+	if err := backend.gate(); err != nil {
+		return RequestInspection{}, err
+	}
+	backend.inspectCalls++
+	backend.lastCollectionID = collectionID
+	backend.lastRequestID = requestID
+	backend.lastInspectEnvironmentID = environmentID
+	detail, known := backend.details[collectionID+"/"+requestID]
+	if !known {
+		return RequestInspection{}, errors.New("request " + requestID + " is not in collection " + collectionID)
+	}
+	inspection := backend.inspection
+	inspection.Request = detail
+	return inspection, nil
 }
 
 func (backend *fixtureBackend) ListEnvironments() ([]EnvironmentSummary, error) {
@@ -383,6 +440,151 @@ func TestGetRequestReturnsTheRedactedDefinition(t *testing.T) {
 	}
 	if detail.Headers[2].Value != MaskedValue {
 		t.Fatalf("masked header lost its mask: %q", detail.Headers[2].Value)
+	}
+}
+
+// --- inspect_request ---------------------------------------------------------
+
+func TestInspectRequestReturnsTheEffectiveRequestAndTheVariableReport(t *testing.T) {
+	backend := newFixtureBackend()
+	server := newTestServer(t, backend)
+	var inspection RequestInspection
+	decodePayload(t, callTool(t, server, "inspect_request", map[string]any{
+		"collectionId": "col_pos", "requestId": "req_create", "environmentId": "env_stage",
+	}), &inspection)
+
+	if backend.lastCollectionID != "col_pos" || backend.lastRequestID != "req_create" {
+		t.Fatalf("backend saw %q/%q", backend.lastCollectionID, backend.lastRequestID)
+	}
+	if backend.lastInspectEnvironmentID != "env_stage" {
+		t.Fatalf("environmentId reached the backend as %q, want env_stage", backend.lastInspectEnvironmentID)
+	}
+	// get_request's whole payload rides along, so an agent never needs both.
+	if inspection.Request.Method != "POST" || inspection.Request.AuthType != "bearer" {
+		t.Fatalf("the embedded request detail lost fields: %+v", inspection.Request)
+	}
+	// The three levels, each labelled.
+	levels := map[string]string{}
+	for _, row := range inspection.Headers {
+		levels[row.Name] = row.Level
+	}
+	for name, want := range map[string]string{"Accept": LevelCollection, "X-Tenant": LevelFolder, "Content-Type": LevelRequest} {
+		if levels[name] != want {
+			t.Errorf("header %s is labelled %q, want %q", name, levels[name], want)
+		}
+	}
+	if inspection.Headers[1].LevelPath != "Terminals" {
+		t.Errorf("the folder header lost its path: %+v", inspection.Headers[1])
+	}
+	if len(inspection.UnresolvedVariables) != 1 || inspection.UnresolvedVariables[0] != "storeId" {
+		t.Errorf("unresolvedVariables = %v, want [storeId]", inspection.UnresolvedVariables)
+	}
+	if len(inspection.References) != 2 || inspection.References[1].Resolved {
+		t.Errorf("references lost the unresolved entry: %+v", inspection.References)
+	}
+	if inspection.Environment.CollectionEnvironmentName != "Staging" || len(inspection.Environment.GlobalEnvironmentNames) != 1 {
+		t.Errorf("the environment in effect was not reported: %+v", inspection.Environment)
+	}
+	if len(inspection.NotResolved) == 0 {
+		t.Error("notResolved is empty; an agent must not read an empty unresolvedVariables as a promise the call will work")
+	}
+	// A secret variable in the effective set is a name and a flag, never a value.
+	for _, row := range inspection.Variables {
+		if row.Secret && row.Value != "" {
+			t.Errorf("secret variable %q carried a value %q", row.Name, row.Value)
+		}
+	}
+}
+
+// Omitting environmentId must reach the Backend as the empty string rather than
+// being filled in by the tool layer. There is no app-side selection to fill it
+// in WITH — that is the whole correction this task made to the description —
+// so a tool that invented one would be guessing.
+func TestInspectRequestWithoutAnEnvironmentPassesTheOmissionThrough(t *testing.T) {
+	backend := newFixtureBackend()
+	server := newTestServer(t, backend)
+	callTool(t, server, "inspect_request", map[string]any{"collectionId": "col_pos", "requestId": "req_create"})
+	if backend.inspectCalls != 1 {
+		t.Fatalf("the backend was called %d times", backend.inspectCalls)
+	}
+	if backend.lastInspectEnvironmentID != "" {
+		t.Fatalf("environmentId reached the backend as %q, want it empty", backend.lastInspectEnvironmentID)
+	}
+}
+
+func TestInspectRequestRequiresBothIds(t *testing.T) {
+	server := newTestServer(t, newFixtureBackend())
+	for _, arguments := range []map[string]any{
+		{"requestId": "req_create"},
+		{"collectionId": "col_pos"},
+		{"collectionId": "col_pos", "requestId": "  "},
+	} {
+		result := callTool(t, server, "inspect_request", arguments)
+		if !result.IsError {
+			t.Errorf("inspect_request%v succeeded; both ids are required", arguments)
+		}
+	}
+}
+
+// The registry placement and the two things an agent cannot discover by trying:
+// when to reach for this instead of get_request, and what it does NOT resolve.
+func TestInspectRequestIsRegisteredInTheReadTierAndSaysWhatItCannotAnswer(t *testing.T) {
+	position := map[string]int{}
+	for index, entry := range toolRegistry {
+		position[entry.Name] = index
+	}
+	if _, registered := position["inspect_request"]; !registered {
+		t.Fatal("inspect_request is not registered")
+	}
+	if position["inspect_request"] < position["get_request"] {
+		t.Error("inspect_request is listed before get_request; an agent meets the simpler tool first")
+	}
+	if position["inspect_request"] > position["run_request"] {
+		t.Error("inspect_request is listed after the run tier; it is read-tier work an agent should meet before running anything")
+	}
+
+	entry, _ := lookupTool("inspect_request")
+	if len(entry.InputSchema.Required) != 2 {
+		t.Errorf("inspect_request requires %v, want collectionId and requestId", entry.InputSchema.Required)
+	}
+	if _, declared := entry.InputSchema.Properties["environmentId"]; !declared {
+		t.Error("inspect_request does not declare environmentId")
+	}
+	for _, phrase := range []string{
+		"get_request",             // when to call it instead
+		"unresolvedVariable",      // the report it exists for
+		"nothing is interpolated", // what it does not resolve
+		"NOT executed",            // scripts
+		"process.env",             // the reference kind it will not check
+		"masked",                  // the redaction rule
+	} {
+		if !strings.Contains(entry.Description, phrase) {
+			t.Errorf("the inspect_request description never mentions %q", phrase)
+		}
+	}
+}
+
+// The contradiction this task reconciled: the descriptions used to tell an
+// agent that omitting environmentId picks up the app's active environment,
+// while the backend could not read that selection at all. Whichever way it had
+// been resolved, the two must not say different things again.
+func TestEnvironmentIdDescriptionsDoNotPromiseTheAppsSelection(t *testing.T) {
+	for _, name := range []string{"inspect_request", "run_request", "run_flow"} {
+		entry, known := lookupTool(name)
+		if !known {
+			t.Fatalf("%s is not registered", name)
+		}
+		property, declared := entry.InputSchema.Properties["environmentId"]
+		if !declared {
+			t.Fatalf("%s does not declare environmentId", name)
+		}
+		lowered := strings.ToLower(property.Description)
+		if strings.Contains(lowered, "active in the app") || strings.Contains(lowered, "whichever environment is active") {
+			t.Errorf("%s still claims omitting environmentId uses the app's active environment: %q", name, property.Description)
+		}
+		if !strings.Contains(lowered, "no collection environment") {
+			t.Errorf("%s does not state what omitting environmentId actually does: %q", name, property.Description)
+		}
 	}
 }
 

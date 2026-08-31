@@ -159,7 +159,7 @@ func (a *App) RunFlow(collectionID, flowID, environmentID string, inputs map[str
 // secretNames is the set of variable names that resolve to a secret anywhere in
 // this collection's scope. A flow name that collides with one is refused HERE
 // as well as at run start, because catching it while the user is editing is the
-// only place the message can be acted on cheaply — see runFlow for the
+// only place the message can be acted on cheaply — see runFlowProvenance for the
 // inversion argument itself.
 func validateFlow(collection types.Collection, secretNames map[string]bool, flow types.Flow) error {
 	if strings.TrimSpace(flow.Name) == "" {

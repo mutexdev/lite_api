@@ -218,7 +218,7 @@ func TestMCPRunRequestUnfollowedRedirectLocationCarryingTheSecretIsMasked(t *tes
 }
 
 // FINDING: the new-host guard normalizes hosts by dropping the port
-// (mcp_guard.go: mcpNormalizeHost) — deliberate for real DNS names ("same
+// (the retired host guard's normalizer) — deliberate for real DNS names ("same
 // operator, same DNS name" per that function's own comment) — which means
 // every 127.0.0.1 service, on ANY port, is already "known" the moment ANY
 // request in the workspace has ever resolved a secret to 127.0.0.1 on any
@@ -444,10 +444,17 @@ func TestMCPRunRequestSameHostDifferentPortIsBlockedWithoutApproval(t *testing.T
 }
 
 // An unparseable or hostless URL must DENY, never silently pass. This is the
-// one branch where a bug would be an open door rather than an annoyance: if
-// mcpHostOfURL's "" sentinel for "no host could be determined" were ever
-// treated as a match against the allowlist instead of "unknown", every secret
-// would be exportable through any URL the guard cannot parse.
+// one branch where a bug would be an open door rather than an annoyance: if the
+// zero Origin — the boundary's "no destination could be determined" — were ever
+// treated as a match against Base instead of as unknown, every credential would
+// be exportable through any URL LiteAPI cannot parse.
+//
+// BOTH SHAPES DENY THE SAME WAY, which is the second thing asserted. A URL Go
+// itself cannot parse used to escape as an ordinary request-construction
+// failure — no bytes moved, but the error did not wrap ErrDenied and the audit
+// recorded it as an error rather than a denial. executeHTTP now reads the
+// destination before it builds anything, so both arrive as one refusal with one
+// message.
 func TestMCPRunRequestHostlessOrUnparseableURLDeniesRatherThanPasses(t *testing.T) {
 	for _, testCase := range []struct {
 		name    string
@@ -469,7 +476,7 @@ func TestMCPRunRequestHostlessOrUnparseableURLDeniesRatherThanPasses(t *testing.
 			if !errors.Is(err, mcpserver.ErrDenied) {
 				t.Errorf("the denial does not wrap ErrDenied: %v", err)
 			}
-			if !strings.Contains(err.Error(), "does not resolve to a host") {
+			if !strings.Contains(err.Error(), "did not resolve to a usable origin") {
 				t.Errorf("the denial does not explain why: %v", err)
 			}
 			if len(f.recorded()) != 0 {

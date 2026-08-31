@@ -27,6 +27,8 @@ package core
 import (
 	"errors"
 	"fmt"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -260,6 +262,12 @@ func (b *mcpBackend) GetRequest(collectionID, requestID string) (mcpserver.Reque
 		PathParams:     mcpserver.RedactRows(mcpKeyValueRows(item.PathParams)),
 		BodyType:       strings.TrimSpace(item.Body.Mode),
 		Body:           types.RequestBodySnapshot(item.Body),
+		// RequestBodySnapshot maps mode "graphql" to the QUERY alone, so the
+		// variables document had no field on the wire at all and an agent
+		// reading a GraphQL request could not see what it declares. Reported
+		// only for the mode that has one, and as authored: it is body content,
+		// so it is unscanned and unresolved exactly like Body.
+		GraphQLVariables: mcpGraphQLVariables(item.Body),
 		// The EFFECTIVE auth, not the stored mode: an inheriting request
 		// reports what a run of it would actually use, and AuthSource names the
 		// level that supplied it. Reporting "inherit" with no rows — which is
@@ -288,6 +296,653 @@ func (b *mcpBackend) GetRequest(collectionID, requestID string) (mcpserver.Reque
 		},
 	}
 	return detail, nil
+}
+
+// mcpGraphQLVariables reports the variables document of a graphql body and
+// nothing for any other mode. RequestBody carries the field whatever the mode
+// is, and a request switched from graphql to json keeps its old document —
+// reporting that would describe a call the request no longer makes.
+func mcpGraphQLVariables(body types.RequestBody) string {
+	if !strings.EqualFold(strings.TrimSpace(body.Mode), "graphql") {
+		return ""
+	}
+	return body.GraphQLVariables
+}
+
+// --- inspect_request -------------------------------------------------------
+//
+// get_request answers "what is written on this request". InspectRequest
+// answers the question an agent actually has, which is "what would a run of it
+// send, and what do I still have to supply". The gap between the two is the
+// inheritance chain: a request can carry no headers, no auth and no variables
+// of its own and still send all three, contributed by a folder, by the
+// collection, or by an environment.
+//
+// EVERY EFFECTIVE VALUE HERE MIRRORS THE SEND PATH RATHER THAN GUESSING AT IT,
+// the same way mcpEffectiveAuth mirrors scripting.EffectiveRequest. Each
+// mirroring helper below names the function it reproduces and the subtlety it
+// is reproducing, because a divergence between "what inspect_request reports"
+// and "what run_request sends" is worse than no tool at all: it is a confident
+// wrong answer that an agent will act on.
+//
+// THE REDACTION RULES DO NOT CHANGE. This is authored data, so the rule is
+// get_request's: templates unresolved, secret-flagged values never read,
+// credential-shaped literals masked with mcpserver's own helpers. Nothing here
+// interpolates, and the resolved variable table is consulted only for the
+// boolean "does this name resolve" — its values never reach a DTO.
+
+// mcpInspectionSource is everything InspectRequest copies out from under the
+// state lock, in one read. Collected into a struct rather than a fistful of
+// closure captures because the copy is the part that has to be obviously
+// pointer-free, and a named type makes that reviewable at a glance.
+type mcpInspectionSource struct {
+	collection      types.Collection
+	item            types.RequestItem
+	globals         []types.Environment
+	workspacePath   string
+	preferences     types.RequestPreferences
+	environmentName string
+
+	collectionFound        bool
+	itemFound              bool
+	environmentFound       bool
+	globalEnvironmentMatch bool
+}
+
+// mcpInspectionCollectionCopy copies the collection fields the inspection
+// reads. It is deliberately NOT mcpCollectionCopy (mcp_guard.go): that one
+// exists for the egress guard and drops the three script fields, which are
+// precisely what the script half of this inspection is about.
+func mcpInspectionCollectionCopy(collection *types.Collection) types.Collection {
+	return types.Collection{
+		ID:               collection.ID,
+		Name:             collection.Name,
+		Path:             collection.Path,
+		Auth:             types.CloneAuthConfig(collection.Auth),
+		Headers:          types.CloneKeyValues(collection.Headers),
+		Variables:        types.CloneVariables(collection.Variables),
+		RuntimeVariables: types.CloneVariables(collection.RuntimeVariables),
+		Environments:     mcpEnvironmentCopies(collection.Environments),
+		Folders:          mcpFolderCopies(collection.Folders),
+		PreScript:        collection.PreScript,
+		PostScript:       collection.PostScript,
+		Tests:            collection.Tests,
+	}
+}
+
+func (b *mcpBackend) InspectRequest(collectionID, requestID, environmentID string) (mcpserver.RequestInspection, error) {
+	collectionID = strings.TrimSpace(collectionID)
+	requestID = strings.TrimSpace(requestID)
+	environmentID = strings.TrimSpace(environmentID)
+	if collectionID == "" || requestID == "" {
+		return mcpserver.RequestInspection{}, errors.New("collectionId and requestId are both required")
+	}
+
+	source := mcpInspectionSource{environmentFound: environmentID == ""}
+	if err := b.app.readStateForMCP(func(state *AppState) {
+		source.preferences = state.Preferences.Request
+		for wi := range state.Workspaces {
+			workspace := &state.Workspaces[wi]
+			for _, environment := range workspace.GlobalEnvironments {
+				if environmentID != "" && environment.ID == environmentID {
+					source.globalEnvironmentMatch = true
+				}
+			}
+			for ci := range workspace.Collections {
+				if workspace.Collections[ci].ID != collectionID {
+					continue
+				}
+				source.collectionFound = true
+				source.collection = mcpInspectionCollectionCopy(&workspace.Collections[ci])
+				source.globals = mcpEnvironmentCopies(scripting.ActiveGlobalEnvironmentsForWorkspace(*workspace))
+				source.workspacePath = workspace.Path
+				for ii := range workspace.Collections[ci].Items {
+					if workspace.Collections[ci].Items[ii].ID != requestID {
+						continue
+					}
+					source.item = mcpItemCopy(workspace.Collections[ci].Items[ii])
+					source.itemFound = true
+					break
+				}
+				for _, environment := range source.collection.Environments {
+					if environment.ID == environmentID {
+						source.environmentFound = true
+						source.environmentName = environment.Name
+						break
+					}
+				}
+				return
+			}
+		}
+	}); err != nil {
+		return mcpserver.RequestInspection{}, err
+	}
+	if !source.collectionFound {
+		return mcpserver.RequestInspection{}, fmt.Errorf("no collection with id %q; call list_collections for the ids that exist", collectionID)
+	}
+	if !source.itemFound {
+		return mcpserver.RequestInspection{}, fmt.Errorf("no request with id %q in collection %q; call list_requests for the ids that exist", requestID, collectionID)
+	}
+	if !source.environmentFound {
+		// The same two messages mcpRunPlan gives, for the same reason: a global
+		// environment id is a real id the agent read from list_environments, so
+		// "no such environment" would be both wrong and unactionable.
+		if source.globalEnvironmentMatch {
+			return mcpserver.RequestInspection{}, fmt.Errorf("environmentId %q names a global environment, which cannot be selected per call; the workspace's active global environment already applies. Pass a collection environment from list_environments, or omit environmentId", environmentID)
+		}
+		return mcpserver.RequestInspection{}, fmt.Errorf("no environment with id %q in collection %q; call list_environments for the ids that exist, or omit environmentId to inspect with no collection environment", environmentID, collectionID)
+	}
+
+	detail, err := b.GetRequest(collectionID, requestID)
+	if err != nil {
+		return mcpserver.RequestInspection{}, err
+	}
+
+	collection, item := source.collection, source.item
+	folders := scripting.FolderChain(collection, item)
+	// THE RUN'S OWN VARIABLE CONTEXT, built exactly as mcpRunPlan builds it —
+	// same constructor, same arguments, no overrides. Only its KEY SET is read
+	// (mcpResolvableNames): the values in it are hydrated secrets, and nothing
+	// below ever touches one.
+	effective := scripting.EffectiveRequest(collection, item)
+	resolvable := mcpResolvableNames(scripting.NewScriptVariableContext(
+		source.globals, &collection, environmentID, effective, nil, source.workspacePath))
+	variables := mcpInspectedVariables(collection, folders, source.globals, environmentID, source.environmentName, item)
+
+	references := mcpVariableReferences(effective, variables, resolvable)
+	return mcpserver.RequestInspection{
+		Request:             detail,
+		Environment:         mcpInspectedEnvironment(environmentID, source.environmentName, source.globals),
+		Headers:             mcpInheritedHeaders(collection, folders, item),
+		Variables:           mcpInheritedVariableRows(variables),
+		Scripts:             mcpInheritedScripts(collection, folders, item),
+		References:          references,
+		UnresolvedVariables: mcpUnresolvedNames(references),
+		Settings:            mcpEffectiveSettings(item, source.preferences),
+		NotResolved:         mcpInspectionCaveats,
+	}, nil
+}
+
+// mcpInspectionCaveats is the honest boundary of this tool: an empty
+// unresolvedVariables must not read as "this call will work".
+var mcpInspectionCaveats = []string{
+	"Nothing is interpolated. Every value here is as authored, so a {{template}} you see is a reference and never a resolved value.",
+	"Scripts are reported but not executed. A pre-request script can set variables, rewrite the URL and add headers, so a request with scripts can send something this inspection does not show.",
+	"{{process.env.NAME}} references are listed but never checked. They resolve at send time from the process environment and the collection's .env file, which is where credentials live.",
+	"{{?name}} prompt variables ask the USER for a value in the app. A run started from here has nobody to ask, so treat one as a blocker and tell the user.",
+	"An unresolved name may still be supplied at run time: pass it in run_request's variables, or pick an environment that defines it.",
+}
+
+// mcpResolvableNames is the set of variable names a run would resolve, taken
+// from the run's own VariableContext.
+//
+// ONLY THE KEYS LEAVE THIS FUNCTION. Combined holds hydrated secret values by
+// the time state is readable, so returning the map — or ranging over its values
+// anywhere — is the leak this whole adapter exists to prevent. A set of names
+// answers the only question the report asks of it.
+func mcpResolvableNames(variables *scripting.VariableContext) map[string]bool {
+	names := map[string]bool{}
+	if variables == nil {
+		return names
+	}
+	for name := range variables.Combined {
+		names[name] = true
+	}
+	return names
+}
+
+// mcpInspectedVariable is one variable in scope, with the level that wins for
+// its name.
+type mcpInspectedVariable struct {
+	variable  types.Variable
+	level     string
+	levelPath string
+}
+
+// mcpInspectedVariables resolves the variable scopes to one winner per name.
+//
+// THE ORDER IS scripting.VariableContext.Recompute's, and it is the contract:
+// Global, then Collection, then the selected Environment, then Folder, then
+// Request, then Runtime — each layer overwriting the last. Runtime sits on top
+// because a value a script persisted with bru.setVar is a deliberate act that
+// must not be silently undone by the row that was configured before it.
+//
+// Disabled rows and unnamed rows are skipped, exactly as mergeVariableMap skips
+// them: they do not resolve, so reporting them as the winning level would tell
+// an agent a name resolves when it does not.
+func mcpInspectedVariables(
+	collection types.Collection,
+	folders []types.FolderConfig,
+	globals []types.Environment,
+	environmentID, environmentName string,
+	item types.RequestItem,
+) map[string]mcpInspectedVariable {
+	winners := map[string]mcpInspectedVariable{}
+	merge := func(level, levelPath string, rows []types.Variable) {
+		for _, variable := range rows {
+			if !variable.Enabled || variable.Name == "" {
+				continue
+			}
+			winners[variable.Name] = mcpInspectedVariable{variable: variable, level: level, levelPath: levelPath}
+		}
+	}
+	for _, environment := range globals {
+		merge(mcpserver.LevelGlobal, environment.Name, environment.Variables)
+	}
+	merge(mcpserver.LevelCollection, "", collection.Variables)
+	if environmentID != "" {
+		for _, environment := range collection.Environments {
+			if environment.ID == environmentID {
+				merge(mcpserver.LevelEnvironment, environmentName, environment.Variables)
+				break
+			}
+		}
+	}
+	for _, folder := range folders {
+		merge(mcpserver.LevelFolder, folder.Path, folder.Variables)
+	}
+	merge(mcpserver.LevelRequest, "", item.Vars.Req)
+	merge(mcpserver.LevelRuntime, "", collection.RuntimeVariables)
+	return winners
+}
+
+// mcpInheritedVariableRows turns the winner table into DTO rows, sorted by
+// name so two calls against unchanged state produce byte-identical output.
+//
+// A secret variable's value is DROPPED rather than masked, for the reason
+// ListEnvironments gives: by the time state is readable the value is the real
+// decrypted credential, and the safe thing is never to read it at all. Every
+// other value goes through mcpserver.RedactRows, which is the same rule
+// get_request applies to a request's own vars.
+func mcpInheritedVariableRows(winners map[string]mcpInspectedVariable) []mcpserver.InheritedRow {
+	names := make([]string, 0, len(winners))
+	for name := range winners {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	rows := make([]mcpserver.KeyValue, 0, len(names))
+	for _, name := range names {
+		row := mcpserver.KeyValue{Name: name, Enabled: true}
+		if !winners[name].variable.Secret {
+			row.Value = envsecrets.ValueToString(winners[name].variable.Value)
+		}
+		rows = append(rows, row)
+	}
+	rows = mcpserver.RedactRows(rows)
+
+	out := make([]mcpserver.InheritedRow, 0, len(names))
+	for index, name := range names {
+		winner := winners[name]
+		out = append(out, mcpserver.InheritedRow{
+			Name:      name,
+			Value:     rows[index].Value,
+			Enabled:   true,
+			Level:     winner.level,
+			LevelPath: winner.levelPath,
+			Secret:    winner.variable.Secret,
+		})
+	}
+	return out
+}
+
+// mcpInheritedHeaders reproduces scripting.EffectiveRequest's header merge and
+// records which level each surviving row came from.
+//
+// THREE BEHAVIOURS OF THAT MERGE ARE REPRODUCED DELIBERATELY:
+//
+//   - A name the REQUEST sets suppresses every inherited row of that name,
+//     whether or not the request's own row is enabled. EffectiveRequest seeds
+//     its seen-set from item.Headers without checking Enabled, so a disabled
+//     request header still shadows the collection's.
+//   - Among inherited rows the INNERMOST wins: the merge walks the candidate
+//     list backwards keeping the first of each name, which is the last one
+//     appended, which is the innermost folder.
+//   - Disabled and unnamed inherited rows are dropped entirely.
+//
+// Order is send order: inherited rows in collection-then-outermost-to-innermost
+// order, then the request's own.
+func mcpInheritedHeaders(collection types.Collection, folders []types.FolderConfig, item types.RequestItem) []mcpserver.InheritedRow {
+	type candidate struct {
+		row       types.KeyValue
+		level     string
+		levelPath string
+	}
+	candidates := make([]candidate, 0, len(collection.Headers))
+	for _, header := range collection.Headers {
+		candidates = append(candidates, candidate{row: header, level: mcpserver.LevelCollection})
+	}
+	for _, folder := range folders {
+		for _, header := range folder.Headers {
+			candidates = append(candidates, candidate{row: header, level: mcpserver.LevelFolder, levelPath: folder.Path})
+		}
+	}
+
+	seen := map[string]bool{}
+	for _, header := range item.Headers {
+		seen[strings.ToLower(header.Name)] = true
+	}
+	reversed := make([]candidate, 0, len(candidates))
+	for index := len(candidates) - 1; index >= 0; index-- {
+		header := candidates[index]
+		key := strings.ToLower(header.row.Name)
+		if header.row.Enabled && header.row.Name != "" && !seen[key] {
+			reversed = append(reversed, header)
+			seen[key] = true
+		}
+	}
+
+	merged := make([]candidate, 0, len(reversed)+len(item.Headers))
+	for index := len(reversed) - 1; index >= 0; index-- {
+		merged = append(merged, reversed[index])
+	}
+	for _, header := range item.Headers {
+		merged = append(merged, candidate{row: header, level: mcpserver.LevelRequest})
+	}
+
+	// Masked with the same helper get_request uses, so a credential-shaped
+	// literal on a FOLDER header is hidden exactly as one on the request is.
+	rows := make([]mcpserver.KeyValue, 0, len(merged))
+	for _, header := range merged {
+		rows = append(rows, mcpserver.KeyValue{Name: header.row.Name, Value: header.row.Value, Enabled: header.row.Enabled})
+	}
+	rows = mcpserver.RedactRows(rows)
+
+	out := make([]mcpserver.InheritedRow, 0, len(merged))
+	for index, header := range merged {
+		out = append(out, mcpserver.InheritedRow{
+			Name:      rows[index].Name,
+			Value:     rows[index].Value,
+			Enabled:   rows[index].Enabled,
+			Level:     header.level,
+			LevelPath: header.levelPath,
+		})
+	}
+	return out
+}
+
+// mcpInheritedScripts lists the script levels that run for this request, in
+// execution order.
+//
+// THE ORDER IS INVERTED BETWEEN THE PHASES, and that is
+// scripting.MergedRuntimeScripts' contract rather than a choice made here:
+// pre-request runs outermost first (collection, folders outside-in, request),
+// while post-response and tests run innermost first (request, folders
+// inside-out, collection). An agent reproducing a call by hand needs the order,
+// not just the set.
+//
+// Scripts travel verbatim, exactly as get_request reports the request's own —
+// see the note there about why mangling the source would be worse than
+// reporting it.
+func mcpInheritedScripts(collection types.Collection, folders []types.FolderConfig, item types.RequestItem) []mcpserver.InheritedScript {
+	out := []mcpserver.InheritedScript{}
+	add := func(phase, level, levelPath, script string) {
+		if strings.TrimSpace(script) == "" {
+			return
+		}
+		out = append(out, mcpserver.InheritedScript{Phase: phase, Level: level, LevelPath: levelPath, Script: script})
+	}
+
+	add("pre", mcpserver.LevelCollection, "", collection.PreScript)
+	for _, folder := range folders {
+		add("pre", mcpserver.LevelFolder, folder.Path, folder.PreScript)
+	}
+	add("pre", mcpserver.LevelRequest, "", item.PreScript)
+
+	add("post", mcpserver.LevelRequest, "", item.PostScript)
+	for index := len(folders) - 1; index >= 0; index-- {
+		add("post", mcpserver.LevelFolder, folders[index].Path, folders[index].PostScript)
+	}
+	add("post", mcpserver.LevelCollection, "", collection.PostScript)
+
+	add("tests", mcpserver.LevelRequest, "", item.Tests)
+	for index := len(folders) - 1; index >= 0; index-- {
+		add("tests", mcpserver.LevelFolder, folders[index].Path, folders[index].Tests)
+	}
+	add("tests", mcpserver.LevelCollection, "", collection.Tests)
+
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// mcpInspectedEnvironment reports the environment configuration in effect, and
+// states the selection rule that the tool descriptions used to get wrong.
+//
+// THE RULE, established by reading mcpRunPlan rather than by repeating what a
+// description claimed: an omitted environmentId means NO collection
+// environment, not "the one selected in the app". LiteAPI's collection
+// environment selection is frontend state, persisted in the WebView's own
+// storage and never written to AppState, so this process cannot read it and
+// there is nothing for a tool to fall back to. The workspace's active GLOBAL
+// environment is persisted, is the one thing that is knowable, and applies to
+// every run whatever environmentId says.
+func mcpInspectedEnvironment(environmentID, environmentName string, globals []types.Environment) mcpserver.InspectedEnvironment {
+	out := mcpserver.InspectedEnvironment{
+		CollectionEnvironmentID:   environmentID,
+		CollectionEnvironmentName: environmentName,
+	}
+	for _, environment := range globals {
+		out.GlobalEnvironmentIDs = append(out.GlobalEnvironmentIDs, environment.ID)
+		out.GlobalEnvironmentNames = append(out.GlobalEnvironmentNames, environment.Name)
+	}
+	if environmentID == "" {
+		out.Note = "No collection environment was applied, because environmentId was omitted. " +
+			"Omitting it does NOT fall back to whatever is selected in LiteAPI's window: that selection is frontend state this server cannot read. " +
+			"Pass an environmentId from list_environments to resolve against a collection environment. " +
+			"The workspace's active global environment below applies either way, and cannot be selected per call."
+	} else {
+		out.Note = "Resolved against this collection environment, which is what run_request will use for the same environmentId. " +
+			"The workspace's active global environment below also applies, and cannot be selected per call."
+	}
+	return out
+}
+
+// mcpEffectiveSettings reports the transport posture a run would actually use.
+//
+// VerifyTLS is the interesting one: requestTLSVerificationEnabled ANDs the
+// request's flag with the app's SSL-verification preference, so a request
+// stored with VerifyTLS true is still sent unverified when the user has turned
+// verification off globally. get_request reports the stored flag, which is the
+// right answer to ITS question; this is the right answer to "what happens".
+// Naming which side turned it off matters because the fix is in a different
+// place for each.
+func mcpEffectiveSettings(item types.RequestItem, preferences types.RequestPreferences) mcpserver.EffectiveSettings {
+	out := mcpserver.EffectiveSettings{
+		VerifyTLS:       requestTLSVerificationEnabled(preferences, item.Settings.VerifyTLS),
+		FollowRedirects: item.Settings.FollowRedirects,
+		MaxRedirects:    item.Settings.MaxRedirects,
+		TimeoutMs:       requestTimeoutMilliseconds(item.Settings.TimeoutMs, preferences),
+	}
+	if !out.VerifyTLS {
+		out.VerifyTLSDisabledBy = "appPreference"
+		if !item.Settings.VerifyTLS {
+			out.VerifyTLSDisabledBy = "request"
+		}
+	}
+	return out
+}
+
+// mcpTemplateTokenPattern finds every {{token}} in authored text.
+//
+// The inner text is captured RAW rather than trimmed, because interp's own
+// substitution does not trim either: `{{ baseUrl }}` does not resolve even when
+// baseUrl exists, and reporting it as resolved would hide a real bug in the
+// user's collection. The classification below trims only where interp's own
+// patterns allow surrounding space, which is the process.env form alone.
+var mcpTemplateTokenPattern = regexp.MustCompile(`\{\{([^{}]*)\}\}`)
+
+// mcpDynamicTokenPattern mirrors interp.dynamicVariablePattern's inner shape:
+// {{$name}}, no spaces, resolved by LiteAPI at send time from the generated
+// set (timestamp, guid, randomInt and the rest).
+var mcpDynamicTokenPattern = regexp.MustCompile(`^\$[A-Za-z][A-Za-z0-9_]*$`)
+
+// mcpVariableReferences reports every {{token}} the effective request reads.
+//
+// TRANSITIVE BY DESIGN. interp expands up to eight passes, so a URL of
+// {{baseUrl}}/x where baseUrl is "{{host}}/api" and host is undefined is a
+// request that fails, and an agent told only that baseUrl resolves has been
+// misled. Resolved variables whose own values carry templates are therefore
+// followed, with a visited set bounding the walk.
+//
+// A SECRET VARIABLE'S VALUE IS NOT FOLLOWED. Its value is a hydrated credential;
+// scanning it would put the plaintext through a regex and could surface a
+// fragment of it as a reported "name".
+func mcpVariableReferences(
+	effective types.RequestItem,
+	winners map[string]mcpInspectedVariable,
+	resolvable map[string]bool,
+) []mcpserver.VariableReference {
+	found := map[string]*mcpserver.VariableReference{}
+	order := []string{}
+	// pending is the transitive worklist: (variable name whose value to scan).
+	pending := []string{}
+	scanned := map[string]bool{}
+
+	scan := func(where, text string) {
+		if !strings.Contains(text, "{{") {
+			return
+		}
+		for _, match := range mcpTemplateTokenPattern.FindAllStringSubmatch(text, -1) {
+			name := match[1]
+			reference, known := found[name]
+			if !known {
+				reference = mcpBuildVariableReference(name, winners, resolvable)
+				found[name] = reference
+				order = append(order, name)
+				if reference.Kind == mcpserver.KindVariable && reference.Resolved && !reference.Secret {
+					pending = append(pending, name)
+				}
+			}
+			if !mcpContainsString(reference.Where, where) {
+				reference.Where = append(reference.Where, where)
+			}
+		}
+	}
+	scanRows := func(prefix string, rows []types.KeyValue) {
+		for _, row := range rows {
+			if !row.Enabled {
+				continue
+			}
+			scan(prefix+":"+row.Name, row.Name)
+			scan(prefix+":"+row.Name, row.Value)
+		}
+	}
+
+	scan("url", effective.URL)
+	scan("method", effective.Method)
+	scanRows("header", effective.Headers)
+	scanRows("param", effective.Params)
+	scanRows("pathParam", effective.PathParams)
+	// RequestBodySnapshot is the same projection get_request reports, and it
+	// already flattens the form and multipart modes into their name=value
+	// text — so scanning it covers every body mode with one call, and cannot
+	// drift from what the agent was shown.
+	scan("body", types.RequestBodySnapshot(effective.Body))
+	scan("graphqlVariables", mcpGraphQLVariables(effective.Body))
+	// The auth block is scanned through the rows mcpAuthRows already flattens,
+	// so a field this adapter does not report cannot be referenced in the
+	// report either — one list of auth fields, not two that can drift.
+	for _, row := range mcpAuthRows(effective.Auth) {
+		scan("auth:"+row.Name, row.Value)
+	}
+	for _, variable := range effective.Vars.Req {
+		if !variable.Enabled || variable.Secret {
+			continue
+		}
+		scan("var:"+variable.Name, envsecrets.ValueToString(variable.Value))
+	}
+
+	for len(pending) > 0 {
+		name := pending[0]
+		pending = pending[1:]
+		if scanned[name] {
+			continue
+		}
+		scanned[name] = true
+		winner, known := winners[name]
+		if !known || winner.variable.Secret {
+			continue
+		}
+		scan("variable:"+name, envsecrets.ValueToString(winner.variable.Value))
+	}
+
+	out := make([]mcpserver.VariableReference, 0, len(order))
+	for _, name := range order {
+		out = append(out, *found[name])
+	}
+	return out
+}
+
+// mcpBuildVariableReference classifies one token and answers whether it
+// resolves.
+func mcpBuildVariableReference(
+	name string,
+	winners map[string]mcpInspectedVariable,
+	resolvable map[string]bool,
+) *mcpserver.VariableReference {
+	reference := &mcpserver.VariableReference{Name: name}
+	trimmed := strings.TrimSpace(name)
+	switch {
+	case strings.HasPrefix(trimmed, "process.env."):
+		reference.Kind = mcpserver.KindProcessEnv
+		reference.Note = "Resolved at send time from the process environment and the collection's .env file. " +
+			"Whether it is set is deliberately not reported: .env is where credentials live, and even a yes/no answer is an oracle over it."
+	case mcpDynamicTokenPattern.MatchString(name):
+		reference.Kind = mcpserver.KindDynamic
+		reference.Resolved = true
+		reference.Note = "Generated by LiteAPI at send time, fresh per occurrence. Nothing to supply."
+	case strings.HasPrefix(name, "?"):
+		reference.Kind = mcpserver.KindPrompt
+		reference.Note = "A prompt variable: LiteAPI asks the USER for this value in the app. A run started over MCP has nobody to ask, so tell the user rather than guessing a value."
+	default:
+		reference.Kind = mcpserver.KindVariable
+		reference.Resolved = resolvable[name]
+		if winner, known := winners[name]; known {
+			reference.Level = winner.level
+			reference.LevelPath = winner.levelPath
+			reference.Secret = winner.variable.Secret
+			if reference.Secret {
+				reference.Note = "Resolves to a secret variable. It resolves inside LiteAPI at send time; its value is not readable here and you never need it."
+			}
+		} else if reference.Resolved {
+			// In Combined but not in any authored scope: a value a script
+			// persisted, or a process-env row that reached the combined map.
+			reference.Level = mcpserver.LevelRuntime
+		} else {
+			reference.Note = "Nothing in scope defines this name. Supply it in run_request's variables, or pick an environment that defines it."
+		}
+	}
+	return reference
+}
+
+// mcpUnresolvedNames is the short answer an agent acts on: the ordinary
+// variables nothing in scope defines, sorted and deduplicated.
+//
+// Prompt and process.env references are deliberately NOT here. Neither is
+// supplied the way an unresolved variable is — one needs the user, the other
+// needs the machine's environment — so folding them in would produce a list an
+// agent cannot act on uniformly. They are reported in References, each with the
+// note that says what to do instead.
+func mcpUnresolvedNames(references []mcpserver.VariableReference) []string {
+	names := []string{}
+	for _, reference := range references {
+		if reference.Kind == mcpserver.KindVariable && !reference.Resolved {
+			names = append(names, reference.Name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func mcpContainsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *mcpBackend) ListEnvironments() ([]mcpserver.EnvironmentSummary, error) {
@@ -321,10 +976,23 @@ func (b *mcpBackend) ListEnvironments() ([]mcpserver.EnvironmentSummary, error) 
 							Name:         environment.Name,
 							Scope:        "collection",
 							CollectionID: collection.ID,
-							// Never active: which collection environment is
-							// selected is frontend state and has no home in
-							// AppState, so claiming one here would be a guess.
-							// Only the workspace-global selection is persisted.
+							// ALWAYS FALSE, and the reason is worth stating
+							// precisely because the tool descriptions used to
+							// contradict it. Which collection environment is
+							// selected IS persisted — in the WebView's own
+							// storage, by workspaceStore.selectedEnvironmentId
+							// (frontend/src/lib/environmentSelection.ts) — but
+							// it is never written to AppState, so this process
+							// cannot read it and claiming one here would be a
+							// guess. Only the workspace-global selection lives
+							// in state, and that is what Active reports above.
+							//
+							// The consequence for the run and inspect tools:
+							// omitting environmentId cannot mean "use the
+							// active one", because there is no active one to
+							// use. It means no collection environment applies.
+							// mcpInspectedEnvironment says so to the agent, and
+							// the tool descriptions now say the same.
 							Active: false,
 						},
 						variables: types.CloneVariables(environment.Variables),

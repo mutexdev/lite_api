@@ -319,7 +319,7 @@ func TestMCPDeniedRunPersistsNothing(t *testing.T) {
 }
 
 // §3's other half: within-run continuity survives. Two sends under ONE policy
-// — the shape runFlow produces, since every step calls the same function with
+// — the shape runFlowProvenance produces, since every step calls the same function with
 // the same context — and then a THIRD under a fresh policy, which must not see
 // it.
 func TestMCPFlowOverlayScopedToExecution(t *testing.T) {

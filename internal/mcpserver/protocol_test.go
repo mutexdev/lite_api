@@ -246,7 +246,7 @@ func TestToolsListDeclaresExactlyTheShippedTools(t *testing.T) {
 	}
 
 	want := []string{
-		"list_collections", "list_requests", "search_requests", "get_request", "list_environments",
+		"list_collections", "list_requests", "search_requests", "get_request", "inspect_request", "list_environments",
 		"list_flows", "get_flow", "get_history", "describe_usage",
 		"run_request", "run_flow",
 		"create_request", "update_request", "create_flow", "update_flow",

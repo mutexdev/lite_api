@@ -547,15 +547,19 @@ func TestMCPE2EFullAgentJourneyNeverLeaksASecret(t *testing.T) {
 	if !strings.Contains(gqlText, "store(code") {
 		t.Errorf("get_request(graphql) did not return the GraphQL query body: %s", gqlText)
 	}
-	// NOTE (judgment-pass finding, not a leak): RequestBodySnapshot only maps
-	// mode "graphql" to body.GraphQLQuery — the GraphQLVariables field (which
-	// carries this request's own {{storeCode}} template) is dropped entirely
-	// from RequestDetail. There is no field on the wire for it at all, so an
-	// agent reading get_request for a GraphQL request cannot see what
-	// variables it declares. This is a completeness gap, not a redaction bug
-	// (nothing resolves, nothing leaks) — see the final report.
-	if strings.Contains(gqlText, "storeCode") {
-		t.Errorf("get_request(graphql) unexpectedly carries the GraphQL variables block now — if this starts passing, RequestDetail gained a field and the judgment-pass note above is stale: %s", gqlText)
+	// THE GAP THIS TEST USED TO PIN IS CLOSED. RequestBodySnapshot still maps
+	// mode "graphql" to body.GraphQLQuery alone, but RequestDetail now carries
+	// graphqlVariables alongside it, so an agent reading get_request for a
+	// GraphQL request can finally see the variables the query declares. The
+	// assertion is inverted rather than deleted: the value of the old one was
+	// that it would notice the day the field appeared, and the value of this
+	// one is that it will notice the day it disappears again.
+	//
+	// Still not a redaction question, in either direction: the document travels
+	// as authored, so {{storeCode}} arrives as those literal braces and nothing
+	// is resolved.
+	if !strings.Contains(gqlText, "{{storeCode}}") {
+		t.Errorf("get_request(graphql) lost the GraphQL variables document; an agent cannot see what the query declares without it: %s", gqlText)
 	}
 	assertNoSentinel(t, "get_request(graphql)", gqlRaw, allSentinels...)
 
@@ -1178,8 +1182,8 @@ func TestMCPE2ERunFlowRetargetedStepIsDeniedAndAuditedAsDenied(t *testing.T) {
 	if !isError {
 		t.Fatalf("the retargeted step was allowed to run: %s", text)
 	}
-	if !strings.Contains(text, "exfil.attacker.example") || !strings.Contains(text, "apiToken") {
-		t.Errorf("the denial should name the host and the secret: %s", text)
+	if !strings.Contains(text, "exfil.attacker.example") {
+		t.Errorf("the denial should name the origin it refused: %s", text)
 	}
 	// The message tells the agent what to do instead — the one sentence that
 	// stops it retrying or routing around the guard.
@@ -1636,7 +1640,7 @@ func TestMCPE2EWriteTierJourney(t *testing.T) {
 	if err := json.Unmarshal([]byte(usageText), &guide); err != nil {
 		t.Fatalf("decode describe_usage: %v (text=%s)", err, usageText)
 	}
-	if len(guide.SafetyRules) != 6 || len(guide.Tiers) != 3 || len(guide.Flows.Example.Steps) != 3 {
+	if len(guide.SafetyRules) != 8 || len(guide.Tiers) != 3 || len(guide.Flows.Example.Steps) != 3 {
 		t.Fatalf("the guide is not the whole guide: %+v", guide)
 	}
 	for _, tier := range guide.Tiers {

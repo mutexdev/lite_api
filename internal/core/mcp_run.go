@@ -22,10 +22,15 @@ package core
 // LOCKING. Nothing here holds a.mu across the send: the engine takes and
 // releases the state lock itself, twice, around the network I/O (see the US-076
 // note in app_send.go). The one thing this file does under the lock is copy the
-// definition it needs for validation and for the guard.
+// definition it needs for validation and for the policy.
 //
-// The guard that decides whether the run may happen at all lives in
-// mcp_guard.go; the approval prompt it raises lives in mcp_approvals.go.
+// TWO BOUNDARIES, ASKING DIFFERENT QUESTIONS. The READ boundary — may the
+// agent's own inputs put a credential into this run — is mcp_guard.go's
+// secret-injection refusal, run once before anything else. The DESTINATION
+// boundary — may this execution contact that origin — is mcp_policy.go, built
+// here from the same plan and enforced at every egress the run makes rather than
+// once before it. The approval prompt either can raise lives in
+// mcp_approvals.go.
 
 import (
 	"context"
@@ -73,6 +78,15 @@ type mcpRunPlan struct {
 	site mcpDefinitionSite
 	// labels is the human half of the site — what a prompt shows. Never part of
 	// any key (§6).
+	//
+	// ITS ADVISORY SECRET LIST IS THE REQUEST'S, WHOLE. There used to be a
+	// narrowing step (promptLabels) that trimmed it to the secrets a particular
+	// prompt was about, which made sense while the prompt came from a guard
+	// that had decided ABOUT a credential. The destination boundary decides
+	// about an origin and knows nothing about credentials, so the honest
+	// advisory line is "this request references these secrets" — every prompt
+	// for this site says the same thing, because every prompt is about the same
+	// question.
 	labels mcpSiteLabels
 	// scope is Base(S, k) for this definition scope: the origins the stored
 	// definition points at, resolved under the run's SINGLE agent-free variable
@@ -80,37 +94,13 @@ type mcpRunPlan struct {
 	scope mcpScopeOrigins
 	// secretsInScope is every variable name that resolves to a secret for this
 	// run. It answers both questions this file asks: which overrides must be
-	// refused (item 3 of the contract) and which references the guard cares
-	// about.
+	// refused (item 3 of the contract) and which secret names a prompt's
+	// advisory list should mention.
 	secretsInScope map[string]bool
-	// workspacePath and collectionScopedSecrets locate each of those secrets'
-	// DEFINITION SITE, which is what its host allowlist is scoped to. See
-	// mcpSecretOwner in mcp_guard.go for why a bare name is not an identity.
-	workspacePath           string
-	collectionScopedSecrets map[string]bool
-}
-
-// promptLabels is this plan's display names with the advisory secret list
-// narrowed to the names a particular prompt is about.
-//
-// ADVISORY, AND ONLY ADVISORY (§6). The list is what makes the dialog concrete
-// for the person reading it — "it references the secret apiToken" — and nothing
-// keys on it: two prompts about the same site and origin that name different
-// secrets produce the SAME approval, because the approval is about the
-// destination and not about which credential happens to be travelling.
-func (p mcpRunPlan) promptLabels(advisorySecretNames []string) mcpSiteLabels {
-	labels := p.labels
-	labels.advisorySecretNames = append([]string(nil), advisorySecretNames...)
-	return labels
-}
-
-// secretOwner reports where one of this run's secrets is defined.
-func (p mcpRunPlan) secretOwner(name string) mcpSecretOwner {
-	site := mcpSecretOwner{workspacePath: p.workspacePath}
-	if p.collectionScopedSecrets[name] {
-		site.collectionID = p.collectionID
-	}
-	return site
+	// workspacePath is the workspace the run's collection lives in. It is also
+	// site.workspacePath; kept as its own field because the variable context is
+	// built from it before the site exists.
+	workspacePath string
 }
 
 // RunRequest executes one stored request through the app's own send path.
@@ -135,16 +125,15 @@ func (b *mcpBackend) RunRequest(ctx context.Context, params mcpserver.RunRequest
 		return mcpserver.RunResult{}, err
 	}
 	// The destination policy for this execution (§4.6), attached to the context
-	// the send path will carry. Nothing consults it yet — the shipped host guard
-	// below is still the enforcing boundary — but it is created HERE, from the
-	// same plan the guard uses, so that the wave which wires the checkpoints
-	// changes where the policy is read and not how it is built.
+	// the send path will carry. It IS the boundary: every egress this run makes
+	// is authorized against the scope built here, at the egress itself.
 	policy, _ := b.app.mcpEgressPolicyForRun(plan)
 	ctx = mcpContextWithPolicy(ctx, policy)
 
-	// EVERY override is agent-supplied here: run_request's whole variables map
-	// is the agent's own input, which is why both fields carry it.
-	if err := b.app.enforceMCPHostGuard(ctx, plan, mcpGuardInput{
+	// The read boundary, before any destination question. EVERY override is
+	// agent-supplied here: run_request's whole variables map is the agent's own
+	// input, which is why both fields carry it.
+	if err := b.app.enforceMCPSecretInjection(plan, mcpGuardInput{
 		overrides:    overrides,
 		agentValues:  overrides,
 		secretValues: secretValues,
@@ -157,9 +146,9 @@ func (b *mcpBackend) RunRequest(ctx context.Context, params mcpserver.RunRequest
 	// mcpValidatedOverrides for why that field is the right seam.
 	//
 	// mcpSendProvenance(policy) SAYS WHAT THIS IS (§4.5). The context still
-	// carries the policy — the host guard above and the checkpoints below read it
-	// there — but the send path is TOLD, by argument, that this is an
-	// agent-initiated run governed by this policy. Dropping the label can no
+	// carries the policy — the checkpoints, the guard transport and the script
+	// shims read it there — but the send path is TOLD, by argument, that this is
+	// an agent-initiated run governed by this policy. Dropping the label can no
 	// longer downgrade the run to a UI send; it fails the root's check instead.
 	_, _, response, err := b.app.sendRequestWithControlsContextProvenance(
 		ctx, mcpSendProvenance(policy), plan.collectionID, plan.requestID, plan.environmentID, nil, nil,
@@ -194,6 +183,34 @@ func mcpClassifyRunFailure(err error, policy *mcpEgressPolicy) error {
 		return err
 	}
 	return mcpDeniedRunError{err: err}
+}
+
+// mcpClassifyFlowDenial is the flow's half of the same problem, and it exists
+// because a flow reports a refused step differently from a refused run.
+//
+// WHAT GOES WRONG WITHOUT IT. RunFlow's contract, stated on RunFlow itself, is
+// that a non-nil error means the run was REFUSED and a nil error with OK false
+// means the flow RAN and failed its own checks. A step whose egress the policy
+// blocked is a refusal, but the flow runner sees only a step that could not
+// complete: it records the text on the step, marks the run not-OK, and returns
+// no error. The agent would then be told "your flow failed an assertion" about a
+// boundary decision, the audit would record `error` rather than `denied`, and
+// §1.2's promise that a denial arrives as an ErrDenied-class error would hold
+// for run_request and quietly not for run_flow.
+//
+// THE POLICY IS THE WITNESS, not the message. Matching on the text would break
+// the first time a refusal was reworded; the policy remembers that it refused.
+// Fail-fast means at most one step can have been refused, so the flow's own
+// top-level error — which quotes that step — is the right text to carry.
+func mcpClassifyFlowDenial(result types.FlowRunResult, policy *mcpEgressPolicy) error {
+	if result.OK || !policy.refusedAnyEgress() {
+		return nil
+	}
+	message := strings.TrimSpace(result.Error)
+	if message == "" {
+		message = "the flow was stopped because one of its steps would have contacted an origin this run is not authorized to reach"
+	}
+	return mcpDeniedRunError{err: errors.New(message)}
 }
 
 // mcpDeniedRunError is a refusal whose message was produced elsewhere: Error()
@@ -274,7 +291,15 @@ func (a *App) mcpRunPlan(collectionID, requestID, environmentID string) (mcpRunP
 		if globalEnvironmentMatch {
 			return mcpRunPlan{}, fmt.Errorf("environmentId %q names a global environment, which cannot be selected per run; the workspace's active global environment already applies. Pass a collection environment from list_environments, or omit environmentId", environmentID)
 		}
-		return mcpRunPlan{}, fmt.Errorf("no environment with id %q in collection %q; call list_environments for the ids that exist, or omit environmentId to use the active one", environmentID, collectionID)
+		// "or omit environmentId to use the active one" is what this used to say,
+		// and it was FALSE. The collection-environment selection the user makes
+		// in the app lives in the WebView's localStorage
+		// (frontend/src/lib/environmentSelection.ts) and never reaches AppState,
+		// so this process cannot read it: omitting environmentId applies NO
+		// collection environment at all. An agent told otherwise would run
+		// against an empty scope believing it had the user's, which is exactly
+		// the kind of quiet wrongness §1.4 exists to refuse.
+		return mcpRunPlan{}, fmt.Errorf("no environment with id %q in collection %q; call list_environments for the ids that exist, or omit environmentId to run with no collection environment", environmentID, collectionID)
 	}
 
 	// THE RUN'S ENVIRONMENT IDENTITY, fixed from the one locked read above: the
@@ -329,10 +354,9 @@ func (a *App) mcpRunPlan(collectionID, requestID, environmentID string) (mcpRunP
 			globalEnvironmentNames: mcpEnvironmentNames(globals),
 			advisorySecretNames:    mcpReferencedSecrets(effective, secretsInScope),
 		},
-		scope:                   scope,
-		secretsInScope:          secretsInScope,
-		workspacePath:           workspacePath,
-		collectionScopedSecrets: mcpCollectionScopedSecretNames(collection),
+		scope:          scope,
+		secretsInScope: secretsInScope,
+		workspacePath:  workspacePath,
 	}, nil
 }
 

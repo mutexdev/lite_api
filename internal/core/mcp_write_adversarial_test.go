@@ -28,32 +28,29 @@ import (
 
 // --- 1. allowlist poisoning: a DIFFERENT collection's same-named secret -----
 
-// This test pins a CLOSED VULNERABILITY.
+// This test pins a CLOSED VULNERABILITY, and it has now been closed twice — the
+// second time by a rule that does not mention credentials at all.
 //
-// THE HOLE. mcpKnownHostsForSecret was handed EVERY open collection
-// (mcpGuardCollections walks every workspace's every collection) and asked "is
-// this host known FOR SECRET NAME X" — never "is this host known for the
-// specific secret variable this collection defines". A secret had no identity
+// THE HOLE, AS IT WAS. The shipped host guard asked "is this host known FOR
+// SECRET NAME X" of every open collection at once, so a secret had no identity
 // beyond its name. Two collections that both declare "apiToken" — the single
-// most reusable name a real workspace has — were therefore NOT isolated from
-// each other's allowlists, though they hold different values and have never
-// shared a host. A request an agent authored in collection A, aiming A's
-// "apiToken" at a host, was approved with no prompt the moment collection B's
-// UNRELATED "apiToken" already used that host; and because mcpSecretsWithoutHost
-// used the identical name-keyed helper, the same widening let the RUN tier send
-// A's real credential there too.
+// most reusable name a real workspace has — were not isolated from each other,
+// though they hold different values and have never shared a host: a request an
+// agent authored in collection A, aiming A's "apiToken" at a host, was approved
+// with no prompt the moment collection B's UNRELATED "apiToken" already used
+// it, and the run tier used the same name-keyed helper, so A's real credential
+// could then be sent there too.
 //
-// WHAT NOW HOLDS. The allowlist is scoped by DEFINITION SITE (mcpSecretOwner,
-// mcp_guard.go). Here the fixture's "apiToken" is defined in the workspace's
-// GLOBAL environment, so its allowlist unions that workspace's collections —
-// EXCEPT any collection that declares the same name secret at collection scope,
-// because inside such a collection the name means that collection's own
-// credential and there is no way to tell from a request's braces which of the
-// two it meant. That is the fail-closed answer, and it is what isolates the two
-// here: the unrelated collection declares its own "apiToken" in its own
-// environment, so nothing it does teaches the guard anything about the global
-// one. Both halves — authoring and running — are asserted, because the fix had
-// to reach both.
+// WHAT HOLDS NOW, in destination terms. Base(S, k) is per SITE — workspace,
+// collection, request, environment — so another collection's destinations are
+// not this request's Base and cannot become so. Running is checked at every
+// egress against that scope, and authoring asks the same question before the
+// save, against the OWNING collection's stored definitions only
+// (mcpAuthoringKnownOrigins.covers). Neither half consults a secret name to
+// reach that answer, which is why the property survived the host guard's
+// retirement: it never depended on getting a credential's identity right, only
+// on getting the site's. Both halves are asserted, because the original fix had
+// to reach both and so does this one.
 func TestMCPAuthoringADifferentCollectionsSameNamedSecretCannotWidenThisAllowlist(t *testing.T) {
 	f := newMCPWriteFixture(t)
 	f.enableWriteTier()
@@ -109,8 +106,8 @@ func TestMCPAuthoringADifferentCollectionsSameNamedSecretCannotWidenThisAllowlis
 	if !errors.Is(err, mcpserver.ErrDenied) {
 		t.Fatalf("error is %v, want one that wraps mcpserver.ErrDenied", err)
 	}
-	if !strings.Contains(err.Error(), "apiToken") {
-		t.Errorf("the refusal should name the secret: %v", err)
+	if !strings.Contains(err.Error(), crossCollectionServer.Listener.Addr().String()) {
+		t.Errorf("the refusal should name the origin it refused: %v", err)
 	}
 
 	// The run half, which used the identical helper and so had the identical
@@ -134,25 +131,34 @@ func TestMCPAuthoringADifferentCollectionsSameNamedSecretCannotWidenThisAllowlis
 
 // --- 1b. the two halves of definition-site scoping, side by side ------------
 
-// The scoping rule has two directions, and a fix that only refused things would
-// pass half of it. Both are asserted here against the SAME fixture:
+// AUTHORING REACHABILITY IS PER COLLECTION, IN BOTH DIRECTIONS, and a change
+// that only refused things would pass half of it. Both are asserted here:
 //
-//   - A secret defined in the workspace's GLOBAL environment legitimately
-//     serves every collection in that workspace, so a sibling collection's use
-//     of it DOES teach the allowlist and authoring against that host is allowed
-//     with no prompt.
-//   - A secret defined at COLLECTION scope belongs to its collection, so
-//     another collection's same-named secret teaches nothing and authoring
-//     against that host is refused.
-func TestMCPAuthoringAllowlistIsScopedToWhereTheSecretIsDefined(t *testing.T) {
-	t.Run("a global secret is shared across its own workspace's collections", func(t *testing.T) {
+//   - A SIBLING COLLECTION teaches this one nothing, even when the secret in
+//     play is the workspace's GLOBAL one and the sibling really does send that
+//     same credential to that same host. Base(S, k) is keyed on the site, and a
+//     site names the collection; the boundary is about destinations, not about
+//     which credential is travelling, so "the user already sends this token
+//     there" is not a question it asks or can answer.
+//   - A secret defined at COLLECTION scope is the same case seen from the other
+//     end, and is included because it is the shape the retired host guard used
+//     to get wrong: another collection's same-named secret teaches nothing, and
+//     authoring against its host is refused.
+//
+// With no frontend attached every prompt denies, so throughout this test a
+// refusal means "the boundary asked" and a success means "it had nothing to
+// ask" — which is what makes the counterweight in the first half meaningful
+// rather than a proof that the guard refuses everything.
+func TestMCPAuthoringReachabilityIsScopedToTheOwningCollection(t *testing.T) {
+	t.Run("a sibling collection's host is not this collection's Base, global secret or not", func(t *testing.T) {
 		f := newMCPWriteFixture(t)
 		f.enableWriteTier()
-		f.noFrontend() // anything that reaches a prompt denies, so a pass means no prompt
+		f.noFrontend() // anything that reaches a prompt denies
 
 		// A sibling collection that does NOT redefine apiToken: every
-		// {{apiToken}} in it IS the workspace-global secret, so the host it
-		// sends it to is a host the user really has chosen for that credential.
+		// {{apiToken}} in it IS the workspace-global secret, so under the old
+		// per-secret allowlist this host was free. Under the destination
+		// boundary it is simply a host this collection does not reach.
 		const sharedHost = "api.shared-global.example.com"
 		f.app.mu.Lock()
 		workspace := &f.app.state.Workspaces[0]
@@ -166,15 +172,38 @@ func TestMCPAuthoringAllowlistIsScopedToWhereTheSecretIsDefined(t *testing.T) {
 		workspace.Collections = append(workspace.Collections, sibling)
 		f.app.mu.Unlock()
 
-		if _, err := f.create(mcpserver.CreateRequestParams{
+		_, err := f.create(mcpserver.CreateRequestParams{
 			Name:    "Uses the global secret at the sibling's host",
 			URL:     "https://" + sharedHost + "/y",
 			Headers: []mcpserver.AuthoredRow{{Name: "Authorization", Value: "Bearer {{apiToken}}"}},
-		}); err != nil {
-			t.Fatalf("a global secret's own workspace did not widen its allowlist: %v", err)
+		})
+		if err == nil {
+			t.Fatal("a sibling collection's host was treated as this collection's own")
 		}
-		if len(f.prompts()) != 0 {
-			t.Errorf("the user was asked about a host their global secret already goes to (%d prompts)", len(f.prompts()))
+		if !errors.Is(err, mcpserver.ErrDenied) {
+			t.Fatalf("error is %v, want one that wraps mcpserver.ErrDenied", err)
+		}
+
+		// AND THE COUNTERWEIGHT, so this is not merely "the guard refuses
+		// everything": the SAME collection's own prior use of that host saves
+		// with nothing to approve.
+		f.app.mu.Lock()
+		collection := &f.app.state.Workspaces[0].Collections[0]
+		own := types.NewRequestItem("This collection's own call to the shared host", "http", len(collection.Items)+1)
+		own.Method = "GET"
+		own.URL = "https://" + sharedHost + "/already"
+		own.Body = types.RequestBody{Mode: "none"}
+		collection.Items = append(collection.Items, own)
+		f.app.mu.Unlock()
+
+		// With no frontend attached every prompt denies, so a save that
+		// SUCCEEDS here is one that asked nothing.
+		if _, err := f.create(mcpserver.CreateRequestParams{
+			Name:    "Second call to a host this collection already reaches",
+			URL:     "https://" + sharedHost + "/z",
+			Headers: []mcpserver.AuthoredRow{{Name: "Authorization", Value: "Bearer {{apiToken}}"}},
+		}); err != nil {
+			t.Fatalf("a host this collection already reaches was refused: %v", err)
 		}
 	})
 
@@ -218,8 +247,8 @@ func TestMCPAuthoringAllowlistIsScopedToWhereTheSecretIsDefined(t *testing.T) {
 		if !errors.Is(err, mcpserver.ErrDenied) {
 			t.Fatalf("error is %v, want one that wraps mcpserver.ErrDenied", err)
 		}
-		if !strings.Contains(err.Error(), "teamToken") || !strings.Contains(err.Error(), teamHost) {
-			t.Errorf("the refusal should name the secret and the host: %v", err)
+		if !strings.Contains(err.Error(), teamHost) {
+			t.Errorf("the refusal should name the origin it refused: %v", err)
 		}
 
 		// And this collection's OWN prior use of teamToken does teach the

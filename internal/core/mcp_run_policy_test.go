@@ -405,10 +405,6 @@ func TestFlowStepVarBracesRemainLiteralWhileSendIsAuthorized(t *testing.T) {
 		t.Fatalf("the step's own destination is not in its Base: %v", originStrings(plan.scope.perKind[egressKindMain]))
 	}
 
-	if !mcpEnforcementWired {
-		t.Skip("the engine does not consult the destination policy yet; the end-to-end half of this case lands with the checkpoints (build with -tags mcpenforcement)")
-	}
-
 	// 3. END TO END, with NO approval path at all: no frontend means every
 	// unapproved origin denies, so a flow that completes here completed on Base
 	// alone — which is the claim.

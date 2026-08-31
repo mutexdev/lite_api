@@ -34,7 +34,8 @@ type FlowInput struct {
 // Vars are flow-scoped variable overrides for THIS step's resolution: their
 // values are interpolated against flow scope (the inputs plus everything
 // earlier steps extracted) and never against the environment, so a step var
-// cannot reach a secret. See core.runFlow for why that asymmetry is the point.
+// cannot reach a secret. See core.runFlowProvenance for why that asymmetry is
+// the point.
 type FlowStep struct {
 	ID        string            `json:"id"`
 	RequestID string            `json:"requestId"`

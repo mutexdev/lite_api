@@ -466,7 +466,16 @@ func TestMCPRunRequestPromptsForANewHostEvenWithNoSecret(t *testing.T) {
 	}
 }
 
-func TestMCPRunRequestDeniedNewHostNamesTheSecretAndNotItsValue(t *testing.T) {
+// The denial names the ORIGIN it refused; the SECRET rides on the prompt only.
+//
+// That split is the destination boundary's shape. The error is written for the
+// agent, and what the agent needs is the destination it may not reach and the
+// instruction not to route around it — the credential is not the subject of the
+// decision, because Base(S, k) is secret-blind and this run would be refused
+// identically carrying nothing. The secret name survives where it is actually
+// useful: the prompt's advisory list, which is what makes the dialog concrete
+// for the person reading it (§6). Neither ever carries the VALUE.
+func TestMCPRunRequestDeniedNewOriginNamesItAndNeverTheSecretValue(t *testing.T) {
 	f := newMCPRunFixture(t)
 	f.app.mcpApprovalEmit = func(request types.MCPApprovalRequest) {
 		f.mu.Lock()
@@ -487,11 +496,8 @@ func TestMCPRunRequestDeniedNewHostNamesTheSecretAndNotItsValue(t *testing.T) {
 	if !errors.Is(err, mcpserver.ErrDenied) {
 		t.Errorf("the denial does not wrap ErrDenied: %v", err)
 	}
-	if !strings.Contains(err.Error(), "apiToken") {
-		t.Errorf("the denial does not name the secret: %v", err)
-	}
 	if !strings.Contains(err.Error(), "exfiltration.example.invalid") {
-		t.Errorf("the denial does not name the host: %v", err)
+		t.Errorf("the denial does not name the origin: %v", err)
 	}
 	if strings.Contains(err.Error(), runSentinelToken) {
 		t.Errorf("the denial leaked the secret VALUE: %v", err)
@@ -546,16 +552,13 @@ func TestMCPRunRequestApprovedNewHostRuns(t *testing.T) {
 	if result.Status != http.StatusOK {
 		t.Errorf("status is %d, want 200", result.Status)
 	}
-	// TWO PROMPTS, ONE PER BOUNDARY, and that is the deliberate shape of this
-	// wave rather than a regression. The shipped host guard asks its question
-	// ("may this credential go to that host?") and the destination policy asks
-	// its own ("may this request contact that origin?"), and both are enforcing
-	// at once so that activating the new boundary cannot weaken the old one
-	// while it is being replaced. The final wave retires the host guard and this
-	// goes back to 1 — which is exactly when this assertion should fail and be
-	// changed, so it is pinned rather than loosened.
-	if len(f.prompts()) != 2 {
-		t.Errorf("got %d prompts, want exactly 2 (the host guard's and the destination policy's) — if the host guard has been retired, this is now 1", len(f.prompts()))
+	// EXACTLY ONE PROMPT. There was a wave in which this was two, because the
+	// shipped host guard and the destination policy were both enforcing while
+	// the second replaced the first; retiring the host guard leaves the one
+	// question that is actually being asked — may this request contact that
+	// origin — and asking it twice was the thing that had to end.
+	if len(f.prompts()) != 1 {
+		t.Errorf("got %d prompts, want exactly 1 (the destination policy's)", len(f.prompts()))
 	}
 	// Approve-once does NOT remember: nothing was written.
 	if _, err := os.Stat(f.app.mcpApprovalsPath()); !os.IsNotExist(err) {
@@ -890,19 +893,6 @@ func TestRecordMCPAuditReportsAWriteFailureOnce(t *testing.T) {
 }
 
 // --- 6. guard unit checks ----------------------------------------------------
-
-func TestMCPNormalizeHostDropsThePortAndCase(t *testing.T) {
-	for _, testCase := range []struct{ in, want string }{
-		{"API.Example.com", "api.example.com"},
-		{"api.example.com:8443", "api.example.com"},
-		{" api.example.com ", "api.example.com"},
-		{"", ""},
-	} {
-		if got := mcpNormalizeHost(testCase.in); got != testCase.want {
-			t.Errorf("mcpNormalizeHost(%q) = %q, want %q", testCase.in, got, testCase.want)
-		}
-	}
-}
 
 func TestMCPReferencedSecretsSeesSpacedAndNamedTemplates(t *testing.T) {
 	item := types.RequestItem{

@@ -2,12 +2,13 @@ package core
 
 // Origin identity for the MCP destination boundary — §1.1 of the Phase 6 design.
 //
-// WHY A NEW IDENTITY RATHER THAN mcpNormalizeHost. The shipped host guard
-// (mcp_guard.go) deliberately drops the port and the scheme: it reasons about
-// "which operator holds this credential", and api.example.com:443 and
-// api.example.com:8443 are the same operator. That was the right call for a
-// per-secret allowlist learned from a workspace, and it is the wrong call for a
-// destination boundary. Two consequences the old shape cannot express:
+// WHY A NEW IDENTITY RATHER THAN THE HOST GUARD'S. The guard this replaced
+// (retired with mcp_guard.go's host half) deliberately dropped the port and the
+// scheme: it reasoned about "which operator holds this credential", and
+// api.example.com:443 and api.example.com:8443 are the same operator. That was
+// the right call for a per-secret allowlist learned from a workspace, and it is
+// the wrong call for a destination boundary. Two consequences the old shape
+// could not express:
 //
 //   - LOCALHOST IS NOT ONE PLACE. :3000 and :8080 on a developer's machine are
 //     two unrelated services, frequently with different owners and different
@@ -73,9 +74,9 @@ type Origin struct {
 // scheme defaults of §1.1.
 //
 // A URL WITHOUT AN EXPLICIT SCHEME IS REJECTED, and that is the fail-closed
-// direction rather than an oversight. mcp_guard.go's mcpHostOfURL prepends
-// "https://" to a schemeless string because it is computing a hint about where a
-// secret might go; this function decides whether an egress may happen, and
+// direction rather than an oversight. The retired host guard prepended
+// "https://" to a schemeless string because it was computing a hint about where
+// a secret might go; this function decides whether an egress may happen, and
 // guessing a scheme here would mean guessing which of two different destinations
 // the user meant. The send path does not guess either — http.NewRequest rejects
 // a schemeless URL outright — so a definition whose URL is still full of

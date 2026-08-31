@@ -522,13 +522,32 @@ func TestWriteToolsAreListedEvenWhenTheTierIsOff(t *testing.T) {
 	}
 }
 
+// mustJSON renders a value so a test can assert that a SUBJECT is covered
+// somewhere in it without pinning the wording. The assertions that use it are
+// about a section not going missing, and matching prose exactly would make every
+// improvement to that prose a test failure.
+func mustJSON(t *testing.T, value any) string {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return string(encoded)
+}
+
 // --- describe_usage --------------------------------------------------------------
 
 // The guide has to stand on its own: an agent that has read nothing else should
-// learn the six rules, which tiers are live, what it may not author, and what a
-// flow looks like. These assertions are deliberately about CONTENT rather than
-// wording — they check that each subject is covered at all, because the failure
-// this guards against is a section quietly going missing.
+// learn the rules, WHERE THEY STOP, which tiers are live, what a run cannot do
+// at all, what it may not author, and what a flow looks like. These assertions
+// are deliberately about CONTENT rather than wording — they check that each
+// subject is covered at all, because the failure this guards against is a
+// section quietly going missing.
+//
+// THE NON-GUARANTEE LIST IS ASSERTED AS HARD AS THE RULES. A guide that lists
+// only what is enforced is worse than no guide: it invites an agent to treat a
+// response body from an allowed origin as credential-free, which is precisely
+// the thing this design does not promise (§1.4(3)).
 func TestDescribeUsageIsSelfContained(t *testing.T) {
 	backend := newFixtureBackend() // write tier off
 	server := newTestServer(t, backend)
@@ -540,13 +559,72 @@ func TestDescribeUsageIsSelfContained(t *testing.T) {
 	var guide usageGuide
 	decodePayload(t, result, &guide)
 
-	if len(guide.SafetyRules) != 6 {
-		t.Fatalf("the guide carries %d safety rules, want the six from the contract", len(guide.SafetyRules))
+	if len(guide.SafetyRules) != 8 {
+		t.Fatalf("the guide carries %d safety rules, want the eight from the contract", len(guide.SafetyRules))
 	}
 	for index, rule := range guide.SafetyRules {
 		if rule.Number != index+1 || rule.Title == "" || rule.Rule == "" || rule.ForYou == "" {
 			t.Errorf("rule %d is incomplete: %+v", index+1, rule)
 		}
+	}
+
+	// The three subjects the non-guarantee list exists for, each identified by a
+	// phrase that cannot survive the point being dropped.
+	limits := strings.ToLower(mustJSON(t, guide.NotGuaranteed))
+	for subject, phrase := range map[string]string{
+		"no confidentiality against an allowed destination": "confidentiality",
+		"masking is best-effort":                            "best-effort",
+		"resolver traffic is out of scope":                  "resolver",
+		"agent-writable files defeat it":                    "data directory",
+	} {
+		if !strings.Contains(limits, phrase) {
+			t.Errorf("the non-guarantee list does not cover %s (no %q anywhere in it)", subject, phrase)
+		}
+	}
+	if len(guide.NotGuaranteed) < 6 {
+		t.Errorf("the non-guarantee list is thin: %d entries", len(guide.NotGuaranteed))
+	}
+	for _, limit := range guide.NotGuaranteed {
+		if limit.Title == "" || limit.Detail == "" || limit.WhatYouDo == "" {
+			t.Errorf("a non-guarantee entry is incomplete: %+v", limit)
+		}
+	}
+
+	// The capabilities an agent run simply does not have. Each is a refusal no
+	// retry can change, so an agent that has not been told will try three times.
+	removed := strings.ToLower(mustJSON(t, guide.Unavailable))
+	for subject, phrase := range map[string]string{
+		"credential_process": "credential_process",
+		"non-TCP gRPC":       "unix socket",
+		"PAC proxies":        "pac",
+		"browser OAuth":      "browser sign-in",
+		"non-persistence":    "discards",
+	} {
+		if !strings.Contains(removed, phrase) {
+			t.Errorf("the unavailable-capability list does not cover %s (no %q anywhere in it)", subject, phrase)
+		}
+	}
+	for _, gone := range guide.Unavailable {
+		if gone.Capability == "" || gone.Why == "" || gone.WhatYouDo == "" {
+			t.Errorf("an unavailable-capability entry is incomplete: %+v", gone)
+		}
+	}
+
+	// The JSONPath subset. An agent that writes $.items[*].id from memory gets a
+	// parse error naming a path it believed was standard, so the accepted and
+	// rejected forms both have to be stated.
+	subset := guide.Flows.JSONPathSubset
+	if len(subset.Accepted) < 3 || len(subset.Rejected) < 4 {
+		t.Errorf("the JSONPath subset is thin: %d accepted, %d rejected", len(subset.Accepted), len(subset.Rejected))
+	}
+	rejected := strings.ToLower(mustJSON(t, subset.Rejected))
+	for _, form := range []string{"wildcard", "recursive descent", "filter", "slice"} {
+		if !strings.Contains(rejected, form) {
+			t.Errorf("the JSONPath subset does not say %s is rejected: %v", form, subset.Rejected)
+		}
+	}
+	if subset.OnMiss == "" || subset.Rendering == "" || subset.Why == "" {
+		t.Errorf("the JSONPath subset does not explain itself: %+v", subset)
 	}
 
 	if len(guide.Tiers) != 3 {
@@ -573,6 +651,32 @@ func TestDescribeUsageIsSelfContained(t *testing.T) {
 	if !contains(byName["read"].Tools, "describe_usage") {
 		t.Error("describe_usage does not list itself as read tier")
 	}
+	// THE LISTS ARE HARDCODED AND THE REGISTRY IS NOT, which is the one place
+	// they can drift silently: a tool added to the registry and forgotten here
+	// is invisible to an agent that reads the guide instead of tools/list.
+	listed := map[string]bool{}
+	for _, tier := range guide.Tiers {
+		for _, tool := range tier.Tools {
+			listed[tool] = true
+		}
+	}
+	for _, tool := range toolRegistry {
+		if !listed[tool.Name] {
+			t.Errorf("tool %q is registered but appears in no tier of the guide", tool.Name)
+		}
+	}
+	for name := range listed {
+		found := false
+		for _, tool := range toolRegistry {
+			if tool.Name == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("the guide lists %q, which is not a registered tool", name)
+		}
+	}
 
 	// The authoring rules are the ones an agent will otherwise discover by
 	// being refused.
@@ -586,7 +690,7 @@ func TestDescribeUsageIsSelfContained(t *testing.T) {
 			t.Errorf("authoring rule %q is incomplete: %+v", name, rule)
 		}
 	}
-	if !strings.Contains(authoring.NoScripts.Why, "guard") {
+	if !strings.Contains(authoring.NoScripts.Why, "definition") {
 		t.Errorf("the no-scripts rule does not say why: %q", authoring.NoScripts.Why)
 	}
 	if !strings.Contains(authoring.NoSecrets.Rule, "secret") {
