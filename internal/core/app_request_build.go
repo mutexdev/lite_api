@@ -8,6 +8,7 @@ package core
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -267,7 +268,7 @@ func applyAuthWithOAuth2Fetcher(ctx context.Context, req *http.Request, item *Re
 		}
 		req.SetBasicAuth(username, interpolate(auth.Password, vars))
 	case "awsv4":
-		return awsv4.Sign(mcpAWSSigningRequest(ctx, req), auth.AWSV4, time.Now().UTC(), func(value string) string { return interpolate(value, vars) })
+		return mcpClassifyAWSSigningRefusal(ctx, awsv4.Sign(mcpAWSSigningRequest(ctx, req), auth.AWSV4, time.Now().UTC(), func(value string) string { return interpolate(value, vars) }))
 	case "wsse":
 		wsse.ApplyHeader(req.Header, interpolate(auth.Username, vars), interpolate(auth.Password, vars), time.Now().UTC())
 	case "oauth1":
@@ -311,6 +312,46 @@ func mcpAWSSigningRequest(ctx context.Context, req *http.Request) *http.Request 
 	signingCtx := mcpContextWithEgressKind(ctx, egressKindAWS)
 	signingCtx = awsv4.WithEgressGuard(signingCtx, mcpAWSEgressGuard(policy))
 	return req.WithContext(signingCtx)
+}
+
+// mcpClassifyAWSSigningRefusal re-classes §2 row 2 on the core side.
+//
+// WHY IT CANNOT BE DONE WHERE IT IS DETECTED. internal/auth/awsv4 refuses
+// credential_process at the only site that reaches it (profile.go), before the
+// command line is even split, and it reports that with its own
+// *CredentialProcessRefusedError. It cannot wrap mcpserver.ErrDenied and it
+// cannot mark the policy: awsv4 imports neither package, deliberately — the
+// guard it takes is an interface precisely so the auth package stays ignorant
+// of what "authorized" means. So the refusal arrives here as a typed error with
+// no class and no mark, and by the time executeHTTP has written
+// `result.Error = err.Error()` there is nothing left for the audit layer to
+// recognise. This is the seam where the guard closure was installed
+// (mcpAWSSigningRequest, just above), which makes it the right place to give
+// the refusal back its class.
+//
+// errors.As rather than a string match, for the reason mcpClassifyFlowDenial
+// gives: matching on the wording breaks the first time the wording changes.
+//
+// UNDER A UI SEND NOTHING HAPPENS. awsv4 only refuses when a guard is on the
+// context, and a UI send installs none, so this cannot fire — and if it somehow
+// did, noteRefusal on a nil policy is a no-op and the error is returned as it
+// arrived.
+func mcpClassifyAWSSigningRefusal(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	var refused *awsv4.CredentialProcessRefusedError
+	if !errors.As(err, &refused) {
+		return err
+	}
+	mcpPolicyFromContext(ctx).noteRefusal()
+	if errors.Is(err, mcpserver.ErrDenied) {
+		return err
+	}
+	// mcpDeniedRunError carries the class and leaves the message alone: awsv4
+	// already wrote the §2 refusal sentence, verbatim as the doc's row 2 quotes
+	// it, and prefixing "denied:" onto it would render the refusal twice.
+	return mcpDeniedRunError{err: err}
 }
 
 // mcpAWSEgressGuard adapts the destination policy to awsv4's guard interface.

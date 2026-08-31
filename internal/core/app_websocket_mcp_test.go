@@ -4,6 +4,7 @@ package core
 // checkpoint and §5 row 10, plus the context fix the checkpoint rides on.
 
 import (
+	"bufio"
 	"context"
 	"net"
 	"net/http"
@@ -193,5 +194,87 @@ func TestUIWebSocketSendUnaffectedByThePolicy(t *testing.T) {
 	}
 	if response.Body != "echo: hello" {
 		t.Fatalf("unexpected UI WebSocket body: %q", response.Body)
+	}
+}
+
+// CONFIRMED-SAFE / COVERAGE-ADDED, attack area 5. websocketDialer's MCP branch
+// (app_websocket.go) lifts Proxy and TLSClientConfig from mcpTransportPosture
+// straight onto a bare websocket.Dialer with NetDialContext set directly to
+// the cloned transport's dialer — there is no mcpCertConfinedTransport-style
+// wrapper here at all, unlike the HTTP path in executeHTTP. That is only safe
+// because a WebSocket handshake has no redirect concept for such a wrapper to
+// defend against: this is the wire-level proof of that premise. The primary
+// listener answers the handshake with a 302 to a SECOND ("attacker") raw TCP
+// listener; if gorilla's Dialer ever followed a handshake redirect on its own
+// — a library upgrade, or a future reimplementation of websocketDialer that
+// added retry/redirect handling without adding a confinement wrapper to match
+// — a client certificate loaded for the request's own origin would ride along
+// to wherever Location pointed. Zero bytes reaching the attacker listener is
+// what this test measures, not merely an error being returned.
+func TestMCPWebSocketDoesNotFollowAHandshakeRedirectToAnotherHost(t *testing.T) {
+	attackerListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = attackerListener.Close() }()
+	var attackerConnections atomic.Int32
+	go func() {
+		for {
+			conn, err := attackerListener.Accept()
+			if err != nil {
+				return
+			}
+			attackerConnections.Add(1)
+			_ = conn.Close()
+		}
+	}()
+
+	primaryListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = primaryListener.Close() }()
+	go func() {
+		conn, err := primaryListener.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+		reader := bufio.NewReader(conn)
+		// Read the raw handshake request off the wire until the blank line
+		// that ends the headers, rather than parsing it — this listener only
+		// needs to know when the client has finished asking.
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return
+			}
+			if line == "\r\n" || line == "\n" {
+				break
+			}
+		}
+		location := "http://" + attackerListener.Addr().String() + "/exfil"
+		response := "HTTP/1.1 302 Found\r\nLocation: " + location + "\r\nContent-Length: 0\r\n\r\n"
+		_, _ = conn.Write([]byte(response))
+	}()
+
+	app := newAppForTest(t)
+	targetURL := "ws://" + primaryListener.Addr().String() + "/socket"
+	// The request's OWN destination — no retargeting, so the checkpoint has
+	// nothing to say no to; whatever happens next is the dialer's own
+	// behaviour, which is exactly what this test is about.
+	policy := mcpWebSocketPolicy(t, targetURL)
+	item := mcpWebSocketItem(targetURL)
+
+	response := app.executeWebSocketContext(mcpContextWithPolicy(context.Background(), policy), "col_ws", item, nil)
+	if response.Error == "" {
+		t.Fatalf("a 302 handshake response was treated as a successful upgrade: %#v", response)
+	}
+	// A generous window for a follower that does not exist to have dialed
+	// anyway, so this measures absence rather than a race against it.
+	time.Sleep(200 * time.Millisecond)
+	if got := attackerConnections.Load(); got != 0 {
+		t.Fatalf("%d connection(s) reached the redirect target; the WebSocket dialer followed a handshake redirect off the checked origin", got)
 	}
 }

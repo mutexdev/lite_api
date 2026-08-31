@@ -1126,11 +1126,17 @@ func mcpPatchedString(value *string) string {
 
 // CreateFlow stores a new flow through the app's own binding.
 //
-// THE VALIDATOR IS NOT REPEATED HERE. App.CreateFlow calls validateFlow with
-// flowSecretNamesInScope, which flows.go's header names as the single gate both
-// authoring paths share; calling it is what keeps the write tier from
+// THE VALIDATOR IS NOT REPEATED HERE. createFlowAuthoring calls validateFlow
+// with flowSecretNamesInScope, which flows.go's header names as the single gate
+// both authoring paths share; calling it is what keeps the write tier from
 // accepting a flow the app's own Flow tab would reject. Its errors already name
 // the flow, the step and the fix, so they are returned verbatim.
+//
+// IT GOES IN AS agentFlowAuthoring(). That is the whole difference between this
+// path and the binding, and it is what makes validateFlow refuse a step var
+// whose VALUE reaches a secret — rule 8's channel, which the user's own editor
+// is deliberately not held to (flowRefuseSecretReachingStepVars states the
+// ruling and the argument).
 func (b *mcpBackend) CreateFlow(params mcpserver.CreateFlowParams) (mcpserver.FlowSummary, error) {
 	if err := b.app.mcpWriteTierGate("create_flow"); err != nil {
 		return mcpserver.FlowSummary{}, err
@@ -1146,7 +1152,7 @@ func (b *mcpBackend) CreateFlow(params mcpserver.CreateFlowParams) (mcpserver.Fl
 		// takes one" is only true if the tool returns the id it created.
 		flow.ID = newID("flow")
 	}
-	if _, err := b.app.CreateFlow(collectionID, flow); err != nil {
+	if _, err := b.app.createFlowAuthoring(collectionID, flow, agentFlowAuthoring()); err != nil {
 		return mcpserver.FlowSummary{}, err
 	}
 	return mcpFlowSummary(flow), nil
@@ -1165,7 +1171,7 @@ func (b *mcpBackend) UpdateFlow(params mcpserver.UpdateFlowParams) (mcpserver.Fl
 	if flow.ID == "" {
 		return mcpserver.FlowSummary{}, errors.New("flow.id is required to update a flow; call list_flows for the ids that exist, or call create_flow to add a new one")
 	}
-	if _, err := b.app.UpdateFlow(collectionID, flow); err != nil {
+	if _, err := b.app.updateFlowAuthoring(collectionID, flow, agentFlowAuthoring()); err != nil {
 		return mcpserver.FlowSummary{}, err
 	}
 	return mcpFlowSummary(flow), nil

@@ -236,6 +236,17 @@ type mcpEgressPolicy struct {
 	// reads this flag and re-attaches the class without re-rendering the
 	// message.
 	//
+	// IT IS SET BY BOTH KINDS OF REFUSAL, and for a long time it was set by only
+	// one. record() sets it for a DESTINATION denial, which is the case that
+	// goes through Authorize. A §1.2(2) FEATURE refusal — credential_process, a
+	// non-TCP gRPC target, PAC, an interactive OAuth grant, a certificate meeting
+	// an https proxy — never reaches Authorize at all: it fires inside engine
+	// plumbing, before or beside the checkpoints. Those refusals used to leave
+	// this flag false, so a run whose ONLY refusal was a feature refusal came out
+	// of mcpClassifyRunFailure unclassed and was audited as `error`, which is
+	// precisely the row rule 6 says a refusal must not be filed under. noteRefusal
+	// is what every feature refusal now calls.
+	//
 	// An atomic rather than a mutex-guarded bool because it is written from
 	// inside record(), which is called with p.mu deliberately RELEASED.
 	refused atomic.Bool
@@ -494,6 +505,26 @@ func (p *mcpEgressPolicy) refusedAnyEgress() bool {
 	return p != nil && p.refused.Load()
 }
 
+// noteRefusal remembers a refusal that did NOT come through Authorize, so the
+// run root can class it as denied.
+//
+// NIL-TOLERANT, and that is the whole reason it is a method. Every §1.2(2)
+// refusal site is inside engine code that may or may not be running under a
+// policy: with one it is an agent run and this marks it, without one it is a UI
+// send that never refuses anything anyway (§1.2(4)). Writing the check here
+// rather than at each site keeps the sites reading as one line.
+//
+// It does not call the audit hook. record()'s audit line is per (site, origin,
+// kind) and a feature refusal has no origin — the tool call's own audit entry is
+// where a feature refusal is recorded, and that is exactly the entry this flag
+// fixes the outcome of.
+func (p *mcpEgressPolicy) noteRefusal() {
+	if p == nil {
+		return
+	}
+	p.refused.Store(true)
+}
+
 // approvalRequest builds the prompt payload: the full site, the origin, the
 // kind and its class (§6), through whatever describe hook the execution
 // installed.
@@ -538,12 +569,35 @@ func originLabel(o Origin) string {
 // sites are all inside engine code that already holds (or does not hold) a
 // policy, and reading `policy.Refuse(...)` at the site says WHY it is refusing:
 // because this is an MCP run.
+//
+// IT MARKS THE POLICY. The error it returns wraps ErrDenied, but that class does
+// not survive the trip through Response.Error — executeHTTP stringifies every
+// failure — so the class has to be recoverable from something other than the
+// error value. noteRefusal is that something; without it a run whose only
+// refusal was a feature refusal was audited as `error`, contradicting rule 6.
 func (p *mcpEgressPolicy) Refuse(feature, detail string) error {
+	p.noteRefusal()
 	return mcpRefusal(feature, detail)
+}
+
+// mcpRefuseFeature is Refuse for the sites that hold a context rather than a
+// policy value — the transport posture, the proxy resolution, the gRPC target
+// validator. It is the same call: find this execution's policy, mark it, and
+// return the uniform refusal. With no policy on the context (a UI send) it is
+// exactly mcpRefusal, which is what §1.2(4) requires.
+func mcpRefuseFeature(ctx context.Context, feature, detail string) error {
+	return mcpPolicyFromContext(ctx).Refuse(feature, detail)
 }
 
 // mcpRefusal is Refuse's body, available to sites that have no policy value in
 // hand. One implementation, so every refusal reads the same way.
+//
+// PREFER Refuse OR mcpRefuseFeature. This bare form does not mark the policy, so
+// a refusal built with it is invisible to mcpClassifyRunFailure and will be
+// audited as `error`. It remains exported within the package for the one caller
+// that genuinely has neither a policy nor a context: requestFailureMessage's
+// RESTATEMENT of a refusal that already happened and was already marked at its
+// own site.
 func mcpRefusal(feature, detail string) error {
 	feature = strings.TrimRight(strings.TrimSpace(feature), ".")
 	detail = strings.TrimSpace(detail)

@@ -162,7 +162,7 @@ func (a *App) mcpTransportPosture(ctx context.Context, policy *mcpEgressPolicy, 
 		// there is no agent-free main destination to build a posture from, and
 		// falling back to the runtime target would be falling back to the
 		// agent's own value.
-		return mcpTransportPosture{}, mcpRefusal(
+		return mcpTransportPosture{}, policy.Refuse(
 			"This run has no active request scope, so its transport could not be built from the request's own definition",
 			"This is a bug in LiteAPI — report it rather than retrying.")
 	}
@@ -209,7 +209,7 @@ func (a *App) mcpApplyProxyPosture(ctx context.Context, posture *mcpTransportPos
 	resolution := a.collectionProxyResolution(collectionID)
 	switch strings.ToLower(strings.TrimSpace(resolution.Mode)) {
 	case "pac":
-		return mcpPACProxyRefusal()
+		return mcpPACProxyRefusal(ctx)
 	case "manual":
 		// Resolved with the scope's agent-free variables, so the effective
 		// proxy IS the agent-free one by construction and the authorization
@@ -226,11 +226,11 @@ func (a *App) mcpApplyProxyPosture(ctx context.Context, posture *mcpTransportPos
 			return nil
 		}
 		if posture.cert != nil && strings.EqualFold(posture.proxyURL.Scheme, "https") {
-			return mcpCertificateHTTPSProxyRefusal()
+			return mcpCertificateHTTPSProxyRefusal(ctx)
 		}
 		origin, ok := mcpProxyOrigin(posture.proxyURL)
 		if !ok {
-			return mcpRefusal(
+			return policy.Refuse(
 				"This request's manual proxy did not resolve to a usable address",
 				"Fix the proxy hostname and port in the app, or run this request there.")
 		}
@@ -246,14 +246,14 @@ func (a *App) mcpApplyProxyPosture(ctx context.Context, posture *mcpTransportPos
 			return err
 		}
 		if pacURL != "" {
-			return mcpPACProxyRefusal()
+			return mcpPACProxyRefusal(ctx)
 		}
 		if proxyURL == nil {
 			posture.proxyMode = xport.ProxyOff
 			return nil
 		}
 		if strings.EqualFold(proxyURL.Scheme, "https") {
-			return mcpCertificateHTTPSProxyRefusal()
+			return mcpCertificateHTTPSProxyRefusal(ctx)
 		}
 		posture.proxyMode, posture.proxyURL = xport.ProxyExplicit, proxyURL
 		return nil
@@ -311,8 +311,8 @@ func (p mcpTransportPosture) applyToTransport(t *http.Transport, targetURL strin
 // mode check here, the cert-free closure's discovery, and the cert-bearing
 // frozen construction — and reads identically at all three, because to the user
 // they are one fact about their configuration.
-func mcpPACProxyRefusal() error {
-	return mcpRefusal(
+func mcpPACProxyRefusal(ctx context.Context) error {
+	return mcpRefuseFeature(ctx,
 		"The effective proxy configuration uses a PAC file, which is a remote script LiteAPI would have to fetch and run",
 		"Run this request in the app, or switch the proxy setting to manual or system.")
 }
@@ -321,8 +321,8 @@ func mcpPACProxyRefusal() error {
 // is itself a TLS handshake with the proxy, and the certificate lives in
 // TLSClientConfig for every dial the transport makes — so the proxy could ask
 // for the user's client identity and get it.
-func mcpCertificateHTTPSProxyRefusal() error {
-	return mcpRefusal(
+func mcpCertificateHTTPSProxyRefusal(ctx context.Context) error {
+	return mcpRefuseFeature(ctx,
 		"This request combines a client certificate with an HTTPS proxy, so the certificate could be presented to the proxy",
 		"Run it in the LiteAPI app.")
 }

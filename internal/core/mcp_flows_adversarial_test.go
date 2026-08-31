@@ -12,6 +12,7 @@ package core
 //     cannot come back unnoticed.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -401,5 +402,232 @@ func TestMCPRunFlowHostileInputShapesDoNotPanic(t *testing.T) {
 			// only that nothing panics on the way there.
 			_, _ = f.run("flow_provision", map[string]string{"storeCode": value})
 		})
+	}
+}
+
+// --- 4. an AGENT-AUTHORED step var whose VALUE reaches a secret --------------
+
+// This test pins a CLOSED VULNERABILITY, and it is the third appearance of one
+// shape: an agent-supplied value reaching a secret through a door nothing
+// screened. The first two were run_request's override values and run_flow's
+// inputs (pinned above); this one is a step var the agent AUTHORED.
+//
+// THE HOLE. mcp_guard.go's rule 8 ("an agent value may not inject a
+// credential") was enforced for run_request's overrides (mcpValidatedOverrides)
+// and for run_flow's INPUTS (mcpRefuseSecretInjectingValues walking
+// mcpGuardInput.agentValues). Both rested on one argument: "the agent supplies
+// the inputs, not the overrides ... a step var of {"token": "{{apiToken}}"} is
+// the USER writing that reference into the flow" (see
+// TestMCPRunFlowInputValueCannotSmuggleASecretPastThePerStepGuard above).
+//
+// PHASE 4 BROKE THAT ASSUMPTION WITHOUT UPDATING THE GUARD. create_flow /
+// update_flow let an AGENT author step vars directly, and neither path screened
+// a step var's VALUE:
+//
+//   - flows.go's validateFlow — the single gate both authoring paths call —
+//     only refused a step var whose NAME shadowed a secret; `secretNames` was
+//     checked against the var's KEY, never against what it was set to.
+//   - mcp_write.go's mcpFlowFromDefinition copies step var values through
+//     verbatim, by design, with no scan of its own.
+//   - mcp_flows.go's RunFlow guard passed the step's own vars as `overrides`
+//     (used only to BUILD the map the walk runs through) and `params.Inputs` as
+//     `agentValues` (the thing actually walked). A pre-authored step var was
+//     therefore never walked at all, at authoring time or run time.
+//
+// So an agent with the write tier on could author {"storeId": "{{apiToken}}"}
+// against an EXISTING, already-approved request whose body carries an ordinary
+// non-secret {{storeId}} — no new destination, no approval prompt, no name
+// collision — and run_flow resolved the real credential into that field and
+// sent it. Not §1.4(3): that disclaims CONFIDENTIALITY once a credential
+// legitimately reaches a trusted origin, whereas rule 8 is a separate promise
+// about the CHANNEL, and its own reasoning ("an agent that cannot READ a secret
+// must not be able to WRITE one") applies here word for word.
+//
+// WHAT NOW HOLDS, at both doors:
+//
+//   - AUTHORING. validateFlow refuses it (flowRefuseSecretReachingStepVars),
+//     using mcpSecretsReachedByTemplate — the run tier's own walk, so the write
+//     tier refuses exactly what the run tier refuses. The refusal names the var
+//     and the secret, never a value, and wraps mcpserver.ErrDenied.
+//   - RUNNING. While the write tier is on, RunFlow's guard also screens the
+//     step's own vars (mcpGuardInput.authoredValues), so a flow authored BEFORE
+//     the gate existed cannot be run either. Both halves are asserted below,
+//     the second by installing the flow straight into state.
+//
+// The refusal is provenance-conditioned: a HUMAN authoring the same step var in
+// the app's Flow editor is not refused. See
+// TestUIFlowEditorMayStillAuthorAStepVarThatAimsASecret for that ruling, and
+// flowRefuseSecretReachingStepVars for the argument.
+func TestCreateFlowStepVarValueIsRefusedForAnAgentAuthor(t *testing.T) {
+	f := newMCPFlowFixture(t)
+	f.app.mu.Lock()
+	f.app.state.Preferences.MCP.WriteTierEnabled = true
+	f.app.mu.Unlock()
+
+	// The step targets the fixture's PRE-EXISTING "create" request, which
+	// already has an ordinary, non-secret {{storeId}} placeholder in its body
+	// (`{"storeId":"{{storeId}}"}`) and already sends to the fixture's own
+	// server — no new destination is introduced anywhere in this test, which is
+	// what makes it a measurement of rule 8 rather than of the destination
+	// boundary.
+	_, err := f.backend.CreateFlow(mcpserver.CreateFlowParams{
+		CollectionID: f.collectionID,
+		Flow: mcpserver.FlowDefinition{
+			Name: "Looks innocent: just fills in storeId",
+			Steps: []mcpserver.FlowStep{
+				{ID: "leak", RequestID: f.createID, Vars: map[string]string{"storeId": "{{apiToken}}"}},
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("create_flow authored a step var whose value resolves to a secret")
+	}
+	if !errors.Is(err, mcpserver.ErrDenied) {
+		t.Fatalf("error is %v, want one that wraps mcpserver.ErrDenied", err)
+	}
+	if !strings.Contains(err.Error(), `"storeId"`) || !strings.Contains(err.Error(), "apiToken") {
+		t.Errorf("the refusal should name the offending var and the secret: %v", err)
+	}
+	if strings.Contains(err.Error(), mcpFlowSentinelToken) {
+		t.Errorf("the refusal quoted the secret VALUE: %v", err)
+	}
+
+	// AND THE RUN DOOR, for a flow that got in before the gate existed:
+	// installed straight into state, exactly as a flow read off disk would be.
+	f.install(types.Flow{
+		ID:   "flow_preauthored_leak",
+		Name: "Authored before the gate existed",
+		Steps: []types.FlowStep{
+			{ID: "leak", RequestID: f.createID, Vars: map[string]string{"storeId": "{{apiToken}}"}},
+		},
+	})
+	outcome, runErr := f.run("flow_preauthored_leak", nil)
+	if runErr == nil {
+		t.Fatalf("run_flow ran a pre-authored smuggling step var: %+v", outcome)
+	}
+	if !errors.Is(runErr, mcpserver.ErrDenied) {
+		t.Fatalf("run error is %v, want one that wraps mcpserver.ErrDenied", runErr)
+	}
+	if !strings.Contains(runErr.Error(), `"storeId"`) {
+		t.Errorf("the run refusal should name the offending var: %v", runErr)
+	}
+	for _, request := range f.recorded() {
+		if strings.Contains(request.body, mcpFlowSentinelToken) {
+			t.Errorf("the credential reached a server: %+v", request)
+		}
+	}
+}
+
+// THE RULING ON THE HUMAN AUTHOR, measured rather than asserted in a comment.
+//
+// The refusal above is conditioned on WHO is authoring, and this is the other
+// branch: the same flow, written through the app's own Flow editor binding
+// (App.CreateFlow, which is what the Flow tab calls), is ACCEPTED.
+//
+// WHY THAT IS THE RIGHT ANSWER, in three lines — the argument in full is on
+// flowRefuseSecretReachingStepVars. Rule 8's subject is an AGENT-supplied
+// value, and the asymmetry it exists to protect ("an agent that cannot READ a
+// secret must not be able to WRITE one") does not exist for a user who can open
+// the environment editor and read every secret they own. The shape is the flow
+// tier's central documented promise — the canonical POS chain in the docs aims
+// {{apiToken}} at a request through a step var, and
+// TestFlowStepVarBracesRemainLiteralWhileSendIsAuthorized pins it end to end.
+// And §1.2(4)/§2 already settle the pattern: every refusal in this design is
+// provenance-conditioned so a user action is unaffected.
+//
+// The write tier is left OFF here deliberately. That is the state in which a
+// stored step var is provably the user's — the agent has no authoring channel
+// at all — and it is exactly the condition RunFlow's guard uses to decide
+// whether to screen step vars at run time.
+func TestUIFlowEditorMayStillAuthorAStepVarThatAimsASecret(t *testing.T) {
+	f := newMCPFlowFixture(t)
+
+	flow := types.Flow{
+		ID:   "flow_ui_authored",
+		Name: "The user's own credential reference",
+		Steps: []types.FlowStep{
+			{ID: "aim", RequestID: f.createID, Vars: map[string]string{"storeId": "{{apiToken}}"}},
+		},
+	}
+	if _, err := f.app.CreateFlow(f.collectionID, flow); err != nil {
+		t.Fatalf("the app's own Flow editor was refused the user's own step var: %v", err)
+	}
+
+	// And it still RUNS through the MCP tier while the write tier is off: the
+	// step's destination is the collection's own, so nothing about a legitimate
+	// credential reference is disturbed.
+	if _, err := f.run("flow_ui_authored", nil); err != nil {
+		t.Fatalf("a user-authored step var was refused at run time with the write tier off: %v", err)
+	}
+	sawCredential := false
+	for _, request := range f.recorded() {
+		if request.path == "/terminals" && strings.Contains(request.body, mcpFlowSentinelToken) {
+			sawCredential = true
+		}
+	}
+	if !sawCredential {
+		t.Error("the user's own step var did not actually resolve the credential at send time, so this test measures nothing")
+	}
+
+	// The tier flag is the whole discriminator, so the other side of it is
+	// worth pinning here too: turn writes on and the same stored flow is
+	// refused, because from that moment the agent could have authored it.
+	f.app.mu.Lock()
+	f.app.state.Preferences.MCP.WriteTierEnabled = true
+	f.app.mu.Unlock()
+	if _, err := f.run("flow_ui_authored", nil); !errors.Is(err, mcpserver.ErrDenied) {
+		t.Fatalf("with the write tier on, the run error is %v, want an ErrDenied-class refusal", err)
+	}
+}
+
+// The legitimate shape the fix must not touch: a step var that fills an
+// ORDINARY placeholder from an ordinary input. This is what the flow tier is
+// for, it is agent-authorable, and it stays that way with the write tier on —
+// the refusal is about reaching a SECRET, not about step vars.
+func TestCreateFlowStepVarNamingANonSecretInputStillWorks(t *testing.T) {
+	f := newMCPFlowFixture(t)
+	f.app.mu.Lock()
+	f.app.state.Preferences.MCP.WriteTierEnabled = true
+	f.app.mu.Unlock()
+
+	created, err := f.backend.CreateFlow(mcpserver.CreateFlowParams{
+		CollectionID: f.collectionID,
+		Flow: mcpserver.FlowDefinition{
+			Name:   "Fill storeId from an input",
+			Inputs: []mcpserver.FlowInput{{Name: "aNonSecretInput", Required: true}},
+			Steps: []mcpserver.FlowStep{
+				{ID: "create", RequestID: f.createID, Vars: map[string]string{"storeId": "{{aNonSecretInput}}"}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create_flow refused an ordinary step var: %v", err)
+	}
+
+	outcome, runErr := f.backend.RunFlow(context.Background(), mcpserver.RunFlowParams{
+		CollectionID: f.collectionID,
+		FlowID:       created.ID,
+		Inputs:       map[string]string{"aNonSecretInput": "store_99"},
+	})
+	if runErr != nil {
+		t.Fatalf("run_flow refused an ordinary step var: %v", runErr)
+	}
+	if !outcome.OK {
+		t.Fatalf("the flow did not pass: %+v", outcome)
+	}
+	sawValue := false
+	for _, request := range f.recorded() {
+		if request.path != "/terminals" {
+			continue
+		}
+		if strings.Contains(request.body, "store_99") {
+			sawValue = true
+		}
+		if strings.Contains(request.body, mcpFlowSentinelToken) {
+			t.Errorf("the credential reached the body of an ordinary step: %+v", request)
+		}
+	}
+	if !sawValue {
+		t.Errorf("the step var did not reach the request body at all: %+v", f.recorded())
 	}
 }

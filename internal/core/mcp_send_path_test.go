@@ -1171,7 +1171,7 @@ func TestMCPCertFreeSystemProxyClosureRefusesPAC(t *testing.T) {
 		t.Fatalf("the PAC file was fetched %d times before the refusal", pacFetches.Load())
 	}
 	// And the message the user sees is §2 row 4's, not the sentinel's.
-	if !strings.Contains(requestFailureMessage(&url.Error{Op: "Get", Err: xport.ErrSystemPACRefused}, "http://api.example.com"), "PAC") {
+	if !strings.Contains(requestFailureMessage(context.Background(), &url.Error{Op: "Get", Err: xport.ErrSystemPACRefused}, "http://api.example.com"), "PAC") {
 		t.Error("the send path does not restate the PAC refusal")
 	}
 }

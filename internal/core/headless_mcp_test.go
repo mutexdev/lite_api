@@ -3,11 +3,16 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/mutexdev/lite_api/internal/mcpserver"
 	"github.com/mutexdev/lite_api/internal/types"
 )
 
@@ -158,6 +163,171 @@ func TestHeadlessMCPHasNobodyToApproveANewHost(t *testing.T) {
 	})
 	if approved {
 		t.Fatal("the new-host guard approved a host with no user to approve it")
+	}
+}
+
+// findCreatedItemIDByName is CreateRequestInFolder's "which one did I just
+// create" for tests that only have the app's own bindings to work with (no
+// mcpCreatedItemID before/after diff here — this is UI-side plumbing, not the
+// MCP write tier).
+func findCreatedItemIDByName(t *testing.T, state AppState, collectionID, name string) string {
+	t.Helper()
+	for _, workspace := range state.Workspaces {
+		for _, collection := range workspace.Collections {
+			if collection.ID != collectionID {
+				continue
+			}
+			for _, item := range collection.Items {
+				if item.Name == name {
+					return item.ID
+				}
+			}
+		}
+	}
+	t.Fatalf("no item named %q in collection %q", name, collectionID)
+	return ""
+}
+
+// TestHeadlessMCPRememberedApprovalWidensAndNothingElseDoes is attack area 5's
+// explicit brief: "confirm remembered approvals from the GUI still widen
+// correctly and nothing else does."
+//
+// TestHeadlessMCPHasNobodyToApproveANewHost already pins that a headless run
+// with NO remembered approval denies outright. What it does not cover is the
+// design's other headless promise — docs/mcp-agent-interface.md's "Destinations
+// already approved in the app still work... because they are keyed on the full
+// site... an approval given in the app applies here only to the same request
+// under the same environment." This test writes an approval the way the GUI's
+// own ResolveMCPApproval(..., remember=true) would (through the same
+// a.rememberMCPApproval production call, not a hand-built JSON file), stops
+// that "GUI" process, and starts a headless one over the identical data
+// directory — the same lease handover TestHeadlessMCPRefusesWhileTheStoreIs-
+// OwnedAndServesWhenItIsFree exercises for the lock alone.
+//
+// ONE request, retargeted by run_request's own `variables` override — the
+// SAME shape TestMCPRunRequestApprovedNewHostRuns /
+// TestMCPRunRequestRememberedApprovalDoesNotPromptAgain use (mcp_run_test.go)
+// — rather than two separately-authored requests each already pointed at its
+// own server. That distinction is load-bearing: a request whose STORED URL is
+// a literal http(s) address is trivially inside its own Base with no approval
+// needed at all (an earlier draft of this test made exactly that mistake and
+// "passed" for the wrong reason on one arm and failed for the wrong reason on
+// the other). Overriding {{baseUrl}} is what makes the destination
+// agent-chosen and therefore genuinely something only Base or an approval can
+// admit.
+func TestHeadlessMCPRememberedApprovalWidensAndNothingElseDoes(t *testing.T) {
+	dir := t.TempDir()
+	gui, err := newProductionAppForTest(t, dir, nil)
+	if err != nil {
+		t.Fatalf("boot the app that stands in for the GUI: %v", err)
+	}
+
+	var approvedHits atomic.Int64
+	approvedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		approvedHits.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer approvedServer.Close()
+
+	var otherHits atomic.Int64
+	otherServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		otherHits.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer otherServer.Close()
+
+	state, err := gui.GetState()
+	if err != nil {
+		t.Fatalf("GetState: %v", err)
+	}
+	collectionID := state.Workspaces[0].Collections[0].ID
+	workspacePath := state.Workspaces[0].Path
+
+	// The request's OWN stored destination is a template that resolves to
+	// nothing agent-free (no environment defines baseUrl), so Base(main) for
+	// this request is EMPTY: every destination it ever reaches at run time
+	// arrives only through an override, and is checked as one.
+	afterCreate, err := gui.CreateRequestInFolder(collectionID, "http", "Retargeted-by-override request", "")
+	if err != nil {
+		t.Fatalf("CreateRequestInFolder: %v", err)
+	}
+	requestID := findCreatedItemIDByName(t, afterCreate, collectionID, "Retargeted-by-override request")
+	method, url := "GET", "{{baseUrl}}/ok"
+	if _, err := gui.UpdateRequest(collectionID, requestID, RequestPatch{Method: &method, URL: &url}); err != nil {
+		t.Fatalf("UpdateRequest: %v", err)
+	}
+	if _, err := gui.SaveRequest(collectionID, requestID); err != nil {
+		t.Fatalf("SaveRequest: %v", err)
+	}
+
+	// THE GUI REMEMBERS ONE APPROVAL — for THIS request, THIS site (no
+	// environment), and ONLY approvedServer's origin — through the exact
+	// production call ResolveMCPApproval(..., remember=true) makes, never a
+	// hand-written JSON file, so this test cannot pass merely because the
+	// loader is lenient about a shape a human typed.
+	origin, ok := OriginOfURL(approvedServer.URL)
+	if !ok {
+		t.Fatalf("OriginOfURL(%q) did not resolve", approvedServer.URL)
+	}
+	site := mcpDefinitionSite{
+		workspacePath: workspacePath,
+		collectionID:  collectionID,
+		requestID:     requestID,
+		environmentID: "",
+	}
+	if err := gui.rememberMCPApproval(site, origin, kindClassRequest); err != nil {
+		t.Fatalf("rememberMCPApproval: %v", err)
+	}
+
+	// The "GUI" exits: flush state to disk and give up the lease, exactly as
+	// TestHeadlessMCPRefusesWhileTheStoreIsOwnedAndServesWhenItIsFree does.
+	flushPersistForTest(t, gui)
+	gui.workspaceRuntime.release()
+
+	headless, err := startHeadlessMCPForTest(t, dir)
+	if err != nil {
+		t.Fatalf("start headless: %v", err)
+	}
+	if headless.app.ctx != nil || headless.app.mcpApprovalEmit != nil {
+		t.Fatal("this test needs a headless app with nobody to prompt, or it would not be measuring the remembered approval")
+	}
+	backend := &mcpBackend{app: headless.app}
+
+	// THE REMEMBERED ORIGIN: no prompt is possible headlessly, and none is
+	// needed — the run must succeed on the strength of the persisted
+	// approval alone, retargeted to it by the SAME kind of override
+	// run_request always uses to reach a non-Base destination.
+	approvedResult, err := backend.RunRequest(context.Background(), mcpserver.RunRequestParams{
+		CollectionID: collectionID,
+		RequestID:    requestID,
+		Variables:    map[string]string{"baseUrl": approvedServer.URL},
+	})
+	if err != nil {
+		t.Fatalf("a remembered GUI approval did not widen a headless run: %v", err)
+	}
+	if approvedResult.Status != http.StatusOK || approvedHits.Load() != 1 {
+		t.Fatalf("the remembered-approval run did not reach its server: status=%d hits=%d", approvedResult.Status, approvedHits.Load())
+	}
+
+	// THE OTHER ORIGIN: the IDENTICAL request and site, retargeted instead at
+	// a destination the remembered approval never named. If a headless
+	// install widened anything beyond the exact (site, origin, class) that
+	// was remembered — this request generally, "no environment" in general —
+	// this would pass too, which is exactly the failure mode "nothing else
+	// does" rules out.
+	_, err = backend.RunRequest(context.Background(), mcpserver.RunRequestParams{
+		CollectionID: collectionID,
+		RequestID:    requestID,
+		Variables:    map[string]string{"baseUrl": otherServer.URL},
+	})
+	if err == nil {
+		t.Fatal("an origin nobody approved was let through a headless run with nobody to ask")
+	}
+	if !errors.Is(err, mcpserver.ErrDenied) {
+		t.Fatalf("the refusal does not wrap ErrDenied: %v", err)
+	}
+	if otherHits.Load() != 0 {
+		t.Fatalf("the unapproved origin was still contacted %d times", otherHits.Load())
 	}
 }
 

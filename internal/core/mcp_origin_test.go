@@ -197,6 +197,40 @@ func TestZeroOriginIsNotADestination(t *testing.T) {
 	}
 }
 
+// An IPv4-mapped IPv6 literal ([::ffff:192.0.2.1]) and the plain IPv4 form
+// (192.0.2.1) name the SAME network destination — a dual-stack socket
+// connecting to one reaches the other. net.ParseIP followed by IP.String()
+// already collapses them (Go prints a v4-mapped address in dotted-decimal
+// form), so Origin inherits that for free; this pins it as a DELIBERATE
+// equivalence rather than an accident, because the reasoning cuts both ways:
+// if these two ever compared UNEQUAL, an approval given for the address a user
+// was shown (say, the plain IPv4 form in a definition) would not cover an
+// agent-supplied override spelled as the v4-mapped literal, which is merely
+// annoying (§1.1's "two strings that mean the same destination compare
+// unequal") — but the interesting direction is the other one, checked below:
+// that this normalization never makes two DIFFERENT hosts compare equal.
+func TestOriginCollapsesIPv4MappedIPv6ToItsIPv4Form(t *testing.T) {
+	mapped := mustOrigin(t, "http://[::ffff:192.0.2.1]:8080/")
+	plain := mustOrigin(t, "http://192.0.2.1:8080/")
+	if mapped != plain {
+		t.Fatalf("[::ffff:192.0.2.1] and 192.0.2.1 compared unequal: %+v vs %+v", mapped, plain)
+	}
+	if mapped.Host != "192.0.2.1" {
+		t.Errorf("Host = %q, want the IPv4 form %q", mapped.Host, "192.0.2.1")
+	}
+	// A DIFFERENT IPv4 address, mapped or not, must still compare unequal: the
+	// collapse is about redundant SPELLINGS of one address, never a general
+	// blurring of the v4-mapped range into "any IPv4 host".
+	other := mustOrigin(t, "http://[::ffff:192.0.2.2]:8080/")
+	if mapped == other {
+		t.Fatalf("[::ffff:192.0.2.1] and [::ffff:192.0.2.2] collapsed to the same origin")
+	}
+	otherPlain := mustOrigin(t, "http://192.0.2.2:8080/")
+	if mapped == otherPlain {
+		t.Fatalf("[::ffff:192.0.2.1] compared equal to the unrelated host 192.0.2.2")
+	}
+}
+
 // kindClass decides which approvals apply. A token-class approval must never
 // authorize a request-class egress, and an unknown kind must map to NO class —
 // defaulting it to "request" would let a kind added later inherit every approval

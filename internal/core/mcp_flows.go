@@ -107,6 +107,14 @@ func (b *mcpBackend) RunFlow(ctx context.Context, params mcpserver.RunFlowParams
 	// widening the scope stack exists to close.
 	policy, book := b.app.newMCPExecutionPolicy()
 
+	// READ ONCE, BEFORE THE RUN, for the same reason the secret values are: a
+	// preference the user flips mid-flow must not make step 3 obey a different
+	// rule from step 1. See the guard below for what it decides.
+	writeTierEnabled, err := b.app.mcpWriteTierEnabled()
+	if err != nil {
+		return mcpserver.FlowRunOutcome{}, err
+	}
+
 	guard := func(_ int, requestID string, overrides map[string]string) error {
 		// The step's own plan: its effective request, its resolved variable
 		// scope, and the secrets in scope for it. Nothing here is flow-specific —
@@ -134,10 +142,28 @@ func (b *mcpBackend) RunFlow(ctx context.Context, params mcpserver.RunFlowParams
 		// template is the smuggling channel: it lands in a step var, travels as
 		// an override, and the send path's multi-pass interpolation chases it to
 		// the real credential. So the inputs are what the guard refuses on.
+		//
+		// ...UNLESS THE WRITE TIER IS ON, in which case "a step var is written by
+		// the USER" stops being something this code can rely on. create_flow and
+		// update_flow let the agent author step vars directly — and update_flow
+		// takes any flow id in the collection, so even a flow the user wrote is
+		// one update_flow away from carrying an agent's. validateFlow refuses to
+		// author the smuggling shape now (flowRefuseSecretReachingStepVars), but
+		// a flow stored BEFORE that refusal existed is still on disk, and a
+		// stored flow records nothing about who wrote it. So while the tier is
+		// on, the step's own vars are screened here too, by the same walk under
+		// their own sentence; while it is off, the agent has no authoring channel
+		// at all, the step var is provably the user's, and it is honoured exactly
+		// as the flow tier promises.
+		authoredValues := map[string]string(nil)
+		if writeTierEnabled {
+			authoredValues = overrides
+		}
 		return b.app.enforceMCPSecretInjection(plan, mcpGuardInput{
-			overrides:    overrides,
-			agentValues:  params.Inputs,
-			secretValues: secretValues,
+			overrides:      overrides,
+			agentValues:    params.Inputs,
+			authoredValues: authoredValues,
+			secretValues:   secretValues,
 		})
 	}
 

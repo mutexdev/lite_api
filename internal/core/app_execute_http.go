@@ -211,7 +211,7 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 		if requestContextCancelled(ctx) {
 			markRequestCancelled(&result)
 		} else {
-			result.Error = requestFailureMessage(err, targetURL)
+			result.Error = requestFailureMessage(ctx, err, targetURL)
 		}
 		if onFailErr := scripting.RunRequestOnFail(onFailState, err); onFailErr != nil {
 			result.Error = result.Error + "; onFail: " + onFailErr.Error()
@@ -236,7 +236,7 @@ func (a *App) executeHTTP(ctx context.Context, collectionID string, collection C
 			if requestContextCancelled(ctx) {
 				markRequestCancelled(&result)
 			} else {
-				result.Error = requestFailureMessage(err, targetURL)
+				result.Error = requestFailureMessage(ctx, err, targetURL)
 			}
 			if onFailErr := scripting.RunRequestOnFail(onFailState, err); onFailErr != nil {
 				result.Error = result.Error + "; onFail: " + onFailErr.Error()
@@ -349,9 +349,16 @@ func (a *App) appTLSSettingsSnapshot() appTLSSettings {
 // dialer's prefix stapled to the front. internal/transport cannot phrase the
 // refusal because it does not know an app exists; this restates it as §2 row 4,
 // identically to the two places that refuse before a transport is even built.
-func requestFailureMessage(err error, targetURL string) string {
+//
+// IT TAKES THE CONTEXT SO THE RESTATEMENT CAN MARK THE POLICY. This is the one
+// PAC site that fires INSIDE the transport, so nothing above it has recorded a
+// refusal; without the mark the run's only refusal would be invisible to
+// mcpClassifyRunFailure and the audit would file a §2 row 4 refusal under
+// `error`. Under a UI send there is no policy on the context and the mark is a
+// no-op, so the wording is unchanged for the response pane.
+func requestFailureMessage(ctx context.Context, err error, targetURL string) string {
 	if errors.Is(err, transport.ErrSystemPACRefused) {
-		return mcpPACProxyRefusal().Error()
+		return mcpPACProxyRefusal(ctx).Error()
 	}
 	if message, ok := describeTLSFailure(err, targetURL); ok {
 		return message

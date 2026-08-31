@@ -509,6 +509,13 @@ func (a *App) grpcDialConfigForRequestContext(ctx context.Context, collection Co
 		var pinnedTarget string
 		pinnedTarget, pinnedOrigin, err = mcpValidateGRPCTarget(targetURL)
 		if err != nil {
+			// §2 row 3 is a FEATURE refusal, not a destination denial, so
+			// nothing in this run has called Authorize and the ErrDenied class
+			// mcpGRPCTargetRefusal built would be lost the moment the error is
+			// stringified. Marked here rather than inside the validator because
+			// the validator is also used as a silent cert-matching probe below,
+			// where a parse failure means "no certificate", not "refused".
+			policy.noteRefusal()
 			return grpcDialConfig{}, err
 		}
 		dialConfig = mcpGRPCDialConfig(pinnedTarget, pinnedOrigin)

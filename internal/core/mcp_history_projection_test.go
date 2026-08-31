@@ -456,6 +456,138 @@ func TestMCPGetHistoryUnreadableProjectionFallsBackToPlaceholder(t *testing.T) {
 	}
 }
 
+// CONFIRMED-SAFE / COVERAGE-ADDED (adversarial pass B, attack area 4). A
+// VALID, well-formed projection whose Version field this build does not
+// recognise must degrade exactly like a corrupted one, never to the raw
+// entry — a distinct code path from
+// TestMCPGetHistoryUnreadableProjectionFallsBackToPlaceholder, which only
+// exercises json.Unmarshal failing outright. history.Store.MCPProjection
+// checks `projection.Version != MCPProjectionVersion` explicitly (projection.go),
+// so a file that parses perfectly but was written by a redaction policy this
+// build does not know the rules of still has to be refused, not honoured —
+// otherwise a downgrade (or an upgrade rolled back) could resurrect an
+// artifact masked under different, possibly weaker, rules.
+func TestMCPGetHistoryVersionMismatchedProjectionFallsBackToPlaceholder(t *testing.T) {
+	fixture := newProjectionFixture(t)
+	if _, err := fixture.app.SendRequest(fixture.collectionID, fixture.requestID, projectionEnvironmentID); err != nil {
+		t.Fatalf("SendRequest: %v", err)
+	}
+	entries, err := fixture.app.ListHistory(history.HistoryQuery{})
+	if err != nil {
+		t.Fatalf("ListHistory: %v", err)
+	}
+	path := projectionArtifactPath(fixture.app, entries[0].ID)
+
+	// A well-formed, fully valid projection — decodes cleanly, masks cleanly —
+	// except for a Version this build has never written. If the reader ever
+	// trusted the CONTENT because it parsed, rather than checking the version
+	// first, this would slip through as a legitimate record.
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read the projection artifact: %v", err)
+	}
+	var stored history.MCPProjection
+	if err := json.Unmarshal(original, &stored); err != nil {
+		t.Fatalf("the freshly written projection is not valid JSON: %v", err)
+	}
+	if stored.Version != history.MCPProjectionVersion {
+		t.Fatalf("the fixture's own projection is not at the current version (%d), so this test would not measure a mismatch", stored.Version)
+	}
+	stored.Version = history.MCPProjectionVersion + 1
+	rewritten, err := json.Marshal(stored)
+	if err != nil {
+		t.Fatalf("marshal the version-bumped projection: %v", err)
+	}
+	if err := os.WriteFile(path, rewritten, 0o600); err != nil {
+		t.Fatalf("write the version-mismatched projection: %v", err)
+	}
+
+	runs, err := fixture.backend.GetHistory(fixture.collectionID, fixture.requestID, 0)
+	if err != nil {
+		t.Fatalf("GetHistory: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("got %d runs, want 1", len(runs))
+	}
+	if runs[0].URL != mcpHistoryUnprojectedURL {
+		t.Errorf("a version-mismatched (but otherwise valid) projection produced %q rather than the placeholder", runs[0].URL)
+	}
+	if runs[0].Body != mcpHistoryUnprojectedBody {
+		t.Errorf("a version-mismatched projection served body %q rather than the placeholder", runs[0].Body)
+	}
+	encoded := marshalHistoryRuns(t, runs)
+	if strings.Contains(encoded, projectionOldSecret) {
+		t.Error("a version-mismatched projection's own (still valid, still masked) content leaked — investigate independently of the version check")
+	}
+	// The record-time projection was correctly masked at the version this
+	// build wrote it under; only the ARTIFACT'S DECLARED VERSION was altered
+	// here, so a leak now would mean the version gate is not actually
+	// consulted before the content is trusted.
+	if strings.Contains(encoded, mcpserver.MaskedValue) {
+		t.Error("the placeholder path unexpectedly carries a mask marker, meaning the (untrusted) rewritten content was served rather than the placeholder")
+	}
+}
+
+// A TRUNCATED artifact — a plausible crash-mid-write shape distinct from
+// "not JSON at all" — degrades the same way. json.Unmarshal on a byte-sliced
+// prefix of otherwise-valid JSON almost always fails outright (an unexpected
+// EOF), but the exact byte a write was cut at is not something this build
+// controls, so the boundary is exercised at several cut points rather than
+// trusting one.
+func TestMCPGetHistoryTruncatedMidWriteProjectionFallsBackToPlaceholder(t *testing.T) {
+	fixture := newProjectionFixture(t)
+	if _, err := fixture.app.SendRequest(fixture.collectionID, fixture.requestID, projectionEnvironmentID); err != nil {
+		t.Fatalf("SendRequest: %v", err)
+	}
+	entries, err := fixture.app.ListHistory(history.HistoryQuery{})
+	if err != nil {
+		t.Fatalf("ListHistory: %v", err)
+	}
+	path := projectionArtifactPath(fixture.app, entries[0].ID)
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read the projection artifact: %v", err)
+	}
+	if len(original) < 20 {
+		t.Fatalf("the fixture's own projection is implausibly small (%d bytes); this test would not measure a real truncation", len(original))
+	}
+
+	for _, fraction := range []float64{0.25, 0.5, 0.75, 0.95} {
+		cut := int(float64(len(original)) * fraction)
+		t.Run(fmt.Sprintf("cut at %.0f%%", fraction*100), func(t *testing.T) {
+			if err := os.WriteFile(path, original[:cut], 0o600); err != nil {
+				t.Fatalf("write the truncated projection: %v", err)
+			}
+			runs, err := fixture.backend.GetHistory(fixture.collectionID, fixture.requestID, 0)
+			if err != nil {
+				t.Fatalf("GetHistory: %v", err)
+			}
+			if len(runs) != 1 {
+				t.Fatalf("got %d runs, want 1", len(runs))
+			}
+			encoded := marshalHistoryRuns(t, runs)
+			if strings.Contains(encoded, projectionOldSecret) {
+				t.Fatalf("a truncated projection (cut at %.0f%%) leaked the recorded secret: %s", fraction*100, encoded)
+			}
+			// A truncation that happens to still be valid, self-contained JSON
+			// (a clean cut right after a closing brace deep inside a nested
+			// value) is not the shape this test is trying to force, and would
+			// make the URL assertion below a false failure; the secret-absence
+			// check above is the one that must hold at every cut point
+			// regardless. Where it DID fail to parse, it must be the
+			// placeholder, not an empty/zero-value projection served as if it
+			// were real.
+			if runs[0].URL != mcpHistoryUnprojectedURL {
+				var probe history.MCPProjection
+				if json.Unmarshal(original[:cut], &probe) == nil {
+					t.Skipf("cut at %.0f%% happened to still be valid JSON; not exercising truncation", fraction*100)
+				}
+				t.Errorf("a truncated projection (cut at %.0f%%) produced %q rather than the placeholder", fraction*100, runs[0].URL)
+			}
+		})
+	}
+}
+
 // ClearHistory clears the projections too.
 //
 // A user who clears their history to get rid of a recorded run has to actually

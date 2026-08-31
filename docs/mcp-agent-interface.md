@@ -96,7 +96,15 @@ tool descriptions.
    credential at send time. Any agent-supplied value that resolves to a secret —
    by name, transitively, or by containing a known secret value outright — is
    refused, with no approval path, because there is no honest use for it. An
-   agent that needs a credential runs the request the user already wrote.
+   agent that needs a credential runs the request the user already wrote. This
+   covers what an agent AUTHORS as well as what it passes: `create_flow` and
+   `update_flow` refuse a Flow step var whose value resolves to a secret, and
+   while the write tier is on `run_flow` refuses a stored one too — with writes
+   enabled, a step var that reaches a credential is one `update_flow` away from
+   being the agent's, and a stored Flow records nothing about who wrote it. The
+   user's own Flow editor is unaffected: aiming a secret at a request through a
+   step var is what the Flow tier is for, and rule 8 is about the agent's
+   read/write asymmetry, which the user does not have.
 
 ---
 

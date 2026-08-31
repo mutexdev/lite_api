@@ -261,7 +261,17 @@ func (a *App) flowRunPlan(collectionID, flowID, environmentID string) (flowRunPl
 	// a name that cannot be read but can be written decides what the request
 	// sends in place of the credential, and that is not a legitimate use of a
 	// flow variable whether an agent or the user wrote it.
-	if err := validateFlow(*collection, secrets, flow); err != nil {
+	//
+	// uiFlowAuthoring HERE IS NOT A CLAIM ABOUT WHO WROTE THE FLOW. This is not
+	// an authoring act at all: the flow is already stored, and a stored flow
+	// carries no record of its author, so the one clause validateFlow conditions
+	// on authorship (a step var whose VALUE reaches a secret) has nothing to
+	// decide on and is skipped. Passing the agent form would refuse the flow
+	// tier's own documented shape — the canonical POS chain aims {{apiToken}} at
+	// a request through a step var — for the USER'S OWN runs as well as the
+	// agent's, since this plan is shared. The MCP run tier screens step vars
+	// itself, where the provenance is known (mcp_flows.go).
+	if err := validateFlow(*collection, secrets, flow, uiFlowAuthoring()); err != nil {
 		return flowRunPlan{}, err
 	}
 

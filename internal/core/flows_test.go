@@ -388,13 +388,13 @@ func TestValidateFlowIsCallableWithoutAnApp(t *testing.T) {
 		Name:  "ok",
 		Steps: []types.FlowStep{{ID: "s1", RequestID: "r1", Assert: []types.FlowAssert{{Type: "status", Equals: 200}}}},
 	}
-	if err := validateFlow(collection, nil, flow); err != nil {
+	if err := validateFlow(collection, nil, flow, uiFlowAuthoring()); err != nil {
 		t.Fatalf("validateFlow: %v", err)
 	}
 	if err := validateFlow(collection, map[string]bool{"token": true}, types.Flow{
 		Name:  "shadow",
 		Steps: []types.FlowStep{{ID: "s1", RequestID: "r1", Vars: map[string]string{"token": "x"}}},
-	}); err == nil {
+	}, uiFlowAuthoring()); err == nil {
 		t.Error("the shared validator did not apply the secret set it was given")
 	}
 }

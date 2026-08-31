@@ -1170,13 +1170,22 @@ func TestMCPCreateFlowPersistsAndSurfacesValidationVerbatim(t *testing.T) {
 	f := newMCPWriteFixture(t)
 	f.enableWriteTier()
 
+	// passThrough USED TO READ "{{apiToken}}" HERE, and this test used to assert
+	// that create_flow accepted it. That was the shape
+	// TestCreateFlowStepVarValueIsRefusedForAnAgentAuthor
+	// (mcp_flows_adversarial_test.go) found leaking: an AGENT-authored step var
+	// whose VALUE resolves to a secret is now refused at the shared gate, so it
+	// cannot appear in the "good" flow of a test about validation. The property
+	// this line actually measures — a step var is stored VERBATIM, with nothing
+	// resolved on the way in — is unchanged by using a non-secret reference, and
+	// the refusal itself is pinned in the table below and in the adversarial file.
 	good := mcpserver.FlowDefinition{
 		Name:   "Provision terminal",
 		Inputs: []mcpserver.FlowInput{{Name: "storeCode", Required: true}},
 		Steps: []mcpserver.FlowStep{{
 			ID:        "lookup",
 			RequestID: f.existingID,
-			Vars:      map[string]string{"code": "{{storeCode}}", "passThrough": "{{apiToken}}"},
+			Vars:      map[string]string{"code": "{{storeCode}}", "passThrough": "{{baseUrl}}"},
 			Extract:   []mcpserver.FlowExtract{{Name: "storeId", From: "body", Path: "$.data.store.id"}},
 			Assert:    []mcpserver.FlowAssert{{Type: "status", Equals: 200}},
 		}},
@@ -1196,7 +1205,7 @@ func TestMCPCreateFlowPersistsAndSurfacesValidationVerbatim(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get_flow on the id create_flow returned: %v", err)
 	}
-	if detail.Steps[0].Vars["passThrough"] != "{{apiToken}}" {
+	if detail.Steps[0].Vars["passThrough"] != "{{baseUrl}}" {
 		t.Errorf("the step var was resolved on the way in: %q", detail.Steps[0].Vars["passThrough"])
 	}
 	if detail.Steps[0].Extract[0].Path != "$.data.store.id" {
@@ -1222,6 +1231,19 @@ func TestMCPCreateFlowPersistsAndSurfacesValidationVerbatim(t *testing.T) {
 		{"a name that shadows a secret", mcpserver.FlowDefinition{Name: "Shadow", Steps: []mcpserver.FlowStep{
 			{ID: "a", RequestID: f.existingID, Extract: []mcpserver.FlowExtract{{Name: "apiToken", From: "status"}}},
 		}}, "shadows a secret"},
+		// The VALUE half of the same question, which the name check above never
+		// asked. An agent may not author a step var that resolves to a secret
+		// (rule 8), even when the var's own name collides with nothing and the
+		// request it feeds is one the collection already sends that credential
+		// to — the destination is not what makes this refusable.
+		{"a step var value that reaches a secret", mcpserver.FlowDefinition{Name: "Smuggle", Steps: []mcpserver.FlowStep{
+			{ID: "a", RequestID: f.existingID, Vars: map[string]string{"storeId": "{{apiToken}}"}},
+		}}, `resolves to the secret "apiToken"`},
+		// And transitively, through an ordinary variable, because the walk is
+		// the run tier's own and the run tier's is transitive.
+		{"a step var value that reaches a secret through an alias", mcpserver.FlowDefinition{Name: "Alias", Steps: []mcpserver.FlowStep{
+			{ID: "a", RequestID: f.existingID, Vars: map[string]string{"alias": "{{apiToken}}", "storeId": "{{alias}}"}},
+		}}, `resolves to the secret "apiToken"`},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

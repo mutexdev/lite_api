@@ -375,6 +375,19 @@ const (
 // capped, so nothing here should be treated as a faithful copy of what was
 // sent. What it does guarantee is that the tool and the ids it was pointed at
 // survive, which is what makes a row worth reading.
+//
+// IT IS REDACTED BEFORE IT IS BOUNDED (redactArgumentValue, redact.go). Length
+// bounding was once the only thing that happened here, and it is not a
+// confidentiality control: an agent that authors a request the way a user
+// pastes one from a working curl — `X-Api-Key: sk_live_…` — put that literal
+// into mcp-audit.jsonl and the audit panel in the clear, in a form get_request
+// and list_requests mask on the way back out. The masking is the READ TIER'S
+// OWN, called rather than reimplemented, so "credential-shaped" cannot come to
+// mean two different things on the two sides of one tool call.
+//
+// Masking first and truncating second matters for the same reason it does in
+// mcpRunResult: cutting first can leave the head of a credential in the line
+// as a fragment no rule then recognises.
 func summarizeArgs(args toolArgs) string {
 	if len(args) == 0 {
 		return ""
@@ -386,7 +399,8 @@ func summarizeArgs(args toolArgs) string {
 		}
 		builder.WriteString(name)
 		builder.WriteByte('=')
-		builder.WriteString(truncateRunes(renderArgValue(args[name]), maxAuditValueRunes))
+		rendered := renderArgValue(redactArgumentValue(name, args[name]))
+		builder.WriteString(truncateRunes(rendered, maxAuditValueRunes))
 	}
 	return truncateRunes(builder.String(), maxAuditSummaryRunes)
 }
@@ -396,7 +410,11 @@ func summarizeArgs(args toolArgs) string {
 // Strings go through strconv.Quote rather than json.Marshal: both quote and
 // escape, but Quote leaves <, > and & alone, and a URL or a JSON body rendered
 // with < everywhere is unreadable in the panel the user is scanning.
-// Everything else is JSON, which keeps nested objects on one line.
+// Everything else is JSON, which keeps nested objects on one line — and with
+// HTML escaping turned OFF, for the same readability reason and now for a
+// second one: MaskedValue is "<masked>", so the default escaping would render
+// every masked header row as <masked> and make the one thing the
+// panel most needs to be legible the least legible thing in the line.
 func renderArgValue(value any) string {
 	switch typed := value.(type) {
 	case string:
@@ -404,13 +422,16 @@ func renderArgValue(value any) string {
 	case nil:
 		return "null"
 	default:
-		encoded, err := json.Marshal(value)
-		if err != nil {
+		var buffer bytes.Buffer
+		encoder := json.NewEncoder(&buffer)
+		encoder.SetEscapeHTML(false)
+		if err := encoder.Encode(value); err != nil {
 			// Nothing decoded from JSON can land here; a Go-built argument
 			// might, and a summary is never worth failing a call over.
 			return fmt.Sprintf("%v", value)
 		}
-		return string(encoded)
+		// Encode appends a newline that Marshal does not; a summary is one line.
+		return strings.TrimRight(buffer.String(), "\n")
 	}
 }
 

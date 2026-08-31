@@ -210,6 +210,28 @@ type mcpGuardInput struct {
 	// reference arriving from the agent, which for a flow means an INPUT value,
 	// not the derived override it ends up inside.
 	agentValues map[string]string
+	// authoredValues are STORED values the agent did not supply on this call but
+	// could have WRITTEN on an earlier one: a flow step's own vars, when the
+	// write tier is on.
+	//
+	// WHY THEY ARE A SEPARATE FIELD AND NOT MORE agentValues. The distinction the
+	// comment above draws is real and stays real — a step var is authored, not
+	// supplied — so the refusal they produce has to say so, or an agent is told
+	// to "drop the variable you supplied" about a variable it did not supply on
+	// this call. They also get the NAME walk only, never the resolved-value
+	// backstop: a step var is interpolated against flow scope first, so its
+	// resolved text can legitimately be an EXTRACTED value, and a login chain
+	// whose step 1 extracts a token that happens to equal a stored secret is the
+	// flow tier working, not smuggling.
+	//
+	// WHY THEY ARE SCREENED AT ALL, given the write tier refuses to author one
+	// now. Because the refusal is only as old as the fix, and because with the
+	// write tier ON the agent can rewrite any flow in the collection one
+	// update_flow earlier — so at run time "a human wrote this step var" is not
+	// something the stored flow can attest to. With the write tier OFF the agent
+	// has no authoring channel at all and the step var IS the user's own, which
+	// is why mcp_flows.go only fills this field when the tier is on.
+	authoredValues map[string]string
 	// secretValues is the process's hydrated secret values, fetched by the
 	// caller before the run, for the backstop below.
 	secretValues []string
@@ -300,6 +322,14 @@ func mcpRefuseSecretInjectingValues(plan mcpRunPlan, effective map[string]string
 		// values it turned out to contain, and only when they can be attributed.
 		return mcpSecretInjectionRefusal(key, mcpSecretNamesResolvingInto(resolved, plan))
 	}
+	// The stored half, second: same walk, different sentence. See
+	// mcpGuardInput.authoredValues for why these are screened at all and why
+	// they do not get the value backstop.
+	for _, key := range mcpSortedNames(mcpMapKeys(input.authoredValues)) {
+		if names := mcpSecretsReachedByTemplate(input.authoredValues[key], effective, plan.secretsInScope); len(names) > 0 {
+			return mcpAuthoredSecretInjectionRefusal(key, names)
+		}
+	}
 	return nil
 }
 
@@ -311,6 +341,27 @@ func mcpSecretInjectionRefusal(key string, names []string) error {
 		reached = "the secret " + mcpJoinSecretNames(names)
 	}
 	return fmt.Errorf("%w: the value you supplied for %q resolves to %s, and a value you supply may not inject a secret into a run. A request references a secret because the USER wrote that reference into the request definition; the fix is to run the request as authored and let LiteAPI resolve the credential itself, never to pass the credential in yourself. Drop this variable and run again; do not retry it and do not work around it",
+		mcpserver.ErrDenied, key, reached)
+}
+
+// mcpAuthoredSecretInjectionRefusal is the refusal for a STORED value the agent
+// could have authored — today only a flow step's own vars, and only while the
+// write tier is on.
+//
+// A SEPARATE SENTENCE FROM mcpSecretInjectionRefusal, because the fix is a
+// different one. There is nothing for the agent to drop from THIS call: the
+// value is on disk, and the two honest ways forward are to edit the flow (which
+// the write tier will now refuse if the edit keeps the smuggle) or to leave the
+// credential where the user put it and run the request as authored. The message
+// also names the write tier, because a user who turns it off gets their own
+// human-authored flow back — that is the only thing separating this shape from
+// the flow tier's documented one.
+func mcpAuthoredSecretInjectionRefusal(key string, names []string) error {
+	reached := "a value this workspace holds as a secret"
+	if len(names) > 0 {
+		reached = "the secret " + mcpJoinSecretNames(names)
+	}
+	return fmt.Errorf("%w: this flow step sets the var %q to a value that resolves to %s, and while the write tier is on LiteAPI cannot tell an agent-authored step var from the user's own — so it refuses rather than resolving a credential into a field an agent may have chosen. Run the request the credential belongs to as authored, or ask the user to run this flow in the LiteAPI app. Do not rewrite the flow to hide the reference and do not retry",
 		mcpserver.ErrDenied, key, reached)
 }
 
