@@ -39,11 +39,21 @@
     | 'filter'
     | 'external'
     | 'layout-split'
+    | 'sidebar'
+    | 'command'
+    | 'save'
+    | 'bell'
+    | 'play'
+    | 'stop'
+    | 'restore'
+    | 'cookie'
+    | 'bookmark'
 
   export const iconNames: IconName[] = [
     'search', 'copy', 'download', 'format', 'minify', 'tree', 'list', 'wrap',
     'close', 'check', 'chevron-up', 'chevron-down', 'chevron-left', 'chevron-right',
-    'plus', 'trash', 'more', 'filter', 'external', 'layout-split'
+    'plus', 'trash', 'more', 'filter', 'external', 'layout-split',
+    'sidebar', 'command', 'save', 'bell', 'play', 'stop', 'restore', 'cookie', 'bookmark'
   ]
 </script>
 
@@ -110,6 +120,31 @@
          command bar's 1.6 — the difference at 16px is invisible and the
          exception would not be. -->
     <rect x="2.5" y="3" width="15" height="14" rx="2" /><path d="M10 3v14" />
+  {:else if name === 'sidebar'}
+    <!-- The same frame as layout-split with the divider at the sidebar's edge:
+         the thing the button shows or hides, not an arrow. -->
+    <rect x="2.5" y="3" width="15" height="14" rx="2" /><path d="M7 3v14" />
+  {:else if name === 'command'}
+    <!-- A prompt: "type a command". Distinct from the magnifier on purpose —
+         the command palette runs things, ⌘K search finds them. -->
+    <path d="m4.6 5.6 4.8 4.4-4.8 4.4" /><path d="M11 15h4.4" />
+  {:else if name === 'save'}
+    <path d="M4 4.5h9.4L16 7.1v8.4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" /><path d="M7 4.5v3.6h5.6V4.5" /><path d="M7 16.5v-4.4h6v4.4" />
+  {:else if name === 'bell'}
+    <path d="M5.2 14h9.6l-1.2-1.7V8.4a3.6 3.6 0 0 0-7.2 0v3.9z" /><path d="M8.4 16.2h3.2" />
+  {:else if name === 'play'}
+    <path d="M6.5 4.5v11l9-5.5z" />
+  {:else if name === 'stop'}
+    <rect x="5.5" y="5.5" width="9" height="9" rx="1.5" />
+  {:else if name === 'restore'}
+    <!-- A clock turning back: recover something that was removed. -->
+    <path d="M4.2 10a5.9 5.9 0 1 0 1.7-4.2" /><path d="M4 4.4v3.2h3.2" /><path d="M10 7v3.2l2.2 1.4" />
+  {:else if name === 'cookie'}
+    <!-- The chips are stubs with round caps, not circles: the `more` rule below
+         fills any icon with two circles, which would erase this outline. -->
+    <path d="M16.7 10.2A7 7 0 1 1 9.8 3.3a3.2 3.2 0 0 0 3.5 3.5 3.2 3.2 0 0 0 3.4 3.4Z" /><path d="M7 8h.01" /><path d="M9.5 13h.01" /><path d="M5.8 12.5h.01" />
+  {:else if name === 'bookmark'}
+    <path d="M5.5 3.5h9v13l-4.5-3.2-4.5 3.2z" />
   {/if}
 </svg>
 
