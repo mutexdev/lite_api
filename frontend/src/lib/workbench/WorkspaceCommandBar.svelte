@@ -1,11 +1,11 @@
 <script lang="ts">
   import { workspaceStore } from '../stores/workspaceStore.svelte'
   import type { Snippet } from 'svelte'
+  import Icon from '../ui/Icon.svelte'
+  import IconButton from '../ui/IconButton.svelte'
   import CommandOverflowMenu from './CommandOverflowMenu.svelte'
   import EnvironmentContextMenu from './EnvironmentContextMenu.svelte'
-  import OrientationToggleButton from './OrientationToggleButton.svelte'
-  import { normalizedResponsePaneOrientation } from '../preferences'
-  import type { WorkbenchCommandID, WorkbenchCommandItem } from './workbenchCommands'
+  import { moreItems, type WorkbenchCommandID } from './workbenchCommands'
 
   // US-026 — fourteen data props collapsed to store reads.
   //
@@ -57,57 +57,39 @@
   const globalEnvironmentName = $derived(workspaceStore.activeGlobalEnvironment?.name ?? 'none')
   const environmentName = $derived(workspaceStore.environmentName)
   const gitConnected = $derived(Boolean(workspaceStore.activeCollection?.remote))
-  const canCreateRequest = $derived(workspaceStore.canCreateRequest)
-  const canCreateFolder = $derived(workspaceStore.canCreateFolder)
 
-  // A4-02. Read from the store rather than taken as a prop, for the reason
-  // US-026 gives above and for one more: `App.svelte` mounts this component and
-  // is owned by another pass this wave, so a new prop would sit at its default
-  // until someone pasted a line in — and the default would be a lie half the
-  // time. The store already holds the preference the request strip reads, so
-  // both copies of this control describe the same layout from the same source.
-  const responseOrientation = $derived(
-    normalizedResponsePaneOrientation(workspaceStore.preferences?.layout?.responsePaneOrientation),
+  // D3 — the menu is built in workbenchCommands.ts now, because the sidebar
+  // header opens the sibling New menu from the same module and two inline
+  // copies of one list drift.
+  const mainMenuItems = $derived(
+    moreItems({
+      canCreateRequest: workspaceStore.canCreateRequest,
+      canCreateFolder: workspaceStore.canCreateFolder,
+    }),
   )
 
-  const newItems = $derived([
-    { id: 'new-http', label: 'HTTP', group: 'Request', disabled: !canCreateRequest, disabledReason: 'Open a collection first' },
-    { id: 'new-graphql', label: 'GraphQL', group: 'Request', disabled: !canCreateRequest, disabledReason: 'Open a collection first' },
-    { id: 'new-grpc', label: 'gRPC', group: 'Request', disabled: !canCreateRequest, disabledReason: 'Open a collection first' },
-    { id: 'new-websocket', label: 'WebSocket', group: 'Request', disabled: !canCreateRequest, disabledReason: 'Open a collection first' },
-    { id: 'new-folder', label: 'Folder', group: 'Organize', disabled: !canCreateFolder, disabledReason: 'Open a local collection first' },
-    { id: 'new-collection', label: 'Collection', group: 'Organize' },
-    { id: 'import', label: 'Import collection…', group: 'Workspace', shortcut: '⌘O' },
-    { id: 'open-workspace', label: 'Open workspace in new window…', group: 'Workspace' }
-  ] as WorkbenchCommandItem[])
-
-  const moreItems = $derived([
-    { id: 'workspace-search', label: 'Search workspace', group: 'Workspace', shortcut: '⌘K' },
-    { id: 'open-environments', label: 'Manage environments', group: 'Workspace', shortcut: '⌘E' },
-    { id: 'open-collection-settings', label: 'Collection settings', group: 'Workspace', disabled: !canCreateRequest },
-    { id: 'open-network', label: 'Network log', group: 'Tools' },
-    { id: 'toggle-devtools', label: 'Dev Tools', group: 'Tools', shortcut: '⌘⌥I' },
-    { id: 'open-capabilities', label: 'Capabilities', group: 'App' },
-    { id: 'import', label: 'Import', group: 'App', shortcut: '⌘O' },
-    { id: 'open-keyboard-shortcuts', label: 'Keyboard shortcuts', group: 'App' },
-    { id: 'open-preferences', label: 'Preferences', group: 'App', shortcut: '⌘,' }
-  ] as WorkbenchCommandItem[])
+  // D3 — the collection segment carries what the removed Local/Git button said.
+  // Only the connected state gets a dot: "Local" is the default, and a marker
+  // every collection wears tells the user nothing.
+  const collectionTitle = $derived(
+    `${gitConnected ? 'Git connected' : 'Local collection'} · Open collection settings for ${collectionName}`,
+  )
 </script>
 
 <div class="workspace-command-bar" role="toolbar" aria-label="Workspace command bar">
   <div class="command-leading">
-    <button
-      class="command-icon"
-      type="button"
-      aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
-      title={sidebarCollapsed ? 'Show sidebar (⌘\\)' : 'Hide sidebar (⌘\\)'}
-      data-testid="toggle-sidebar-button"
-      onclick={(event) => void onCommand('toggle-sidebar', event.currentTarget)}
-    >
-      <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3" width="15" height="14" rx="2" /><path d="M7 3v14" />{#if sidebarCollapsed}<path d="m10 7 3 3-3 3" />{:else}<path d="m13 7-3 3 3 3" />{/if}</svg>
-    </button>
-
-    <CommandOverflowMenu label="Add resource" icon="add" align="left" items={newItems} onSelect={onCommand} testId="command-new-menu" />
+    <!--
+      Not `pressed`: this toggle's two states are "sidebar showing" and "sidebar
+      hidden", and showing is the default, so a pressed style would paint an
+      accent-filled button into the corner of every default screen. The label
+      already flips, which is what a screen reader and the tooltip read.
+    -->
+    <IconButton
+      icon="sidebar"
+      label={sidebarCollapsed ? 'Show sidebar (⌘\\)' : 'Hide sidebar (⌘\\)'}
+      testId="toggle-sidebar-button"
+      onclick={(event) => void onCommand('toggle-sidebar', event.currentTarget as HTMLElement)}
+    />
 
     {#if workspaceOptions.length > 1}
       <select class="workspace-select" aria-label="Workspace" title="Workspace" value={workspaceValue} onchange={(event) => void onWorkspaceChange(event.currentTarget.value)}>
@@ -115,7 +97,7 @@
       </select>
     {:else}
       <button class="workspace-button" type="button" aria-label={`Open another workspace in a new window. Current workspace: ${workspaceName}`} title="Open workspace in a new window" onclick={(event) => void onCommand('open-workspace', event.currentTarget)}>
-        <span>{workspaceName}</span><span aria-hidden="true">↗</span>
+        <span>{workspaceName}</span><Icon name="external" size={13} />
       </button>
     {/if}
 
@@ -130,58 +112,69 @@
       onEnvironmentChange={onEnvironmentChange}
       onManage={() => onCommand('open-environments', null)}
     />
-
-    <button class="command-icon cookie-button" type="button" aria-label="Open cookie jar" title="Cookie jar" onclick={(event) => void onCommand('open-cookies', event.currentTarget)}>
-      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.7 10.2A7 7 0 1 1 9.8 3.3a3.2 3.2 0 0 0 3.5 3.5 3.2 3.2 0 0 0 3.4 3.4Z" /><circle cx="7" cy="8" r=".8" /><circle cx="9.5" cy="13" r=".8" /><circle cx="5.8" cy="12.5" r=".8" /></svg>
-      <span>Cookies</span>
-    </button>
   </div>
 
   <div class="command-context" aria-label="Active context">
-    <button type="button" class:active={activeView === 'collection'} title={`Open collection settings for ${collectionName}`} onclick={(event) => void onCommand('open-collection-settings', event.currentTarget)}>{collectionName}</button>
+    <button type="button" class:active={activeView === 'collection'} aria-label={collectionTitle} title={collectionTitle} onclick={(event) => void onCommand('open-collection-settings', event.currentTarget)}>
+      {#if gitConnected}<span class="git-dot" aria-hidden="true"></span>{/if}
+      <span class="crumb-label">{collectionName}</span>
+    </button>
     <span aria-hidden="true">/</span>
-    <button type="button" class:active={activeView === 'request'} title={`Open request ${requestName}`} onclick={(event) => void onCommand('open-request', event.currentTarget)}>{requestName}</button>
+    <button type="button" class:active={activeView === 'request'} title={`Open request ${requestName}`} onclick={(event) => void onCommand('open-request', event.currentTarget)}><span class="crumb-label">{requestName}</span></button>
   </div>
 
   <div class="command-trailing">
-    <button
-      class:running={Boolean(runningCollectionName)}
-      class="command-icon run-button"
-      type="button"
-      aria-label={runningCollectionName ? (cancellingRun ? `Cancelling collection run: ${runningCollectionName}` : `Cancel collection run: ${runningCollectionName}`) : 'Open collection runner'}
-      title={runningCollectionName ? (cancellingRun ? 'Cancelling run…' : `Cancel ${runningCollectionName}`) : 'Collection runner'}
-      disabled={cancellingRun}
-      onclick={(event) => void onCommand(runningCollectionName ? 'cancel-run' : 'open-runner', event.currentTarget)}
-    >
-      {#if runningCollectionName}
-        <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="5" y="5" width="10" height="10" rx="1.5" /></svg><span>{cancellingRun ? 'Cancelling' : 'Running'}</span>
-      {:else}
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 4 10 6-10 6z" /></svg><span>Run</span>
-      {/if}
-    </button>
+    <!--
+      The one control on this bar that keeps a word. The M3 QA contract wants a
+      named cancel in the global toolbar while a run is in flight, and an icon
+      alone cannot say "Cancelling" — so it renders only while there is a run,
+      and nothing at rest.
+    -->
+    {#if runningCollectionName}
+      <button
+        class="command-running"
+        type="button"
+        aria-label={cancellingRun ? `Cancelling collection run: ${runningCollectionName}` : `Cancel collection run: ${runningCollectionName}`}
+        title={cancellingRun ? 'Cancelling run…' : `Cancel ${runningCollectionName}`}
+        disabled={cancellingRun}
+        onclick={(event) => void onCommand('cancel-run', event.currentTarget)}
+      >
+        <Icon name="stop" size={14} />
+        <span>{cancellingRun ? 'Cancelling' : 'Running'}</span>
+      </button>
+    {/if}
 
-    <button class:connected={gitConnected} class="command-status git-status" type="button" aria-label={gitConnected ? `Git connected for ${collectionName}` : 'Local collection. Open collection settings'} title={gitConnected ? 'Git connected' : 'Local collection'} onclick={(event) => void onCommand('open-collection-settings', event.currentTarget)}>
-      <span class="status-dot" aria-hidden="true"></span><span>{gitConnected ? 'Git' : 'Local'}</span>
-    </button>
+    <IconButton
+      icon="search"
+      label="Search workspace (⌘K)"
+      testId="command-search-button"
+      onclick={() => void onCommand('workspace-search', null)}
+    />
+
+    <!--
+      D3 — this button wore the magnifier while the search command had no button
+      at all, so the one icon every app agrees on pointed at the wrong modal.
+    -->
+    <IconButton
+      icon="command"
+      label="Command palette (⌘⇧P)"
+      testId="command-palette-button"
+      onclick={(event) => void onCommand('command-palette', event.currentTarget as HTMLElement)}
+    />
+
+    <span class="notification-anchor">
+      <IconButton
+        icon="bell"
+        label={`Notifications${notificationCount ? `, ${notificationCount} unread` : ''}`}
+        testId="notification-button"
+        onclick={(event) => void onCommand('open-notifications', event.currentTarget as HTMLElement)}
+      />
+      {#if notificationCount > 0}<strong aria-hidden="true">{notificationCount}</strong>{/if}
+    </span>
 
     {@render recovery?.()}
 
-    <button class="command-icon notification-button" type="button" aria-label={`Notifications${notificationCount ? `, ${notificationCount} unread` : ''}`} title="Notifications" onclick={(event) => void onCommand('open-notifications', event.currentTarget)}>
-      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 14h11l-1.3-1.8V8a4.2 4.2 0 0 0-8.4 0v4.2zM8 16h4" /></svg>
-      {#if notificationCount > 0}<strong>{notificationCount}</strong>{/if}
-    </button>
-
-    <OrientationToggleButton
-      orientation={responseOrientation}
-      testId="command-layout-button"
-      onclick={() => void onCommand('change-orientation', null)}
-    />
-
-    <button class="command-icon command-palette-button" type="button" aria-label="Open command palette" title="Command palette (⌘⇧P)" onclick={(event) => void onCommand('command-palette', event.currentTarget)}>
-      <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5" /><path d="m12.2 12.2 4 4" /></svg><span>Commands</span>
-    </button>
-
-    <CommandOverflowMenu label="Main menu" icon="more" align="right" items={moreItems} onSelect={onCommand} testId="command-main-menu" />
+    <CommandOverflowMenu label="Main menu" icon="more" align="right" items={mainMenuItems} onSelect={onCommand} testId="command-main-menu" />
   </div>
 </div>
 
@@ -190,48 +183,62 @@
     display: grid;
     grid-template-columns: minmax(0, auto) minmax(80px, 1fr) minmax(0, auto);
     align-items: center;
-    gap: 8px;
+    gap: var(--space-8);
     min-height: 42px;
-    padding: 5px 8px;
+    padding: var(--space-5) var(--space-8);
     border-bottom: 1px solid var(--border-subtle);
     background: var(--surface);
   }
   .command-leading,
-  .command-trailing { display: flex; align-items: center; gap: 3px; min-width: 0; }
+  .command-trailing { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
   .command-trailing { justify-content: flex-end; }
-  button, select { min-height: 30px; }
-  .command-icon,
+  select { min-height: 30px; }
   .workspace-button,
-  .command-status,
+  .command-running,
   .command-context button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    padding: 4px 7px;
+    gap: var(--space-6);
+    min-height: 30px;
+    padding: var(--space-4) var(--space-7);
     border-color: transparent;
     background: transparent;
   }
-  .command-icon:hover,
   .workspace-button:hover,
-  .command-status:hover,
+  .command-running:hover:not(:disabled),
   .command-context button:hover { border-color: var(--border); background: var(--surface-soft); }
-  .command-icon { min-width: 30px; }
-  .command-icon svg { width: 16px; height: 16px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
   .workspace-button { min-width: 0; max-width: 150px; }
   .workspace-button span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .workspace-button span:last-child { color: var(--accent-strong); }
   .workspace-select { width: min(150px, 16vw); }
-  .command-context { display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 0; color: var(--muted); }
-  .command-context button { min-width: 0; max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+  .command-context { display: flex; align-items: center; justify-content: center; gap: var(--space-4); min-width: 0; color: var(--muted); }
+  .command-context button { min-width: 0; max-width: 42%; color: var(--muted); }
   .command-context button:last-child { max-width: 58%; }
   .command-context button.active { color: var(--text); font-weight: 700; }
-  .command-status { color: var(--muted); font-size: 11px; }
-  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted-weak); }
-  .git-status.connected .status-dot { background: var(--method-get, var(--accent)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--method-get, var(--accent)) 18%, transparent); }
-  .run-button.running { color: var(--warning-text); }
-  .notification-button { position: relative; }
-  .notification-button strong { position: absolute; top: 0; right: 0; min-width: 14px; padding: 1px 3px; border-radius: 999px; background: var(--danger-strong); color: var(--on-dark); font-size: 9px; line-height: 12px; }
+  .crumb-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .git-dot {
+    flex: 0 0 auto;
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-pill);
+    background: var(--method-get, var(--accent));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--method-get, var(--accent)) 18%, transparent);
+  }
+  .command-running { color: var(--warning-text); font-size: var(--font-size-11); font-weight: 700; }
+  .command-running:disabled { opacity: .6; }
+  .notification-anchor { position: relative; display: inline-flex; }
+  .notification-anchor strong {
+    position: absolute;
+    top: 0;
+    right: 0;
+    min-width: 14px;
+    padding: 1px var(--space-3);
+    border-radius: var(--radius-pill);
+    background: var(--danger-strong);
+    color: var(--on-dark);
+    font-size: var(--font-size-9);
+    line-height: 12px;
+  }
   /*
     A4-11. These were 1180 / 800 / 610, chosen without reference to the shell
     they sit on top of, which reflows at 1180 / 960 / 680. The visible defect
@@ -248,16 +255,15 @@
   */
   @media (max-width: 1180px) {
     .workspace-command-bar { grid-template-columns: minmax(0, auto) minmax(36px, 1fr) minmax(0, auto); }
-    .cookie-button span, .run-button span, .git-status span:last-child, .command-palette-button span { display: none; }
+    .command-running span { display: none; }
     .workspace-select, .workspace-button { max-width: 120px; }
   }
   @media (max-width: 960px) {
     .workspace-command-bar { grid-template-columns: minmax(0, 1fr) auto; }
     .command-context { display: none; }
     .workspace-select, .workspace-button { max-width: 105px; }
-    .git-status { display: none; }
   }
   @media (max-width: 680px) {
-    .workspace-select, .workspace-button, .cookie-button { display: none; }
+    .workspace-select, .workspace-button { display: none; }
   }
 </style>

@@ -20,6 +20,7 @@
   // column was prose, and prose does not belong in a grid cell that has to stay
   // the same width as forty of its neighbours.
   import FindBar from '../ui/FindBar.svelte'
+  import PageHeader from '../ui/PageHeader.svelte'
   import PaneToolbar from '../ui/PaneToolbar.svelte'
   import RunResultRow from '../RunResultRow.svelte'
   import { formatDurationMs, formatStatusCode } from '../formatting'
@@ -130,31 +131,39 @@
 </script>
 
 <section class="panel">
-  <header class="panel-header">
-    <h2>Runner</h2>
-    <div class="runner-header-actions">
+  <PageHeader title="Runner">
+    {#snippet meta()}
+      <!-- Which collection is running is a live fact about the view, so it
+           reads in the meta slot that truncates first; the cancel it belongs
+           to is an action and sits with the other one. The live region is
+           still created with the run, as it was, so the announcement fires on
+           the transition to "Cancelling run". -->
       {#if activeCollectionRun}
-        <div class="runner-live-status" role="status" aria-live="polite" aria-atomic="true">
-          <span>{collectionRunCancellationRequested ? 'Cancelling run' : 'Running'}: {activeCollectionRun.collectionName}</span>
-          <button
-            type="button"
-            class="command-cancel"
-            data-testid="runner-cancel-button"
-            aria-label={collectionRunCancellationRequested
-              ? `Cancelling collection run: ${activeCollectionRun.collectionName}`
-              : `Cancel collection run: ${activeCollectionRun.collectionName}`}
-            onclick={() => void cancelCollectionRun()}
-            disabled={collectionRunCancellationRequested}
-          >
-            {collectionRunCancellationRequested ? 'Cancelling run…' : 'Cancel run'}
-          </button>
-        </div>
+        <span class="runner-live-status" role="status" aria-live="polite" aria-atomic="true">
+          {collectionRunCancellationRequested ? 'Cancelling run' : 'Running'}: {activeCollectionRun.collectionName}
+        </span>
+      {/if}
+    {/snippet}
+    {#snippet actions()}
+      {#if activeCollectionRun}
+        <button
+          type="button"
+          class="command-cancel"
+          data-testid="runner-cancel-button"
+          aria-label={collectionRunCancellationRequested
+            ? `Cancelling collection run: ${activeCollectionRun.collectionName}`
+            : `Cancel collection run: ${activeCollectionRun.collectionName}`}
+          onclick={() => void cancelCollectionRun()}
+          disabled={collectionRunCancellationRequested}
+        >
+          {collectionRunCancellationRequested ? 'Cancelling run…' : 'Cancel run'}
+        </button>
       {/if}
       <button data-testid="runner-run-button" onclick={runCollection} disabled={runnerSelectedCount === 0 || busy !== '' || Boolean(activeCollectionRun)}>
         Run {runnerSelectedCount} Request{runnerSelectedCount === 1 ? '' : 's'}
       </button>
-    </div>
-  </header>
+    {/snippet}
+  </PageHeader>
   <div class="runner-workbench">
     <aside class="runner-config-panel" data-testid="runner-config-panel">
       <div class="runner-config-header">
@@ -327,5 +336,18 @@
     color: var(--muted);
     font-size: var(--font-size-11);
     white-space: nowrap;
+  }
+
+  /* Was `.runner-live-status > span` in style.css, styling a span inside a flex
+     wrapper that no longer exists — the wrapper was only there to hold the
+     cancel button beside the text, and the cancel button is an action now. */
+  .runner-live-status {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 210px;
+    color: var(--warning-text);
+    font-size: var(--font-size-11);
+    font-weight: 800;
   }
 </style>

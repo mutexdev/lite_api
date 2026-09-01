@@ -76,6 +76,7 @@ test('the test ids every action carries are the ones already in the markup', () 
   assert.deepEqual(Object.fromEntries(ids), {
     'new-request': 'collection-item-menu-new-request',
     'new-flow': 'collection-item-menu-new-flow',
+    'run-collection': 'collection-item-menu-run-collection',
     reveal: 'collection-item-menu-show-in-folder',
     'generate-code': 'collection-item-menu-generate-code',
     info: 'collection-item-menu-info',
@@ -151,11 +152,11 @@ test('an unbound action renders no shortcut hint at all', () => {
 // New Flow is on the collection and ONLY on the collection: flows live in the
 // collection's root config file and carry no folder path, so offering it on a
 // folder would promise a placement that does not exist.
-test('a collection offers the creating actions only, New Flow among them', () => {
+test('a collection offers the creating actions and Run, New Flow among them', () => {
   const collection: SidebarObject = { kind: 'collection', collectionId: 'c1', folder: '', itemId: '', label: 'Alpha' }
   assert.deepEqual(
     sidebarActionsFor(collection, context).map((action) => action.id),
-    ['new-request', 'new-folder', 'new-flow']
+    ['new-request', 'new-folder', 'new-flow', 'run-collection']
   )
   for (const object of [folder, request]) {
     assert.ok(
@@ -163,6 +164,32 @@ test('a collection offers the creating actions only, New Flow among them', () =>
       `New Flow should not be offered on a ${object.kind}`
     )
   }
+})
+
+// RUN LIVES ON THE COLLECTION AND NOWHERE ELSE, which is the whole point of
+// moving it off the top bar: a Run button beside the environment picker offered
+// to run "the collection" from screens where no collection was in view, and
+// picked one by falling back. Here the object IS the collection, so there is
+// nothing to fall back to — and a folder or a request must not inherit the
+// entry, because neither is a thing the runner can be pointed at.
+test('Run collection is offered on a collection only', () => {
+  const collection: SidebarObject = { kind: 'collection', collectionId: 'c1', folder: '', itemId: '', label: 'Alpha' }
+  assert.ok(sidebarActionsFor(collection, context).some((action) => action.id === 'run-collection'))
+  for (const object of [folder, request]) {
+    assert.ok(
+      !sidebarActionsFor(object, context).some((action) => action.id === 'run-collection'),
+      `Run collection should not be offered on a ${object.kind}`
+    )
+  }
+})
+
+test('Run collection is labelled the way the command palette labels it', () => {
+  const collection: SidebarObject = { kind: 'collection', collectionId: 'c1', folder: '', itemId: '', label: 'Alpha' }
+  const run = sidebarActionsFor(collection, context).find((action) => action.id === 'run-collection')
+  assert.equal(run?.label, 'Run collection')
+  // Not destructive, and not adjacent to anything that is: it sits with the
+  // creating actions, five rows above Delete on the objects that offer both.
+  assert.equal(run?.tone, undefined)
 })
 
 test('a response example row maps to no object, because its actions belong to its request', () => {

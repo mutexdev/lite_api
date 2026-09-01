@@ -21,6 +21,7 @@
   import { untrack } from 'svelte'
   import FlowStepEditor from './FlowStepEditor.svelte'
   import FlowRunPanel from './FlowRunPanel.svelte'
+  import PageHeader from '../../ui/PageHeader.svelte'
   import {
     blankFlowStepDraft,
     flowDraftFrom,
@@ -97,12 +98,14 @@
 </script>
 
 <section class="panel flow-panel" aria-label={`Flow ${draft.name || flow.id}`}>
-  <header class="panel-header">
-    <div>
-      <h2>{draft.name || 'Untitled flow'}</h2>
-      <p class="panel-subtitle">{collection.name} · {draft.steps.length} step{draft.steps.length === 1 ? '' : 's'}</p>
-    </div>
-    <div class="button-row compact">
+  <!-- The collection is the subtitle because it is the flow's address and does
+       not change while the tab is open; the step count is meta because it moves
+       every time a step is added or dragged. -->
+  <PageHeader title={draft.name || 'Untitled flow'} subtitle={collection.name}>
+    {#snippet meta()}
+      <span>{draft.steps.length} step{draft.steps.length === 1 ? '' : 's'}</span>
+    {/snippet}
+    {#snippet actions()}
       <button
         type="button"
         class="primary"
@@ -117,8 +120,8 @@
         disabled={disabled}
         onclick={() => void onDelete(flow)}
       >{busy === 'delete flow' ? 'Deleting…' : 'Delete flow'}</button>
-    </div>
-  </header>
+    {/snippet}
+  </PageHeader>
 
   {#if saveError}
     <!-- The backend's own sentence. It names the step, the field and what to

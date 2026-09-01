@@ -1,9 +1,24 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
-  import Icon from '../ui/Icon.svelte'
+  import IconButton from '../ui/IconButton.svelte'
   import OrientationToggleButton from './OrientationToggleButton.svelte'
   import type { RequestCommandActions, RequestCommandState } from './types'
 
+  /*
+   * D4 — one row.
+   *
+   * WHAT WENT WRONG. This component rendered two rows: the URL line, and under
+   * it a 42px band carrying five uppercase chips (protocol, `Env: …`, SAVED,
+   * TLS verify, Proxy: system) plus a collection-scoped Run button. Every one
+   * of those facts was already on screen or unchanging: the protocol is on the
+   * tab, the environment picker is 40px above in the command bar, "saved" is
+   * now the tab's dirty dot (D6), and the two transport cues read "TLS verify"
+   * and "Proxy: system" — the defaults — on every request anyone ever opens, so
+   * a row of chrome burned itself in as wallpaper and stopped being read at
+   * all. That is what made the genuinely interesting values ("TLS off") vanish
+   * with it. `commandState.ts` now yields cues ONLY when they are non-default,
+   * and App.svelte renders the survivors at the end of the sub-tab row.
+   */
   // US-028 — runes. App.svelte uses bind:this on this component, which is an
   // instance reference rather than a prop binding and needs no $bindable.
   type Props = {
@@ -11,27 +26,6 @@
     actions: RequestCommandActions
     disabled?: boolean
     orientation?: 'horizontal' | 'vertical'
-    /**
-     * A1-02. How many requests the Collection Runner currently has selected.
-     *
-     * WHAT WENT WRONG. `actions.onRun` is `runCollection`, and `runCollection`
-     * opens with `if (selectedItemIds.length === 0) return`. The `disabled`
-     * prop above is `busy !== '' || hasActiveHTTPTransport` and knows nothing
-     * about that selection, so the button rendered enabled, took the click, and
-     * returned — no run, no view change, no message. A button that is bright,
-     * pressable and inert is worse than one that is greyed out, because the
-     * user's next move is to press it again.
-     *
-     * Optional, and `undefined` means "the mount has not been updated to pass
-     * it". `App.svelte` belongs to another pass this wave and already computes
-     * exactly this value as `runnerSelectedCount`; the handoff carries the one
-     * line. Until it lands the button cannot be disabled on an empty selection
-     * — nothing in this component can know — so it falls back to the other half
-     * of the fix and says what it will run instead of implying it runs this.
-     */
-    runSelectionCount?: number
-    /** Named in the tooltip so "collection" is not an abstraction. */
-    runCollectionName?: string
     // Replaces <slot name="request-line">, which is deprecated in runes mode.
     requestLine?: Snippet
   }
@@ -41,29 +35,16 @@
     actions,
     disabled = false,
     orientation = 'horizontal',
-    runSelectionCount = undefined,
-    runCollectionName = '',
     requestLine,
   }: Props = $props()
 
-  const runSelectionKnown = $derived(typeof runSelectionCount === 'number')
-  const runSelectionEmpty = $derived(runSelectionCount === 0)
-  const runTarget = $derived(runCollectionName ? `the collection "${runCollectionName}"` : 'this collection')
-
   /*
-   * The whole of A1-02's second half in one string. Every branch says which
-   * scope the command acts on, because the button sat beside Save and Send —
-   * two per-request actions — with the bare word "Run" on it, and there was
-   * nothing in its label, styling or position to suggest it ran anything other
-   * than the request the user was looking at.
+   * The dot is decorative — `aria-hidden` on a `::after` is not expressible —
+   * so the unsaved state has to reach the accessible name, which is also the
+   * tooltip. `saveLabel` rather than a literal "Save" because a transient
+   * request saves as "Save temp" and that distinction is the whole point of it.
    */
-  const runTitle = $derived(
-    runSelectionEmpty
-      ? `Nothing is selected in the Collection Runner. Open the Runner and choose requests before running ${runTarget}.`
-      : runSelectionKnown
-        ? `Run the ${runSelectionCount} request${runSelectionCount === 1 ? '' : 's'} selected in the Collection Runner for ${runTarget}. This does not send the request open here — use Send for that.`
-        : `Runs the Collection Runner's current selection for ${runTarget}. This does not send the request open here — use Send for that.`,
-  )
+  const saveLabel = $derived(`${command.saveLabel} (⌘S)${command.dirty ? ' — unsaved changes' : ''}`)
 </script>
 
 <section class="request-command-strip" aria-label="Request command center" aria-busy={Boolean(command.runningLabel) || Boolean(command.backgroundCancellation)}>
@@ -71,100 +52,63 @@
     {@render requestLine?.()}
   </div>
 
-  <div class="request-command-meta">
-    <div class="request-command-context" aria-label="Request context">
-      <span class="command-protocol">{command.protocol}</span>
-      <span class="command-environment" title={command.environmentName}>Env: {command.environmentName}</span>
-      {#if command.dirty}
-        <span class="command-dirty">Unsaved</span>
-      {:else}
-        <span class="command-saved">Saved</span>
-      {/if}
-      {#each command.transportCues as cue, index (index)}
-        <span class="command-cue">{cue}</span>
-      {/each}
-    </div>
-
-    <div class="request-command-actions">
-      <!--
-        A1-02, first half. This command's scope is the collection, and the two
-        buttons to its right have the scope of the open request, so it is drawn
-        as a different KIND of button and fenced off from them: quiet fill, a
-        list mark, the word "collection" in the label, and a rule between the
-        two groups. Reading left to right the row is now "something else" |
-        "this request", instead of three identical buttons one of which lied.
-
-        It is first rather than between Save and Send because the primary
-        action belongs at the end of the group — putting the cross-scope
-        command in the middle is what made it read as a sibling of both.
-      -->
+  <div class="request-command-actions">
+    {#if command.canCancel && actions.onCancel}
       <button
         type="button"
-        class="command-scope-collection"
-        title={runTitle}
-        aria-label={runTitle}
-        onclick={() => void actions.onRun()}
-        disabled={disabled || runSelectionEmpty}
+        class="command-cancel"
+        onclick={() => void actions.onCancel?.()}
+        disabled={command.cancellationPending || (disabled && !command.cancelDuringBusy)}
+        title={disabled && !command.cancelDuringBusy && command.backgroundCancellation
+          ? `Cancel ${command.backgroundCancellation.requestName} before ${command.cancelLabel.toLowerCase()}`
+          : undefined}
+        aria-label={command.cancellationPending
+          ? 'Cancelling request'
+          : disabled && !command.cancelDuringBusy && command.backgroundCancellation
+            ? `${command.cancelLabel} unavailable while a background HTTP request is active`
+            : `${command.cancelLabel} (Escape)`}
       >
-        <Icon name="list" size={13} />
-        <span>Run collection</span>
-        {#if runSelectionKnown && !runSelectionEmpty}<span class="command-scope-count">{runSelectionCount}</span>{/if}
+        {command.cancellationPending ? 'Cancelling…' : command.cancelLabel}
+        {#if !(disabled && !command.cancelDuringBusy && command.backgroundCancellation)}
+          <kbd>Esc</kbd>
+        {/if}
       </button>
-
-      <span class="command-scope-divider" aria-hidden="true"></span>
-
-      <button type="button" onclick={() => void actions.onSave()} disabled={disabled}>
-        {command.saveLabel}
-        <kbd>⌘S</kbd>
+    {:else}
+      <button type="button" class="primary" onclick={() => void actions.onSend()} disabled={disabled}>
+        {command.runningLabel ? 'Sending…' : 'Send'}
+        <kbd>⌘↵</kbd>
       </button>
-      {#if command.canCancel && actions.onCancel}
-        <button
-          type="button"
-          class="command-cancel"
-          onclick={() => void actions.onCancel?.()}
-          disabled={command.cancellationPending || (disabled && !command.cancelDuringBusy)}
-          title={disabled && !command.cancelDuringBusy && command.backgroundCancellation
-            ? `Cancel ${command.backgroundCancellation.requestName} before ${command.cancelLabel.toLowerCase()}`
-            : undefined}
-          aria-label={command.cancellationPending
-            ? 'Cancelling request'
-            : disabled && !command.cancelDuringBusy && command.backgroundCancellation
-              ? `${command.cancelLabel} unavailable while a background HTTP request is active`
-              : `${command.cancelLabel} (Escape)`}
-        >
-          {command.cancellationPending ? 'Cancelling…' : command.cancelLabel}
-          {#if !(disabled && !command.cancelDuringBusy && command.backgroundCancellation)}
-            <kbd>Esc</kbd>
-          {/if}
-        </button>
-      {:else}
-        <button type="button" class="primary" onclick={() => void actions.onSend()} disabled={disabled}>
-          {command.runningLabel ? 'Sending…' : 'Send'}
-          <kbd>⌘↵</kbd>
-        </button>
-      {/if}
-      {#if command.backgroundCancellation && actions.onCancelBackground}
-        <button
-          type="button"
-          class="command-cancel command-background-cancel"
-          title={`Cancel background request: ${command.backgroundCancellation.requestName}`}
-          aria-label={command.backgroundCancellation.pending
-            ? `Cancelling background request: ${command.backgroundCancellation.requestName}`
-            : `Cancel background request: ${command.backgroundCancellation.requestName}`}
-          onclick={() => void actions.onCancelBackground?.()}
-          disabled={command.backgroundCancellation.pending}
-        >
-          {command.backgroundCancellation.pending ? 'Cancelling…' : `Cancel ${command.backgroundCancellation.requestName}`}
-        </button>
-      {/if}
-    </div>
+    {/if}
+    {#if command.backgroundCancellation && actions.onCancelBackground}
+      <button
+        type="button"
+        class="command-cancel command-background-cancel"
+        title={`Cancel background request: ${command.backgroundCancellation.requestName}`}
+        aria-label={command.backgroundCancellation.pending
+          ? `Cancelling background request: ${command.backgroundCancellation.requestName}`
+          : `Cancel background request: ${command.backgroundCancellation.requestName}`}
+        onclick={() => void actions.onCancelBackground?.()}
+        disabled={command.backgroundCancellation.pending}
+      >
+        {command.backgroundCancellation.pending ? 'Cancelling…' : `Cancel ${command.backgroundCancellation.requestName}`}
+      </button>
+    {/if}
+
+    <!--
+      D9. Save was a bordered text button with a `⌘S` kbd sitting beside Send,
+      which made the row read as two equally weighted commands; it is the
+      secondary one, and the shortcut belongs in the tooltip like every other
+      icon button in the shell.
+    -->
+    <span class="request-save" class:dirty={command.dirty}>
+      <IconButton icon="save" label={saveLabel} onclick={() => void actions.onSave()} {disabled} />
+    </span>
 
     <!--
       A4-02. This was a `⇄`/`⇅` text glyph in a 30px box while the command bar
       a few hundred pixels above rendered a stroke SVG for the same command,
       calling the same handler, with the ⌘J hint that this one did not show.
-      Both call sites now render the same component, so there is one mark, one
-      label and one shortcut disclosure for one command.
+      The command bar's copy is gone (D3) and this is now the only one.
     -->
     <OrientationToggleButton
       {orientation}
@@ -177,92 +121,52 @@
 
 <style>
   .request-command-strip {
+    display: flex;
+    align-items: center;
+    gap: var(--space-8);
+    padding-right: var(--space-12);
     border-bottom: 1px solid var(--border-subtle);
     background: var(--surface);
+  }
+
+  /*
+    The request line brings its own 12px padding and used to bring the row's
+    bottom border too. Both rows are one row now, so the border belongs to the
+    section and the entry is the flexible half.
+  */
+  .request-command-entry {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .request-command-entry :global(.request-line) {
     border-bottom: 0;
   }
 
-  .request-command-meta {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    align-items: center;
-    gap: 10px;
-    min-height: 42px;
-    padding: 6px 12px 8px;
-    border-top: 1px solid var(--border-subtle);
-    background: var(--surface-soft);
-  }
-
-  .request-command-context,
   .request-command-actions {
     display: flex;
+    flex: 0 0 auto;
     align-items: center;
-    min-width: 0;
-    gap: 6px;
-  }
-
-  .request-command-context {
-    overflow: hidden;
-    white-space: nowrap;
-  }
-
-  .request-command-context span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .command-protocol,
-  .command-dirty,
-  .command-saved,
-  .command-cue {
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 2px 5px;
-    color: var(--muted);
-    font-size: 10px;
-    font-weight: 750;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
-  }
-
-  .command-protocol {
-    border-color: var(--accent-border);
-    color: var(--accent-strong);
-  }
-
-  .command-dirty {
-    color: var(--warning-text);
-  }
-
-  .command-saved {
-    color: var(--method-get, var(--accent-strong));
-  }
-
-  .command-environment {
-    color: var(--muted);
-    font-size: 11px;
+    gap: var(--space-6);
   }
 
   .request-command-actions button {
     min-height: 28px;
-    padding: 4px 7px;
-    font-size: 11px;
+    padding: var(--space-4) var(--space-7);
+    font-size: var(--font-size-11);
   }
 
   .request-command-actions button.primary {
     min-height: 28px;
-    padding: 4px 18px;
-    font-size: 12px;
+    padding: var(--space-4) var(--space-18);
+    font-size: var(--font-size-12);
   }
 
   .request-command-actions kbd {
-    margin-left: 4px;
+    margin-left: var(--space-4);
     color: currentColor;
     font-family: var(--code-font-family);
-    font-size: 9px;
+    font-size: var(--font-size-9);
     opacity: 0.72;
   }
 
@@ -279,67 +183,47 @@
   }
 
   /*
-    A1-02. The visual half of "this does not act on the request you are looking
-    at": no border and no fill at rest, so it does not read as a peer of the
-    bordered Save beside it, and the muted colour of the context chips on the
-    other end of the row — which is where the rest of the row's "about the
-    surroundings" information already lives.
+    D4/D6. The unsaved marker is a dot on the control that clears it, the same
+    mark the tab carries, instead of the SAVED/UNSAVED chip pair that spent a
+    row saying "nothing has happened" on every untouched request.
   */
-  .command-scope-collection {
+  .request-save {
+    position: relative;
     display: inline-flex;
-    align-items: center;
-    gap: var(--space-5);
-    border-color: transparent;
-    background: transparent;
-    color: var(--muted-strong);
   }
 
-  .command-scope-collection:hover:not(:disabled) {
-    border-color: var(--border);
-    background: var(--surface);
-    color: var(--text);
-  }
-
-  /*
-    The count is the "say what it will run" half made visible without opening a
-    tooltip. Tabular figures so the button does not change width as the runner
-    selection changes underneath it.
-  */
-  .command-scope-count {
-    /* No pill token exists; 999px is the literal the notification badge in
-       WorkspaceCommandBar already uses for the same shape. */
-    border-radius: 999px;
-    padding: 0 var(--space-5);
-    background: var(--surface-alt);
-    color: var(--muted);
-    font-size: var(--font-size-10);
-    font-weight: 800;
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* The fence between the collection-scoped command and the request-scoped ones. */
-  .command-scope-divider {
-    width: 1px;
-    height: 18px;
-    margin-inline: var(--space-3);
-    background: var(--border);
+  .request-save.dirty::after {
+    content: '';
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-2);
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+    pointer-events: none;
   }
 
   /*
     A4-11. The 1180px query used to be here and set `grid-template-columns` to
-    the identical value the base rule already declares — a rule that had done
+    the identical value the base rule already declared — a rule that had done
     nothing since it was written. The remaining step is the shell's own compact
-    breakpoint from `layout.ts` (680), not the 640 this file had picked, which
-    put the strip's reflow 40px away from the one `style.css` performs on
-    `.request-command-meta` — this element — at 680.
+    breakpoint from `layout.ts` (680), not the 640 this file had picked. At that
+    width the URL field needs the full line, so the actions wrap under it.
   */
   @media (max-width: 680px) {
-    .request-command-meta {
-      grid-template-columns: 1fr;
+    .request-command-strip {
+      flex-wrap: wrap;
+      align-items: stretch;
+    }
+
+    .request-command-entry {
+      flex: 1 0 100%;
     }
 
     .request-command-actions {
-      justify-content: flex-start;
+      flex: 1 0 100%;
+      padding-bottom: var(--space-8);
     }
   }
 </style>

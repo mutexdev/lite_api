@@ -223,18 +223,27 @@ test('the shell chrome reflows only at widths from the shared scale', () => {
 
 // The 1180px block in RequestCommandStrip set `grid-template-columns` to the
 // exact value its base rule already declared — a rule that had never done
-// anything. It was removed rather than corrected, and this stops it coming back
-// as "the file needs a query at every breakpoint" tidying.
-test('the request strip does not re-declare its base grid at a breakpoint', () => {
+// anything. D4 then deleted the two-row `.request-command-meta` band the rule
+// lived on, so the guard follows the layout onto the single flex row that
+// replaced it rather than being deleted along with its subject.
+test('the request strip does not re-declare its base layout at a breakpoint', () => {
   const strip = readSource('../src/lib/workbench/RequestCommandStrip.svelte')
-  const base = strip.match(/\.request-command-meta\s*\{[^}]*grid-template-columns:\s*([^;]+);/)
-  assert.ok(base, 'the base .request-command-meta grid is gone')
-  const restated = [...strip.matchAll(/@media[^{]*\{\s*\.request-command-meta\s*\{\s*grid-template-columns:\s*([^;]+);/g)]
+  assert.ok(
+    !/\.request-command-meta\b/.test(strip),
+    'the two-row meta band is back; D4 folded it into the single strip row',
+  )
+  const base = strip.match(/\.request-command-strip\s*\{([^}]*)\}/)
+  assert.ok(base, 'the base .request-command-strip rule is gone')
+  const declarations = (block: string) =>
+    block.split(';').map((line) => line.trim()).filter(Boolean)
+  const baseDeclarations = new Set(declarations(base[1]))
+  const restated = [...strip.matchAll(/@media[^{]*\{\s*\.request-command-strip\s*\{([^}]*)\}/g)]
   for (const match of restated) {
-    assert.notEqual(
-      match[1].trim(),
-      base[1].trim(),
-      'a media query restates the base grid unchanged, which is the dead rule that was just removed',
-    )
+    for (const declaration of declarations(match[1])) {
+      assert.ok(
+        !baseDeclarations.has(declaration),
+        `a media query restates \`${declaration}\` unchanged, which is the dead rule that was just removed`,
+      )
+    }
   }
 })

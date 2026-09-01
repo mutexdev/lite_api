@@ -326,22 +326,29 @@ test('every section has an index entry and an anchor to scroll to', () => {
   assert.match(panel, /position:\s*sticky/, 'the section index scrolls away with the content')
 })
 
-// A7-08. The subtitle summarised theme (which the user is looking at) and proxy
-// (off for almost everyone) and said nothing about whether AI tools can reach
-// into this workspace — the one piece of state in the panel that is both
+// A7-08. The summary line reported theme (which the user is looking at) and
+// proxy (off for almost everyone) and said nothing about whether AI tools can
+// reach into this workspace — the one piece of state in the panel that is both
 // invisible and consequential.
-test('the panel subtitle reports AI access, not just theme and proxy', () => {
-  const subtitle = panel.match(/<p class="panel-subtitle"[^>]*>([\s\S]*?)<\/p>/)
-  assert.ok(subtitle, 'the preferences subtitle is gone')
-  assert.match(subtitle[1], /AI access/, 'the subtitle still ignores the MCP state')
+//
+// The clutter-free-shell pass moved it from a `<p class="panel-subtitle">` into
+// PageHeader's `meta` snippet, which is where live state goes now. The element
+// changed; the finding this pins did not, so the match is on the testid the
+// line has always carried rather than on the tag it happens to be in.
+test('the panel header reports AI access, not just theme and proxy', () => {
+  assert.match(panel, /<PageHeader\s+title="Preferences"/, 'Preferences no longer uses the shared PageHeader')
+
+  const line = panel.match(/<span data-testid="preferences-subtitle"[^>]*>([\s\S]*?)<\/span>/)
+  assert.ok(line, 'the preferences summary line is gone')
+  assert.match(line[1], /AI access/, 'the summary line still ignores the MCP state')
 
   // "enabled", never "running": whether the listener actually bound a port is
   // only known to GetMCPStatus, which the MCP section fetches on mount. A
   // header claiming "running" would be the exact lie that status line exists
   // to prevent.
   assert.ok(
-    !/running/i.test(subtitle[1]),
-    'the subtitle claims the MCP listener is running, which the panel header cannot know',
+    !/running/i.test(line[1]),
+    'the summary line claims the MCP listener is running, which the panel header cannot know',
   )
 })
 

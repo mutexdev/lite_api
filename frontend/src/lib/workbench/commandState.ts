@@ -9,6 +9,16 @@
 // The TLS cue is deliberately AND-ed rather than OR-ed: verification is on only
 // when the request has not disabled it AND the global preference has not. Either
 // switch being off means traffic is unverified, so either must show "TLS off".
+//
+// D4 — CUES ARE EXCEPTIONS, NOT A READOUT. These two used to render on every
+// request, always, as a pair of uppercase chips. On a default install they read
+// "TLS verify" and "Proxy: system" — the values nobody changed — so the row
+// said the same thing on every screen anyone had ever looked at, and chrome
+// that never changes stops being read. The consequence was the opposite of the
+// intent: "TLS off" appeared in the same place, the same size and the same
+// colour as the wallpaper it replaced, so the one state worth interrupting
+// someone over was the one nobody would notice. Now the safe defaults produce
+// NOTHING and a cue on screen means something is off the beaten path.
 
 import type { types } from '../../../wailsjs/go/models'
 import type { RequestCommandState } from './types'
@@ -88,6 +98,9 @@ export function requestCommandState(
   const transient = requestIsTransient(collection, request, scratchCollectionId)
   const collectionProxy = collectionProxyMode(collection?.proxy)
   const preferencesProxy = preferencesProxyMode(preferences)
+  // `undefined` is "the system proxy, which is what every install starts with"
+  // — the one arrangement that earns no cue. Everything else, including an
+  // explicit "off", is a decision someone made and can forget they made.
   const proxyCue = collectionProxy === 'off'
     ? 'Proxy off'
     : collectionProxy === 'manual'
@@ -98,8 +111,11 @@ export function requestCommandState(
           ? 'Proxy: manual'
           : preferencesProxy === 'pac'
             ? 'Proxy: PAC'
-            : 'Proxy: system'
+            : undefined
   const tlsVerificationEnabled = request?.settings?.verifyTls !== false && preferences?.request?.sslVerification !== false
+  const transportCues = [tlsVerificationEnabled ? undefined : 'TLS off', proxyCue].filter(
+    (cue): cue is string => cue !== undefined
+  )
   return {
     protocol: request?.type === 'grpc' ? 'gRPC' : request?.type === 'websocket' ? 'WebSocket' : request?.type === 'graphql' ? 'GraphQL' : 'HTTP',
     environmentName: environmentName || 'No environment',
@@ -111,7 +127,7 @@ export function requestCommandState(
     cancelDuringBusy: httpInFlight,
     cancellationPending,
     backgroundCancellation,
-    transportCues: [tlsVerificationEnabled ? 'TLS verify' : 'TLS off', proxyCue],
+    transportCues,
     response: {
       status,
       statusText: response?.cancelled ? 'Request cancelled' : response?.statusText || (response?.error ? 'Request failed' : 'No response yet'),

@@ -26,14 +26,38 @@
     /** Buttons. Primary action last. */
     actions?: Snippet
     testId?: string
+    /**
+     * Names the heading so the pane can point `aria-labelledby` at it, and
+     * hands the element back so the view can move focus there.
+     *
+     * Both exist for the same case and it is not decorative: the Git workbench
+     * opens from a command, with no click to carry focus, and parks the caret
+     * on its heading so a screen reader announces which pane just replaced the
+     * request. Without these the conversion to PageHeader would have moved that
+     * pane's focus target out of reach and lost the behaviour silently.
+     */
+    titleId?: string
+    titleRef?: HTMLHeadingElement | null
   }
 
-  let { title, subtitle = '', meta, actions, testId = undefined }: Props = $props()
+  let {
+    title,
+    subtitle = '',
+    meta,
+    actions,
+    testId = undefined,
+    titleId = undefined,
+    titleRef = $bindable(null),
+  }: Props = $props()
 </script>
 
 <header class="page-header" data-testid={testId}>
   <div class="page-header-title">
-    <h2>{title}</h2>
+    <!-- tabindex is the literal -1 rather than a conditional one because a
+         computed value defeats svelte-check's a11y rule, which cannot see that
+         the number is negative and reports a heading in the tab order. -1 only
+         makes the heading a legal focus() target; it stays out of tab order. -->
+    <h2 id={titleId} tabindex="-1" bind:this={titleRef}>{title}</h2>
     {#if subtitle}<p>{subtitle}</p>{/if}
   </div>
   {#if meta}<div class="page-header-meta">{@render meta()}</div>{/if}
@@ -92,5 +116,10 @@
     gap: var(--space-6);
     flex: none;
     margin-left: auto;
+    /* An action label must never wrap. The Cookies header put a search box and
+       "Clear all" here and the label broke across two lines, which made the
+       button 40px tall in a 36px header and read as two stacked controls. The
+       meta slot beside it is the part that is allowed to give way. */
+    white-space: nowrap;
   }
 </style>

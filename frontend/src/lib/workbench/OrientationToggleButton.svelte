@@ -20,14 +20,19 @@
    * existing one rather than a new drawing.
    *
    * WHY THIS IS NOT `ui/IconButton.svelte`. It should be, and one day it will
-   * be: `IconButton` takes an `IconName`, and the shared icon set has no
-   * split-pane glyph — its nineteen names are search/copy/format/chevrons and
-   * so on, none of which means "the panes are side by side". Adding one is an
-   * edit to `lib/ui/`, which belongs to another implementer this wave. Rather
-   * than invent a second inline SVG to sit beside the one that already exists,
-   * this component holds the ONE copy of that mark and both call sites render
-   * it, so there is exactly one drawing to move into `Icon.svelte` when the icon
-   * set can take it. The handoff carries the paste.
+   * be: `IconButton` takes an `IconName`, and the shared icon set still has no
+   * split-pane glyph — none of its names means "the panes are side by side".
+   * Adding one is an edit to `lib/ui/`, which belongs to another implementer
+   * each wave. Rather than invent a second inline SVG to sit beside the one that
+   * already exists, this component holds the ONE copy of that mark, so there is
+   * exactly one drawing to move into `Icon.svelte` when the icon set can take
+   * it.
+   *
+   * D3 left the request strip as the only call site — the command bar's copy of
+   * this command is gone, because one screen does not need two buttons for one
+   * orientation. The `bar` variant is kept rather than deleted so the geometry
+   * of the 30px toolbar cell survives with it; a future toolbar that wants this
+   * command back gets the same mark, not a third drawing.
    *
    * WHY THE MARK CHANGES WITH THE STATE. The frame with a divider down the
    * middle is the layout you are looking at now, not the one the button will
@@ -41,9 +46,8 @@
     orientation?: ResponsePaneOrientation
     onclick: () => void
     /**
-     * Preserved verbatim per call site. `App.svelte` mounts both of these and
-     * cannot be edited this wave, so a testid that moved would be a silent
-     * break with no compile error.
+     * Preserved verbatim from the call site it came from. A testid that moved
+     * would be a silent break with no compile error.
      */
     testId?: string
     /**
@@ -56,12 +60,12 @@
   let { orientation = 'horizontal', onclick, testId = undefined, variant = 'bar' }: Props = $props()
 
   /*
-   * ONE STRING, BOTH PLACES. The command bar showed "(⌘J)" and the strip showed
-   * nothing, so the same command taught the user its shortcut in one toolbar
-   * and hid it in the other. The tooltip and the accessible name are built from
-   * the same source here for the same reason `IconButton` requires them to
-   * match: a tooltip that says something the screen reader does not is a
-   * second, invisible vocabulary.
+   * ONE STRING. The command bar showed "(⌘J)" and the strip showed nothing, so
+   * the same command taught the user its shortcut in one toolbar and hid it in
+   * the other; the surviving button is the one that used to hide it. The
+   * tooltip and the accessible name are built from the same source here for the
+   * same reason `IconButton` requires them to match: a tooltip that says
+   * something the screen reader does not is a second, invisible vocabulary.
    */
   const action = $derived(orientation === 'horizontal' ? 'Stack the response below' : 'Put the response beside')
   const label = $derived(`Change response orientation — ${action}`)

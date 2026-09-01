@@ -1,9 +1,16 @@
 // The request command strip: labels, and two security-posture cues.
 //
-// The "TLS verify"/"TLS off" cue and the proxy cue are the only place the UI
-// tells anyone how their request will actually travel. A wrong label says
-// verified when it is not, or direct when it is proxied, and nothing else on
-// screen contradicts it.
+// The "TLS off" cue and the proxy cue are the only place the UI tells anyone
+// how their request will actually travel. A missing cue says verified when it
+// is not, or direct when it is proxied, and nothing else on screen contradicts
+// it.
+//
+// D4 made them EXCEPTIONS: a default install (TLS verified, system proxy) now
+// yields no cue at all, so the pair stops being wallpaper and a cue on screen
+// means something. That raises the stakes on this file rather than lowering
+// them — the empty case is now indistinguishable from "the cue never rendered",
+// so the two non-default cases below are the only thing standing between a
+// silent regression and someone believing their traffic is verified.
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
@@ -31,11 +38,23 @@ const state = (o: Record<string, unknown> = {}) =>
     o.scratchCollectionId as never
   )
 
+// The defaults are the whole point: a request nobody has touched, on an install
+// nobody has configured, must produce NOTHING for App.svelte to render.
+test('a verified request through the system proxy yields no cue at all', () => {
+  assert.deepEqual(state({ request: { settings: {} }, preferences: { request: {} } }).transportCues, [])
+  assert.deepEqual(state({}).transportCues, [], 'no request and no preferences is still the default posture')
+  assert.deepEqual(
+    state({ collection: {}, preferences: { proxy: { source: 'system' } } }).transportCues,
+    [],
+    'an inheriting collection over an explicit system proxy is still the default'
+  )
+})
+
 // Verification is on only when BOTH switches allow it. Either being off means
 // traffic is unverified, so either must show "TLS off".
 test('the TLS cue is off when either the request or the preference disables it', () => {
   const on = state({ request: { settings: {} }, preferences: { request: {} } })
-  assert.ok(on.transportCues.includes('TLS verify'))
+  assert.ok(!on.transportCues.some((cue) => cue.startsWith('TLS')), 'verified traffic says nothing')
 
   const requestOff = state({ request: { settings: { verifyTls: false } }, preferences: { request: {} } })
   assert.ok(requestOff.transportCues.includes('TLS off'), 'a request opting out must show TLS off')
@@ -88,8 +107,23 @@ test('the proxy cue prefers the collection over the preference', () => {
   const inherited = state({ collection: {}, preferences: { proxy: { source: 'pac' } } })
   assert.ok(inherited.transportCues.includes('Proxy: PAC'), 'an inheriting collection defers to the preference')
 
+  // "Off" is not the default; it is someone having switched the system proxy
+  // off, which is exactly the kind of thing that gets forgotten.
+  const preferenceOff = state({ collection: {}, preferences: { proxy: { disabled: true } } })
+  assert.ok(preferenceOff.transportCues.includes('Proxy off'))
+
   const bothDefault = state({ collection: {}, preferences: {} })
-  assert.ok(bothDefault.transportCues.includes('Proxy: system'))
+  assert.deepEqual(bothDefault.transportCues, [], 'the system proxy is the default and says nothing')
+})
+
+// Both non-default at once still yields both, in the order App.svelte prints
+// them — TLS first, because it is the one that can be unsafe.
+test('a request that is unverified AND proxied names both', () => {
+  const both = state({
+    request: { settings: { verifyTls: false } },
+    collection: { proxy: { inherit: false, hostname: 'p' } }
+  })
+  assert.deepEqual(both.transportCues, ['TLS off', 'Proxy: collection'])
 })
 
 test('the protocol label follows the request type', () => {

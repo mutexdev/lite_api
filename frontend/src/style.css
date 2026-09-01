@@ -984,16 +984,11 @@ mark.current-match {
   visibility: hidden;
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: var(--space-10);
-}
-
 /* Sizes the icon and nothing else. The mark supplies its own background and
    corner radius (see BrandMark.svelte), so painting --accent here would show
-   through as a coloured fringe behind it. Kept at 38px so swapping the text
-   placeholder for the real icon did not move the heading beside it. */
+   through as a coloured fringe behind it. The 38px is the sole remaining
+   default: D1 collapsed the two-line brand block into a 36px row, and
+   SidebarHeader.svelte overrides this to the 22px that fits in it. */
 .brand-mark {
   display: grid;
   place-items: center;
@@ -1001,30 +996,10 @@ mark.current-match {
   height: 38px;
 }
 
-.brand h1,
-.brand p {
-  margin: 0;
-}
-
-.brand h1 {
-  font-size: var(--font-size-18);
-}
-
-.brand p {
-  color: var(--rail-muted);
-  font-size: var(--font-size-12);
-}
-
 .rail-section {
   display: grid;
   gap: var(--space-8);
 }
-
-.rail-create { gap: 5px; }
-.new-request-button { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
-.new-request-button span { font-size: 18px; line-height: 1; }
-.new-request-button kbd { font-family: var(--code-font-family); font-size: 10px; opacity: .78; }
-.rail-create small { color: var(--rail-muted); font-size: 11px; line-height: 1.35; }
 
 .rail-section label,
 .rail-section .field-label {
@@ -1096,12 +1071,6 @@ mark.current-match {
 
 .kv-table tr.drag-over {
   box-shadow: inset 0 0 0 2px var(--focus);
-}
-
-.search-section small {
-  color: var(--rail-muted);
-  font-size: var(--font-size-11);
-  font-weight: 700;
 }
 
 .search-box {
@@ -1301,6 +1270,29 @@ mark.current-match {
   right: 3px;
   z-index: 4;
 }
+/*
+  D2. Every row in the tree carried a ⋯ at full strength, so a sidebar of forty
+  requests drew forty of them down the right edge and the column read as content
+  rather than as an affordance. It rests faded and comes back for the row you
+  are actually on — pointer, keyboard cursor, focus, or its own open menu. The
+  BOX does not change: fading is not hiding, so the target a pointer is already
+  travelling towards is still 22px wherever it rests.
+*/
+.collections .row-menu-button {
+  opacity: 0.45;
+  transition: opacity 90ms ease;
+}
+
+.collections article header:hover .row-menu-button,
+.collections .folder-row-shell:hover .row-menu-button,
+.collections .request-row-shell:hover .row-menu-button,
+.collections:focus-within .row-cursor ~ .row-menu-button,
+.collections .row-menu-button:hover,
+.collections .row-menu-button:focus-visible,
+.collections .row-menu-button[aria-expanded="true"] {
+  opacity: 1;
+}
+
 .row-menu-button:hover,
 .row-menu-button[aria-expanded="true"] {
   background: var(--rail-hover-2);
@@ -1667,12 +1659,21 @@ em {
 }
 
 .recovery-center summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
   min-height: 30px;
+  padding: 0 var(--space-4);
   cursor: pointer;
   color: var(--warning-strong);
   font-size: var(--font-size-11);
   font-weight: 800;
+  list-style: none;
 }
+
+/* The disclosure triangle is the third mark in a cluster that is otherwise
+   one icon per control; the count already says there is something to open. */
+.recovery-center summary::-webkit-details-marker { display: none; }
 
 .recovery-center-list {
   position: absolute;
@@ -1731,27 +1732,6 @@ em {
   align-items: center;
   gap: var(--space-7);
   min-width: 0;
-}
-
-.runner-header-actions,
-.runner-live-status {
-  display: flex;
-  align-items: center;
-  gap: var(--space-7);
-  min-width: 0;
-}
-
-.runner-live-status > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--warning-text);
-  font-size: var(--font-size-11);
-  font-weight: 800;
-}
-
-.runner-live-status > span {
-  max-width: 210px;
 }
 
 .command-cancel {
@@ -1931,6 +1911,42 @@ em {
   color: var(--text);
 }
 
+/*
+  D6, the VS Code convention. The dot occupies exactly the close button's box —
+  same width, same margins — so swapping the two does not shift the tab strip a
+  pixel as the pointer moves along it. That is the whole reason it is a swap
+  rather than a badge beside the ×: a strip that changes width on hover is a
+  strip where the tab you were aiming at moves.
+
+  This is what let the SAVED chip leave the request strip. The chip could only
+  ever describe the request already in front of you; this says the same thing
+  about all ten tabs at once.
+*/
+.tabs .tab-dirty {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  min-width: 20px;
+  min-height: 20px;
+  margin: 0 var(--space-5);
+}
+
+.tabs .tab-dirty::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+}
+
+.tabs .tab.dirty .tab-close { display: none; }
+
+.tabs .tab.dirty:hover .tab-dirty,
+.tabs .tab.dirty:focus-within .tab-dirty { display: none; }
+
+.tabs .tab.dirty:hover .tab-close,
+.tabs .tab.dirty:focus-within .tab-close { display: grid; }
+
 .tab-method {
   margin-right: var(--space-6);
   color: var(--method-color, var(--muted-strong));
@@ -1981,7 +1997,7 @@ em {
 
 .view-switcher button,
 .request-side > .subtabs button,
-.response-side > .subtabs button {
+.pane-toolbar .subtabs button {
   min-height: 32px;
   padding: var(--space-4) var(--space-10);
   font-size: var(--font-size-12);
@@ -2003,7 +2019,7 @@ em {
   font-weight: 800;
 }
 
-.response-summary-status .response-test-failures {
+.response-status .response-test-failures {
   color: var(--danger-strong);
   font-weight: 800;
   white-space: nowrap;
@@ -2523,11 +2539,6 @@ span.variable-chip-pill { cursor: inherit; }
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .runner-header-actions {
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
-
 }
 
 .variable-inspector {
@@ -2666,6 +2677,22 @@ button.var-value-editable-display {
   overflow-x: auto;
   scrollbar-width: thin;
   padding: var(--space-6) var(--space-10);
+}
+
+/*
+  D4. The transport cues used to be uppercase chips in a row of their own. They
+  are exceptions now — `commandState.ts` yields nothing for a verified request
+  through the system proxy — so they ride along at the end of the sub-tab row as
+  muted text instead of holding a row open to announce "normal". `margin-left:
+  auto` rather than a spacer element so the row keeps working when the tabs
+  overflow and scroll.
+*/
+.request-cues {
+  margin-left: auto;
+  padding-left: var(--space-8);
+  color: var(--muted);
+  font-size: var(--font-size-11);
+  white-space: nowrap;
 }
 
 .editor-surface,
@@ -2905,7 +2932,12 @@ button.var-value-editable-display {
   padding: 0;
 }
 
-.devtools-drawer .panel-header {
+/* The drawer gives its header a border and a taller box than a page header
+   has, because in the drawer it IS the drawer's title bar and the thing the
+   user drags. Three class names deep on purpose: PageHeader's own scoped rules
+   are two, and an equal-specificity override would depend on which stylesheet
+   the bundler happened to emit last. */
+.devtools-drawer .devtools-panel .page-header {
   min-height: 58px;
   margin: 0;
   padding: var(--space-10) var(--space-14);
@@ -3593,31 +3625,49 @@ button.var-value-editable-display {
   width: 44%;
 }
 
-.response-summary {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-8);
-  align-items: center;
-  min-height: 42px;
-  padding: var(--space-6) var(--space-12);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.response-summary-status { display: flex; align-items: center; min-width: 0; gap: 8px; font-family: var(--code-font-family); font-size: 11px; }
-.response-summary-status.success strong { color: var(--accent); }
-.response-summary-status.warning strong { color: var(--warning-strong); }
-.response-summary-status.danger strong { color: var(--danger-strong); }
-.response-summary-status span { max-width: 130px; }
-
-.orientation-toggle {
-  font-weight: 800;
-}
-
-.response-summary span {
+/*
+  D5. This was a 42px row of its own above the response tabs, and before a
+  request had ever been sent it spent that row on "Idle · No response yet ·
+  0 ms · 0 B". It lives in the tab row's PaneToolbar middle slot now, which
+  supplies the sizing and the truncation, so what is left here is only what
+  the tone colouring needs.
+*/
+.response-status { display: flex; align-items: center; min-width: 0; gap: var(--space-8); font-family: var(--code-font-family); }
+.response-status.success strong { color: var(--accent); }
+.response-status.warning strong { color: var(--warning-strong); }
+.response-status.danger strong { color: var(--danger-strong); }
+.response-status span {
+  max-width: 130px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--muted-strong);
+}
+
+/*
+  Nine response tabs and a status cluster do not fit a half-width pane.
+  PaneToolbar's end group must not move — Save as example is a click target that
+  should stay where it was last time — so the tab list is the part that gives
+  way, and it already scrolls: `.subtabs` carries overflow-x: auto. Four class
+  names deep on purpose; PaneToolbar's own scoped rule for this group is three,
+  and an equal-specificity override would depend on stylesheet order.
+*/
+.response-side .pane-toolbar > .pane-toolbar-group.start {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+/* The toolbar supplies the padding and the bottom border for the row the tabs
+   now share; the tab list keeps only its own scrolling. */
+.pane-toolbar .subtabs {
+  flex-wrap: nowrap;
+  gap: var(--space-4);
+  padding: 0;
+  border-bottom: 0;
+  scrollbar-width: thin;
+}
+
+.orientation-toggle {
+  font-weight: 800;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3631,19 +3681,16 @@ button.var-value-editable-display {
   }
 }
 
-.response-summary .ok,
 .ok {
   color: var(--accent);
   font-weight: 800;
 }
 
-.response-summary .warn,
 .warn {
   color: var(--warning-strong);
   font-weight: 800;
 }
 
-.response-summary .bad,
 .bad {
   color: var(--danger-strong);
   font-weight: 800;
@@ -3973,20 +4020,11 @@ button.var-value-editable-display {
   padding: var(--space-16);
 }
 
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-12);
-  margin-bottom: var(--space-14);
-}
-
-.panel-header h2,
-.panel-header h3 {
-  margin: 0;
-}
-
-.panel-subtitle {
+/* Was `.panel-subtitle`, which every view's header used and one card in the
+   cookie list borrowed. D7 moved the headers to lib/ui/PageHeader.svelte, which
+   styles its own subtitle; this is what is left, and it is a card's second
+   line rather than a page's. */
+.card-subtitle {
   margin: var(--space-4) 0 0;
   color: var(--muted-strong);
   font-size: var(--font-size-12);
@@ -6134,6 +6172,5 @@ button.var-value-editable-display {
 }
 
 @media (max-width: 680px) {
-  .request-command-meta { padding-inline: 8px; }
-  .response-summary-status span { max-width: 72px; }
+  .response-status span { max-width: 72px; }
 }

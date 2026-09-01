@@ -213,7 +213,10 @@
   import SidebarActionMenu from './lib/sidebar/SidebarActionMenu.svelte'
   import TreeChevron from './lib/sidebar/TreeChevron.svelte'
   import SidebarSearch from './lib/SidebarSearch.svelte'
+  import Icon from './lib/ui/Icon.svelte'
   import IconButton from './lib/ui/IconButton.svelte'
+  import PageHeader from './lib/ui/PageHeader.svelte'
+  import PaneToolbar from './lib/ui/PaneToolbar.svelte'
   import SegmentedControl from './lib/ui/SegmentedControl.svelte'
   import PreferencesPanel from './lib/views/preferences/PreferencesPanel.svelte'
   import { statusTone, toneClass } from './lib/statusTone'
@@ -540,7 +543,7 @@
   type DevToolsNetworkSortKey = 'method' | 'status' | 'domain' | 'path' | 'time' | 'duration' | 'size'
   type DevToolsNetworkSortDirection = '' | 'asc' | 'desc'
   type DevToolsNetworkDetailTab = 'request' | 'response' | 'network'
-  type RequestPaneTab = 'params' | 'body' | 'headers' | 'auth' | 'vars' | 'script' | 'assert' | 'tests' | 'docs' | 'app' | 'settings'
+  type RequestPaneTab = 'params' | 'body' | 'headers' | 'auth' | 'vars' | 'script' | 'assert' | 'tests' | 'docs' | 'settings'
   type ResponseTab = 'response' | 'headers' | 'metadata' | 'trailers' | 'timeline' | 'console' | 'tests' | 'visualizer' | 'examples'
   type CollectionTab = 'overview' | 'folders' | 'headers' | 'vars' | 'auth' | 'presets' | 'mock' | 'docs' | 'proxy' | 'clientCert' | 'protobuf' | 'script' | 'tests'
   type FolderSettingsTab = 'headers' | 'vars' | 'auth' | 'script' | 'tests' | 'docs'
@@ -844,6 +847,10 @@
 			  let openAPISpecDiffActiveChangeIndex = $state(0)
 			  let requestSearch = $state('')
   let requestSearchInput = $state<HTMLInputElement | undefined>()
+  // D1 — the find bar is chrome only while it is in use. A query holds it open
+  // on its own (SidebarSearch renders on `open || value !== ''`), so this is the
+  // "somebody asked for it" half and not the whole visibility rule.
+  let sidebarSearchOpen = $state(false)
   let requestURLInput = $state<HTMLInputElement | undefined>()
   let sidebarCollapsed = $state(false)
   let sidebarWidth = $state(DEFAULT_SIDEBAR_WIDTH)
@@ -1098,12 +1105,13 @@
     { id: 'assert', label: 'Assert' },
     { id: 'tests', label: 'Tests' },
     { id: 'docs', label: 'Docs' },
-    { id: 'app', label: 'App' },
     { id: 'settings', label: 'Settings' }
   ]
 
   const responseTabs: { id: ResponseTab; label: string }[] = [
-    { id: 'response', label: 'Response' },
+    // D5. Inside a pane called Response, a tab called Response named nothing;
+    // the id stays 'response' because it is persisted in the workbench layout.
+    { id: 'response', label: 'Body' },
     { id: 'headers', label: 'Headers' },
     { id: 'metadata', label: 'Metadata' },
     { id: 'trailers', label: 'Trailers' },
@@ -2526,6 +2534,27 @@
     return tabMethodFor(tab, activeWorkspace?.collections)
   }
 
+  /**
+   * D6 — whether a tab has work in it that is not on disk.
+   *
+   * Same rule the request strip's Save button uses (`transient || draft`, in
+   * commandState.ts), applied per tab rather than only to the active one. The
+   * per-tab part is the whole point: the SAVED chip this replaces sat in the
+   * request strip and could therefore only ever describe the request already in
+   * front of you, which is the one whose state you could already see.
+   *
+   * A tab whose item no longer resolves falls back to its own `transient` flag
+   * rather than to "clean" — an unresolvable transient tab is exactly the one
+   * where closing loses the request, so guessing clean is the expensive guess.
+   */
+  function tabIsDirty(tab: types.OpenTab) {
+    if (tab.kind === 'response-example') return false
+    const collection = activeWorkspace?.collections?.find((candidate) => candidate.id === tab.collectionId)
+    const item = collection?.items?.find((candidate) => candidate.id === tab.itemId)
+    if (!item) return Boolean(tab.transient)
+    return requestIsTransient(collection, item) || Boolean(item.draft)
+  }
+
   let collapsedSidebarCollections = $state<Record<string, boolean>>({})
   let collapsedSidebarFolders = $state<Record<string, boolean>>({})
 
@@ -3643,15 +3672,6 @@
         dotEnvName = '.env'
         dotEnvContent = ''
       }
-    })
-  }
-
-  async function exportCollection() {
-    if (!activeCollection) return
-    await runAction('export collection', async () => {
-      const result = await ExportCollectionWithOptions(activeCollection.id, { format: 'yaml' } as types.CollectionExportOptions)
-      exportText = result.content ?? ''
-      activeView = 'import'
     })
   }
 
@@ -8206,6 +8226,17 @@
       return
     }
 
+    // D3 took Run off the top bar, where it offered to run "the collection"
+    // from screens with no collection in view and picked one by falling back.
+    // Here the row IS the collection, so the selection is set before the runner
+    // opens and there is nothing left to fall back to. Same command the palette
+    // and the ⋯ menu's Collection runner entry dispatch.
+    if (action === 'run-collection') {
+      workspaceStore.selectedCollectionId = collection.id
+      void runWorkbenchCommand('open-runner')
+      return
+    }
+
     if (row.kind === 'folder') {
       if (action === 'reveal') { void revealFolderInFolder(collection, row.folder); return }
       if (action === 'info') { openFolderInfoModal(collection, row.folder); return }
@@ -8380,6 +8411,37 @@
 
   function sidebarRequestCount(workspace: types.Workspace | undefined, query: string) {
     return (workspace?.collections ?? []).reduce((total, collection) => total + filteredItems(collection, query).length, 0)
+  }
+
+  /**
+   * Opens the find bar and puts the caret in it.
+   *
+   * The `await tick()` is load-bearing: the bar is not in the document until
+   * `sidebarSearchOpen` has been rendered, so focusing before it would focus
+   * `undefined` and ⌘F would silently do nothing on the first press of a session.
+   */
+  async function focusSidebarSearch() {
+    sidebarSearchOpen = true
+    await tick()
+    requestSearchInput?.focus()
+    requestSearchInput?.select()
+  }
+
+  /**
+   * The magnifier is a toggle; ⌘F is not.
+   *
+   * Closing on a non-empty query would hide a bar that is still filtering the
+   * tree, leaving a partial collection list with nothing on screen explaining
+   * why — so the button only ever closes an EMPTY one, and otherwise re-focuses
+   * what is already there.
+   */
+  function toggleSidebarSearch() {
+    if (sidebarSearchOpen && !requestSearch.trim()) {
+      sidebarSearchOpen = false
+      sidebarScroller?.focus()
+      return
+    }
+    void focusSidebarSearch()
   }
 
 
@@ -8644,8 +8706,7 @@
       case 'commandPalette': openCommandPalette(); return
       case 'globalSearch': openGlobalSearch(); return
       case 'sidebarSearch':
-        requestSearchInput?.focus()
-        requestSearchInput?.select()
+        void focusSidebarSearch()
         return
       case 'collapseSidebar': toggleSidebarCollapse(); return
       case 'closeAllTabs': void closeAllOpenTabs(); return
@@ -8685,9 +8746,19 @@
 {:else if appState}
   <main class="app-shell" class:sidebar-collapsed={sidebarCollapsed} style={`--sidebar-width: ${sidebarWidth}px;`} >
     <aside class="workspace-rail" aria-label="Collections sidebar">
-      <SidebarHeader onNew={openCreationFlow} />
+      <SidebarHeader
+        onCommand={runWorkbenchCommand}
+        onToggleSearch={toggleSidebarSearch}
+        searchOpen={sidebarSearchOpen}
+      />
 
-      <SidebarSearch bind:value={requestSearch} bind:input={requestSearchInput} matchCount={sidebarSearchCount} />
+      <SidebarSearch
+        bind:value={requestSearch}
+        bind:open={sidebarSearchOpen}
+        bind:input={requestSearchInput}
+        matchCount={sidebarSearchCount}
+        onClose={() => sidebarScroller?.focus()}
+      />
 
       <!-- role=tree with a container-level cursor: see the SIDEBAR KEYBOARD
            NAVIGATION note in the script. DOM focus stays here because the rows
@@ -8747,11 +8818,17 @@
                   onclose={() => closeSidebarRowMenu()}
                 />
               {/if}
+              <!--
+                D2. Scratch / Git / Not cloned change what the row can do, so
+                they are worth a badge. The bru-or-yml format does not: it was
+                printed on every collection, unconditionally, for the benefit of
+                a decision nobody makes from the tree. It is on the collection
+                page's header and in Info.
+              -->
               <span class="collection-badges">
                 {#if collectionIsScratch(collection)}<small>Scratch</small>{/if}
                 {#if collection.remote}<small>Git</small>{/if}
                 {#if collection.notFoundLocally}<small>Not cloned</small>{/if}
-                <small>{collection.format}</small>
               </span>
             </header>
             {#if collection.notFoundLocally}
@@ -8977,7 +9054,17 @@
           {#snippet recovery()}
             {#if recoveryEntries.length > 0}
               <details class="recovery-center" aria-live="polite">
-                <summary aria-label={`${recoveryEntries.length} recoverable deletion${recoveryEntries.length === 1 ? '' : 's'}`}>Recovery ({recoveryEntries.length})</summary>
+                <!-- D3 leaves the trailing cluster iconic. This was the last
+                     word in it, and it read "Recovery (0)"-shaped even to
+                     someone who had never deleted anything; the count is the
+                     only part that changes, so the count is what stays. -->
+                <summary
+                  aria-label={`${recoveryEntries.length} recoverable deletion${recoveryEntries.length === 1 ? '' : 's'}`}
+                  title={`${recoveryEntries.length} recoverable deletion${recoveryEntries.length === 1 ? '' : 's'}`}
+                >
+                  <Icon name="restore" size={16} />
+                  <strong aria-hidden="true">{recoveryEntries.length}</strong>
+                </summary>
                 <div class="recovery-center-list" aria-label="Recoverable deletions">
                   {#each recoveryEntries as entry (entry.id)}
                     <article>
@@ -9001,17 +9088,26 @@
             {#each workbenchTabs as entry (entry.id)}
               {#if entry.kind === 'request'}
                 {@const tab = entry.tab}
-                <div class="tab" class:active={!activeFlowTabId && tab.id === appState.activeTabId}>
+                {@const dirty = tabIsDirty(tab)}
+                <div class="tab" class:active={!activeFlowTabId && tab.id === appState.activeTabId} class:dirty>
                   <button class="tab-select" title={tabLabel(tab)} onclick={() => setActiveTab(tab.id)}>
                     {#if tabMethod(tab)}
                       <span class="tab-method" data-method={tabMethod(tab)}>{methodLabel(tabMethod(tab))}</span>
                     {/if}
                     <span class="tab-name">{tabLabel(tab)}</span>
                   </button>
+                  <!--
+                    D6, and the VS Code convention: the dot takes the close
+                    button's slot at rest and hands it back on hover or focus.
+                    It is what let the SAVED chip leave the request strip. The
+                    dot is decorative because the close button's accessible name
+                    already says "unsaved" — two announcements of one fact.
+                  -->
+                  {#if dirty}<span class="tab-dirty" aria-hidden="true"></span>{/if}
                   <button
                     class="tab-close"
                     type="button"
-                    aria-label={`Close tab ${tabLabel(tab)}`}
+                    aria-label={dirty ? `Close tab ${tabLabel(tab)}, unsaved` : `Close tab ${tabLabel(tab)}`}
                     title="Close tab"
                     onclick={() => beginTabLifecycleAction('close-active', tab.id)}
                   >×</button>
@@ -9081,18 +9177,18 @@
 
       {#snippet devToolsPanel()}
         <section class="panel devtools-panel" aria-label="Dev Tools">
-          <header class="panel-header">
-            <div>
-              <h2>Dev Tools</h2>
-              <p class="panel-subtitle">Console · Network · Performance · Terminal</p>
-            </div>
-            <div class="runner-summary">
+          <!-- D7. The subtitle here read "Console · Network · Performance ·
+               Terminal" — the four tab labels rendered immediately below it. -->
+          <PageHeader title="Dev Tools">
+            {#snippet meta()}
               <span>{devToolsConsoleRows.length} logs</span>
               <span>{rawDevToolsNetworkRows.length} requests</span>
+            {/snippet}
+            {#snippet actions()}
               <button type="button" onclick={refreshDevToolsSnapshot}>Refresh</button>
               <button type="button" aria-label="Close console" onclick={closeDevTools}>Close</button>
-            </div>
-          </header>
+            {/snippet}
+          </PageHeader>
           <nav class="devtools-tabs" aria-label="Dev Tools tabs">
             {#each devToolsTabs as tab (tab.id)}
               <button type="button" class:active={devToolsTab === tab.id} onclick={() => selectDevToolsTab(tab.id)}>{tab.label}</button>
@@ -9177,14 +9273,12 @@
             actions={{
               onSave: saveRequest,
               onSend: sendRequest,
-              onRun: runCollection,
               onCancel: cancelActiveRequest,
               onCancelBackground: cancelHTTPTransport,
               onToggleOrientation: toggleResponsePaneOrientation
             }}
             disabled={busy !== '' || hasActiveHTTPTransport}
             orientation={responsePaneOrientation}
-            runCollectionName={activeCollection?.name ?? ''}
           >
             {#snippet requestLine()}
               {#snippet variableURLField()}
@@ -9347,6 +9441,19 @@
                   {tab.label}
                 </button>
               {/each}
+              {#if requestCommand.transportCues.length}
+                <!--
+                  D4. These were two uppercase chips in a 42px band of their own
+                  under the URL, and on a default install they read "TLS verify"
+                  and "Proxy: system" on every request anyone ever opened — so
+                  the row burned in as wallpaper and "TLS off" arrived in the
+                  same place, size and colour as the thing nobody was reading.
+                  `commandState.ts` now yields nothing for the safe defaults, so
+                  this is empty on almost every screen and means something when
+                  it is not.
+                -->
+                <span class="request-cues" aria-label="Transport">{requestCommand.transportCues.join(' · ')}</span>
+              {/if}
             </div>
 
 	            <div class="editor-surface" id={`request-panel-${requestPaneTab}`} role="tabpanel" aria-labelledby={`request-tab-${requestPaneTab}`} tabindex="0">
@@ -9673,8 +9780,6 @@
                 <CodeEditor editorKey={`${activeRequest.id}:tests`} value={activeRequest.tests} language="javascript" ariaLabel="Request tests" testId="request-tests-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => patchField('tests', value)} />
               {:else if requestPaneTab === 'docs'}
                 <CodeEditor editorKey={`${activeRequest.id}:docs`} value={activeRequest.docs} language="markdown" ariaLabel="Request documentation" testId="request-docs-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => patchField('docs', value)} />
-              {:else if requestPaneTab === 'app'}
-                <div class="empty-state">Request app runtime surface</div>
               {:else if requestPaneTab === 'settings'}
                 <RequestSettingsPanel requestType={activeRequest.type} settings={activeRequest.settings} onChange={updateSettings} globalVerifyTlsEnabled={appState?.preferences?.request?.sslVerification !== false} />
               {/if}
@@ -9695,57 +9800,88 @@
             onchange={persistWorkbenchLayout}
           />
           <div class="response-side">
-            <div class="response-summary">
-              <div class={`response-summary-status ${requestCommand.response.tone}`} aria-live="polite">
-                <strong>{requestCommand.response.status}</strong>
-                <span>{requestCommand.response.statusText}</span>
-                <span>{requestCommand.response.duration}</span>
-                <span>{requestCommand.response.size}</span>
+            <!--
+              D5. The status used to hold a 42px row of its own above the tabs,
+              and before a request had ever been sent it spent that row saying
+              "Idle · No response yet · 0 ms · 0 B" — four facts about nothing.
+              It is the tab row's middle slot now, which is where PaneToolbar
+              puts a fact that may be truncated, and it renders only once there
+              is a response to describe.
+            -->
+            <PaneToolbar ariaLabel="Response">
+              {#snippet left()}
+                <div class="subtabs" role="tablist" aria-label="Response sections" tabindex="-1" onkeydown={responseTabKeydown}>
+                  {#each activeResponseTabs as tab (tab.id)}
+                    <button
+                      class:active={responseTab === tab.id}
+                      id={`response-tab-${tab.id}`}
+                      data-response-tab={tab.id}
+                      role="tab"
+                      aria-selected={responseTab === tab.id}
+                      aria-controls={`response-panel-${tab.id}`}
+                      tabindex={responseTab === tab.id ? 0 : -1}
+                      onclick={() => selectResponsePaneTab(tab.id)}
+                    >
+                      {tab.label}
+                      {#if tab.id === 'metadata' && (activeRequest.response?.metadata?.length ?? 0) > 0}
+                        <span>{activeRequest.response?.metadata?.length}</span>
+                      {:else if tab.id === 'trailers' && (activeRequest.response?.trailers?.length ?? 0) > 0}
+                        <span>{activeRequest.response?.trailers?.length}</span>
+                      {:else if tab.id === 'tests' && failedResponseTestCount > 0}
+                        <!--
+                          The backend now records a thrown post-response script as a
+                          failed test row. Without a badge here that row was behind a
+                          tab nobody opens after a green 200, which is exactly the
+                          case where the script failing matters most.
+                        -->
+                        <span class="tab-badge-failed">{failedResponseTestCount}</span>
+                      {/if}
+                    </button>
+                  {/each}
+                </div>
+              {/snippet}
+
+              {#snippet middle()}
                 <!--
-                  Next to the status code, because the status code is the thing
-                  it contradicts: a post-response script that threw still leaves
-                  a plain green 200 here, and the failure was only visible to
-                  someone who thought to open the Tests tab.
+                  The live region is mounted from the start and its CONTENT is
+                  what appears, not the region itself: an aria-live element
+                  inserted into the document with its text already in place is
+                  not announced by most screen readers, so gating the wrapper
+                  would have silently cost the "200 OK" announcement that a
+                  keyboard user gets after ⌘↵.
                 -->
-                {#if failedResponseTestCount > 0}
-                  <a
-                    class="response-test-failures"
-                    href="#response-panel-tests"
-                    onclick={(event) => { event.preventDefault(); selectResponsePaneTab('tests') }}
-                  >{failedResponseTestCount} test{failedResponseTestCount === 1 ? '' : 's'} failed</a>
-                {/if}
-              </div>
-              <button title="Save response as example" onclick={saveResponseExample} disabled={!activeRequest.response || busy !== ''}>Example</button>
-            </div>
-            <div class="subtabs" role="tablist" aria-label="Response sections" tabindex="-1" onkeydown={responseTabKeydown}>
-              {#each activeResponseTabs as tab (tab.id)}
-                <button
-                  class:active={responseTab === tab.id}
-                  id={`response-tab-${tab.id}`}
-                  data-response-tab={tab.id}
-                  role="tab"
-                  aria-selected={responseTab === tab.id}
-                  aria-controls={`response-panel-${tab.id}`}
-                  tabindex={responseTab === tab.id ? 0 : -1}
-                  onclick={() => selectResponsePaneTab(tab.id)}
-                >
-                  {tab.label}
-                  {#if tab.id === 'metadata' && (activeRequest.response?.metadata?.length ?? 0) > 0}
-                    <span>{activeRequest.response?.metadata?.length}</span>
-                  {:else if tab.id === 'trailers' && (activeRequest.response?.trailers?.length ?? 0) > 0}
-                    <span>{activeRequest.response?.trailers?.length}</span>
-                  {:else if tab.id === 'tests' && failedResponseTestCount > 0}
+                <div class={`response-status ${requestCommand.response.tone}`} aria-live="polite">
+                  {#if activeRequest.response}
+                    <strong>{requestCommand.response.status}</strong>
+                    <span>{requestCommand.response.statusText}</span>
+                    <span>{requestCommand.response.duration}</span>
+                    <span>{requestCommand.response.size}</span>
                     <!--
-                      The backend now records a thrown post-response script as a
-                      failed test row. Without a badge here that row was behind a
-                      tab nobody opens after a green 200, which is exactly the
-                      case where the script failing matters most.
+                      Next to the status code, because the status code is the thing
+                      it contradicts: a post-response script that threw still leaves
+                      a plain green 200 here, and the failure was only visible to
+                      someone who thought to open the Tests tab.
                     -->
-                    <span class="tab-badge-failed">{failedResponseTestCount}</span>
+                    {#if failedResponseTestCount > 0}
+                      <a
+                        class="response-test-failures"
+                        href="#response-panel-tests"
+                        onclick={(event) => { event.preventDefault(); selectResponsePaneTab('tests') }}
+                      >{failedResponseTestCount} test{failedResponseTestCount === 1 ? '' : 's'} failed</a>
+                    {/if}
                   {/if}
-                </button>
-              {/each}
-            </div>
+                </div>
+              {/snippet}
+
+              {#snippet right()}
+                <IconButton
+                  icon="bookmark"
+                  label="Save response as example"
+                  onclick={saveResponseExample}
+                  disabled={!activeRequest.response || busy !== ''}
+                />
+              {/snippet}
+            </PaneToolbar>
             <div class="response-content" id={`response-panel-${responseTab}`} role="tabpanel" aria-labelledby={`response-tab-${responseTab}`} tabindex="0">
               {#if responseTab !== 'examples'}
                 <ResponseInspector
@@ -9954,13 +10090,17 @@
         </section>
       {:else if activeView === 'collection' && activeCollection}
         <section class="panel collection-panel">
-          <header class="panel-header">
-            <div>
-              <h2>{activeCollection.name}</h2>
-              <p class="panel-subtitle">{activeCollection.format.toUpperCase()} · {activeCollection.items?.length ?? 0} requests{activeCollection.remote ? ' · Git' : ''}{activeCollection.notFoundLocally ? ' · Not cloned' : ''}</p>
-            </div>
-            <button onclick={refreshCollection}>Refresh active</button>
-          </header>
+          <!-- The subtitle survives D7's cut because it is the one place the
+               format is now written: D2 took the YML/BRU badge off every
+               sidebar row on the grounds that this page carries it. -->
+          <PageHeader
+            title={activeCollection.name}
+            subtitle={`${activeCollection.format.toUpperCase()} · ${activeCollection.items?.length ?? 0} requests${activeCollection.remote ? ' · Git' : ''}${activeCollection.notFoundLocally ? ' · Not cloned' : ''}`}
+          >
+            {#snippet actions()}
+              <button onclick={refreshCollection}>Refresh active</button>
+            {/snippet}
+          </PageHeader>
           <nav class="subtabs">
             {#each collectionTabs as tab (tab.id)}
               <button class:active={collectionTab === tab.id} onclick={() => (collectionTab = tab.id)}>
@@ -10689,13 +10829,19 @@
         </section>
       {:else if activeView === 'git'}
         <section class="panel git-workbench-panel" aria-labelledby="git-workbench-title" data-testid="git-workbench">
-          <header class="panel-header">
-            <div>
-              <h2 id="git-workbench-title" tabindex="-1" bind:this={gitWorkbenchHeading}>Git Workbench</h2>
-              <p class="panel-subtitle">Safe, collection-scoped Git actions for {activeCollection?.name ?? 'the active collection'}.</p>
-            </div>
-            <button type="button" onclick={() => refreshGitWorkbench()} disabled={gitWorkbenchLoading || gitWorkbenchBusy !== ''}>Refresh</button>
-          </header>
+          <!-- D7. The subtitle said "Safe, collection-scoped Git actions for
+               X." — a promise about the view plus one fact, the collection.
+               The fact stays; every action on the page is already scoped to it. -->
+          <PageHeader
+            title="Git Workbench"
+            subtitle={activeCollection?.name ?? 'No collection selected'}
+            titleId="git-workbench-title"
+            bind:titleRef={gitWorkbenchHeading}
+          >
+            {#snippet actions()}
+              <button type="button" onclick={() => refreshGitWorkbench()} disabled={gitWorkbenchLoading || gitWorkbenchBusy !== ''}>Refresh</button>
+            {/snippet}
+          </PageHeader>
 
           <div class="git-workbench-feedback" aria-live="polite" aria-atomic="true">
             {#if gitWorkbenchStatus}<p class="git-status-message">{gitWorkbenchStatus}</p>{/if}
@@ -10833,7 +10979,7 @@
           <!-- The flow was deleted, or its collection was removed, while its
                tab was open. Says so rather than rendering an empty editor. -->
           <section class="panel">
-            <header class="panel-header"><h2>Flow</h2></header>
+            <PageHeader title="Flow" />
             <div class="empty-state">This flow is no longer in the collection.</div>
           </section>
         {/if}
@@ -10866,20 +11012,19 @@
         {/await}
       {:else if activeView === 'environments'}
         <section class="panel">
-          <header class="panel-header">
-            <h2>Environments</h2>
-            <div class="split">
-              <input aria-label="Global environment name" bind:value={globalEnvironmentName} />
-              <button onclick={createGlobalEnvironment}>Create global</button>
-            </div>
-            <div class="split">
-              <input aria-label="Collection environment name" bind:value={environmentName} />
-              <button onclick={createEnvironment}>Create</button>
-            </div>
-          </header>
+          <!-- D7. The two create forms used to live in the header, side by
+               side, both labelled with a bare "Create" — so the header asked
+               which of two things you wanted before the page had told you the
+               two things existed. Each form now sits at the top of the card it
+               creates into, where the heading above it says what it makes. -->
+          <PageHeader title="Environments" />
           <div class="env-grid">
             <article>
               <h3>Global Environment</h3>
+              <div class="split">
+                <input aria-label="Global environment name" placeholder="New global environment" bind:value={globalEnvironmentName} />
+                <button onclick={createGlobalEnvironment}>Create global</button>
+              </div>
               {#if selectedGlobalEnvironment && activeWorkspace}
                 <div class="field-grid">
                   <span class="field-label">Active</span>
@@ -10970,6 +11115,10 @@
             </article>
             <article>
               <h3>{selectedEnvironment?.name ?? 'No environment'} Variables</h3>
+              <div class="split">
+                <input aria-label="Collection environment name" placeholder="New collection environment" bind:value={environmentName} />
+                <button onclick={createEnvironment}>Create</button>
+              </div>
               {#if selectedEnvironment}
                 <nav class="subtabs compact" aria-label="Environment variable tabs">
                   {#each environmentVariableTabs as tab (tab.id)}
@@ -11204,7 +11353,6 @@
             {updateImportDecision}
             {updateImportOverride}
             {toggleImportChild}
-            {exportCollection}
             {scanGitCollections}
             {cloneGitRepository}
             {checkGitVersion}
@@ -11225,7 +11373,7 @@
           are transient and stay per-mount.
         -->
         <section class="panel">
-          <header class="panel-header"><h2>Network Log</h2></header>
+          <PageHeader title="Network Log" />
           {#await import('./lib/views/devtools/NetworkTable.svelte') then NetworkTable}
             {@const NetworkTableComponent = NetworkTable.default}
             <NetworkTableComponent
@@ -11258,16 +11406,17 @@
         {/await}
 	      {:else if activeView === 'cookies'}
 	        <section class="panel">
-	          <header class="panel-header">
-	            <div>
-              <h2>Cookies</h2>
-              <p class="panel-subtitle">{visibleCookieCount}/{appState.cookies?.length ?? 0} stored cookies</p>
-            </div>
-            <div class="runner-summary">
+          <!-- The count moves from subtitle to meta: it is the one thing here
+               that changes as you type in the search box beside it. -->
+          <PageHeader title="Cookies">
+            {#snippet meta()}
+              <span>{visibleCookieCount}/{appState.cookies?.length ?? 0} stored cookies</span>
+            {/snippet}
+            {#snippet actions()}
               <input aria-label="Search cookies" placeholder="Search cookies" bind:value={cookieSearch} />
               <button onclick={clearCookies} disabled={(appState.cookies?.length ?? 0) === 0 || busy !== ''}>Clear all</button>
-            </div>
-          </header>
+            {/snippet}
+          </PageHeader>
           <div class="cookie-manager">
             <div class="cookie-editor">
               <section>
@@ -11326,7 +11475,7 @@
                     <header>
                       <div>
                         <h3>{group.domain}</h3>
-                        <p class="panel-subtitle">{group.cookies.length} cookie{group.cookies.length === 1 ? '' : 's'}</p>
+                        <p class="card-subtitle">{group.cookies.length} cookie{group.cookies.length === 1 ? '' : 's'}</p>
                       </div>
                       <button onclick={() => clearDomainCookies(group.domain)} disabled={busy !== ''}>Clear domain</button>
                     </header>
@@ -11450,14 +11599,15 @@
         />
 	      {:else if activeView === 'features'}
 	        <section class="panel">
-	          <header class="panel-header">
-            <h2>Local Capabilities</h2>
-            <div class="runner-summary">
+          <PageHeader title="Local Capabilities">
+            {#snippet meta()}
               <span>{doneFeatures}/{totalFeatures} done</span>
               <span>{partialFeatures} partial</span>
+            {/snippet}
+            {#snippet actions()}
               <button onclick={resetDemoData}>Reset demo data</button>
-            </div>
-          </header>
+            {/snippet}
+          </PageHeader>
           <div class="feature-grid">
             {#each appState.featureLedger ?? [] as feature (feature.id)}
               <article>

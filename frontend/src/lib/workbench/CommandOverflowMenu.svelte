@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
+  import Icon from '../ui/Icon.svelte'
   import type { WorkbenchCommandID, WorkbenchCommandItem } from './workbenchCommands'
 
   // US-028 — runes.
@@ -108,13 +109,14 @@
     onclick={toggle}
     onkeydown={triggerKeydown}
   >
-    {#if icon === 'add'}
-      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v14M3 10h14" /></svg>
-      <span>New</span>
-      <span class="chevron" aria-hidden="true">⌄</span>
-    {:else}
-      <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="4" cy="10" r="1.2" /><circle cx="10" cy="10" r="1.2" /><circle cx="16" cy="10" r="1.2" /></svg>
-    {/if}
+    <!--
+      D1/D9 — the `add` trigger used to render the literal word "New" beside its
+      plus, so the button's visible text and its `label` were two strings that
+      could disagree, and the sidebar header's version of this menu has no room
+      for a word. `label` is the accessible name and the tooltip, as on
+      IconButton; the icon is the whole content.
+    -->
+    <Icon name={icon === 'add' ? 'plus' : 'more'} />
   </button>
 
   {#if open}
@@ -156,9 +158,6 @@
   }
   .command-menu > button:hover,
   .command-menu > button[aria-expanded="true"] { border-color: var(--border); background: var(--surface-soft); }
-  .command-menu svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
-  .command-more svg { fill: currentColor; stroke: none; }
-  .chevron { color: var(--muted); font-size: 10px; }
   .command-menu-panel {
     position: absolute;
     z-index: 80;

@@ -45,6 +45,7 @@ export type SidebarObject = {
 export type SidebarActionID =
   | 'new-request'
   | 'new-flow'
+  | 'run-collection'
   | 'reveal'
   | 'generate-code'
   | 'info'
@@ -126,6 +127,15 @@ const ORDER: readonly SidebarActionID[] = [
   // path, so offering "New Flow" on a folder would promise a placement that
   // does not exist.
   'new-flow',
+  // A COLLECTION'S PRIMARY VERB, and the only entry here that runs something
+  // rather than creating or inspecting it. The top bar carried a Run button
+  // beside the environment picker, which put "execute every request in the
+  // collection" one click from every screen in the app whether or not a
+  // collection was even the thing being looked at. It belongs on the object it
+  // acts on. Placed at the boundary between the creating actions and the
+  // inspecting ones because it is neither, and because Reveal must not be the
+  // row that sits under a mis-aimed click meant for New Flow.
+  'run-collection',
   'reveal',
   'generate-code',
   'info',
@@ -138,6 +148,7 @@ const ORDER: readonly SidebarActionID[] = [
 const TEST_IDS: Record<SidebarActionID, string> = {
   'new-request': 'collection-item-menu-new-request',
   'new-flow': 'collection-item-menu-new-flow',
+  'run-collection': 'collection-item-menu-run-collection',
   reveal: 'collection-item-menu-show-in-folder',
   'generate-code': 'collection-item-menu-generate-code',
   info: 'collection-item-menu-info',
@@ -150,11 +161,11 @@ const TEST_IDS: Record<SidebarActionID, string> = {
 
 /** Which actions each kind of object offers, in no particular order. */
 const AVAILABLE: Record<SidebarObjectKind, ReadonlySet<SidebarActionID>> = {
-  // A collection offers only the creating actions for now. Rename, clone
-  // and delete exist for collections but live in the collection settings pane
-  // and take a different shape (they move directories on disk), so putting them
-  // on the row is a separate decision rather than a free addition here.
-  collection: new Set<SidebarActionID>(['new-request', 'new-folder', 'new-flow']),
+  // A collection offers the creating actions and Run. Rename, clone and delete
+  // exist for collections but live in the collection settings pane and take a
+  // different shape (they move directories on disk), so putting them on the row
+  // is a separate decision rather than a free addition here.
+  collection: new Set<SidebarActionID>(['new-request', 'new-folder', 'new-flow', 'run-collection']),
   folder: new Set<SidebarActionID>([
     'new-request', 'new-folder', 'reveal', 'info', 'open-terminal', 'rename', 'clone', 'delete'
   ]),
@@ -187,6 +198,7 @@ function labelFor(id: SidebarActionID, context: SidebarActionContext): string {
   return {
     'new-request': 'New Request',
     'new-flow': 'New Flow',
+    'run-collection': 'Run collection',
     'generate-code': 'Generate Code',
     info: 'Info',
     'open-terminal': 'Open in Terminal',

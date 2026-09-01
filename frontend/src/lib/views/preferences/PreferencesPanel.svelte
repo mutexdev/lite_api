@@ -133,6 +133,8 @@
 </script>
 
 <script lang="ts">
+  import PageHeader from '../../ui/PageHeader.svelte'
+
   type Props = {
     /**
      * The eight sections' props, one bag each, typed as the section itself
@@ -158,17 +160,18 @@
     mcp: ComponentProps<typeof McpSection>
 
     /**
-     * A7-08. The three facts the subtitle summarises, resolved by the caller
-     * because two of them are formatted by helpers that live in App.svelte.
+     * A7-08. The three facts the header's meta line summarises, resolved by the
+     * caller because two of them are formatted by helpers that live in
+     * App.svelte.
      *
-     * WHAT WENT WRONG. The subtitle read `Theme {mode} · Proxy {label}` — the
+     * WHAT WENT WRONG. The line read `Theme {mode} · Proxy {label}` — the
      * two settings that happened to be wired up first. Theme is the one piece
      * of state a user can already see (they are looking at it), and proxy is
      * off for almost everyone. The panel's one genuinely non-obvious, genuinely
      * consequential state — whether AI tools are allowed to reach into this
      * workspace — was the one thing it did not say.
      *
-     * `mcpEnabled` is deliberately the stored preference and the subtitle
+     * `mcpEnabled` is deliberately the stored preference and the line
      * deliberately says "enabled", not "running". Whether the listener actually
      * came up is only known to GetMCPStatus, which the MCP section fetches on
      * mount; a header that claimed "AI access on" while the port was taken
@@ -236,14 +239,18 @@
 </script>
 
 <section class="panel preferences-panel" bind:this={panel} onscroll={syncCurrentSection}>
-  <header class="panel-header">
-    <div>
-      <h2>Preferences</h2>
-      <p class="panel-subtitle" data-testid="preferences-subtitle">
+  <PageHeader title="Preferences">
+    {#snippet meta()}
+      <!-- These three are live state, not a description of the view, so they
+           belong in PageHeader's meta slot rather than its subtitle. Same
+           three facts, same words; the slot is the one that truncates first
+           when the panel gets narrow, which is right for a summary of what is
+           spelled out in full a few hundred pixels below. -->
+      <span data-testid="preferences-subtitle">
         AI access {mcpEnabled ? 'enabled' : 'off'} · Theme {themeModeLabel} · Proxy {proxyLabel}
-      </p>
-    </div>
-  </header>
+      </span>
+    {/snippet}
+  </PageHeader>
 
   <!--
     A7-06's navigation. A sticky strip above the column rather than a rail
