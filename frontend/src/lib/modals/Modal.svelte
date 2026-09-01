@@ -44,6 +44,30 @@
   export let describedBy: string | undefined = undefined
   /** Mirrors aria-busy for dialogs that run an async decision in place. */
   export let busy: boolean | undefined = undefined
+  /**
+   * How wide the dialog is, from a four-step scale.
+   *
+   * WHY THIS IS A PROP AND NOT A CLASS. Width was the one part of the box
+   * treatment no dialog inherited: `.prompt-dialog` gives 460px and every
+   * dialog that wanted anything else declared its own rule in style.css. The
+   * audit counted twelve distinct pixel values between 420 and 1120, and they
+   * were not twelve considered decisions — Info (a two-row table) was 560,
+   * wider than Rename Folder's whole form at 460, and the command palette's
+   * single search input landed on exactly 720 by coincidence with Share
+   * Collection's card grid. Every new dialog picked a thirteenth number by
+   * copying whichever neighbour it was cloned from.
+   *
+   * The scale is the audit's: 420 / 460 / 720 / 1060. A caller names a step; it
+   * cannot name a pixel.
+   *
+   * DELIBERATELY OPT-IN, defaulting to undefined rather than to 'medium'. The
+   * scoped rules below outrank a plain `.workspace-picker-dialog` in style.css
+   * — one class each, but Svelte's scoping adds a second — so a default of
+   * 'medium' would silently narrow every dialog that has not migrated yet from
+   * whatever its own rule says to 460px. `.workspace-picker-dialog` is 580px
+   * and its option rows need it. Absent this prop, nothing changes.
+   */
+  export let size: 'small' | 'medium' | 'large' | 'xlarge' | undefined = undefined
 
   const focusableSelector = [
     'a[href]',
@@ -62,8 +86,15 @@
     if (!dialog) return []
     // offsetParent filters out anything hidden, which would otherwise become a
     // dead stop in the tab cycle.
+    //
+    // tabIndex >= 0 filters out the other kind of dead stop, and it started
+    // mattering when the workspace picker moved onto this shell. A roving
+    // tabindex list makes every option a `<button tabindex="-1">` except the
+    // selected one — those match `button:not([disabled])` but the browser will
+    // never Tab to them, so the trap computed its first and last stops from
+    // elements the user cannot reach and the wrap landed nowhere.
     return [...dialog.querySelectorAll<HTMLElement>(focusableSelector)].filter(
-      (el) => el.offsetParent !== null || el === document.activeElement,
+      (el) => (el.offsetParent !== null || el === document.activeElement) && el.tabIndex >= 0,
     )
   }
 
@@ -141,6 +172,10 @@
 >
   <div
     class={dialogClass}
+    class:modal-small={size === 'small'}
+    class:modal-medium={size === 'medium'}
+    class:modal-large={size === 'large'}
+    class:modal-xlarge={size === 'xlarge'}
     role="dialog"
     aria-modal="true"
     aria-labelledby={labelledBy}
@@ -153,3 +188,38 @@
     <slot />
   </div>
 </div>
+
+
+<style>
+  /* THE SIZE SCALE. These live here rather than in style.css on purpose: the
+     dialog box is this component's own element, so a scoped rule reaches it and
+     nothing else, and the width stops being a per-dialog class a new dialog can
+     forget to write.
+
+     Scoping is also what makes them win. Svelte appends its component hash to
+     the selector, so `.modal-large` is two classes to `.code-generator-dialog`'s
+     one and the migrated dialog takes its width from the step it named rather
+     than from a leftover rule. That is deliberate — those per-dialog width rules
+     are now dead and are listed for deletion in the handoff — but it is also why
+     `size` has no default: an unmigrated dialog must keep its own rule, not be
+     quietly resized by one.
+
+     Written as four `class:` directives rather than one interpolated class name
+     because Svelte prunes scoped CSS it cannot statically match, and a selector
+     built from `class="… modal-size-{size}"` is exactly the kind it cannot. */
+  .modal-small {
+    width: min(420px, 100%);
+  }
+
+  .modal-medium {
+    width: min(460px, 100%);
+  }
+
+  .modal-large {
+    width: min(720px, 100%);
+  }
+
+  .modal-xlarge {
+    width: min(1060px, 100%);
+  }
+</style>

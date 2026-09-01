@@ -3,6 +3,7 @@
   // markup is not in the initial chunk. Imported dynamically from inside the
   // {#if} that gates it; a static import would leave it in the initial graph.
   import Modal from '../Modal.svelte'
+  import IconButton from '../../ui/IconButton.svelte'
 
   // Bindable: the folder field and its edit toggle write back to App.svelte.
   export let cloneCollectionFolderDraft: string
@@ -18,16 +19,16 @@
   export let cancelCloneCollectionModal: () => void
 </script>
 
-<Modal labelledBy="clone-collection-title" onClose={cancelCloneCollectionModal} testId="clone-collection-modal">
+<Modal labelledBy="clone-collection-title" onClose={cancelCloneCollectionModal} testId="clone-collection-modal" size="medium" busy={busy !== ''}>
       <form on:submit|preventDefault={confirmCloneCollection}>
         <header>
           <h2 id="clone-collection-title">Clone Collection</h2>
-          <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={cancelCloneCollectionModal}>x</button>
+          <IconButton icon="close" label="Close" onclick={cancelCloneCollectionModal} testId="modal-close-button" />
         </header>
         <div class="prompt-fields">
           <label>
             <span>Name</span>
-            <input
+            <input data-modal-autofocus
               id="collection-name"
               name="collectionName"
               aria-label="Clone collection name"
@@ -80,12 +81,23 @@
         </div>
         <div class="button-row">
           <button type="button" data-testid="clone-collection-cancel" on:click={cancelCloneCollectionModal}>Cancel</button>
+          <!--
+            "Clone", because the dialog is called Clone Collection. It said
+            "Create"/"Creating…" while its two structural twins, Clone Folder
+            and Clone Request, said "Clone"/"Cloning…" for the same action on
+            the same shaped form — so cloning a folder and then a collection
+            changed the button's verb for no reason the user could see.
+
+            The rule this settles on, for the whole family: the confirm button
+            carries the verb in the title. Clone X → Clone, Rename X → Rename,
+            New X / Create X → Create, Delete X → Delete, Remove X → Remove.
+          -->
           <button
             class="primary"
             type="submit"
             data-testid="modal-submit-btn"
             disabled={busy !== '' || cloneCollectionNameDraft === '' || !cloneCollectionLocationDraft || !collectionFolderNameIsValid(cloneCollectionFolderDraft)}
-          >{busy === 'clone collection' ? 'Creating...' : 'Create'}</button>
+          >{busy === 'clone collection' ? 'Cloning…' : 'Clone'}</button>
         </div>
       </form>
 </Modal>

@@ -9,33 +9,56 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const read = (relative: string) =>
   readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8')
 
+const readIfPresent = (relative: string) => {
+  const path = fileURLToPath(new URL(relative, import.meta.url))
+  return existsSync(path) ? readFileSync(path, 'utf8') : ''
+}
+
 const section = read('../src/lib/views/preferences/McpSection.svelte')
 const app = read('../src/App.svelte')
 
+// WHICH FILE HOLDS THE PANEL.
+//
+// These assertions were written against App.svelte because that is where the
+// preferences settings-stack lived. A7-06 moved the panel shell — its header,
+// its section index and the one loader that replaced eight independent await
+// blocks — into PreferencesPanel.svelte, and App.svelte mounts that instead.
+//
+// The invariants below are about the SECTION, not about which file stacks it:
+// that it is loaded lazily rather than sitting in the initial chunk, that it is
+// rendered inside the preferences stack rather than loose on the page, and that
+// it is handed the app's mutator and clipboard helper. Pinning them to a file
+// path made them fail on a move that changed none of them. They now follow the
+// stack to whichever file declares it, and still fail if no file does.
+const panel = readIfPresent('../src/lib/views/preferences/PreferencesPanel.svelte')
+const shell = panel.includes('settings-stack') ? panel : app
+
+/** App.svelte plus the panel: wiring may be split across the two after the move. */
+const wiring = `${app}\n${panel}`
+
 test('the settings stack lazily imports the MCP section', () => {
   assert.ok(
-    /import\(['"]\.\/lib\/views\/preferences\/McpSection\.svelte['"]\)/.test(app),
-    'App.svelte does not {#await import(...)} McpSection.svelte',
+    /import\(['"][^'"]*McpSection\.svelte['"]\)/.test(shell),
+    'nothing dynamically imports McpSection.svelte; its markup is back in the initial chunk',
   )
   assert.ok(
-    /<McpSectionComponent\b/.test(app),
-    'App.svelte imports McpSection but never renders it',
+    /<(McpSectionComponent|[A-Za-z_$][\w$]*\.Mcp)\b/.test(shell),
+    'the panel imports McpSection but never renders it',
   )
 
   // Mounted inside the preferences settings-stack, not somewhere else on the
   // page: a section rendered outside it inherits none of the section styling
   // and would be unreachable from Preferences.
-  const stackStart = app.indexOf('<div class="settings-stack">')
+  const stackStart = shell.indexOf('<div class="settings-stack">')
   assert.ok(stackStart > 0, 'the preferences settings-stack is gone or was renamed')
-  const stack = app.slice(stackStart, app.indexOf('</div>', app.indexOf('CacheSection')))
   assert.ok(
-    stack.includes('McpSection.svelte'),
+    shell.slice(stackStart).includes('Mcp'),
     'McpSection is rendered outside the preferences settings-stack',
   )
 })
@@ -58,12 +81,14 @@ test('App.svelte merges MCP patches rather than replacing the block', () => {
 })
 
 test('the section is wired to the app mutator and the clipboard helper', () => {
+  // Either spelling: a prop on the section itself, or a key in the prop bag the
+  // panel forwards to it.
   assert.ok(
-    /onUpdateMcp=\{updateMcpPreferences\}/.test(app),
+    /onUpdateMcp[=:]\s*\{?updateMcpPreferences\}?/.test(wiring),
     'McpSection is not given updateMcpPreferences',
   )
   assert.ok(
-    /onCopyCommand=\{copyText\}/.test(app),
+    /onCopyCommand[=:]\s*\{?copyText\}?/.test(wiring),
     "McpSection is not given the app's copyText helper",
   )
 })

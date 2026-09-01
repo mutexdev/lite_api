@@ -2,6 +2,7 @@
   // US-036 — the OpenAPI spec viewer, lifted out of App.svelte so its markup is not in the
   // initial chunk. Imported dynamically from inside the {#if} that gates it.
   import Modal from '../Modal.svelte'
+  import IconButton from '../../ui/IconButton.svelte'
 
   export let openAPISpecViewerResult: { sourceUrl?: string; fetched?: boolean; content?: string }
   export let formattedOpenAPISpecContent: (content: string | undefined) => string
@@ -9,10 +10,10 @@
   export let closeOpenAPISyncSpecViewer: () => void
 </script>
 
-<Modal labelledBy="openapi-spec-title" onClose={closeOpenAPISyncSpecViewer} dialogClass="prompt-dialog openapi-spec-dialog" testId="openapi-spec-viewer-modal">
+<Modal labelledBy="openapi-spec-title" onClose={closeOpenAPISyncSpecViewer} testId="openapi-spec-viewer-modal" size="large">
 		      <header>
 		        <h2 id="openapi-spec-title">API Spec</h2>
-		        <button type="button" class="icon-button" title="Close" on:click={closeOpenAPISyncSpecViewer}>x</button>
+		        <IconButton icon="close" label="Close" onclick={closeOpenAPISyncSpecViewer} />
 		      </header>
 		      <div class="openapi-spec-meta">
 		        {#if openAPISpecViewerResult.sourceUrl}

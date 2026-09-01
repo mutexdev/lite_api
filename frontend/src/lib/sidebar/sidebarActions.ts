@@ -23,7 +23,7 @@
 // meant to be invisible, and stopped applying once the row toolbar itself became
 // the thing being fixed.
 
-export type SidebarObjectKind = 'collection' | 'folder' | 'request'
+export type SidebarObjectKind = 'collection' | 'folder' | 'request' | 'flow'
 
 /**
  * A thing the user can act on.
@@ -35,9 +35,9 @@ export type SidebarObjectKind = 'collection' | 'folder' | 'request'
 export type SidebarObject = {
   kind: SidebarObjectKind
   collectionId: string
-  /** '' for a collection or a request outside any folder. */
+  /** '' for a collection, a flow, or a request outside any folder. */
   folder: string
-  /** '' for anything that is not a request. */
+  /** The request's id on a request, the flow's id on a flow, '' otherwise. */
   itemId: string
   label: string
 }
@@ -45,6 +45,7 @@ export type SidebarObject = {
 export type SidebarActionID =
   | 'new-request'
   | 'new-flow'
+  | 'run-collection'
   | 'reveal'
   | 'generate-code'
   | 'info'
@@ -126,6 +127,15 @@ const ORDER: readonly SidebarActionID[] = [
   // path, so offering "New Flow" on a folder would promise a placement that
   // does not exist.
   'new-flow',
+  // A COLLECTION'S PRIMARY VERB, and the only entry here that runs something
+  // rather than creating or inspecting it. The top bar carried a Run button
+  // beside the environment picker, which put "execute every request in the
+  // collection" one click from every screen in the app whether or not a
+  // collection was even the thing being looked at. It belongs on the object it
+  // acts on. Placed at the boundary between the creating actions and the
+  // inspecting ones because it is neither, and because Reveal must not be the
+  // row that sits under a mis-aimed click meant for New Flow.
+  'run-collection',
   'reveal',
   'generate-code',
   'info',
@@ -138,6 +148,7 @@ const ORDER: readonly SidebarActionID[] = [
 const TEST_IDS: Record<SidebarActionID, string> = {
   'new-request': 'collection-item-menu-new-request',
   'new-flow': 'collection-item-menu-new-flow',
+  'run-collection': 'collection-item-menu-run-collection',
   reveal: 'collection-item-menu-show-in-folder',
   'generate-code': 'collection-item-menu-generate-code',
   info: 'collection-item-menu-info',
@@ -150,15 +161,36 @@ const TEST_IDS: Record<SidebarActionID, string> = {
 
 /** Which actions each kind of object offers, in no particular order. */
 const AVAILABLE: Record<SidebarObjectKind, ReadonlySet<SidebarActionID>> = {
-  // A collection offers only the creating actions for now. Rename, clone
-  // and delete exist for collections but live in the collection settings pane
-  // and take a different shape (they move directories on disk), so putting them
-  // on the row is a separate decision rather than a free addition here.
-  collection: new Set<SidebarActionID>(['new-request', 'new-folder', 'new-flow']),
+  // A collection offers the creating actions and Run. Rename, clone and delete
+  // exist for collections but live in the collection settings pane and take a
+  // different shape (they move directories on disk), so putting them on the row
+  // is a separate decision rather than a free addition here.
+  collection: new Set<SidebarActionID>(['new-request', 'new-folder', 'new-flow', 'run-collection']),
   folder: new Set<SidebarActionID>([
     'new-request', 'new-folder', 'reveal', 'info', 'open-terminal', 'rename', 'clone', 'delete'
   ]),
-  request: new Set<SidebarActionID>(['reveal', 'generate-code', 'info', 'rename', 'clone', 'delete'])
+  request: new Set<SidebarActionID>(['reveal', 'generate-code', 'info', 'rename', 'clone', 'delete']),
+  // A FLOW OFFERS TWO ACTIONS, AND THE SHORT LIST IS THE POINT.
+  //
+  // Until now it offered none: the flow row was a bare button with no ⋯, no
+  // right-click and no keyboard route, so a flow could not be deleted from the
+  // sidebar at all — only from inside its own open tab. Reveal and Delete are
+  // the two that already have working handlers behind them, so both entries
+  // do something the moment they appear.
+  //
+  // RENAME IS ABSENT DELIBERATELY, and this is the same judgement the file
+  // already makes about copyItem and pasteItem above: there is no
+  // RenameFlowModal, and renaming a flow is an UpdateFlow round trip that
+  // needs somewhere to type the new name. Listing an action whose handler does
+  // not exist is how a menu entry becomes decoration — the exact failure the
+  // dead ⌘R and ⌘D bindings in Preferences already demonstrated. Add 'rename'
+  // to this set in the same change that adds the dialog, not before.
+  //
+  // Reveal opens the collection's own directory rather than a file of the
+  // flow's own, because a flow has no file of its own: it is stored in the
+  // collection's root config. That is the honest destination, and it is the
+  // one the collection's own reveal would give.
+  flow: new Set<SidebarActionID>(['reveal', 'delete'])
 }
 
 function labelFor(id: SidebarActionID, context: SidebarActionContext): string {
@@ -166,6 +198,7 @@ function labelFor(id: SidebarActionID, context: SidebarActionContext): string {
   return {
     'new-request': 'New Request',
     'new-flow': 'New Flow',
+    'run-collection': 'Run collection',
     'generate-code': 'Generate Code',
     info: 'Info',
     'open-terminal': 'Open in Terminal',
@@ -216,7 +249,7 @@ export function sidebarObjectForRow(row: {
   itemId: string
   label: string
 }): SidebarObject | undefined {
-  if (row.kind === 'folder' || row.kind === 'request' || row.kind === 'collection') {
+  if (row.kind === 'folder' || row.kind === 'request' || row.kind === 'collection' || row.kind === 'flow') {
     return {
       kind: row.kind,
       collectionId: row.collectionId,

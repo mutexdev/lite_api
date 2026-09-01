@@ -4,6 +4,8 @@
 // aliases left behind in internal/core are a Go shim and not a Wails one.
 package types
 
+import "strings"
+
 type KeyValue struct {
 	Name        string `json:"name"`
 	Value       string `json:"value"`
@@ -39,6 +41,36 @@ type AuthConfig struct {
 	OAuth2      OAuth2Auth `json:"oauth2"`
 	OAuth1      OAuth1Auth `json:"oauth1"`
 	AWSV4       AWSV4Auth  `json:"awsv4"`
+}
+
+// APIKeyInQuery reports whether an apikey auth puts the key in the query string
+// rather than in a header.
+//
+// The two send paths each compared APILocation to the bare string "query", so
+// any other spelling fell through to the header branch. That is not a
+// hypothetical: the folder-level auth editor stored "queryparams", so a folder
+// that placed its API key in the query string sent it as a HEADER instead —
+// silently, with a 401 from the server as the only symptom and nothing in the
+// app disagreeing with what the user had configured.
+//
+// The UI now writes "query", and migrates "queryparams" the next time a
+// folder's auth is saved. This exists because that migration only runs on save:
+// a collection nobody edits again would keep the old value and keep failing.
+// Normalising at the point of USE fixes those without requiring anyone to
+// re-save anything.
+//
+// Deliberately permissive about which spellings mean "query" — every one listed
+// has appeared in a stored collection or an importer — while anything
+// unrecognised still means header, which is the safe default: a key in a header
+// is at worst ignored by the server, whereas a key appended to a URL travels in
+// logs and referrers.
+func APIKeyInQuery(location string) bool {
+	switch strings.ToLower(strings.TrimSpace(location)) {
+	case "query", "queryparams", "queryparam", "url", "params":
+		return true
+	default:
+		return false
+	}
 }
 
 type OAuth1Auth struct {

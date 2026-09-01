@@ -3,6 +3,7 @@
   // not in the initial chunk. Imported dynamically from inside the {#if} that
   // gates it; a static import would leave it in the initial graph.
   import Modal from '../Modal.svelte'
+  import IconButton from '../../ui/IconButton.svelte'
 
   // Bindable: the name/directory fields and both toggles write back.
   export let newFolderDirectoryDraft: string
@@ -20,11 +21,11 @@
   export let cancelNewFolderModal: () => void
 </script>
 
-<Modal labelledBy="new-folder-title" onClose={cancelNewFolderModal} testId="new-folder-modal">
+<Modal labelledBy="new-folder-title" onClose={cancelNewFolderModal} testId="new-folder-modal" size="medium" busy={busy !== ''}>
       <form on:submit|preventDefault={confirmNewFolder}>
         <header>
           <h2 id="new-folder-title">New Folder</h2>
-          <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={cancelNewFolderModal}>x</button>
+          <IconButton icon="close" label="Close" onclick={cancelNewFolderModal} testId="modal-close-button" />
         </header>
         <div class="prompt-fields">
           <label>
@@ -89,7 +90,7 @@
             type="submit"
             data-testid="modal-submit-btn"
             disabled={busy !== '' || newFolderNameDraft.trim() === '' || !newFolderDirectoryNameIsValid()}
-          >{busy === 'new folder' ? 'Creating...' : 'Create'}</button>
+          >{busy === 'new folder' ? 'Creating…' : 'Create'}</button>
         </div>
       </form>
 </Modal>

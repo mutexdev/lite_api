@@ -20,6 +20,45 @@ const MAX_RESPONSE_SPLIT = 0.7
 export type WorkbenchLayoutName = 'sidebar-width' | 'response-split'
 
 /**
+ * The three widths at which the shell changes shape.
+ *
+ * WHAT WENT WRONG. Five hardcoded breakpoints — 1180, 960, 800, 680 and 610 —
+ * were scattered across `style.css`, `WorkspaceCommandBar.svelte` and
+ * `RequestCommandStrip.svelte`, chosen independently of each other. The visible
+ * result was a shell that reflowed in stages that did not correspond: between
+ * 960 and 1180 the command bar had already dropped its button labels while the
+ * layout underneath was still in its wide arrangement, and below 960 the
+ * sidebar flipped to an overlay — the single biggest shape change the app makes
+ * — while the command bar sat unchanged, waiting for its own 800px step. The
+ * chrome and the content it sits above were reflowing on unrelated schedules,
+ * which is exactly how one window ends up looking like two applications.
+ *
+ * These are the numbers `style.css` already used for the SHELL itself, so this
+ * constant does not invent a scale — it names the one that was already there
+ * and makes the two component files defer to it:
+ *
+ *   wide     1180  the topbar and the recovery list already stepped here
+ *   medium    960  the sidebar becomes an overlay and the workbench stacks
+ *   compact   680  the last step before the panes are simply columns
+ *
+ * CSS cannot read a TypeScript constant, so the two owned components still
+ * write the numbers as literals in their `@media` queries. `layout.test.mts`
+ * greps those files and fails if a query names a width that is not in this
+ * object — which is the same enforcement-by-test the token and body-mode work
+ * uses, and the reason the numbers cannot drift apart again silently.
+ */
+export const SHELL_BREAKPOINTS = {
+  wide: 1180,
+  medium: 960,
+  compact: 680,
+} as const
+
+export type ShellBreakpointName = keyof typeof SHELL_BREAKPOINTS
+
+/** The scale as a set of widths, for the media-query audit in the tests. */
+export const SHELL_BREAKPOINT_WIDTHS: readonly number[] = Object.values(SHELL_BREAKPOINTS)
+
+/**
  * Rounds to a whole pixel and holds the sidebar between its bounds.
  *
  * The bounds are not cosmetic: below the minimum the request-tree rows truncate

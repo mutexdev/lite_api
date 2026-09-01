@@ -152,7 +152,7 @@ func applyAuth(headers http.Header, auth types.AuthConfig, vars map[string]strin
 			headers.Set("Authorization", "Bearer "+token)
 		}
 	case "apikey":
-		if auth.APILocation != "query" && auth.APIKey != "" {
+		if !types.APIKeyInQuery(auth.APILocation) && auth.APIKey != "" {
 			headers.Set(interp.Interpolate(auth.APIKey, vars), interp.Interpolate(auth.APIValue, vars))
 		}
 	}

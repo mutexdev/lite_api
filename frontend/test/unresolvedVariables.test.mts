@@ -12,7 +12,11 @@ import test from 'node:test'
 
 import {
   referencedVariableNames,
+  unresolvedAuthVariables,
+  unresolvedBodyVariables,
   unresolvedHeaderVariables,
+  unresolvedParamVariables,
+  unresolvedRequestVariables,
   unresolvedVariableMessage
 } from '../src/lib/unresolvedVariables.ts'
 
@@ -114,4 +118,135 @@ test('the message stays singular for one variable and lists it once when repeate
 
 test('nothing unresolved produces no message', () => {
   assert.equal(unresolvedVariableMessage([]), '')
+})
+
+// ── A5-09: the same silent failure everywhere else ──────────────────────────
+//
+// Headers were fixed; the URL, params, body and every auth field were not, and
+// auth is the worst of them. A client secret of literal `{{clientSecret}}`
+// produces a token request the server rejects, and the Auth tab reads fine.
+
+test('a missing variable in a query param is reported', () => {
+  const found = unresolvedParamVariables([{ name: 'page', value: '{{page}}' }], 'Query param', knowsNothing)
+
+  assert.deepEqual(found, [{ location: 'Query param', field: 'page', name: 'page' }])
+})
+
+test('a disabled param is not reported, and a param NAME is', () => {
+  assert.deepEqual(
+    unresolvedParamVariables([{ name: 'x', value: '{{gone}}', enabled: false }], 'Query param', knowsNothing),
+    []
+  )
+  assert.deepEqual(unresolvedParamVariables([{ name: '{{key}}' }], 'Query param', knowsNothing), [
+    { location: 'Query param name', field: '{{key}}', name: 'key' }
+  ])
+})
+
+test('only the body mode actually being sent is scanned', () => {
+  // A JSON body left behind when the user switched to XML still holds whatever
+  // they last typed. Warning about it is the cry-wolf this feature cannot
+  // afford.
+  const body = { mode: 'xml', json: '{"a":"{{stale}}"}', xml: '<a>{{live}}</a>' }
+  const found = unresolvedBodyVariables(body, knowsNothing)
+
+  assert.deepEqual(found.map((entry) => entry.name), ['live'])
+})
+
+test('form and graphql bodies are scanned in their own fields', () => {
+  assert.deepEqual(
+    unresolvedBodyVariables({ mode: 'formUrlEncoded', formUrlEncoded: [{ name: 'q', value: '{{term}}' }] }, knowsNothing)
+      .map((entry) => entry.name),
+    ['term']
+  )
+  assert.deepEqual(
+    unresolvedBodyVariables({ mode: 'graphql', graphqlQuery: '{ a(id: "{{id}}") }', graphqlVariables: '{}' }, knowsNothing)
+      .map((entry) => entry.name),
+    ['id']
+  )
+})
+
+test('a binary or multipart body has nothing to scan and does not throw', () => {
+  assert.deepEqual(unresolvedBodyVariables({ mode: 'multipartForm' }, knowsNothing), [])
+  assert.deepEqual(unresolvedBodyVariables(undefined, knowsNothing), [])
+})
+
+test('every auth field of the selected mode is scanned', () => {
+  const found = unresolvedAuthVariables(
+    { mode: 'oauth2', oauth2: { grantType: 'client_credentials', clientId: 'app', clientSecret: '{{clientSecret}}' } },
+    knowsNothing
+  )
+
+  assert.deepEqual(found, [
+    { location: 'Auth · Client secret', field: 'Client secret', name: 'clientSecret' }
+  ])
+})
+
+test('auth fields of OTHER modes are not scanned', () => {
+  // A bearer token left over from before the user switched to basic is not
+  // sent, and flagging it would train people to ignore the banner.
+  const found = unresolvedAuthVariables(
+    { mode: 'basic', username: 'u', password: 'p', token: '{{stale}}' },
+    knowsNothing
+  )
+
+  assert.deepEqual(found, [])
+})
+
+test('OAuth2 static token and the token placement follow-up field are both scanned', () => {
+  const header = unresolvedAuthVariables(
+    { mode: 'oauth2', token: '{{fallbackToken}}', oauth2: { tokenPlacement: 'header', tokenHeaderPrefix: '{{prefix}}' } },
+    knowsNothing
+  )
+  assert.deepEqual(header.map((entry) => entry.name).sort(), ['fallbackToken', 'prefix'])
+
+  const query = unresolvedAuthVariables(
+    { mode: 'oauth2', oauth2: { tokenPlacement: 'url', tokenQueryKey: '{{queryKey}}' } },
+    knowsNothing
+  )
+  assert.deepEqual(query.map((entry) => entry.name), ['queryKey'])
+})
+
+test('inherit and none have no auth fields of their own to scan', () => {
+  assert.deepEqual(unresolvedAuthVariables({ mode: 'inherit', token: '{{x}}' }, knowsNothing), [])
+  assert.deepEqual(unresolvedAuthVariables({ mode: 'none', token: '{{x}}' }, knowsNothing), [])
+  assert.deepEqual(unresolvedAuthVariables(undefined, knowsNothing), [])
+})
+
+test('a whole request is scanned in reading order', () => {
+  const found = unresolvedRequestVariables(
+    {
+      url: 'https://{{host}}/v1',
+      params: [{ name: 'page', value: '{{page}}' }],
+      headers: [{ name: 'X-Trace', value: '{{trace}}' }],
+      body: { mode: 'json', json: '{"a":"{{payload}}"}' },
+      auth: { mode: 'bearer', token: '{{token}}' }
+    },
+    knowsNothing
+  )
+
+  assert.deepEqual(found.map((entry) => entry.name), ['host', 'page', 'trace', 'payload', 'token'])
+})
+
+test('the message names the places as well as the variables', () => {
+  // With six surfaces scanned, "{{token}} is unresolved" leaves the user
+  // hunting through all six.
+  const message = unresolvedVariableMessage(
+    unresolvedRequestVariables(
+      { url: 'https://{{host}}/v1', auth: { mode: 'bearer', token: '{{token}}' } },
+      knowsNothing
+    )
+  )
+
+  assert.match(message, /the URL and auth/)
+  assert.match(message, /\{\{host\}\}/)
+  assert.match(message, /\{\{token\}\}/)
+})
+
+test('a request with nothing unresolved produces no message', () => {
+  const found = unresolvedRequestVariables(
+    { url: 'https://{{host}}/v1', auth: { mode: 'bearer', token: '{{token}}' } },
+    knows('host', 'token')
+  )
+
+  assert.equal(unresolvedVariableMessage(found), '')
 })

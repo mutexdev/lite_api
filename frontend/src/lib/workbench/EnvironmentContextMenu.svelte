@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
+  import Icon from '../ui/Icon.svelte'
   import type { CommandOption } from './workbenchCommands'
 
   // US-028 — runes.
@@ -87,7 +88,9 @@
   >
     <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m10 2.5 7 4-7 4-7-4zM3 10l7 4 7-4M3 13.5l7 4 7-4" /></svg>
     <span>{environmentName}</span>
-    <span class="chevron" aria-hidden="true">⌄</span>
+    <!-- Was a literal ⌄ character: it inherits the text font, so it drifted
+         out of alignment with the stroked icons beside it. -->
+    <Icon name="chevron-down" size={12} />
   </button>
 
   {#if open}
@@ -138,7 +141,6 @@
   .environment-menu > button[aria-expanded="true"] { border-color: var(--border); background: var(--surface-soft); }
   .environment-menu > button span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   svg { width: 16px; height: 16px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-  .chevron { color: var(--muted); font-size: 10px; }
   .environment-panel {
     position: absolute;
     z-index: 80;

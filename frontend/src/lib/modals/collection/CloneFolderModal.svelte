@@ -3,6 +3,7 @@
   // not in the initial chunk. Imported dynamically from inside the {#if} that
   // gates it; a static import would leave it in the initial graph.
   import Modal from '../Modal.svelte'
+  import IconButton from '../../ui/IconButton.svelte'
 
   // Bindable: the directory field and both toggles write back to App.svelte.
   export let cloneFolderDirectoryDraft: string
@@ -20,16 +21,16 @@
   export let cancelCloneFolderModal: () => void
 </script>
 
-<Modal labelledBy="clone-folder-title" onClose={cancelCloneFolderModal}>
+<Modal labelledBy="clone-folder-title" onClose={cancelCloneFolderModal} size="medium" busy={busy !== ''}>
       <form on:submit|preventDefault={confirmCloneFolder}>
         <header>
           <h2 id="clone-folder-title">Clone Folder</h2>
-          <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={cancelCloneFolderModal}>x</button>
+          <IconButton icon="close" label="Close" onclick={cancelCloneFolderModal} testId="modal-close-button" />
         </header>
         <div class="prompt-fields">
           <label>
             <span>Folder Name</span>
-            <input
+            <input data-modal-autofocus
               id="collection-item-name"
               name="name"
               aria-label="Clone folder name"
@@ -89,7 +90,7 @@
             type="submit"
             data-testid="clone-item-button"
             disabled={busy !== '' || cloneFolderNameDraft.trim() === '' || !cloneFolderDirectoryNameIsValid()}
-          >{busy === 'clone folder' ? 'Cloning...' : 'Clone'}</button>
+          >{busy === 'clone folder' ? 'Cloning…' : 'Clone'}</button>
         </div>
       </form>
 </Modal>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import VariableTextOverlay from './VariableTextOverlay.svelte'
+  import RowActions from './RowActions.svelte'
 
   type VariableTooltipSource = 'global' | 'collection' | 'environment' | 'folder' | 'request' | 'runtime' | 'process' | 'path' | 'missing' | 'invalid'
   type VariableTooltipInfo = {
@@ -52,6 +53,8 @@
   // passed by value and mutated through the callbacks.
   type Props = {
     rows?: MultipartRow[]
+    /** Accessible name for the table itself; see KeyValueTable's `label`. */
+    label?: string
     readonly?: boolean
     busy?: string
     showMove?: boolean
@@ -70,6 +73,7 @@
 
   let {
     rows = [],
+    label = undefined,
     readonly = false,
     busy = '',
     showMove = false,
@@ -136,7 +140,7 @@
   }
 </script>
 
-<table class="kv-table multipart-table">
+<table class="kv-table multipart-table" aria-label={label}>
   <thead>
     <tr>
       <th></th>
@@ -218,12 +222,7 @@
         </td>
         <td>
           {#if !readonly}
-            {#if showMove}
-              <button class="icon-button drag-handle" title="Drag row" aria-label="Drag row to reorder">::</button>
-              <button class="icon-button" title="Move row up" aria-label="Move row up" disabled={index === 0} onclick={() => onMove(index, -1)}>^</button>
-              <button class="icon-button" title="Move row down" aria-label="Move row down" disabled={index === rows.length - 1} onclick={() => onMove(index, 1)}>v</button>
-            {/if}
-            <button class="icon-button" title="Remove row" aria-label="Remove row" onclick={() => onRemove(index)}>x</button>
+            <RowActions {index} count={rows.length} {showMove} {onMove} {onRemove} />
           {/if}
         </td>
       </tr>
@@ -232,5 +231,43 @@
 </table>
 
 {#if !readonly}
-  <button onclick={onAdd}>Add row</button>
+  <button type="button" onclick={onAdd}>Add row</button>
 {/if}
+
+<!--
+  A9-12. Row feedback, and what it means on a table you can type into.
+
+  Until now exactly one table in the app — the DevTools network log — showed
+  anything on hover or selection, and the audit was right that the rest reads as
+  "one table got more attention" rather than as a rule. The rule it proposed
+  ("hover only where clicking a row does something") would have left every
+  editable table with nothing, which is the wrong answer for a different reason:
+  these grids are rows of near-identical inputs, and the mistake they invite is
+  editing the wrong row, not failing to click one.
+
+  So the two states are kept and remapped rather than copied. Hover is the same
+  55% tint of --selected-bg the network table uses, and means the same thing
+  there as here: this is the row under the pointer. What the network table calls
+  "selected" is, in a table with no selection, the row that has the caret — so
+  :focus-within carries the full --selected-bg, and the row being typed into is
+  marked as plainly as the row being read.
+
+  focus-within is written after hover deliberately: they have equal specificity,
+  so source order decides, and a row that is both focused and hovered should
+  read as focused. No cursor: pointer and no focus ring on the <tr> — the row is
+  not a control here, its cells are.
+
+  This block is byte-identical in KeyValueTable, MultipartTable and
+  FileBodyTable, and tableRowActions.test.mts asserts that it stays that way.
+  style.css would be the one right home for it; that file belongs to another
+  owner this wave, and the paste is in the handoff.
+-->
+<style>
+  tbody tr:hover td {
+    background: color-mix(in srgb, var(--selected-bg) 55%, transparent);
+  }
+
+  tbody tr:focus-within td {
+    background: var(--selected-bg);
+  }
+</style>

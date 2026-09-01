@@ -29,6 +29,8 @@ const app = () => read('../src/App.svelte')
 const chevron = () => read('../src/lib/sidebar/TreeChevron.svelte')
 const styles = () => read('../src/style.css')
 
+import { sidebarRowHint } from '../src/lib/sidebar/rowHints.ts'
+
 test('both tree rows render the shared chevron component', () => {
   const markup = app()
 
@@ -162,4 +164,50 @@ test('the chevron still rotates to show state', () => {
     /\.tree-chevron\.collapsed\s*\{[^}]*transform:\s*rotate\(/.test(css),
     'the collapsed chevron no longer rotates, so state is carried by colour alone',
   )
+})
+
+// ── The gesture the tree forgot to mention ──────────────────────────────────
+//
+// A folder row and a collection row ship the SAME dual behaviour — single click
+// opens a pane, double click expands — and only the folder row said so. Its
+// title reads "auth — click for settings, double-click to open"; the collection
+// row above it carried no title at all. So the app documented the gesture on
+// the row where it is less surprising and hid it on the row where it is more.
+//
+// The rule now lives in lib/sidebar/rowHints.ts, and these tests pin the rule
+// rather than the two strings: a row with two behaviours explains the
+// behaviour, a row with one explains its content, and a row with neither says
+// nothing rather than repeating its own visible label back at the user.
+
+test('both dual-behaviour rows explain the gesture, in one sentence shape', () => {
+  const collection = sidebarRowHint({ kind: 'collection', label: 'Billing' })
+  const folder = sidebarRowHint({ kind: 'folder', label: 'auth' })
+
+  assert.equal(collection, 'Billing — click for details, double-click to expand')
+  assert.equal(folder, 'auth — click for settings, double-click to expand')
+
+  // Same shape, differing only in the pane a single click opens. Compared
+  // structurally so a future edit to one has to be an edit to both.
+  const shape = (hint: string) => hint.replace(/^[^—]+— click for \w+, /, '')
+  assert.equal(shape(collection), shape(folder))
+})
+
+// A REQUEST ROW EXPLAINS ITS CONTENT, and that was already right: clicking it
+// opens the request, there is no second behaviour to disclose, and the URL is
+// the one fact the row cannot fit on screen.
+test('a single-behaviour row discloses its content, not a gesture', () => {
+  assert.equal(
+    sidebarRowHint({ kind: 'request', label: 'Login', detail: 'https://api.test/login' }),
+    'https://api.test/login'
+  )
+  assert.equal(
+    sidebarRowHint({ kind: 'flow', label: 'Signup', detail: 'Create then verify' }),
+    'Create then verify'
+  )
+})
+
+// A tooltip that repeats the visible text trains people to ignore tooltips.
+test('a row with nothing to add says nothing', () => {
+  assert.equal(sidebarRowHint({ kind: 'request', label: 'Login' }), '')
+  assert.equal(sidebarRowHint({ kind: 'example', label: 'OK', detail: '   ' }), '')
 })

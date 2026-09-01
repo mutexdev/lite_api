@@ -1,8 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import {
   DEFAULT_RESPONSE_SPLIT,
   DEFAULT_SIDEBAR_WIDTH,
+  SHELL_BREAKPOINTS,
+  SHELL_BREAKPOINT_WIDTHS,
   clampResponseSplit,
   clampSidebarWidth,
   readWorkbenchLayout,
@@ -165,4 +169,81 @@ test('a zero-sized workbench leaves the split alone instead of producing NaN', (
   const collapsed = { top: 0, left: 0, width: 0, height: 0 }
   assert.equal(splitFractionAt(collapsed, { clientX: 10, clientY: 10 }, true, 0.52), 0.52)
   assert.equal(splitFractionAt(collapsed, { clientX: 10, clientY: 10 }, false, 0.52), 0.52)
+})
+
+
+// ── A4-11, the shell breakpoint scale ────────────────────────────────────────
+//
+// The command bar declared its own 1180 / 800 / 610 while the shell beneath it
+// reflowed at 1180 / 960 / 680, so the chrome and the layout it sits on changed
+// shape at unrelated widths — labels disappearing from the toolbar while the
+// panes below were still in their wide arrangement, and the sidebar flipping to
+// an overlay while the toolbar sat unchanged waiting for a step 160px later.
+//
+// CSS cannot read the constant, so the components still write these numbers as
+// literals and this suite is what keeps them honest. It is deliberately an
+// allow-list and not a spelling check: a query at ANY width outside the scale
+// fails, which is what makes adding a fourth number impossible to do quietly.
+
+const readSource = (relative: string) =>
+  readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8')
+
+/** Every `@media (max-width: Npx)` a file declares. */
+function mediaWidths(text: string): number[] {
+  return [...text.matchAll(/@media\s*\(max-width:\s*(\d+)px\)/g)].map((match) => Number(match[1]))
+}
+
+test('the shell breakpoint scale is the three widths style.css already uses', () => {
+  assert.deepEqual(SHELL_BREAKPOINTS, { wide: 1180, medium: 960, compact: 680 })
+  assert.deepEqual([...SHELL_BREAKPOINT_WIDTHS].sort((a, b) => b - a), [1180, 960, 680])
+})
+
+test('the shell chrome reflows only at widths from the shared scale', () => {
+  const owned = [
+    'WorkspaceCommandBar.svelte',
+    'RequestCommandStrip.svelte',
+  ].map((name) => ({ name, text: readSource(`../src/lib/workbench/${name}`) }))
+
+  owned.push({
+    name: 'SettingRow.svelte',
+    text: readSource('../src/lib/views/preferences/SettingRow.svelte'),
+  })
+
+  for (const file of owned) {
+    const widths = mediaWidths(file.text)
+    assert.ok(widths.length > 0, `${file.name} declares no max-width query; did the media block move or vanish?`)
+    for (const width of widths) {
+      assert.ok(
+        SHELL_BREAKPOINT_WIDTHS.includes(width),
+        `${file.name} reflows at ${width}px, which is not one of the shell's ${SHELL_BREAKPOINT_WIDTHS.join(' / ')}`,
+      )
+    }
+  }
+})
+
+// The 1180px block in RequestCommandStrip set `grid-template-columns` to the
+// exact value its base rule already declared — a rule that had never done
+// anything. D4 then deleted the two-row `.request-command-meta` band the rule
+// lived on, so the guard follows the layout onto the single flex row that
+// replaced it rather than being deleted along with its subject.
+test('the request strip does not re-declare its base layout at a breakpoint', () => {
+  const strip = readSource('../src/lib/workbench/RequestCommandStrip.svelte')
+  assert.ok(
+    !/\.request-command-meta\b/.test(strip),
+    'the two-row meta band is back; D4 folded it into the single strip row',
+  )
+  const base = strip.match(/\.request-command-strip\s*\{([^}]*)\}/)
+  assert.ok(base, 'the base .request-command-strip rule is gone')
+  const declarations = (block: string) =>
+    block.split(';').map((line) => line.trim()).filter(Boolean)
+  const baseDeclarations = new Set(declarations(base[1]))
+  const restated = [...strip.matchAll(/@media[^{]*\{\s*\.request-command-strip\s*\{([^}]*)\}/g)]
+  for (const match of restated) {
+    for (const declaration of declarations(match[1])) {
+      assert.ok(
+        !baseDeclarations.has(declaration),
+        `a media query restates \`${declaration}\` unchanged, which is the dead rule that was just removed`,
+      )
+    }
+  }
 })

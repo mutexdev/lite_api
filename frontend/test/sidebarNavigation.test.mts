@@ -215,3 +215,54 @@ test('the helpers agree with the row kinds they classify', () => {
   assert.equal(typeAheadIndex(rows, 0, 'health'), 4)
   assert.equal(typeAheadIndex(rows, 0, ''), -1)
 })
+
+// ── Flows are ordinary rows now ─────────────────────────────────────────────
+//
+// They were not reachable at all: walkSidebar did not emit them, so the cursor
+// could never name one, and the markup carried a comment saying it deliberately
+// would not try. Nothing in this module needed changing for them — which is the
+// claim these tests exist to check, because "it should just work" is precisely
+// the assumption that leaves a row type stranded for a second time.
+
+const rowsWithFlows = sidebarRows({
+  collections: [{ id: 'c1', name: 'Alpha' }],
+  groupsFor: () => [{ folder: '', items: [{ id: 'r1', name: 'Login' }] }],
+  collapsedCollections: {},
+  collapsedFolders: {},
+  searchQuery: '',
+  folderKey: (c, f) => `${c}:${f}`,
+  flowsFor: () => [{ id: 'f1', name: 'Signup' }]
+})
+// rows: 0 Alpha(collection) 1 Login(request) 2 Signup(flow)
+
+test('the arrow keys reach a flow row like any other', () => {
+  assert.deepEqual(rowsWithFlows.map((row) => row.kind), ['collection', 'request', 'flow'])
+  assert.deepEqual(
+    resolveSidebarKey(key('ArrowDown'), context({ rows: rowsWithFlows, index: 1 })),
+    { kind: 'focus', index: 2 }
+  )
+  assert.deepEqual(
+    resolveSidebarKey(key('Enter'), context({ rows: rowsWithFlows, index: 2 })),
+    { kind: 'activate', index: 2 }
+  )
+})
+
+// A FLOW IS A LEAF. Its steps are not sidebar rows — they live in the flow
+// editor — so Right must not pretend there is a branch to open.
+test('a flow does not expand, and Left walks out to its collection', () => {
+  assert.equal(isExpandable(rowsWithFlows[2]), false)
+  assert.equal(resolveSidebarKey(key('ArrowRight'), context({ rows: rowsWithFlows, index: 2 })), null)
+  assert.deepEqual(
+    resolveSidebarKey(key('ArrowLeft'), context({ rows: rowsWithFlows, index: 2 })),
+    { kind: 'focus', index: 0 }
+  )
+  assert.equal(parentIndex(rowsWithFlows, 2), 0)
+})
+
+test('the action menu and type-ahead both work on a flow row', () => {
+  assert.deepEqual(
+    resolveSidebarKey(key('F10', { shiftKey: true }), context({ rows: rowsWithFlows, index: 2 })),
+    { kind: 'menu', index: 2 }
+  )
+  assert.equal(typeAheadIndex(rowsWithFlows, 0, 'sig'), 2)
+})

@@ -9,6 +9,7 @@
   // a new file is not, by itself, code splitting.
   import type { types } from '../../../../wailsjs/go/models'
   import Modal from '../Modal.svelte'
+  import IconButton from '../../ui/IconButton.svelte'
 
   export let openAPISpecDiffResult: types.OpenAPISyncSpecDiffResult
   export let openAPISpecDiffChangeCount: number
@@ -19,10 +20,10 @@
   export let closeOpenAPISyncSpecDiff: () => void
 </script>
 
-<Modal labelledBy="openapi-spec-diff-title" onClose={closeOpenAPISyncSpecDiff} dialogClass="prompt-dialog openapi-spec-diff-dialog" testId="openapi-spec-diff-modal">
+<Modal labelledBy="openapi-spec-diff-title" onClose={closeOpenAPISyncSpecDiff} testId="openapi-spec-diff-modal" size="xlarge">
       <header>
         <h2 id="openapi-spec-diff-title">Spec Diff</h2>
-        <button type="button" class="icon-button" title="Close" on:click={closeOpenAPISyncSpecDiff}>x</button>
+        <IconButton icon="close" label="Close" onclick={closeOpenAPISyncSpecDiff} />
       </header>
       <div class="openapi-spec-meta">
         {#if openAPISpecDiffResult.sourceUrl}

@@ -17,6 +17,16 @@ import {
   normalizedNetworkSortDirection,
   normalizedNetworkSortKey,
   networkSortPreference,
+  NETWORK_COLUMNS,
+  NETWORK_METHODS,
+  NETWORK_SORT_KEYS,
+  filteredNetworkRows,
+  networkHeaderRows,
+  networkLogBody,
+  networkLogLines,
+  networkSizeDisplay,
+  networkStatusDisplay,
+  networkLogTime,
 } from '../src/lib/networkSort.ts'
 
 // The third state is the point. Without it there is no way back to the log's
@@ -326,4 +336,99 @@ test('an unusable stored width becomes the minimum, not NaN', () => {
   const withText = [...DEFAULT_NETWORK_COLUMN_WIDTHS] as unknown as number[]
   withText[0] = 'wide' as unknown as number
   assert.equal(normalizedNetworkColumnWidths(withText)[0], 60)
+})
+
+
+// ---------------------------------------------------------------------------
+// The table became a component (A9-02), and these are the pieces it needed to
+// take with it: the column list, the method filter, and the six cell
+// formatters that used to be private functions inside App.svelte.
+// ---------------------------------------------------------------------------
+
+// normalizedNetworkColumnWidths rejects a stored array whose length does not
+// match the default — that is the guard that stops a build which adds a column
+// from shifting every restored width onto the wrong header. The guard is only
+// as good as the two lists agreeing, and until they lived in one file nothing
+// checked that they did.
+test('the column list and the default width list describe the same table', () => {
+  assert.equal(NETWORK_COLUMNS.length, DEFAULT_NETWORK_COLUMN_WIDTHS.length)
+  assert.deepEqual(NETWORK_SORT_KEYS, NETWORK_COLUMNS.map((column) => column.key))
+  for (const key of NETWORK_SORT_KEYS) {
+    assert.equal(normalizedNetworkSortKey(key, NETWORK_SORT_KEYS), key, `${key} is not a sortable column`)
+  }
+})
+
+// Every column heading is a word a reader recognises, not the field name behind
+// it — the failure mode A1-07 catalogued in the option lists two panes over.
+test('every column carries a written label', () => {
+  for (const column of NETWORK_COLUMNS) {
+    assert.match(column.label, /^[A-Z][A-Za-z ]+$/, `${column.key} has no readable label`)
+  }
+})
+
+test('the method filter keeps only the ticked methods', () => {
+  const rows = [row({ id: '1', method: 'get' }), row({ id: '2', method: 'POST' }), row({ id: '3' })]
+  const filters = Object.fromEntries(NETWORK_METHODS.map((method) => [method, true]))
+  assert.equal(filteredNetworkRows(rows, filters).length, 3, 'an absent method counts as GET')
+  assert.deepEqual(
+    filteredNetworkRows(rows, { ...filters, GET: false }).map((r) => (r as { id: string }).id),
+    ['2']
+  )
+})
+
+// Documented rather than fixed: a method outside the filter bar's seven has no
+// checkbox, so `filters[method] === true` is false and the row is invisible
+// with no control that reveals it. Preserved from App.svelte deliberately —
+// changing it is a product decision. This test exists so the next person to
+// read `filteredNetworkRows` finds the behaviour asserted, not inferred.
+test('a method the filter bar does not list is hidden with no way to show it', () => {
+  const filters = Object.fromEntries(NETWORK_METHODS.map((method) => [method, true]))
+  assert.deepEqual(filteredNetworkRows([row({ id: '1', method: 'TRACE' })], filters), [])
+})
+
+test('the status and size cells say "-" and "0 B" rather than nothing', () => {
+  assert.equal(networkStatusDisplay(undefined), '-')
+  assert.equal(networkStatusDisplay(0), '-', 'no response arrived is not status zero')
+  assert.equal(networkStatusDisplay(404), '404')
+  assert.equal(networkSizeDisplay(undefined), '0 B')
+  assert.equal(networkSizeDisplay(1536), '1.5 KB')
+})
+
+// "-", not "" and not "—". This disagrees with formatting.ts, which writes an
+// em dash for an absent status and an empty string for an absent time; the
+// vocabularies should converge and the handoff says so. Asserted here at the
+// value App.svelte shipped, so that convergence is a deliberate edit to a
+// failing test rather than a silent change to what the table renders.
+test('an unusable timestamp renders as "-"', () => {
+  assert.equal(networkLogTime(row({ at: undefined })), '-')
+  assert.equal(networkLogTime(row({ at: 'not a date' })), '-')
+  assert.notEqual(networkLogTime(row({ at: '2026-08-31T10:00:00Z' })), '-')
+})
+
+// Sorted by name, because the pane exists to answer "is this header set" — a
+// question answered by looking a name up, which needs a stable place to look.
+test('header rows are sorted by name and survive an absent map', () => {
+  assert.deepEqual(networkHeaderRows(undefined), [])
+  assert.deepEqual(
+    networkHeaderRows({ 'X-Trace': '1', Accept: 'application/json' }),
+    [['Accept', 'application/json'], ['X-Trace', '1']]
+  )
+})
+
+// A body of nothing but whitespace is not a body: rendering it puts an empty
+// <pre> where the "No body" empty state belongs.
+test('a whitespace-only body counts as no body', () => {
+  assert.equal(networkLogBody('   \n\t '), '')
+  assert.equal(networkLogBody(undefined), '')
+  assert.equal(networkLogBody(' {"a":1} '), ' {"a":1} ', 'a real body keeps its own whitespace')
+})
+
+test('the network log lines drop the error line when there is no error', () => {
+  assert.equal(networkLogLines(undefined).length, 0)
+  const clean = networkLogLines(row({ durationMs: 12, size: 30, error: '' }))
+  assert.equal(clean.length, 3)
+  assert.ok(clean.every((line) => !line.startsWith('Error:')))
+  const failed = networkLogLines(row({ durationMs: 12, size: 30, error: 'dial tcp: refused' }))
+  assert.equal(failed.length, 4)
+  assert.equal(failed[3], 'Error: dial tcp: refused')
 })

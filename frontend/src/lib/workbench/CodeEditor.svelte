@@ -1,17 +1,21 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte'
   import { isLargeDocument, utf8ExceedsLimit, variableSignature, type DocumentSizeMemo, type SignatureMemo } from './documentSize'
   import { onDestroy, onMount } from 'svelte'
   import { Compartment, EditorSelection, EditorState, Prec, RangeSetBuilder } from '@codemirror/state'
-  import { Decoration, EditorView, ViewPlugin, type DecorationSet } from '@codemirror/view'
+  import { Decoration, EditorView, ViewPlugin, keymap, type DecorationSet } from '@codemirror/view'
   import { bracketMatching, indentOnInput, syntaxHighlighting } from '@codemirror/language'
   import { lintGutter, linter, type Diagnostic } from '@codemirror/lint'
   import { json, jsonLanguage, jsonParseLinter } from '@codemirror/lang-json'
   import { xml } from '@codemirror/lang-xml'
   import { javascript } from '@codemirror/lang-javascript'
   import { markdown } from '@codemirror/lang-markdown'
-  import { openSearchPanel } from '@codemirror/search'
   import { basicSetup } from 'codemirror'
   import { liteApiHighlightStyle } from './syntaxHighlight'
+  import { findMatches } from './response'
+  import FindBar from '../ui/FindBar.svelte'
+  import IconButton from '../ui/IconButton.svelte'
+  import PaneToolbar from '../ui/PaneToolbar.svelte'
 
   type Language = 'json' | 'xml' | 'javascript' | 'markdown' | 'text' | 'graphql'
   type VariableInfo = { name: string; scope: string; resolvedValue: string; secret: boolean; found: boolean; validName: boolean }
@@ -21,6 +25,10 @@
   const restorationLimit = 100
   const largeDocumentBytes = 1024 * 1024
   const configurationCompartment = new Compartment()
+  // Separate from the configuration compartment on purpose: the find highlight
+  // changes on every keystroke of the QUERY, and folding it into the other one
+  // would rebuild the language, linter and variable extensions along with it.
+  const findCompartment = new Compartment()
 
   // US-028 — runes.
   type Props = {
@@ -32,6 +40,15 @@
     fontSize?: number
     onChange: (value: string) => void
     variableInfo?: VariableInfo[]
+    /**
+     * The left end of the toolbar, filled by the pane that owns this editor.
+     *
+     * The request body puts its format picker (JSON / XML / Text) here, which
+     * is what makes the toolbar read as "what am I editing" on the left and
+     * "what can I do to it" on the right. The script and docs editors pass
+     * nothing and the slot simply collapses.
+     */
+    toolbarStart?: Snippet
   }
 
   let {
@@ -42,7 +59,8 @@
     testId = 'code-editor',
     fontSize = 13,
     onChange,
-    variableInfo = []
+    variableInfo = [],
+    toolbarStart = undefined
   }: Props = $props()
 
   let host: HTMLDivElement
@@ -58,6 +76,7 @@
   let valid = $state(true)
   let editorVariables = $state<EditorVariable[]>([])
   let configuredKey = ''
+
 
   // US-033. Both of these ran on every keystroke: the encode allocated a
   // Uint8Array the size of the whole document — half a megabyte per keystroke
@@ -85,6 +104,97 @@
   const configurationKey = $derived(
     `${language}:${large}:${fontSize}:${ariaLabel}:${currentVariableSignature}`
   )
+
+  // --- inline find -------------------------------------------------------
+  //
+  // CodeMirror ships a search panel and `basicSetup` binds Mod-f to it. Two
+  // problems, both reported by the audit. First, the panel is styled by
+  // CodeMirror, not by this app: it floats in over the document in a visual
+  // language shared with nothing else on screen — the "search opens a separate
+  // window" complaint. Second, its Mod-f binding collides with the app's own
+  // global ⌘F, which had no "focus is inside an editable field" guard, so the
+  // two fired together.
+  //
+  // So the panel is gone and the search is a FindBar in this editor's own
+  // toolbar — the same component the response pane uses, over the same
+  // `findMatches` helper, so the two searches behave identically rather than
+  // merely looking similar.
+  let findOpen = $state(false)
+  let findQuery = $state('')
+  let findIndex = $state(0)
+  let findBar = $state<ReturnType<typeof FindBar> | null>(null)
+
+  // Bounded by findMatches itself (500 hits), and skipped entirely on large
+  // documents where every other language feature is already off.
+  const findHits = $derived(large || !findOpen ? [] : findMatches(value, findQuery))
+
+  // An EFFECT: it writes findIndex. Narrowing a search has to pull the cursor
+  // back inside the result list, or Next steps to a match that is not there.
+  $effect(() => {
+    if (findIndex >= findHits.length) findIndex = Math.max(0, findHits.length - 1)
+  })
+
+  // Reconfiguring on the hits themselves would rebuild the decoration set on
+  // every keystroke of the DOCUMENT too, not just the query. The identity is
+  // what the highlight actually depends on.
+  const findSignature = $derived(`${findOpen}:${findQuery}:${findIndex}:${findHits.length}`)
+  let configuredFind = ''
+  $effect(() => {
+    if (view && findSignature !== configuredFind) {
+      configuredFind = findSignature
+      view.dispatch({ effects: findCompartment.reconfigure(findExtensions()) })
+    }
+  })
+
+  function openFind() {
+    findOpen = true
+    // The bar has to exist before it can take focus; on the frame it is created
+    // the binding is still null.
+    queueMicrotask(() => findBar?.focus())
+  }
+
+  function closeFind() {
+    findOpen = false
+    findQuery = ''
+    findIndex = 0
+    view?.focus()
+  }
+
+  function stepFind(direction: 1 | -1) {
+    if (!findHits.length) return
+    findIndex = (findIndex + direction + findHits.length) % findHits.length
+    revealMatch()
+  }
+
+  /** Puts the caret on the current hit and scrolls it into view. */
+  function revealMatch() {
+    const start = findHits[findIndex]
+    if (!view || start === undefined) return
+    const end = Math.min(view.state.doc.length, start + findQuery.trim().length)
+    view.dispatch({ selection: EditorSelection.single(start, end), effects: EditorView.scrollIntoView(start, { y: 'center' }) })
+  }
+
+  function findDecorations() {
+    return ViewPlugin.fromClass(class {
+      decorations: DecorationSet
+      constructor() { this.decorations = buildFindDecorations() }
+      update() { this.decorations = buildFindDecorations() }
+    }, { decorations: (plugin) => plugin.decorations })
+  }
+
+  function buildFindDecorations() {
+    const length = findQuery.trim().length
+    if (!findOpen || !length || !findHits.length) return Decoration.none
+    const builder = new RangeSetBuilder<Decoration>()
+    for (const [position, start] of findHits.entries()) {
+      builder.add(start, start + length, Decoration.mark({ class: position === findIndex ? 'cm-find-match cm-find-current' : 'cm-find-match' }))
+    }
+    return builder.finish()
+  }
+
+  function findExtensions() {
+    return [findDecorations()]
+  }
 
   // These three are SIDE EFFECTS, not derivations: they reach into CodeMirror
   // rather than producing a value. Converting them to $derived would silently
@@ -118,8 +228,45 @@
       // normally this style would sit below that one and never paint a single
       // token — the change would look applied and do nothing.
       Prec.highest(syntaxHighlighting(liteApiHighlightStyle, { fallback: true })),
+      // Prec.highest again, and for the same structural reason: basicSetup's
+      // searchKeymap also claims Mod-f, and an appended keymap would lose to
+      // it and open the floating panel this replaces. `stopPropagation` is the
+      // other half — returning true stops CodeMirror, but the app's global ⌘F
+      // listens further up the tree and would still fire the sidebar search on
+      // top of the find bar.
+      Prec.highest(keymap.of([
+        { key: 'Mod-f', run: () => { openFind(); return true }, stopPropagation: true },
+        { key: 'Mod-g', run: () => { stepFind(1); return true }, stopPropagation: true },
+        { key: 'Shift-Mod-g', run: () => { stepFind(-1); return true }, stopPropagation: true }
+      ])),
+      // Escape is deliberately NOT in the keymap above.
+      //
+      // CodeMirror merges every binding for a key into ONE record and ORs their
+      // `stopPropagation` flags (view/dist/index.js:9122), then applies the
+      // merged flag whenever ANY command in that record succeeds
+      // (index.js:9166). So a `{ key: 'Escape', stopPropagation: true }` entry
+      // whose own `run` DECLINES still muzzles the binding that accepted:
+      // pressing Escape with a selection and the find bar closed ran
+      // basicSetup's `simplifySelection`, and our flag then stopped the event
+      // before the app's global handler could cancel an in-flight request. The
+      // request kept running and a second Escape was needed — which review
+      // caught and which no test could have, since both halves are correct in
+      // isolation.
+      //
+      // A DOM handler gets the event itself, so propagation is stopped only on
+      // the path that actually handled it.
+      Prec.highest(EditorView.domEventHandlers({
+        keydown: (event) => {
+          if (event.key !== 'Escape' || !findOpen) return false
+          closeFind()
+          event.preventDefault()
+          event.stopPropagation()
+          return true
+        }
+      })),
       lintGutter(),
       configurationCompartment.of(configurationExtensions()),
+      findCompartment.of(findExtensions()),
       EditorView.updateListener.of((update) => {
         if (!update.docChanged || suppressChange) return
         const next = update.state.doc.toString()
@@ -153,13 +300,27 @@
       '.cm-gutters': { backgroundColor: 'var(--surface-raised, var(--surface-soft))', color: 'var(--muted)', borderRight: '1px solid var(--border)' },
       '.cm-activeLine, .cm-activeLineGutter': { backgroundColor: 'var(--surface-hover, var(--accent-tint))' },
       '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': { backgroundColor: 'var(--selection-bg, var(--focus-ring-strong))' },
-      '.cm-searchMatch': { backgroundColor: 'var(--warning-bg-soft)', outline: '1px solid var(--warning-border)' },
-      '.cm-searchMatch-selected': { backgroundColor: 'var(--accent-soft)', outline: '1px solid var(--accent)' },
+      // The find bar's own highlight. Deliberately the SAME pairing the
+      // response pane uses for `<mark>` — a warning-tinted hit, an accent-tinted
+      // current hit — so a user who has searched a response body already knows
+      // what the editor is telling them.
+      '.cm-find-match': { backgroundColor: 'var(--warning-bg-soft)', outline: '1px solid var(--warning-border)', borderRadius: '2px' },
+      '.cm-find-current': { backgroundColor: 'var(--accent-soft)', outline: '1px solid var(--accent)' },
       '.cm-tooltip': { backgroundColor: 'var(--surface-raised, var(--surface-soft))', color: 'var(--text)', border: '1px solid var(--border)' },
-      '.cm-variable': { borderRadius: '2px' },
-      '.cm-variable-valid': { backgroundColor: 'var(--accent-soft)' },
-      '.cm-variable-missing, .cm-variable-invalid': { backgroundColor: 'var(--danger-bg-soft)', textDecoration: 'wavy underline var(--danger)' },
-      '.cm-variable-secret': { borderBottom: '1px dotted var(--warning-strong)' },
+      // The variable chip is styled ONCE, globally, in style.css — not here.
+      //
+      // These four lines were the source of every divergence the audit
+      // measured: a hardcoded 2px radius where the rest of the app uses the
+      // token scale, --accent-soft where every other surface uses
+      // --accent-tint, a wavy red underline that appears nowhere else, and a
+      // dotted-underline secret treatment unique to this editor. Worse, they
+      // OVERLAPPED style.css's own .cm-variable-valid rule, so the editor chip
+      // took its radius from one and its fill from the other.
+      //
+      // The decoration still emits `.cm-variable`/`.cm-variable-*`; those class
+      // names are now matched by the same global rules the plain-text overlays
+      // and the inspector strip use, so all three surfaces agree by
+      // construction rather than by three people remembering to.
       '@media (prefers-contrast: more)': { '.cm-content': { textDecorationThickness: '2px' }, '.cm-focused': { outline: '2px solid var(--accent)' } },
       '@media (prefers-reduced-motion: reduce)': { '.cm-scroller': { scrollBehavior: 'auto' } }
     }
@@ -352,12 +513,48 @@
 </script>
 
   <div class="code-editor" data-testid={testId}>
-  <div class="code-editor-toolbar"><button type="button" data-testid="editor-search-control" onclick={() => view && openSearchPanel(view)}>Search</button>{#if language === 'json' || language === 'xml'}<button type="button" data-testid="editor-format-control" disabled={!valid || large || validation === 'Empty'} onclick={format}>Format</button><button type="button" data-testid="editor-minify-control" disabled={!valid || large || validation === 'Empty'} onclick={minify}>Minify</button>{/if}<span>{fontSize}px</span><span data-testid="editor-validation" aria-live="polite" class:invalid={!valid}>{validation}</span></div>
+  <PaneToolbar ariaLabel="Editor actions" testId="editor-toolbar">
+    {#snippet left()}{@render toolbarStart?.()}{/snippet}
+    {#snippet middle()}
+      <!--
+        aria-live moved OFF the message and onto a wrapper that is always
+        present. On the message itself the whole element was replaced on every
+        keystroke, so a screen reader re-announced "Valid JSON" for each
+        character typed.
+      -->
+      <span aria-live="polite"><span data-testid="editor-validation" class:invalid={!valid}>{validation}</span></span>
+    {/snippet}
+    {#snippet right()}
+      {#if language === 'json' || language === 'xml'}
+        <IconButton icon="format" label="Format" testId="editor-format-control" disabled={!valid || large || validation === 'Empty'} onclick={format} />
+        <IconButton icon="minify" label="Minify" testId="editor-minify-control" disabled={!valid || large || validation === 'Empty'} onclick={minify} />
+      {/if}
+      <IconButton icon="search" label="Find in editor" testId="editor-search-control" pressed={findOpen} onclick={() => (findOpen ? closeFind() : openFind())} />
+    {/snippet}
+  </PaneToolbar>
+  {#if findOpen}
+    <div class="code-editor-find">
+      <FindBar
+        bind:this={findBar}
+        value={findQuery}
+        onChange={(next) => { findQuery = next; findIndex = 0; if (next.trim()) queueMicrotask(revealMatch) }}
+        ariaLabel="Find in editor"
+        placeholder="Find in editor"
+        total={findQuery.trim() ? findHits.length : undefined}
+        activeMatch={findIndex}
+        onStep={stepFind}
+        noun="matches"
+        testId="editor-find-bar"
+      />
+    </div>
+  {/if}
   {#if large}<div class="editor-large" data-testid="editor-large-mode">Large document: syntax parsing, variable marking, and format controls are disabled; full content remains editable and searchable.</div>{/if}
   <div bind:this={host} data-testid={`${testId}-surface`}></div>
   {#if editorVariables.length}<details class="editor-variables"><summary>Variables in this editor ({editorVariables.length})</summary>{#each editorVariables as variable, index (index)}<div class={`editor-variable ${variable.state}`}><strong>{variable.token}</strong> · {variable.scope} · {variable.secret ? 'secret value hidden' : variable.state === 'valid' ? variable.resolvedValue : variable.state}</div>{/each}</details>{/if}
 </div>
 
 <style>
-  .code-editor{border:1px solid var(--border);border-radius:6px;overflow:hidden}.code-editor-toolbar{display:flex;gap:6px;align-items:center;padding:5px;border-bottom:1px solid var(--border)}.code-editor-toolbar span{font-size:11px;color:var(--muted)}.invalid{color:var(--danger)!important}.editor-large{padding:6px 8px;color:var(--warning-strong);font-size:11px;background:var(--warning-bg-soft)}.editor-variables{padding:6px 8px;font-size:11px;border-top:1px solid var(--border)}.editor-variable.missing,.editor-variable.invalid{color:var(--danger)}
+  .code-editor{border:1px solid var(--border);border-radius:var(--radius-6);overflow:hidden}
+  .code-editor-find{padding:var(--space-6) var(--space-10);border-bottom:1px solid var(--border-subtle);background:var(--surface-alt)}
+  .invalid{color:var(--danger)!important}.editor-large{padding:6px 8px;color:var(--warning-strong);font-size:11px;background:var(--warning-bg-soft)}.editor-variables{padding:6px 8px;font-size:11px;border-top:1px solid var(--border)}.editor-variable.missing,.editor-variable.invalid{color:var(--danger)}
 </style>

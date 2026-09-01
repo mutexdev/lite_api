@@ -76,6 +76,7 @@ test('the test ids every action carries are the ones already in the markup', () 
   assert.deepEqual(Object.fromEntries(ids), {
     'new-request': 'collection-item-menu-new-request',
     'new-flow': 'collection-item-menu-new-flow',
+    'run-collection': 'collection-item-menu-run-collection',
     reveal: 'collection-item-menu-show-in-folder',
     'generate-code': 'collection-item-menu-generate-code',
     info: 'collection-item-menu-info',
@@ -151,11 +152,11 @@ test('an unbound action renders no shortcut hint at all', () => {
 // New Flow is on the collection and ONLY on the collection: flows live in the
 // collection's root config file and carry no folder path, so offering it on a
 // folder would promise a placement that does not exist.
-test('a collection offers the creating actions only, New Flow among them', () => {
+test('a collection offers the creating actions and Run, New Flow among them', () => {
   const collection: SidebarObject = { kind: 'collection', collectionId: 'c1', folder: '', itemId: '', label: 'Alpha' }
   assert.deepEqual(
     sidebarActionsFor(collection, context).map((action) => action.id),
-    ['new-request', 'new-folder', 'new-flow']
+    ['new-request', 'new-folder', 'new-flow', 'run-collection']
   )
   for (const object of [folder, request]) {
     assert.ok(
@@ -163,6 +164,32 @@ test('a collection offers the creating actions only, New Flow among them', () =>
       `New Flow should not be offered on a ${object.kind}`
     )
   }
+})
+
+// RUN LIVES ON THE COLLECTION AND NOWHERE ELSE, which is the whole point of
+// moving it off the top bar: a Run button beside the environment picker offered
+// to run "the collection" from screens where no collection was in view, and
+// picked one by falling back. Here the object IS the collection, so there is
+// nothing to fall back to — and a folder or a request must not inherit the
+// entry, because neither is a thing the runner can be pointed at.
+test('Run collection is offered on a collection only', () => {
+  const collection: SidebarObject = { kind: 'collection', collectionId: 'c1', folder: '', itemId: '', label: 'Alpha' }
+  assert.ok(sidebarActionsFor(collection, context).some((action) => action.id === 'run-collection'))
+  for (const object of [folder, request]) {
+    assert.ok(
+      !sidebarActionsFor(object, context).some((action) => action.id === 'run-collection'),
+      `Run collection should not be offered on a ${object.kind}`
+    )
+  }
+})
+
+test('Run collection is labelled the way the command palette labels it', () => {
+  const collection: SidebarObject = { kind: 'collection', collectionId: 'c1', folder: '', itemId: '', label: 'Alpha' }
+  const run = sidebarActionsFor(collection, context).find((action) => action.id === 'run-collection')
+  assert.equal(run?.label, 'Run collection')
+  // Not destructive, and not adjacent to anything that is: it sits with the
+  // creating actions, five rows above Delete on the objects that offer both.
+  assert.equal(run?.tone, undefined)
 })
 
 test('a response example row maps to no object, because its actions belong to its request', () => {
@@ -173,5 +200,57 @@ test('a response example row maps to no object, because its actions belong to it
   assert.deepEqual(
     sidebarObjectForRow({ kind: 'request', collectionId: 'c1', folder: 'auth', itemId: 'r1', label: 'Login' }),
     { kind: 'request', collectionId: 'c1', folder: 'auth', itemId: 'r1', label: 'Login' }
+  )
+})
+
+// ── Flows ───────────────────────────────────────────────────────────────────
+//
+// The flow row was the one row type with no ⋯ menu at all, so a flow could not
+// be deleted from the sidebar — only from inside its own open tab. It now
+// answers the same question every other object answers.
+
+const flow: SidebarObject = { kind: 'flow', collectionId: 'c1', folder: '', itemId: 'f1', label: 'Signup' }
+
+test('a flow offers the two actions that have real handlers behind them', () => {
+  assert.deepEqual(sidebarActionsFor(flow, context).map((action) => action.id), ['reveal', 'delete'])
+})
+
+// RENAME IS ABSENT ON PURPOSE, and this test is the guard on that reasoning
+// rather than on the omission: there is no RenameFlowModal, so listing Rename
+// would put an entry in the menu that opens nothing — the same dead-promise
+// failure the ⌘R and ⌘D bindings in Preferences shipped with for a year. When
+// the dialog lands, this test changes in the same commit.
+test('a flow does not advertise an action the app cannot perform', () => {
+  const ids = sidebarActionsFor(flow, context).map((action) => action.id)
+  assert.ok(!ids.includes('rename'))
+  assert.ok(!ids.includes('clone'))
+  // Nor the container actions: nothing is created inside a flow from the tree.
+  assert.ok(!ids.includes('new-request'))
+  assert.ok(!ids.includes('new-folder'))
+  assert.ok(!ids.includes('new-flow'))
+})
+
+test('delete is still last and alone once flows are in the registry', () => {
+  const actions = sidebarActionsFor(flow, context)
+  assert.equal(actions.at(-1)?.id, 'delete')
+  assert.equal(actions.at(-1)?.tone, 'danger')
+})
+
+test('a flow row resolves to a flow object, carrying the flow id', () => {
+  const object = sidebarObjectForRow({
+    kind: 'flow', collectionId: 'c1', folder: '', itemId: 'f1', label: 'Signup'
+  })
+
+  assert.deepEqual(object, { kind: 'flow', collectionId: 'c1', folder: '', itemId: 'f1', label: 'Signup' })
+})
+
+// An example row still has no actions of its own: it is a view of a request,
+// and the request's own menu is one row up. Re-pinned here because widening
+// sidebarObjectForRow to admit flows is exactly the edit that would let an
+// example slip through with it.
+test('a response example row still resolves to no object', () => {
+  assert.equal(
+    sidebarObjectForRow({ kind: 'example', collectionId: 'c1', folder: '', itemId: 'r1', label: 'OK' }),
+    undefined
   )
 })

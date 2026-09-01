@@ -11,6 +11,7 @@
   // missed prop names, the second got all 35 names right and all 37 signatures
   // wrong. importReadyRows, for instance, reads like a count and is a
   // CollectionImportPreviewRow[].
+  import PageHeader from '../ui/PageHeader.svelte'
   import type { core, types } from '../../../wailsjs/go/models'
 
   // Mirrors App.svelte's local types; neither is exported from an importable
@@ -62,22 +63,19 @@
   export let updateImportDecision: (candidateID: string, update: Partial<ImportDecision>) => void
   export let updateImportOverride: (row: core.CollectionImportPreviewRow, kindOverride: string) => void
   export let toggleImportChild: (row: core.CollectionImportPreviewRow, kind: 'folders' | 'environments' | 'requests', id: string, selected: boolean) => void
-  export let exportCollection: () => void
   export let scanGitCollections: () => void
   export let cloneGitRepository: () => void
   export let checkGitVersion: () => void
 </script>
 
         <section class="panel import-panel">
-          <header class="panel-header">
-            <div>
-              <h2>Import</h2>
-              <p class="panel-subtitle">Choose local files first, review the plan, then import the selected valid sources.</p>
-            </div>
-            <div class="toolbar">
-              <button on:click={exportCollection}>Export active</button>
-            </div>
-          </header>
+          <!-- No subtitle: "choose files, review, import" described the source
+               tabs and the Apply button that are directly below it. No "Export
+               active" either — exporting a collection is a collection action
+               and it is on the collection page's Share Collection. This header
+               was the only place in the app where the way OUT lived inside the
+               way IN. -->
+          <PageHeader title="Import" />
           <nav class="import-source-tabs" aria-label="Import source">
             {#each [['files', 'Files'], ['url', 'URL'], ['paste', 'Paste'], ['git', 'Git repository']] as [mode, label] (mode)}
               <button type="button" aria-pressed={importSourceMode === mode} class:active={importSourceMode === mode} on:click={() => selectImportSourceMode(mode as ImportSourceMode)}>{label}</button>
@@ -105,7 +103,7 @@
                 <input id="import-url" bind:value={importURL} placeholder="https://example.com/collection.json" />
                 <button class="primary" type="button" on:click={previewURLImport} disabled={busy !== '' || !importURL.trim()}>Preview URL</button>
               </div>
-              <p class="panel-subtitle">URL credentials are rejected. Signed query URLs are fetched by LiteAPI but never shown in the plan.</p>
+              <p class="import-hint">URL credentials are rejected. Signed query URLs are fetched by LiteAPI but never shown in the plan.</p>
             {:else if importSourceMode === 'paste'}
               <div class="import-inline-form paste-import-form">
                 <label for="import-paste-name">Safe display name</label>
@@ -190,3 +188,15 @@
             <p class="import-live" aria-live="polite">{importStatus}</p>
           </div>
         </section>
+
+<style>
+  /* Was `.panel-subtitle`, a header class borrowed for a paragraph in the
+     middle of a form. That class is gone with the old headers, and this
+     sentence is not a subtitle: it is what LiteAPI does with a URL you paste,
+     and it has to stay next to the field it is about. */
+  .import-hint {
+    margin: var(--space-4) 0 0;
+    color: var(--muted-strong);
+    font-size: var(--font-size-12);
+  }
+</style>

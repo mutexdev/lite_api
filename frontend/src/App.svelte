@@ -1,10 +1,13 @@
 <script lang="ts">
 	  import { onDestroy, onMount, tick } from 'svelte'
+  import AuthForm from './lib/AuthForm.svelte'
 	  import FileBodyTable from './lib/FileBodyTable.svelte'
 	  import KeyValueTable from './lib/KeyValueTable.svelte'
 	  import MultipartTable from './lib/MultipartTable.svelte'
-	  import OAuth2AdditionalParams from './lib/OAuth2AdditionalParams.svelte'
+  import SecretInput from './lib/SecretInput.svelte'
+  import VariableChip from './lib/VariableChip.svelte'
   import VariableTextOverlay from './lib/VariableTextOverlay.svelte'
+  import VariableTooltip from './lib/VariableTooltip.svelte'
   import RequestCommandStrip from './lib/workbench/RequestCommandStrip.svelte'
   import ResponseInspector from './lib/workbench/ResponseInspector.svelte'
   import {
@@ -192,7 +195,8 @@
     type FlowProgressEvent,
     type FlowRunProgress
   } from './lib/flowView'
-  import { unresolvedHeaderVariables, unresolvedVariableMessage } from './lib/unresolvedVariables'
+  import { normalizeApiKeyPlacement } from './lib/authFields'
+  import { unresolvedRequestVariables, unresolvedVariableMessage } from './lib/unresolvedVariables'
   import {
     addBackgroundNotice,
     backgroundNoticeLabel,
@@ -209,6 +213,28 @@
   import SidebarActionMenu from './lib/sidebar/SidebarActionMenu.svelte'
   import TreeChevron from './lib/sidebar/TreeChevron.svelte'
   import SidebarSearch from './lib/SidebarSearch.svelte'
+  import Icon from './lib/ui/Icon.svelte'
+  import IconButton from './lib/ui/IconButton.svelte'
+  import PageHeader from './lib/ui/PageHeader.svelte'
+  import PaneToolbar from './lib/ui/PaneToolbar.svelte'
+  import SegmentedControl from './lib/ui/SegmentedControl.svelte'
+  import PreferencesPanel from './lib/views/preferences/PreferencesPanel.svelte'
+  import { statusTone, toneClass } from './lib/statusTone'
+  import {
+    bodyFormatOptions,
+    bodyModeOptions,
+    contentTypeHint,
+    formatOf,
+    modeOf,
+    recallFormat,
+    rememberFormat,
+    storedBodyModeOptions,
+    storedForFormat,
+    storedForMode,
+    type BodyFormat,
+    type BodyMode,
+    type FormatMemory
+  } from './lib/workbench/bodyMode'
   import RequestSettingsPanel from './lib/workbench/RequestSettingsPanel.svelte'
   import ProtocolRequestLine from './lib/workbench/ProtocolRequestLine.svelte'
   import WorkspaceCommandBar from './lib/workbench/WorkspaceCommandBar.svelte'
@@ -448,8 +474,7 @@
   } from './lib/globalSearch'
   import {
     fallbackVariableTooltipInfo,
-    urlVariableSegments,
-    type URLVariableSegment
+    urlVariableSegments
   } from './lib/urlSegments'
   import {
     collectionProxyMode,
@@ -518,7 +543,7 @@
   type DevToolsNetworkSortKey = 'method' | 'status' | 'domain' | 'path' | 'time' | 'duration' | 'size'
   type DevToolsNetworkSortDirection = '' | 'asc' | 'desc'
   type DevToolsNetworkDetailTab = 'request' | 'response' | 'network'
-  type RequestPaneTab = 'params' | 'body' | 'headers' | 'auth' | 'vars' | 'script' | 'assert' | 'tests' | 'docs' | 'app' | 'settings'
+  type RequestPaneTab = 'params' | 'body' | 'headers' | 'auth' | 'vars' | 'script' | 'assert' | 'tests' | 'docs' | 'settings'
   type ResponseTab = 'response' | 'headers' | 'metadata' | 'trailers' | 'timeline' | 'console' | 'tests' | 'visualizer' | 'examples'
   type CollectionTab = 'overview' | 'folders' | 'headers' | 'vars' | 'auth' | 'presets' | 'mock' | 'docs' | 'proxy' | 'clientCert' | 'protobuf' | 'script' | 'tests'
   type FolderSettingsTab = 'headers' | 'vars' | 'auth' | 'script' | 'tests' | 'docs'
@@ -759,6 +784,20 @@
   let collectionWatchPollTimer: ReturnType<typeof window.setInterval> | undefined
   let collectionWatchRefreshInFlight = $state(false)
   let dotEnvEditorMode = $state<DotEnvEditorMode>('table')
+  /**
+   * A5-10. A `.env` file is `name=value` lines and has nowhere to store a
+   * per-row secret flag, so "which of these is a secret" is not a question the
+   * file can answer — but it IS the screen where people paste raw keys, and it
+   * was the one variable surface in the app with no secret concept at all, not
+   * even the Environment tables' non-functional checkbox.
+   *
+   * So masking is a property of the VIEW rather than of the row: one switch
+   * covers the whole table, and SecretInput's own Show reveals one value at a
+   * time under it. Not persisted — see SecretInput for why a reveal that
+   * survived a remount would be the wrong default, and the same reasoning
+   * applies to the switch that turns masking off.
+   */
+  let dotEnvMaskValues = $state(false)
   let systemThemeMode = $state<'light' | 'dark'>('light')
   let systemThemeQuery: MediaQueryList | undefined
   let removeSystemThemeListener: (() => void) | undefined
@@ -808,6 +847,10 @@
 			  let openAPISpecDiffActiveChangeIndex = $state(0)
 			  let requestSearch = $state('')
   let requestSearchInput = $state<HTMLInputElement | undefined>()
+  // D1 — the find bar is chrome only while it is in use. A query holds it open
+  // on its own (SidebarSearch renders on `open || value !== ''`), so this is the
+  // "somebody asked for it" half and not the whole visibility rule.
+  let sidebarSearchOpen = $state(false)
   let requestURLInput = $state<HTMLInputElement | undefined>()
   let sidebarCollapsed = $state(false)
   let sidebarWidth = $state(DEFAULT_SIDEBAR_WIDTH)
@@ -1062,12 +1105,13 @@
     { id: 'assert', label: 'Assert' },
     { id: 'tests', label: 'Tests' },
     { id: 'docs', label: 'Docs' },
-    { id: 'app', label: 'App' },
     { id: 'settings', label: 'Settings' }
   ]
 
   const responseTabs: { id: ResponseTab; label: string }[] = [
-    { id: 'response', label: 'Response' },
+    // D5. Inside a pane called Response, a tab called Response named nothing;
+    // the id stays 'response' because it is persisted in the workbench layout.
+    { id: 'response', label: 'Body' },
     { id: 'headers', label: 'Headers' },
     { id: 'metadata', label: 'Metadata' },
     { id: 'trailers', label: 'Trailers' },
@@ -1131,14 +1175,17 @@
   ]
 
   const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'TRACE']
-  const bodyModes = ['none', 'json', 'text', 'xml', 'formUrlEncoded', 'multipartForm', 'file', 'graphql']
-  const authModes = ['none', 'inherit', 'basic', 'bearer', 'apikey', 'oauth2', 'awsv4', 'digest', 'ntlm', 'oauth1', 'wsse']
-  const oauth2GrantTypes = ['client_credentials', 'password', 'authorization_code', 'implicit']
-  const oauth2CredentialPlacements = ['basic_auth_header', 'body']
-  const oauth2TokenPlacements = ['header', 'url']
-  const oauth2TokenSources = ['access_token', 'id_token']
-  const oauth1SignatureMethods = ['HMAC-SHA1', 'HMAC-SHA256', 'HMAC-SHA512', 'RSA-SHA1', 'RSA-SHA256', 'RSA-SHA512', 'PLAINTEXT']
-  const oauth1Placements = ['header', 'query', 'body']
+  // `bodyModes` is gone: the picker no longer lists stored values directly.
+  // See lib/workbench/bodyMode.ts — the eight stored modes are presented as six
+  // segments plus a format, so "how am I sending this" stops being asked in the
+  // same breath as "in what syntax".
+
+  // The seven auth option lists that used to live here are gone with the four
+  // forms that read them. They are now in lib/authFields.ts, beside the fields
+  // they belong to, because a list of grant types kept in one file and the form
+  // that renders it kept in another is exactly how folder level came to offer
+  // `queryparams` where every other level offered `query`.
+
   function cloneCollectionDefaultLocation() {
     const preferred = appState?.preferences?.general?.defaultLocation || appState?.preferences?.defaultCollectionPath || ''
     return preferred || activeWorkspace?.path || ''
@@ -1664,15 +1711,27 @@
     return result.value
   })())
   /**
-   * The warning shown when a header references a variable nothing will supply.
+   * The warning shown when the request references a variable nothing supplies.
    *
-   * Resolution is delegated to findTooltipVariable, the same lookup the
+   * A5-09. This scanned HEADERS and nothing else, which was never the shape of
+   * the problem — it was simply where the first bug report came from. An
+   * unresolved `{{token}}` in a Bearer field, a query param, or a JSON body is
+   * sent as literal braces exactly the same way, comes back 401 or 400 exactly
+   * the same way, and had nothing at all on screen connecting the two. Auth was
+   * the worst of them: the credential is the one field where sending the
+   * literal text `{{token}}` cannot possibly be what was meant.
+   *
+   * The scan now covers the whole request (lib/unresolvedVariables.ts), and the
+   * auth half of it is driven by `authFields.ts` — the same schema the form
+   * renders — so a field added to the form cannot be forgotten by the scanner.
+   *
+   * Resolution is still delegated to findTooltipVariable, the same lookup the
    * variable tooltips use, so this cannot disagree with what the inspector
    * tells the user about the same name. `process.env.*` is checked against the
    * values the backend supplied rather than the variable scopes, since that is
    * where those come from.
    */
-  const unresolvedHeaderWarning = $derived((() => {
+  const unresolvedRequestWarning = $derived((() => {
     if (!activeWorkspace || !activeCollection || !activeRequest) return ''
     const workspace = activeWorkspace
     const collection = activeCollection
@@ -1682,7 +1741,7 @@
       name.startsWith('process.env.')
         ? processEnvTooltipValues[name] !== undefined
         : Boolean(findTooltipVariable(name, workspace, collection, request, environmentId))
-    return unresolvedVariableMessage(unresolvedHeaderVariables(request.headers, resolves))
+    return unresolvedVariableMessage(unresolvedRequestVariables(request, resolves))
   })())
   /**
    * How many test rows on the active response failed.
@@ -2104,9 +2163,10 @@
   }
 
 
-  function isValidURLVariableSegment(segment: URLVariableSegment) {
-    return segment.variable && segment.info.found && segment.info.validName
-  }
+  // isValidURLVariableSegment is gone with the URL bar's hand-rolled chip. It
+  // collapsed found/validName/secret into one boolean, which is precisely the
+  // two-state vocabulary A5-07 found; lib/variableChipState.ts makes the same
+  // decision with all five states and is asserted rather than inlined.
 
 
 
@@ -2152,15 +2212,10 @@
     variableTooltips.toggleActive(name)
   }
 
-  function handleInlineVariableTokenKey(event: KeyboardEvent, name: string) {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      toggleActiveVariableTooltip(name)
-    } else if (event.key === 'Escape') {
-      event.preventDefault()
-      variableTooltips.close()
-    }
-  }
+  // The Enter/Space/Escape handling this used to do now lives in
+  // VariableChip.svelte, where both surfaces get it. The inspector chip never
+  // had it — it was a plain <button>, so Escape did nothing there while the
+  // identical-looking chip in the URL bar closed its tooltip.
 
   function closeVariableTooltipOnOutside(event: MouseEvent) {
     const target = event.target as HTMLElement | null
@@ -2364,7 +2419,6 @@
         values: Object.fromEntries(prompts.map((prompt) => [prompt, ''])),
         resolve
       }
-      window.setTimeout(() => document.querySelector<HTMLInputElement>('.prompt-dialog input')?.focus(), 0)
     })
   }
 
@@ -2448,7 +2502,6 @@
     editingResponseExampleID = ''
     editingResponseExampleDetailsID = ''
     await tick()
-    createResponseExampleInput?.focus()
     createResponseExampleInput?.select()
   }
 
@@ -2479,6 +2532,27 @@
 
   function tabMethod(tab: types.OpenTab) {
     return tabMethodFor(tab, activeWorkspace?.collections)
+  }
+
+  /**
+   * D6 — whether a tab has work in it that is not on disk.
+   *
+   * Same rule the request strip's Save button uses (`transient || draft`, in
+   * commandState.ts), applied per tab rather than only to the active one. The
+   * per-tab part is the whole point: the SAVED chip this replaces sat in the
+   * request strip and could therefore only ever describe the request already in
+   * front of you, which is the one whose state you could already see.
+   *
+   * A tab whose item no longer resolves falls back to its own `transient` flag
+   * rather than to "clean" — an unresolvable transient tab is exactly the one
+   * where closing loses the request, so guessing clean is the expensive guess.
+   */
+  function tabIsDirty(tab: types.OpenTab) {
+    if (tab.kind === 'response-example') return false
+    const collection = activeWorkspace?.collections?.find((candidate) => candidate.id === tab.collectionId)
+    const item = collection?.items?.find((candidate) => candidate.id === tab.itemId)
+    if (!item) return Boolean(tab.transient)
+    return requestIsTransient(collection, item) || Boolean(item.draft)
   }
 
   let collapsedSidebarCollections = $state<Record<string, boolean>>({})
@@ -3308,7 +3382,17 @@
     if (!activeCollection || activeCollectionRun || busy !== '') return
     const collection = activeCollection
     const selectedItemIds = runnerSelectedItemIds.filter((id) => runnerConfigItems.some((item) => item.id === id))
-    if (selectedItemIds.length === 0) return
+    if (selectedItemIds.length === 0) {
+      // An empty runner selection used to end here: the button took the click
+      // and did nothing at all, with nothing on screen to teach the user that a
+      // selection was what it wanted. Showing the Runner ANSWERS the question
+      // the click asked — "what would this run?" — instead of discarding it.
+      //
+      // Deliberately not paired with disabling the button. A control that
+      // always does something must not also look unavailable.
+      activeView = 'runner'
+      return
+    }
     const environmentId = selectedEnvironmentId
     const viewAtStart = activeView
     await runAction('run collection', async () => {
@@ -3591,15 +3675,6 @@
     })
   }
 
-  async function exportCollection() {
-    if (!activeCollection) return
-    await runAction('export collection', async () => {
-      const result = await ExportCollectionWithOptions(activeCollection.id, { format: 'yaml' } as types.CollectionExportOptions)
-      exportText = result.content ?? ''
-      activeView = 'import'
-    })
-  }
-
   function importDecisionFor(row: core.CollectionImportPreviewRow): ImportDecision {
     return importDecisions[row.candidateId] ?? defaultImportDecision(row)
   }
@@ -3806,7 +3881,6 @@
     if (hasReplaceImportSelection(importPreview?.rows ?? [], importDecisions)) {
       importReplaceConfirmationReturnFocus = importApplyButton ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
       importReplaceConfirmationOpen = true
-      void tick().then(() => importReplaceConfirmationCancelButton?.focus({ preventScroll: true }))
       return
     }
     void applyPlannedImport()
@@ -4351,7 +4425,6 @@
       targetTabIDs: tabs.map((tab) => tab.id),
       returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null
     }
-    void tick().then(() => tabLifecycleCancelButton?.focus({ preventScroll: true }))
   }
 
   async function dismissTabLifecycleDialog() {
@@ -5766,6 +5839,38 @@
 	    patchRequest({ body: { ...activeRequest.body, ...updates } } as types.RequestPatch)
 	  }
 
+  /**
+   * Which raw format each request was last using.
+   *
+   * A plain Map rather than $state: nothing renders from it, it is only read in
+   * a click handler, and making it reactive would re-render the body pane on a
+   * bookkeeping write. Not persisted, and it does not need to be — the stored
+   * mode is authoritative whenever the request is actually raw. This only has
+   * to survive the detour, not the session.
+   */
+  const bodyFormatMemory: FormatMemory = new Map()
+
+  /**
+   * Switching body mode, remembering the raw format across the detour.
+   *
+   * Review caught the version this replaces: it passed only the mode being
+   * LEFT, which remembers exactly one hop. `xml → none → raw` came back as
+   * JSON, so the XML body vanished from the editor and the request went out as
+   * application/json — silently, with no edit and no error. See bodyMode.ts.
+   */
+  function changeBodyMode(next: BodyMode) {
+    if (!activeRequest) return
+    rememberFormat(bodyFormatMemory, activeRequest.id, activeRequest.body.mode)
+    const remembered = recallFormat(bodyFormatMemory, activeRequest.id, activeRequest.body.mode)
+    updateBody({ mode: storedForMode(next, activeRequest.body.mode, remembered) })
+  }
+
+  function changeBodyFormat(format: BodyFormat) {
+    if (!activeRequest) return
+    bodyFormatMemory.set(activeRequest.id, format)
+    updateBody({ mode: storedForFormat(format) })
+  }
+
 	  function updateFormUrlEncodedRow(index: number, field: keyof types.KeyValue, value: string | boolean) {
 	    if (!activeRequest) return
 	    const rows = [...(activeRequest.body.formUrlEncoded ?? [])]
@@ -6055,6 +6160,22 @@
     if (!activeCollection) return
     const vars = [...(activeCollection.variables ?? []), { id: `ui-var-${Date.now()}`, name: '', value: '', type: 'text', dataType: 'string', enabled: true, secret: false }]
     applyStateMutation('Collection variable could not be added', UpdateCollectionVariables(activeCollection.id, vars))
+  }
+
+  /**
+   * Removing a collection variable.
+   *
+   * There was no way to do this. Every comparable table in the app — folder
+   * variables, environment variables, headers, params — has had one all along,
+   * so a variable added by mistake could only be blanked out. A blank row is
+   * not the same as no row: it still resolves, still shadows an outer scope,
+   * and still travels to disk.
+   */
+  function removeCollectionVariable(index: number) {
+    if (!activeCollection) return
+    const vars = [...(activeCollection.variables ?? [])]
+    vars.splice(index, 1)
+    applyStateMutation('Collection variable could not be removed', UpdateCollectionVariables(activeCollection.id, vars))
   }
 
   function updateEnvironmentVariable(index: number, field: keyof types.Variable, value: string | boolean) {
@@ -7200,6 +7321,23 @@
     }
   }
 
+  /**
+   * A5-04. `apiLocation` is normalised on the way out, and that is a data fix
+   * rather than a tidy-up.
+   *
+   * The folder form persisted `queryparams` for the placement the request,
+   * collection and collection-settings forms all persisted as `query`. The Go
+   * side does not treat those as synonyms: internal/core/app_request_build.go
+   * is `if auth.APILocation == "query"` with HEADER as the else branch. So a
+   * folder configured through its own UI, which said "Query params" on screen,
+   * has been sending the API key as a header ever since — silently, wrongly,
+   * and with the screen agreeing with the user rather than with the wire.
+   *
+   * Normalising here migrates such a folder the next time anything on its auth
+   * is saved. Folders nobody edits again stay wrong until a one-off migration
+   * runs on the Go side; that is the handoff's ask, not something the form can
+   * reach.
+   */
   function folderAuthWithDefaults(updates: Partial<types.AuthConfig> = {}) {
     const current = editableFolder?.auth ?? activeFolder?.auth ?? ({} as types.AuthConfig)
     const base = {
@@ -7210,12 +7348,15 @@
       token: current.token || '',
       apiKey: current.apiKey || '',
       apiValue: current.apiValue || '',
-      apiLocation: current.apiLocation || 'header',
+      apiLocation: normalizeApiKeyPlacement(current.apiLocation),
       oauth2: oauth2AuthWithDefaults(current.oauth2),
       oauth1: current.oauth1 ?? ({} as types.OAuth1Auth),
       awsv4: current.awsv4 ?? ({} as types.AWSV4Auth),
       ...updates
     } as types.AuthConfig
+    // Again after the spread, because `updates` carries whatever the form just
+    // wrote and a stale draft could still put the old spelling back.
+    base.apiLocation = normalizeApiKeyPlacement(base.apiLocation)
     return authWithOAuth2Defaults(base, updates)
   }
 
@@ -7313,6 +7454,33 @@
 
   async function updateFolderOAuth2Auth(updates: Partial<types.OAuth2Auth>) {
     await updateFolderAuth({ oauth2: { ...(editableFolder?.auth?.oauth2 ?? activeFolder?.auth?.oauth2 ?? {}), ...updates } as types.OAuth2Auth })
+  }
+
+  /*
+    The three additional-param buckets existed at request and collection level
+    and at folder level did not — not disabled, not empty, absent. They are part
+    of `types.OAuth2Auth`, so a folder could hold them (an import writes them
+    happily); the folder form simply never rendered them, which meant params
+    already on disk were invisible and unremovable from the only screen that
+    claimed to configure that folder's auth.
+
+    Now that every level renders the same schema, the three handlers have to
+    exist at every level too, or AuthForm would be given the buckets at three
+    levels and told to hide them at the fourth.
+  */
+  async function updateFolderOAuth2AdditionalParam(bucket: OAuth2ParamBucket, sendIn: OAuth2ParamSendIn, index: number, field: OAuth2ParamField, value: string | boolean) {
+    const oauth2 = editableFolder?.auth?.oauth2 ?? activeFolder?.auth?.oauth2
+    await updateFolderOAuth2Auth({ [bucket]: updateOAuth2ParamList(oauth2, bucket, index, sendIn, field, value) } as Partial<types.OAuth2Auth>)
+  }
+
+  async function addFolderOAuth2AdditionalParam(bucket: OAuth2ParamBucket, sendIn: OAuth2ParamSendIn) {
+    const oauth2 = editableFolder?.auth?.oauth2 ?? activeFolder?.auth?.oauth2
+    await updateFolderOAuth2Auth({ [bucket]: addOAuth2ParamList(oauth2, bucket, sendIn) } as Partial<types.OAuth2Auth>)
+  }
+
+  async function removeFolderOAuth2AdditionalParam(bucket: OAuth2ParamBucket, index: number) {
+    const oauth2 = editableFolder?.auth?.oauth2 ?? activeFolder?.auth?.oauth2
+    await updateFolderOAuth2Auth({ [bucket]: removeOAuth2ParamList(oauth2, bucket, index) } as Partial<types.OAuth2Auth>)
   }
 
   async function updateFolderScript(field: 'preScript' | 'postScript' | 'tests', value: string) {
@@ -8058,6 +8226,17 @@
       return
     }
 
+    // D3 took Run off the top bar, where it offered to run "the collection"
+    // from screens with no collection in view and picked one by falling back.
+    // Here the row IS the collection, so the selection is set before the runner
+    // opens and there is nothing left to fall back to. Same command the palette
+    // and the ⋯ menu's Collection runner entry dispatch.
+    if (action === 'run-collection') {
+      workspaceStore.selectedCollectionId = collection.id
+      void runWorkbenchCommand('open-runner')
+      return
+    }
+
     if (row.kind === 'folder') {
       if (action === 'reveal') { void revealFolderInFolder(collection, row.folder); return }
       if (action === 'info') { openFolderInfoModal(collection, row.folder); return }
@@ -8232,6 +8411,37 @@
 
   function sidebarRequestCount(workspace: types.Workspace | undefined, query: string) {
     return (workspace?.collections ?? []).reduce((total, collection) => total + filteredItems(collection, query).length, 0)
+  }
+
+  /**
+   * Opens the find bar and puts the caret in it.
+   *
+   * The `await tick()` is load-bearing: the bar is not in the document until
+   * `sidebarSearchOpen` has been rendered, so focusing before it would focus
+   * `undefined` and ⌘F would silently do nothing on the first press of a session.
+   */
+  async function focusSidebarSearch() {
+    sidebarSearchOpen = true
+    await tick()
+    requestSearchInput?.focus()
+    requestSearchInput?.select()
+  }
+
+  /**
+   * The magnifier is a toggle; ⌘F is not.
+   *
+   * Closing on a non-empty query would hide a bar that is still filtering the
+   * tree, leaving a partial collection list with nothing on screen explaining
+   * why — so the button only ever closes an EMPTY one, and otherwise re-focuses
+   * what is already there.
+   */
+  function toggleSidebarSearch() {
+    if (sidebarSearchOpen && !requestSearch.trim()) {
+      sidebarSearchOpen = false
+      sidebarScroller?.focus()
+      return
+    }
+    void focusSidebarSearch()
   }
 
 
@@ -8426,11 +8636,16 @@
 	    }
 	  }
 
+  /**
+   * The fifth place that decided what an HTTP status means.
+   *
+   * The audit found four disagreeing rules and they were unified into
+   * `lib/statusTone.ts`; review then found this one. Its thresholds happened to
+   * agree, so nothing changes on screen — but a fifth private copy is exactly
+   * how the four became four.
+   */
   function responseStatusClass(status?: number) {
-    if (!status) return 'muted'
-    if (status < 300) return 'ok'
-    if (status < 400) return 'warn'
-    return 'bad'
+    return toneClass(statusTone(status)) || 'muted'
   }
 
   async function handleNativeMenuCommand(command: string) {
@@ -8466,6 +8681,11 @@
       activeView,
       canCancel: requestCommand.canCancel || hasActiveHTTPTransport || Boolean(activeCollectionRun),
       keybindingsEnabled: Boolean(appState) && keybindingsAreEnabled(appState?.preferences),
+      // A GETTER, like modalOpen: this runs on every keystroke and only matters
+      // for the one combo an editor claims. `.cm-content` is CodeMirror's
+      // editable surface; plain inputs are deliberately excluded, because ⌘F in
+      // the URL bar should still reach the sidebar filter.
+      get editingInCodeEditor() { return Boolean((event.target as Element | null)?.closest?.('.cm-content')) },
       matches: (candidate) => keyBindingEventMatches(event, candidate)
     })
     if (!action) return
@@ -8486,8 +8706,7 @@
       case 'commandPalette': openCommandPalette(); return
       case 'globalSearch': openGlobalSearch(); return
       case 'sidebarSearch':
-        requestSearchInput?.focus()
-        requestSearchInput?.select()
+        void focusSidebarSearch()
         return
       case 'collapseSidebar': toggleSidebarCollapse(); return
       case 'closeAllTabs': void closeAllOpenTabs(); return
@@ -8527,9 +8746,19 @@
 {:else if appState}
   <main class="app-shell" class:sidebar-collapsed={sidebarCollapsed} style={`--sidebar-width: ${sidebarWidth}px;`} >
     <aside class="workspace-rail" aria-label="Collections sidebar">
-      <SidebarHeader onNew={openCreationFlow} />
+      <SidebarHeader
+        onCommand={runWorkbenchCommand}
+        onToggleSearch={toggleSidebarSearch}
+        searchOpen={sidebarSearchOpen}
+      />
 
-      <SidebarSearch bind:value={requestSearch} bind:input={requestSearchInput} matchCount={sidebarSearchCount} />
+      <SidebarSearch
+        bind:value={requestSearch}
+        bind:open={sidebarSearchOpen}
+        bind:input={requestSearchInput}
+        matchCount={sidebarSearchCount}
+        onClose={() => sidebarScroller?.focus()}
+      />
 
       <!-- role=tree with a container-level cursor: see the SIDEBAR KEYBOARD
            NAVIGATION note in the script. DOM focus stays here because the rows
@@ -8589,11 +8818,17 @@
                   onclose={() => closeSidebarRowMenu()}
                 />
               {/if}
+              <!--
+                D2. Scratch / Git / Not cloned change what the row can do, so
+                they are worth a badge. The bru-or-yml format does not: it was
+                printed on every collection, unconditionally, for the benefit of
+                a decision nobody makes from the tree. It is on the collection
+                page's header and in Info.
+              -->
               <span class="collection-badges">
                 {#if collectionIsScratch(collection)}<small>Scratch</small>{/if}
                 {#if collection.remote}<small>Git</small>{/if}
                 {#if collection.notFoundLocally}<small>Not cloned</small>{/if}
-                <small>{collection.format}</small>
               </span>
             </header>
             {#if collection.notFoundLocally}
@@ -8819,7 +9054,17 @@
           {#snippet recovery()}
             {#if recoveryEntries.length > 0}
               <details class="recovery-center" aria-live="polite">
-                <summary aria-label={`${recoveryEntries.length} recoverable deletion${recoveryEntries.length === 1 ? '' : 's'}`}>Recovery ({recoveryEntries.length})</summary>
+                <!-- D3 leaves the trailing cluster iconic. This was the last
+                     word in it, and it read "Recovery (0)"-shaped even to
+                     someone who had never deleted anything; the count is the
+                     only part that changes, so the count is what stays. -->
+                <summary
+                  aria-label={`${recoveryEntries.length} recoverable deletion${recoveryEntries.length === 1 ? '' : 's'}`}
+                  title={`${recoveryEntries.length} recoverable deletion${recoveryEntries.length === 1 ? '' : 's'}`}
+                >
+                  <Icon name="restore" size={16} />
+                  <strong aria-hidden="true">{recoveryEntries.length}</strong>
+                </summary>
                 <div class="recovery-center-list" aria-label="Recoverable deletions">
                   {#each recoveryEntries as entry (entry.id)}
                     <article>
@@ -8843,17 +9088,26 @@
             {#each workbenchTabs as entry (entry.id)}
               {#if entry.kind === 'request'}
                 {@const tab = entry.tab}
-                <div class="tab" class:active={!activeFlowTabId && tab.id === appState.activeTabId}>
+                {@const dirty = tabIsDirty(tab)}
+                <div class="tab" class:active={!activeFlowTabId && tab.id === appState.activeTabId} class:dirty>
                   <button class="tab-select" title={tabLabel(tab)} onclick={() => setActiveTab(tab.id)}>
                     {#if tabMethod(tab)}
                       <span class="tab-method" data-method={tabMethod(tab)}>{methodLabel(tabMethod(tab))}</span>
                     {/if}
                     <span class="tab-name">{tabLabel(tab)}</span>
                   </button>
+                  <!--
+                    D6, and the VS Code convention: the dot takes the close
+                    button's slot at rest and hands it back on hover or focus.
+                    It is what let the SAVED chip leave the request strip. The
+                    dot is decorative because the close button's accessible name
+                    already says "unsaved" — two announcements of one fact.
+                  -->
+                  {#if dirty}<span class="tab-dirty" aria-hidden="true"></span>{/if}
                   <button
                     class="tab-close"
                     type="button"
-                    aria-label={`Close tab ${tabLabel(tab)}`}
+                    aria-label={dirty ? `Close tab ${tabLabel(tab)}, unsaved` : `Close tab ${tabLabel(tab)}`}
                     title="Close tab"
                     onclick={() => beginTabLifecycleAction('close-active', tab.id)}
                   >×</button>
@@ -8923,18 +9177,18 @@
 
       {#snippet devToolsPanel()}
         <section class="panel devtools-panel" aria-label="Dev Tools">
-          <header class="panel-header">
-            <div>
-              <h2>Dev Tools</h2>
-              <p class="panel-subtitle">Console · Network · Performance · Terminal</p>
-            </div>
-            <div class="runner-summary">
+          <!-- D7. The subtitle here read "Console · Network · Performance ·
+               Terminal" — the four tab labels rendered immediately below it. -->
+          <PageHeader title="Dev Tools">
+            {#snippet meta()}
               <span>{devToolsConsoleRows.length} logs</span>
-              <span>{devToolsNetworkRows.length} requests</span>
+              <span>{rawDevToolsNetworkRows.length} requests</span>
+            {/snippet}
+            {#snippet actions()}
               <button type="button" onclick={refreshDevToolsSnapshot}>Refresh</button>
               <button type="button" aria-label="Close console" onclick={closeDevTools}>Close</button>
-            </div>
-          </header>
+            {/snippet}
+          </PageHeader>
           <nav class="devtools-tabs" aria-label="Dev Tools tabs">
             {#each devToolsTabs as tab (tab.id)}
               <button type="button" class:active={devToolsTab === tab.id} onclick={() => selectDevToolsTab(tab.id)}>{tab.label}</button>
@@ -8947,134 +9201,23 @@
                 <ConsoleTabComponent {devToolsConsoleRows} />
               {/await}
             {:else if devToolsTab === 'network'}
-              <div class="network-filter-bar" aria-label="Filter requests by method">
-                <div>
-                  <strong>Filter by Method</strong>
-                  <span>{devToolsNetworkActiveFilterCount === devToolsNetworkMethods.length ? 'All' : `${devToolsNetworkActiveFilterCount}/${devToolsNetworkMethods.length}`}</span>
-                </div>
-                <div class="button-row compact">
-                  <button type="button" onclick={() => setAllDevToolsNetworkFilters(false)}>Hide All</button>
-                  <button type="button" onclick={() => setAllDevToolsNetworkFilters(true)}>Show All</button>
-                </div>
-                <div class="method-filter-list">
-                  {#each devToolsNetworkMethods as method (method)}
-                    <label>
-                      <input type="checkbox" checked={devToolsNetworkFilters[method]} onchange={(event) => setDevToolsNetworkFilter(method, event.currentTarget.checked)} />
-                      <span>{method} {devToolsNetworkMethodCounts[method] ?? 0}</span>
-                    </label>
-                  {/each}
-                </div>
-              </div>
-              {#if devToolsNetworkRows.length === 0}
-                <div class="empty-appState devtools-empty">
-                  <strong>No network requests</strong>
-                  <span>Requests will appear here as you make API calls</span>
-                </div>
-              {:else}
-                <div class="network-layout" style={`--network-details-width: ${devToolsDetailsPanelWidth}px;`}>
-                  <div
-                    class="table-scroll network-table-scroll"
-                    class:resizing={devToolsNetworkResizingColumn >= 0}
-                    use:measureDevToolsNetworkViewport
-                    onscroll={(event) => (devToolsNetworkScrollTop = event.currentTarget.scrollTop)}
-                  >
-                    <table class="devtools-network-table" style={`min-width: ${devToolsNetworkTableWidth}px;`}>
-                      <colgroup>
-                        {#each devToolsNetworkColumnWidths as width, index (index)}
-                          <col style={`width: ${width}px;`} />
-                        {/each}
-                      </colgroup>
-                      <thead>
-                        <tr>
-                          {#each devToolsNetworkColumns as column, index (column.key)}
-                            <th aria-sort={devToolsNetworkAriaSort[column.key]}>
-                              <button type="button" class="network-sort-button" onclick={() => cycleDevToolsNetworkSort(column.key)}>{column.label} {devToolsNetworkSortLabels[column.key]}</button>
-                              {#if index < devToolsNetworkColumns.length - 1}
-                                <button
-                                  type="button"
-                                  class="column-resizer"
-                                  class:active={devToolsNetworkResizingColumn === index}
-                                  aria-label={`Resize ${column.label} column`}
-                                  onmousedown={(event) => startDevToolsNetworkColumnResize(index, event)}
-                                ></button>
-                              {/if}
-                            </th>
-                          {/each}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <!--
-                          Spacer rows rather than a transform or absolute
-                          positioning: this is a real <table>, and anything that
-                          takes rows out of flow breaks the colgroup widths the
-                          resizable columns depend on.
-                        -->
-                        {#if devToolsNetworkWindow.topPadding > 0}
-                          <tr aria-hidden="true" class="network-spacer"><td colspan={devToolsNetworkColumns.length} style={`height: ${devToolsNetworkWindow.topPadding}px; padding: 0; border: none;`}></td></tr>
-                        {/if}
-                        {#each devToolsNetworkVisibleRows as row (row.id)}
-                          <!--
-                            The whole row selects, not just the Method cell.
-                            Only that one cell was clickable before, so clicking
-                            the path, status or duration of a row did nothing
-                            while the details pane went on showing whichever row
-                            was selected — which reads as the pane showing the
-                            wrong request, not as the click having missed.
-
-                            role/tabindex/keydown rather than a <button> per
-                            cell: a table row cannot contain a button that wraps
-                            its cells, and the details pane is a disclosure of
-                            this row, so `button` is the honest role.
-                          -->
-                          <tr
-                            data-network-row
-                            class:selected={selectedDevToolsNetworkRow?.id === row.id}
-                            role="button"
-                            tabindex="0"
-                            aria-pressed={selectedDevToolsNetworkRow?.id === row.id}
-                            aria-label={`${normalizedNetworkMethod(row)} ${row.url}`}
-                            onclick={() => selectDevToolsNetworkRow(row)}
-                            onkeydown={(event) => {
-                              if (event.key !== 'Enter' && event.key !== ' ') return
-                              // Space scrolls the table otherwise, which moves
-                              // the row out from under the user as they select it.
-                              event.preventDefault()
-                              selectDevToolsNetworkRow(row)
-                            }}
-                          >
-                            <td>{normalizedNetworkMethod(row)}</td>
-                            <td>{statusDisplay(row.status)}</td>
-                            <td>{devToolsNetworkDomain(row)}</td>
-                            <td><code>{devToolsNetworkPath(row)}</code></td>
-                            <td>{networkLogTime(row)}</td>
-                            <td>{row.durationMs} ms</td>
-                            <td>{formatNetworkSize(row.size)}</td>
-                          </tr>
-                        {/each}
-                        {#if devToolsNetworkWindow.bottomPadding > 0}
-                          <tr aria-hidden="true" class="network-spacer"><td colspan={devToolsNetworkColumns.length} style={`height: ${devToolsNetworkWindow.bottomPadding}px; padding: 0; border: none;`}></td></tr>
-                        {/if}
-                      </tbody>
-                    </table>
-                  </div>
-                  {#if selectedDevToolsNetworkRow}
-              {#await import('./lib/views/devtools/RequestDetailsPanel.svelte') then RequestDetailsPanel}
-                {@const RequestDetailsPanelComponent = RequestDetailsPanel.default}
-                <RequestDetailsPanelComponent
-                  {selectedDevToolsNetworkRow}
-                  {devToolsNetworkDetailTab}
-                  {devToolsNetworkDetailTabs}
-                  {networkHeaderRows}
-                  {networkLogBody}
-                  {networkLogLines}
-                  {normalizedNetworkMethod}
-                  {startDevToolsDetailsPanelResize}
-                  onSelectDetailTab={selectDevToolsNetworkDetailTab}
+              <!--
+                The network table is a COMPONENT now, shared with the legacy
+                Network Log view. Two independent implementations of the same
+                table used to live in this file — this rich one and a bare
+                unstyled one — reading the identical `appState.networkLog`.
+              -->
+              {#await import('./lib/views/devtools/NetworkTable.svelte') then NetworkTable}
+                {@const NetworkTableComponent = NetworkTable.default}
+                <NetworkTableComponent
+                  rows={rawDevToolsNetworkRows}
+                  label="Network requests"
+                  preferences={appState?.preferences?.devTools?.network}
+                  onPreferencesChange={(next) => void updateDevToolsNetworkPreferences(next)}
+                  detailsPanelWidth={devToolsDetailsPanelWidth}
+                  onStartDetailsResize={startDevToolsDetailsPanelResize}
                 />
               {/await}
-                  {/if}
-                </div>
-              {/if}
             {:else if devToolsTab === 'performance'}
           {#await import('./lib/views/devtools/PerformanceTab.svelte') then PerformanceTab}
             {@const PerformanceTabComponent = PerformanceTab.default}
@@ -9130,7 +9273,6 @@
             actions={{
               onSave: saveRequest,
               onSend: sendRequest,
-              onRun: runCollection,
               onCancel: cancelActiveRequest,
               onCancelBackground: cancelHTTPTransport,
               onToggleOrientation: toggleResponsePaneOrientation
@@ -9154,72 +9296,55 @@
                   <div class="url-variable-overlay">
                     <span class="url-variable-overlay-content" style={`transform: translateX(-${urlInputScrollLeft}px);`}>
                       {#each urlVariableSegments(activeRequest.url, requestVariableTooltips, activeRequest.pathParams ?? []) as segment (segment.key)}
-                        {#if segment.variable}
+                        <!--
+                          A5-07. This was the first of the chip's three
+                          implementations and the tooltip's three copies: a
+                          `role="button"` span painted with `cm-variable-valid`
+                          / `-invalid` — a two-state vocabulary that could not
+                          say "secret" and could not tell "never defined" apart
+                          from "cannot ever resolve" — followed by forty lines
+                          of tooltip markup written out again below. The chip in
+                          the inspector strip fifty lines further down was a
+                          different shape and a different colour for the same
+                          fact, and the editors' decoration was a third.
+                          Prompt segments got a bare span with no affordance at
+                          all, which was the honest bit: there is nothing to
+                          open, and VariableChip renders those without a button
+                          rather than putting a dead focus stop in the URL.
+                        -->
+                        {#if segment.prompt}
+                          <VariableChip text={segment.text} name={segment.name} prompt />
+                        {:else if segment.variable}
                           <span
                             class="url-variable-token-wrapper"
                             class:open={variableTooltips.active === segment.name}
                           >
-                            <span
-                              role="button"
-                              tabindex="0"
-                              class:cm-variable-valid={isValidURLVariableSegment(segment)}
-                              class:cm-variable-invalid={!isValidURLVariableSegment(segment)}
-                              onclick={() => toggleActiveVariableTooltip(segment.name)}
-                              onkeydown={(event) => handleInlineVariableTokenKey(event, segment.name)}
-                            >{segment.text}</span>
-                            {#if segment.info}
-                              <div class="CodeMirror-brunoVarInfo inline-var-tooltip" role="tooltip">
-                                <div class="variable-tooltip-title">
-                                  <strong class="var-name">{segment.info.name}</strong>
-                                  <span class="var-scope-badge">{segment.info.scope}</span>
-                                </div>
-                                {#if !segment.info.validName}
-                                  <small class="var-warning-note">{invalidVariableWarning}</small>
-                                {:else if variableTooltips.editing === segment.info.name}
-                                  <textarea
-                                    class="var-value-editor"
-                                    aria-label={'Edit variable ' + segment.info.name}
-                                    bind:value={variableTooltips.draft}
-                                    onkeydown={(event) => handleVariableTooltipEditorKey(event, segment.info)}
-                                    onblur={(event) => handleVariableTooltipEditorBlur(event, segment.info)}
-                                  ></textarea>
-                                  <div class="button-row compact">
-                                    <button class="var-save-button" onclick={(event) => { event.stopPropagation(); saveVariableTooltipEdit(segment.info) }} disabled={busy !== ''}>Save</button>
-                                    <button onclick={(event) => { event.stopPropagation(); cancelVariableTooltipEdit() }}>Cancel</button>
-                                  </div>
-                                {:else if segment.info.editable}
-                                  <button type="button" class="var-value-editable-display" onclick={(event) => { event.stopPropagation(); beginVariableTooltipEdit(segment.info) }}>
-                                    {displayTooltipValue(segment.info, variableTooltips.isRevealed(segment.info.name))}
-                                  </button>
-                                {:else}
-                                  <div class="var-value-editable-display">{displayTooltipValue(segment.info, variableTooltips.isRevealed(segment.info.name))}</div>
-                                {/if}
-                                {#if segment.info.readOnly}
-                                  <small class="var-readonly-note">read-only</small>
-                                {/if}
-                                <div class="button-row compact">
-                                  <button
-                                    class="copy-button"
-                                    class:copy-success={variableTooltips.isCopied(segment.info.name)}
-                                    onclick={(event) => { event.stopPropagation(); copyVariableTooltipValue(segment.info) }}
-                                    disabled={!segment.info.found || !segment.info.validName || variableTooltips.isCopied(segment.info.name)}
-                                  >
-                                    {variableTooltips.isCopied(segment.info.name) ? 'Copied' : 'Copy'}
-                                  </button>
-                                  {#if segment.info.secret}
-                                    <button class="secret-toggle-button" onclick={(event) => { event.stopPropagation(); toggleTooltipSecret(segment.info.name) }}>
-                                      {variableTooltips.isRevealed(segment.info.name) ? 'Hide' : 'Show'}
-                                    </button>
-                                  {/if}
-                                </div>
-                              </div>
-                            {/if}
+                            <VariableChip
+                              text={segment.text}
+                              name={segment.name}
+                              info={segment.info}
+                              scope={segment.info.scope}
+                              onActivate={() => toggleActiveVariableTooltip(segment.name)}
+                              onDismiss={() => variableTooltips.close()}
+                            />
+                            <VariableTooltip
+                              panelClass="CodeMirror-brunoVarInfo inline-var-tooltip"
+                              info={segment.info}
+                              {busy}
+                              displayValue={displayTooltipValue}
+                              invalidWarning={invalidVariableWarning}
+                              onEditorKey={handleVariableTooltipEditorKey}
+                              onEditorBlur={handleVariableTooltipEditorBlur}
+                              onSave={saveVariableTooltipEdit}
+                              onBeginEdit={beginVariableTooltipEdit}
+                              onCancelEdit={cancelVariableTooltipEdit}
+                              onCopy={copyVariableTooltipValue}
+                              onToggleReveal={toggleTooltipSecret}
+                            />
                           </span>
-	                        {:else if segment.prompt}
-	                          <span class="cm-variable-prompt">{segment.text}</span>
-	                        {:else}
-	                          <span>{segment.text}</span>
-	                        {/if}
+                        {:else}
+                          <span>{segment.text}</span>
+                        {/if}
                       {/each}
                     </span>
                   </div>
@@ -9239,11 +9364,16 @@
           <div class="request-side">
             <div class="request-variable-region">
             <!--
-              Headers were the one place an unresolved {{variable}} was
-              completely silent: the URL path refuses to send, but a header went
-              out as literal braces, came back 401, and left nothing on screen
-              connecting the two. Shown while the header is still being edited
-              rather than raised at send time.
+              An unresolved {{variable}} used to go out as literal braces, come
+              back 401 or 400, and leave nothing on screen connecting the two.
+              The URL path refuses to send; everything else was silent. Shown
+              while the request is still being edited rather than raised at send
+              time.
+
+              This warned about HEADERS only, which was never the shape of the
+              problem — see unresolvedRequestWarning above. It now names the
+              places, so "in the URL and auth" sends the user to the right tab
+              instead of to the one that happened to get reported first.
 
               Inside .request-variable-region rather than as a direct child of
               .request-workbench: that grid places children by explicit row, so
@@ -9251,61 +9381,45 @@
               the wrong cells. This region is already an `auto` row and already
               the home of the variable inspector, which is the same subject.
             -->
-            {#if unresolvedHeaderWarning}
-              <div class="request-variable-warning" role="status" aria-live="polite">{unresolvedHeaderWarning}</div>
+            {#if unresolvedRequestWarning}
+              <div class="request-variable-warning" role="status" aria-live="polite">{unresolvedRequestWarning}</div>
             {/if}
             {#if requestVariableTooltips.length > 0}
               <div class="variable-inspector" aria-label="Variable inspector">
                 {#each requestVariableTooltips as variableInfo (variableInfo.name)}
+                  <!--
+                    The second chip implementation, and the second copy of the
+                    tooltip. This one had no border, a different radius, its own
+                    `.var-token` inner span, and a single `invalid` class that
+                    was set from `!found` — so a variable that simply had not
+                    been defined yet was painted with the same red as a name the
+                    resolver can never accept, and a secret one was painted like
+                    any other. It also could not be dismissed with Escape, which
+                    the URL-bar copy could; VariableChip carries that for both.
+                  -->
                   <div class="variable-chip-wrapper" class:invalid={!variableInfo.found} class:open={variableTooltips.active === variableInfo.name}>
-                    <button type="button" class="variable-chip" onclick={() => toggleActiveVariableTooltip(variableInfo.name)}>
-                      <span class="var-token">{'{{' + variableInfo.name + '}}'}</span>
-                    </button>
-                    <div class="variable-tooltip" role="tooltip">
-                      <div class="variable-tooltip-title">
-                        <strong class="var-name">{variableInfo.name}</strong>
-                        <span class="var-scope-badge">{variableInfo.scope}</span>
-                      </div>
-                      {#if !variableInfo.validName}
-                        <small class="var-warning-note">{invalidVariableWarning}</small>
-                      {:else if variableTooltips.editing === variableInfo.name}
-                        <textarea
-                          class="var-value-editor"
-                          aria-label={'Edit variable ' + variableInfo.name}
-                          bind:value={variableTooltips.draft}
-                          onkeydown={(event) => handleVariableTooltipEditorKey(event, variableInfo)}
-                          onblur={(event) => handleVariableTooltipEditorBlur(event, variableInfo)}
-                        ></textarea>
-                        <div class="button-row compact">
-                          <button class="var-save-button" onclick={(event) => { event.stopPropagation(); saveVariableTooltipEdit(variableInfo) }} disabled={busy !== ''}>Save</button>
-                          <button onclick={(event) => { event.stopPropagation(); cancelVariableTooltipEdit() }}>Cancel</button>
-                        </div>
-                      {:else if variableInfo.editable}
-                        <button type="button" class="var-value-editable-display" onclick={(event) => { event.stopPropagation(); beginVariableTooltipEdit(variableInfo) }}>
-                          {displayTooltipValue(variableInfo, variableTooltips.isRevealed(variableInfo.name))}
-                        </button>
-                      {:else}
-                        <div class="var-value-editable-display">{displayTooltipValue(variableInfo, variableTooltips.isRevealed(variableInfo.name))}</div>
-                      {/if}
-                      {#if variableInfo.readOnly}
-                        <small class="var-readonly-note">read-only</small>
-                      {/if}
-                      <div class="button-row compact">
-                        <button
-                          class="copy-button"
-                          class:copy-success={variableTooltips.isCopied(variableInfo.name)}
-                          onclick={(event) => { event.stopPropagation(); copyVariableTooltipValue(variableInfo) }}
-                          disabled={!variableInfo.found || !variableInfo.validName || variableTooltips.isCopied(variableInfo.name)}
-                        >
-                          {variableTooltips.isCopied(variableInfo.name) ? 'Copied' : 'Copy'}
-                        </button>
-                        {#if variableInfo.secret}
-                          <button class="secret-toggle-button" onclick={(event) => { event.stopPropagation(); toggleTooltipSecret(variableInfo.name) }}>
-                            {variableTooltips.isRevealed(variableInfo.name) ? 'Hide' : 'Show'}
-                          </button>
-                        {/if}
-                      </div>
-                    </div>
+                    <VariableChip
+                      text={'{{' + variableInfo.name + '}}'}
+                      name={variableInfo.name}
+                      info={variableInfo}
+                      scope={variableInfo.scope}
+                      onActivate={() => toggleActiveVariableTooltip(variableInfo.name)}
+                      onDismiss={() => variableTooltips.close()}
+                    />
+                    <VariableTooltip
+                      panelClass="variable-tooltip"
+                      info={variableInfo}
+                      {busy}
+                      displayValue={displayTooltipValue}
+                      invalidWarning={invalidVariableWarning}
+                      onEditorKey={handleVariableTooltipEditorKey}
+                      onEditorBlur={handleVariableTooltipEditorBlur}
+                      onSave={saveVariableTooltipEdit}
+                      onBeginEdit={beginVariableTooltipEdit}
+                      onCancelEdit={cancelVariableTooltipEdit}
+                      onCopy={copyVariableTooltipValue}
+                      onToggleReveal={toggleTooltipSecret}
+                    />
                   </div>
                 {/each}
               </div>
@@ -9327,6 +9441,19 @@
                   {tab.label}
                 </button>
               {/each}
+              {#if requestCommand.transportCues.length}
+                <!--
+                  D4. These were two uppercase chips in a 42px band of their own
+                  under the URL, and on a default install they read "TLS verify"
+                  and "Proxy: system" on every request anyone ever opened — so
+                  the row burned in as wallpaper and "TLS off" arrived in the
+                  same place, size and colour as the thing nobody was reading.
+                  `commandState.ts` now yields nothing for the safe defaults, so
+                  this is empty on almost every screen and means something when
+                  it is not.
+                -->
+                <span class="request-cues" aria-label="Transport">{requestCommand.transportCues.join(' · ')}</span>
+              {/if}
             </div>
 
 	            <div class="editor-surface" id={`request-panel-${requestPaneTab}`} role="tabpanel" aria-labelledby={`request-tab-${requestPaneTab}`} tabindex="0">
@@ -9474,7 +9601,7 @@
 	                      </div>
 	                    </div>
 	                    {#if (activeRequest.wsMessages ?? []).length === 0}
-	                      <div class="empty-appState">No WebSocket messages</div>
+	                      <div class="empty-state">No WebSocket messages</div>
 	                    {:else}
 	                      <table class="ws-messages">
 	                        <thead>
@@ -9507,23 +9634,51 @@
 	                    <button onclick={addWSMessage}>Add message</button>
 	                  </div>
 	                {:else}
-	                  <div class="field-row">
-                    <span class="field-label">Body mode</span>
-                    <select value={activeRequest.body.mode} onchange={(e) => updateBody({ mode: e.currentTarget.value })}>
-                      {#each bodyModes as mode (mode)}
-                        <option value={mode}>{mode}</option>
+	                  <!--
+                    The body picker, rebuilt.
+
+                    Was a `.field-label` + full-width `<select>` in a
+                    `.field-row` — a class used exactly once in the codebase —
+                    listing raw stored values like `formUrlEncoded`. It hid the
+                    current mode behind a closed dropdown, cost about 60px of
+                    height above an editor that wants every pixel, and asked
+                    "how are you sending this" and "in what syntax" as one
+                    question.
+                  -->
+                  <div class="body-mode-bar">
+                    <SegmentedControl
+                      options={bodyModeOptions}
+                      value={modeOf(activeRequest.body.mode)}
+                      ariaLabel="Body mode"
+                      testId="request-body-mode"
+                      onChange={(next) => changeBodyMode(next as BodyMode)}
+                    />
+                    {#if contentTypeHint(activeRequest.body.mode)}
+                      <span class="body-mode-hint">{contentTypeHint(activeRequest.body.mode)}</span>
+                    {/if}
+                  </div>
+                  {#snippet bodyFormatPicker()}
+                    <select
+                      class="body-format-select"
+                      aria-label="Body format"
+                      data-testid="request-body-format"
+                      value={formatOf(activeRequest.body.mode)}
+                      onchange={(e) => changeBodyFormat(e.currentTarget.value as BodyFormat)}
+                    >
+                      {#each bodyFormatOptions as option (option.value)}
+                        <option value={option.value}>{option.label}</option>
                       {/each}
                     </select>
-                  </div>
+                  {/snippet}
                   {#if activeRequest.body.mode === 'json'}
-                    <CodeEditor editorKey={`${activeRequest.id}:body-json`} value={activeRequest.body.json ?? ''} language="json" ariaLabel="JSON request body" testId="request-body-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => updateBody({ json: value })} />
+                    <CodeEditor editorKey={`${activeRequest.id}:body-json`} value={activeRequest.body.json ?? ''} language="json" ariaLabel="JSON request body" testId="request-body-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} toolbarStart={bodyFormatPicker} onChange={(value) => updateBody({ json: value })} />
                   {:else if activeRequest.body.mode === 'xml'}
-                    <CodeEditor editorKey={`${activeRequest.id}:body-xml`} value={activeRequest.body.xml ?? ''} language="xml" ariaLabel="XML request body" testId="request-body-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => updateBody({ xml: value })} />
+                    <CodeEditor editorKey={`${activeRequest.id}:body-xml`} value={activeRequest.body.xml ?? ''} language="xml" ariaLabel="XML request body" testId="request-body-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} toolbarStart={bodyFormatPicker} onChange={(value) => updateBody({ xml: value })} />
                   {:else if activeRequest.body.mode === 'graphql'}
                     <CodeEditor editorKey={`${activeRequest.id}:body-graphql-query`} value={activeRequest.body.graphqlQuery ?? ''} language="graphql" ariaLabel="GraphQL query" testId="request-body-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => updateBody({ graphqlQuery: value })} />
                     <CodeEditor editorKey={`${activeRequest.id}:body-graphql-variables`} value={activeRequest.body.graphqlVariables ?? ''} language="json" ariaLabel="GraphQL variables" testId="request-body-variables-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => updateBody({ graphqlVariables: value })} />
                   {:else if activeRequest.body.mode === 'text' || activeRequest.body.mode === 'sparql'}
-                    <CodeEditor editorKey={`${activeRequest.id}:body-text`} value={activeRequest.body.text ?? ''} language="text" ariaLabel="Text request body" testId="request-body-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => updateBody({ text: value })} />
+                    <CodeEditor editorKey={`${activeRequest.id}:body-text`} value={activeRequest.body.text ?? ''} language="text" ariaLabel="Text request body" testId="request-body-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} toolbarStart={bodyFormatPicker} onChange={(value) => updateBody({ text: value })} />
 	                  {:else if activeRequest.body.mode === 'formUrlEncoded'}
 	                    <KeyValueTable
 	                      rows={activeRequest.body.formUrlEncoded ?? []}
@@ -9562,183 +9717,35 @@
 	                      onRemove={removeFileBodyRow}
 	                    />
 	                  {:else}
-                    <div class="empty-appState">No body payload</div>
+                    <div class="empty-state">No body payload</div>
                   {/if}
                 {/if}
               {:else if requestPaneTab === 'auth'}
-                <div class="field-grid">
-                  <span class="field-label">Mode</span>
-                  <select value={activeRequest.auth.mode} onchange={(e) => updateAuth({ mode: e.currentTarget.value })}>
-                    {#each authModes as mode (mode)}
-                      <option value={mode}>{mode}</option>
-                    {/each}
-                  </select>
-	                  {#if activeRequest.auth.mode === 'basic' || activeRequest.auth.mode === 'digest' || activeRequest.auth.mode === 'wsse' || activeRequest.auth.mode === 'ntlm'}
-                    <span class="field-label">Username</span>
-                    <input value={activeRequest.auth.username} oninput={(e) => updateAuth({ username: e.currentTarget.value })} />
-                    <span class="field-label">Password</span>
-                    <input type="password" value={activeRequest.auth.password} oninput={(e) => updateAuth({ password: e.currentTarget.value })} />
-                    {#if activeRequest.auth.mode === 'ntlm'}
-                      <span class="field-label">Domain</span>
-                      <input value={activeRequest.auth.domain} onchange={(e) => updateAuth({ domain: e.currentTarget.value })} />
-                    {/if}
-                  {:else if activeRequest.auth.mode === 'bearer'}
-                    <span class="field-label">Token</span>
-                    <input type="password" value={activeRequest.auth.token} oninput={(e) => updateAuth({ token: e.currentTarget.value })} />
-                  {:else if activeRequest.auth.mode === 'oauth2'}
-                    <span class="field-label">Grant</span>
-                    <select value={activeRequest.auth.oauth2?.grantType || 'client_credentials'} onchange={(e) => updateOAuth2Auth({ grantType: e.currentTarget.value })}>
-                      {#each oauth2GrantTypes as grant (grant)}
-                        <option value={grant}>{grant}</option>
-                      {/each}
-                    </select>
-                    {#if activeRequest.auth.oauth2?.grantType === 'authorization_code' || activeRequest.auth.oauth2?.grantType === 'implicit'}
-                      <span class="field-label">Callback URL</span>
-                      <input value={activeRequest.auth.oauth2?.callbackUrl ?? ''} onchange={(e) => updateOAuth2Auth({ callbackUrl: e.currentTarget.value })} />
-                      <span class="field-label">Authorization URL</span>
-                      <input value={activeRequest.auth.oauth2?.authorizationUrl ?? ''} onchange={(e) => updateOAuth2Auth({ authorizationUrl: e.currentTarget.value })} />
-                    {/if}
-                    <span class="field-label">Access token URL</span>
-                    <input value={activeRequest.auth.oauth2?.accessTokenUrl ?? ''} onchange={(e) => updateOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
-                    <span class="field-label">Client ID</span>
-                    <input value={activeRequest.auth.oauth2?.clientId ?? ''} onchange={(e) => updateOAuth2Auth({ clientId: e.currentTarget.value })} />
-                    <span class="field-label">Client secret</span>
-                    <input type="password" value={activeRequest.auth.oauth2?.clientSecret ?? ''} onchange={(e) => updateOAuth2Auth({ clientSecret: e.currentTarget.value })} />
-                    {#if activeRequest.auth.oauth2?.grantType === 'password'}
-                      <span class="field-label">Username</span>
-                      <input value={activeRequest.auth.oauth2?.username ?? ''} onchange={(e) => updateOAuth2Auth({ username: e.currentTarget.value })} />
-                      <span class="field-label">Password</span>
-                      <input type="password" value={activeRequest.auth.oauth2?.password ?? ''} onchange={(e) => updateOAuth2Auth({ password: e.currentTarget.value })} />
-                    {/if}
-                    <span class="field-label">Scope</span>
-                    <input value={activeRequest.auth.oauth2?.scope ?? ''} onchange={(e) => updateOAuth2Auth({ scope: e.currentTarget.value })} />
-                    {#if activeRequest.auth.oauth2?.grantType === 'authorization_code' || activeRequest.auth.oauth2?.grantType === 'implicit'}
-                      <span class="field-label">State</span>
-                      <input value={activeRequest.auth.oauth2?.state ?? ''} onchange={(e) => updateOAuth2Auth({ state: e.currentTarget.value })} />
-                    {/if}
-                    <span class="field-label">Credentials</span>
-                    <select value={activeRequest.auth.oauth2?.credentialsPlacement || 'basic_auth_header'} onchange={(e) => updateOAuth2Auth({ credentialsPlacement: e.currentTarget.value })}>
-                      {#each oauth2CredentialPlacements as placement (placement)}
-                        <option value={placement}>{placement}</option>
-                      {/each}
-                    </select>
-                    {#if activeRequest.auth.oauth2?.grantType === 'authorization_code'}
-                      <span class="field-label">PKCE</span>
-                      <input type="checkbox" checked={activeRequest.auth.oauth2?.pkce ?? false} onchange={(e) => updateOAuth2Auth({ pkce: e.currentTarget.checked })} />
-                    {/if}
-                    <span class="field-label">Token source</span>
-                    <select value={activeRequest.auth.oauth2?.tokenSource || 'access_token'} onchange={(e) => updateOAuth2Auth({ tokenSource: e.currentTarget.value })}>
-                      {#each oauth2TokenSources as source (source)}
-                        <option value={source}>{source}</option>
-                      {/each}
-                    </select>
-                    <span class="field-label">Token placement</span>
-                    <select value={activeRequest.auth.oauth2?.tokenPlacement || 'header'} onchange={(e) => updateOAuth2Auth({ tokenPlacement: e.currentTarget.value })}>
-                      {#each oauth2TokenPlacements as placement (placement)}
-                        <option value={placement}>{placement}</option>
-                      {/each}
-                    </select>
-                    {#if (activeRequest.auth.oauth2?.tokenPlacement || 'header') === 'header'}
-                      <span class="field-label">Header prefix</span>
-                      <input value={activeRequest.auth.oauth2?.tokenHeaderPrefix || 'Bearer'} onchange={(e) => updateOAuth2Auth({ tokenHeaderPrefix: e.currentTarget.value })} />
-                    {:else}
-                      <span class="field-label">Query key</span>
-                      <input value={activeRequest.auth.oauth2?.tokenQueryKey || 'access_token'} onchange={(e) => updateOAuth2Auth({ tokenQueryKey: e.currentTarget.value })} />
-                    {/if}
-                    <span class="field-label">Static token</span>
-                    <input type="password" value={activeRequest.auth.token} oninput={(e) => updateAuth({ token: e.currentTarget.value })} />
-                    <div class="oauth2-extra-stack">
-                      <OAuth2AdditionalParams
-                        title="Authorization request params"
-                        params={activeRequest.auth.oauth2?.authorizationAdditionalParams ?? []}
-                        onAdd={(sendIn) => addRequestOAuth2AdditionalParam('authorizationAdditionalParams', sendIn)}
-                        onChange={(index, field, value) => updateRequestOAuth2AdditionalParam('authorizationAdditionalParams', 'body', index, field, value)}
-                        onRemove={(index) => removeRequestOAuth2AdditionalParam('authorizationAdditionalParams', index)}
-                      />
-                      <OAuth2AdditionalParams
-                        title="Access token request params"
-                        params={activeRequest.auth.oauth2?.tokenAdditionalParams ?? []}
-                        onAdd={(sendIn) => addRequestOAuth2AdditionalParam('tokenAdditionalParams', sendIn)}
-                        onChange={(index, field, value) => updateRequestOAuth2AdditionalParam('tokenAdditionalParams', 'body', index, field, value)}
-                        onRemove={(index) => removeRequestOAuth2AdditionalParam('tokenAdditionalParams', index)}
-                      />
-                      <OAuth2AdditionalParams
-                        title="Refresh token request params"
-                        params={activeRequest.auth.oauth2?.refreshAdditionalParams ?? []}
-                        onAdd={(sendIn) => addRequestOAuth2AdditionalParam('refreshAdditionalParams', sendIn)}
-                        onChange={(index, field, value) => updateRequestOAuth2AdditionalParam('refreshAdditionalParams', 'body', index, field, value)}
-                        onRemove={(index) => removeRequestOAuth2AdditionalParam('refreshAdditionalParams', index)}
-                      />
-                    </div>
-                  {:else if activeRequest.auth.mode === 'apikey'}
-                    <span class="field-label">Key</span>
-                    <input value={activeRequest.auth.apiKey} onchange={(e) => updateAuth({ apiKey: e.currentTarget.value })} />
-                    <span class="field-label">Value</span>
-                    <input type="password" value={activeRequest.auth.apiValue} onchange={(e) => updateAuth({ apiValue: e.currentTarget.value })} />
-                    <span class="field-label">Send in</span>
-	                    <select value={activeRequest.auth.apiLocation} onchange={(e) => updateAuth({ apiLocation: e.currentTarget.value })}>
-	                      <option value="header">Header</option>
-	                      <option value="query">Query</option>
-	                    </select>
-	                  {:else if activeRequest.auth.mode === 'awsv4'}
-	                    <span class="field-label">Access key ID</span>
-	                    <input value={activeRequest.auth.awsv4?.accessKeyId ?? ''} onchange={(e) => updateAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
-	                    <span class="field-label">Secret access key</span>
-	                    <input type="password" value={activeRequest.auth.awsv4?.secretAccessKey ?? ''} onchange={(e) => updateAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
-	                    <span class="field-label">Session token</span>
-	                    <input type="password" value={activeRequest.auth.awsv4?.sessionToken ?? ''} onchange={(e) => updateAWSV4Auth({ sessionToken: e.currentTarget.value })} />
-	                    <span class="field-label">Service</span>
-	                    <input value={activeRequest.auth.awsv4?.service ?? ''} placeholder="execute-api" onchange={(e) => updateAWSV4Auth({ service: e.currentTarget.value })} />
-	                    <span class="field-label">Region</span>
-	                    <input value={activeRequest.auth.awsv4?.region ?? ''} placeholder="us-east-1" onchange={(e) => updateAWSV4Auth({ region: e.currentTarget.value })} />
-		                    <span class="field-label">Profile</span>
-		                    <input value={activeRequest.auth.awsv4?.profileName ?? ''} onchange={(e) => updateAWSV4Auth({ profileName: e.currentTarget.value })} />
-		                  {:else if activeRequest.auth.mode === 'oauth1'}
-		                    <span class="field-label">Consumer key</span>
-		                    <input value={activeRequest.auth.oauth1?.consumerKey ?? ''} onchange={(e) => updateOAuth1Auth({ consumerKey: e.currentTarget.value })} />
-		                    <span class="field-label">Consumer secret</span>
-		                    <input type="password" value={activeRequest.auth.oauth1?.consumerSecret ?? ''} onchange={(e) => updateOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
-		                    <span class="field-label">Token</span>
-		                    <input value={activeRequest.auth.oauth1?.accessToken ?? ''} onchange={(e) => updateOAuth1Auth({ accessToken: e.currentTarget.value })} />
-		                    <span class="field-label">Token secret</span>
-		                    <input type="password" value={activeRequest.auth.oauth1?.accessTokenSecret ?? ''} onchange={(e) => updateOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
-		                    <span class="field-label">Signature</span>
-		                    <select value={activeRequest.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} onchange={(e) => updateOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
-		                      {#each oauth1SignatureMethods as method (method)}
-		                        <option value={method}>{method}</option>
-		                      {/each}
-		                    </select>
-		                    <span class="field-label">Add params to</span>
-		                    <select value={activeRequest.auth.oauth1?.placement || 'header'} onchange={(e) => updateOAuth1Auth({ placement: e.currentTarget.value })}>
-		                      {#each oauth1Placements as placement (placement)}
-		                        <option value={placement}>{placement}</option>
-		                      {/each}
-		                    </select>
-		                    <span class="field-label">Callback URL</span>
-		                    <input value={activeRequest.auth.oauth1?.callbackUrl ?? ''} onchange={(e) => updateOAuth1Auth({ callbackUrl: e.currentTarget.value })} />
-		                    <span class="field-label">Verifier</span>
-		                    <input value={activeRequest.auth.oauth1?.verifier ?? ''} onchange={(e) => updateOAuth1Auth({ verifier: e.currentTarget.value })} />
-		                    <span class="field-label">Timestamp</span>
-		                    <input value={activeRequest.auth.oauth1?.timestamp ?? ''} onchange={(e) => updateOAuth1Auth({ timestamp: e.currentTarget.value })} />
-		                    <span class="field-label">Nonce</span>
-		                    <input value={activeRequest.auth.oauth1?.nonce ?? ''} onchange={(e) => updateOAuth1Auth({ nonce: e.currentTarget.value })} />
-		                    <span class="field-label">Version</span>
-		                    <input value={activeRequest.auth.oauth1?.version ?? ''} placeholder="1.0" onchange={(e) => updateOAuth1Auth({ version: e.currentTarget.value })} />
-		                    <span class="field-label">Realm</span>
-		                    <input value={activeRequest.auth.oauth1?.realm ?? ''} onchange={(e) => updateOAuth1Auth({ realm: e.currentTarget.value })} />
-		                    <span class="field-label">Private key</span>
-		                    <textarea class="short" spellcheck="false" value={activeRequest.auth.oauth1?.privateKey ?? ''} onchange={(e) => updateOAuth1Auth({ privateKey: e.currentTarget.value })}></textarea>
-		                    <span class="field-label">Private key type</span>
-		                    <select value={activeRequest.auth.oauth1?.privateKeyType || 'text'} onchange={(e) => updateOAuth1Auth({ privateKeyType: e.currentTarget.value })}>
-		                      <option value="text">text</option>
-		                      <option value="file">file</option>
-		                    </select>
-		                    <span class="field-label">Body hash</span>
-		                    <input type="checkbox" checked={activeRequest.auth.oauth1?.includeBodyHash ?? false} onchange={(e) => updateOAuth1Auth({ includeBodyHash: e.currentTarget.checked })} />
-		                  {:else if activeRequest.auth.mode !== 'none'}
-                    <div class="empty-appState wide">This auth mode is marked partial until its full backend signer is implemented.</div>
-	                  {/if}
-                </div>
+                <!--
+                  A5-03. This was the largest of four hand-copied auth forms —
+                  request, folder, collection tab, collection settings — and the
+                  other three had drifted away from it field by field, silently:
+                  OAuth2 was fourteen fields smaller at folder level, OAuth1
+                  nine, AWSv4 two, with nothing on screen admitting it. Hoisting
+                  a working request config up to a folder discarded most of it.
+
+                  The four are one component now (lib/AuthForm.svelte) rendering
+                  one schema (lib/authFields.ts), because a comment asking the
+                  next editor to keep four copies in step is exactly what these
+                  four had, and it did not work.
+                -->
+                <AuthForm
+                  auth={activeRequest.auth}
+                  modeLabel="Request auth"
+                  onAuth={updateAuth}
+                  onOAuth2={updateOAuth2Auth}
+                  onOAuth1={updateOAuth1Auth}
+                  onAWSV4={updateAWSV4Auth}
+                  onParamAdd={(bucket, sendIn) => addRequestOAuth2AdditionalParam(bucket, sendIn)}
+                  onParamChange={(bucket, index, field, value) => updateRequestOAuth2AdditionalParam(bucket, 'body', index, field, value)}
+                  onParamRemove={(bucket, index) => removeRequestOAuth2AdditionalParam(bucket, index)}
+                  busy={busy !== ''}
+                />
               {:else if requestPaneTab === 'vars'}
                 <KeyValueTable
                   rows={(activeRequest.vars?.req ?? []).map((v) => ({ name: v.name, value: String(v.value ?? ''), enabled: v.enabled, secret: v.secret, description: v.dataType }))}
@@ -9773,8 +9780,6 @@
                 <CodeEditor editorKey={`${activeRequest.id}:tests`} value={activeRequest.tests} language="javascript" ariaLabel="Request tests" testId="request-tests-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => patchField('tests', value)} />
               {:else if requestPaneTab === 'docs'}
                 <CodeEditor editorKey={`${activeRequest.id}:docs`} value={activeRequest.docs} language="markdown" ariaLabel="Request documentation" testId="request-docs-editor" fontSize={codeFontSize} variableInfo={requestVariableTooltips} onChange={(value) => patchField('docs', value)} />
-              {:else if requestPaneTab === 'app'}
-                <div class="empty-appState">Request app runtime surface</div>
               {:else if requestPaneTab === 'settings'}
                 <RequestSettingsPanel requestType={activeRequest.type} settings={activeRequest.settings} onChange={updateSettings} globalVerifyTlsEnabled={appState?.preferences?.request?.sslVerification !== false} />
               {/if}
@@ -9795,57 +9800,88 @@
             onchange={persistWorkbenchLayout}
           />
           <div class="response-side">
-            <div class="response-summary">
-              <div class={`response-summary-status ${requestCommand.response.tone}`} aria-live="polite">
-                <strong>{requestCommand.response.status}</strong>
-                <span>{requestCommand.response.statusText}</span>
-                <span>{requestCommand.response.duration}</span>
-                <span>{requestCommand.response.size}</span>
+            <!--
+              D5. The status used to hold a 42px row of its own above the tabs,
+              and before a request had ever been sent it spent that row saying
+              "Idle · No response yet · 0 ms · 0 B" — four facts about nothing.
+              It is the tab row's middle slot now, which is where PaneToolbar
+              puts a fact that may be truncated, and it renders only once there
+              is a response to describe.
+            -->
+            <PaneToolbar ariaLabel="Response">
+              {#snippet left()}
+                <div class="subtabs" role="tablist" aria-label="Response sections" tabindex="-1" onkeydown={responseTabKeydown}>
+                  {#each activeResponseTabs as tab (tab.id)}
+                    <button
+                      class:active={responseTab === tab.id}
+                      id={`response-tab-${tab.id}`}
+                      data-response-tab={tab.id}
+                      role="tab"
+                      aria-selected={responseTab === tab.id}
+                      aria-controls={`response-panel-${tab.id}`}
+                      tabindex={responseTab === tab.id ? 0 : -1}
+                      onclick={() => selectResponsePaneTab(tab.id)}
+                    >
+                      {tab.label}
+                      {#if tab.id === 'metadata' && (activeRequest.response?.metadata?.length ?? 0) > 0}
+                        <span>{activeRequest.response?.metadata?.length}</span>
+                      {:else if tab.id === 'trailers' && (activeRequest.response?.trailers?.length ?? 0) > 0}
+                        <span>{activeRequest.response?.trailers?.length}</span>
+                      {:else if tab.id === 'tests' && failedResponseTestCount > 0}
+                        <!--
+                          The backend now records a thrown post-response script as a
+                          failed test row. Without a badge here that row was behind a
+                          tab nobody opens after a green 200, which is exactly the
+                          case where the script failing matters most.
+                        -->
+                        <span class="tab-badge-failed">{failedResponseTestCount}</span>
+                      {/if}
+                    </button>
+                  {/each}
+                </div>
+              {/snippet}
+
+              {#snippet middle()}
                 <!--
-                  Next to the status code, because the status code is the thing
-                  it contradicts: a post-response script that threw still leaves
-                  a plain green 200 here, and the failure was only visible to
-                  someone who thought to open the Tests tab.
+                  The live region is mounted from the start and its CONTENT is
+                  what appears, not the region itself: an aria-live element
+                  inserted into the document with its text already in place is
+                  not announced by most screen readers, so gating the wrapper
+                  would have silently cost the "200 OK" announcement that a
+                  keyboard user gets after ⌘↵.
                 -->
-                {#if failedResponseTestCount > 0}
-                  <a
-                    class="response-test-failures"
-                    href="#response-panel-tests"
-                    onclick={(event) => { event.preventDefault(); selectResponsePaneTab('tests') }}
-                  >{failedResponseTestCount} test{failedResponseTestCount === 1 ? '' : 's'} failed</a>
-                {/if}
-              </div>
-              <button title="Save response as example" onclick={saveResponseExample} disabled={!activeRequest.response || busy !== ''}>Example</button>
-            </div>
-            <div class="subtabs" role="tablist" aria-label="Response sections" tabindex="-1" onkeydown={responseTabKeydown}>
-              {#each activeResponseTabs as tab (tab.id)}
-                <button
-                  class:active={responseTab === tab.id}
-                  id={`response-tab-${tab.id}`}
-                  data-response-tab={tab.id}
-                  role="tab"
-                  aria-selected={responseTab === tab.id}
-                  aria-controls={`response-panel-${tab.id}`}
-                  tabindex={responseTab === tab.id ? 0 : -1}
-                  onclick={() => selectResponsePaneTab(tab.id)}
-                >
-                  {tab.label}
-                  {#if tab.id === 'metadata' && (activeRequest.response?.metadata?.length ?? 0) > 0}
-                    <span>{activeRequest.response?.metadata?.length}</span>
-                  {:else if tab.id === 'trailers' && (activeRequest.response?.trailers?.length ?? 0) > 0}
-                    <span>{activeRequest.response?.trailers?.length}</span>
-                  {:else if tab.id === 'tests' && failedResponseTestCount > 0}
+                <div class={`response-status ${requestCommand.response.tone}`} aria-live="polite">
+                  {#if activeRequest.response}
+                    <strong>{requestCommand.response.status}</strong>
+                    <span>{requestCommand.response.statusText}</span>
+                    <span>{requestCommand.response.duration}</span>
+                    <span>{requestCommand.response.size}</span>
                     <!--
-                      The backend now records a thrown post-response script as a
-                      failed test row. Without a badge here that row was behind a
-                      tab nobody opens after a green 200, which is exactly the
-                      case where the script failing matters most.
+                      Next to the status code, because the status code is the thing
+                      it contradicts: a post-response script that threw still leaves
+                      a plain green 200 here, and the failure was only visible to
+                      someone who thought to open the Tests tab.
                     -->
-                    <span class="tab-badge-failed">{failedResponseTestCount}</span>
+                    {#if failedResponseTestCount > 0}
+                      <a
+                        class="response-test-failures"
+                        href="#response-panel-tests"
+                        onclick={(event) => { event.preventDefault(); selectResponsePaneTab('tests') }}
+                      >{failedResponseTestCount} test{failedResponseTestCount === 1 ? '' : 's'} failed</a>
+                    {/if}
                   {/if}
-                </button>
-              {/each}
-            </div>
+                </div>
+              {/snippet}
+
+              {#snippet right()}
+                <IconButton
+                  icon="bookmark"
+                  label="Save response as example"
+                  onclick={saveResponseExample}
+                  disabled={!activeRequest.response || busy !== ''}
+                />
+              {/snippet}
+            </PaneToolbar>
             <div class="response-content" id={`response-panel-${responseTab}`} role="tabpanel" aria-labelledby={`response-tab-${responseTab}`} tabindex="0">
               {#if responseTab !== 'examples'}
                 <ResponseInspector
@@ -9870,7 +9906,7 @@
                   <button class="primary" type="button" onclick={beginCreateResponseExample} disabled={busy !== ''}>New example</button>
                 </div>
                 {#if (activeRequest.examples ?? []).length === 0}
-                  <div class="empty-appState">No response examples</div>
+                  <div class="empty-state">No response examples</div>
                 {:else}
                   <div class="examples-list">
                     {#each activeRequest.examples ?? [] as example (responseExampleIdentifier(example))}
@@ -9926,8 +9962,8 @@
                               <input aria-label="Example request URL" value={draft.request?.url ?? ''} oninput={(event) => updateResponseExampleRequestField(example, 'url', event.currentTarget.value)} />
                               <span class="field-label">Body mode</span>
                               <select aria-label="Example request body mode" value={draft.request?.bodyMode || 'none'} onchange={(event) => updateResponseExampleRequestField(example, 'bodyMode', event.currentTarget.value)}>
-                                {#each bodyModes as mode (mode)}
-                                  <option value={mode}>{mode}</option>
+                                {#each storedBodyModeOptions as option (option.value)}
+                                  <option value={option.value}>{option.label}</option>
                                 {/each}
                               </select>
                               {#if draft.request?.bodyMode !== 'formUrlEncoded'}
@@ -10054,13 +10090,17 @@
         </section>
       {:else if activeView === 'collection' && activeCollection}
         <section class="panel collection-panel">
-          <header class="panel-header">
-            <div>
-              <h2>{activeCollection.name}</h2>
-              <p class="panel-subtitle">{activeCollection.format.toUpperCase()} · {activeCollection.items?.length ?? 0} requests{activeCollection.remote ? ' · Git' : ''}{activeCollection.notFoundLocally ? ' · Not cloned' : ''}</p>
-            </div>
-            <button onclick={refreshCollection}>Refresh active</button>
-          </header>
+          <!-- The subtitle survives D7's cut because it is the one place the
+               format is now written: D2 took the YML/BRU badge off every
+               sidebar row on the grounds that this page carries it. -->
+          <PageHeader
+            title={activeCollection.name}
+            subtitle={`${activeCollection.format.toUpperCase()} · ${activeCollection.items?.length ?? 0} requests${activeCollection.remote ? ' · Git' : ''}${activeCollection.notFoundLocally ? ' · Not cloned' : ''}`}
+          >
+            {#snippet actions()}
+              <button onclick={refreshCollection}>Refresh active</button>
+            {/snippet}
+          </PageHeader>
           <nav class="subtabs">
             {#each collectionTabs as tab (tab.id)}
               <button class:active={collectionTab === tab.id} onclick={() => (collectionTab = tab.id)}>
@@ -10369,7 +10409,7 @@
               </div>
             {:else if collectionTab === 'folders'}
               {#if (activeCollection.folders ?? []).length === 0}
-                <div class="empty-appState">No folders in this collection</div>
+                <div class="empty-state">No folders in this collection</div>
               {:else if editableFolder}
                 <div class="settings-stack folder-settings-panel">
                   <div class="field-grid folder-picker">
@@ -10409,7 +10449,7 @@
                             <tr>
                               <td><input type="checkbox" checked={variable.enabled} onchange={(e) => updateFolderVariable('variables', index, 'enabled', e.currentTarget.checked)} /></td>
                               <td><input aria-label="Folder pre-request variable name" value={variable.name} onchange={(e) => updateFolderVariable('variables', index, 'name', e.currentTarget.value)} /></td>
-                              <td><input aria-label="Folder pre-request variable value" value={String(variable.value ?? '')} onchange={(e) => updateFolderVariable('variables', index, 'value', e.currentTarget.value)} /></td>
+                              <td><input aria-label="Folder pre-request variable value" type={variable.secret ? 'password' : 'text'} value={String(variable.value ?? '')} onchange={(e) => updateFolderVariable('variables', index, 'value', e.currentTarget.value)} /></td>
                               <td>
                                 <select aria-label="Folder pre-request variable type" value={variable.dataType || variable.type || 'string'} onchange={(e) => updateFolderVariable('variables', index, 'dataType', e.currentTarget.value)}>
                                   <option value="string">string</option>
@@ -10426,7 +10466,7 @@
                       </table>
                     </div>
                     {#if (editableFolder.variables ?? []).length === 0}
-                      <div class="empty-appState">No pre-request variables</div>
+                      <div class="empty-state">No pre-request variables</div>
                     {/if}
 
                     <div class="settings-section-header">
@@ -10441,7 +10481,7 @@
                             <tr>
                               <td><input type="checkbox" checked={variable.enabled} onchange={(e) => updateFolderVariable('resVariables', index, 'enabled', e.currentTarget.checked)} /></td>
                               <td><input aria-label="Folder post-response variable name" value={variable.name} onchange={(e) => updateFolderVariable('resVariables', index, 'name', e.currentTarget.value)} /></td>
-                              <td><input aria-label="Folder post-response variable expression" value={String(variable.value ?? '')} onchange={(e) => updateFolderVariable('resVariables', index, 'value', e.currentTarget.value)} /></td>
+                              <td><input aria-label="Folder post-response variable expression" type={variable.secret ? 'password' : 'text'} value={String(variable.value ?? '')} onchange={(e) => updateFolderVariable('resVariables', index, 'value', e.currentTarget.value)} /></td>
                               <td>
                                 <select aria-label="Folder post-response variable type" value={variable.dataType || variable.type || 'string'} onchange={(e) => updateFolderVariable('resVariables', index, 'dataType', e.currentTarget.value)}>
                                   <option value="string">string</option>
@@ -10458,82 +10498,36 @@
                       </table>
                     </div>
                     {#if (editableFolder.resVariables ?? []).length === 0}
-                      <div class="empty-appState">No post-response variables</div>
+                      <div class="empty-state">No post-response variables</div>
                     {/if}
                   {:else if folderSettingsTab === 'auth'}
-                    <div class="field-grid auth-grid">
-                      <span class="field-label">Mode</span>
-                      <select aria-label="Folder auth mode" value={editableFolder.auth?.mode || ''} onchange={(e) => updateFolderAuth({ mode: e.currentTarget.value })}>
-                        <option value="">Unset</option>
-                        {#each authModes as mode (mode)}
-                          <option value={mode}>{mode}</option>
-                        {/each}
-                      </select>
-                      {#if editableFolder.auth?.mode === 'basic' || editableFolder.auth?.mode === 'digest' || editableFolder.auth?.mode === 'wsse' || editableFolder.auth?.mode === 'ntlm'}
-                        <span class="field-label">Username</span>
-                        <input value={editableFolder.auth.username ?? ''} onchange={(e) => updateFolderAuth({ username: e.currentTarget.value })} />
-                        <span class="field-label">Password</span>
-                        <input type="password" value={editableFolder.auth.password ?? ''} onchange={(e) => updateFolderAuth({ password: e.currentTarget.value })} />
-                        {#if editableFolder.auth?.mode === 'ntlm'}
-                          <span class="field-label">Domain</span>
-                          <input value={editableFolder.auth.domain ?? ''} onchange={(e) => updateFolderAuth({ domain: e.currentTarget.value })} />
-                        {/if}
-                      {:else if editableFolder.auth?.mode === 'bearer'}
-                        <span class="field-label">Token</span>
-                        <input type="password" value={editableFolder.auth.token ?? ''} onchange={(e) => updateFolderAuth({ token: e.currentTarget.value })} />
-                      {:else if editableFolder.auth?.mode === 'apikey'}
-                        <span class="field-label">Key</span>
-                        <input value={editableFolder.auth.apiKey ?? ''} onchange={(e) => updateFolderAuth({ apiKey: e.currentTarget.value })} />
-                        <span class="field-label">Value</span>
-                        <input type="password" value={editableFolder.auth.apiValue ?? ''} onchange={(e) => updateFolderAuth({ apiValue: e.currentTarget.value })} />
-                        <span class="field-label">Placement</span>
-                        <select value={editableFolder.auth.apiLocation || 'header'} onchange={(e) => updateFolderAuth({ apiLocation: e.currentTarget.value })}>
-                          <option value="header">Header</option>
-                          <option value="queryparams">Query params</option>
-                        </select>
-                      {:else if editableFolder.auth?.mode === 'awsv4'}
-                        <span class="field-label">Access key</span>
-                        <input value={editableFolder.auth.awsv4?.accessKeyId ?? ''} onchange={(e) => updateFolderAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
-                        <span class="field-label">Secret key</span>
-                        <input type="password" value={editableFolder.auth.awsv4?.secretAccessKey ?? ''} onchange={(e) => updateFolderAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
-                        <span class="field-label">Service</span>
-                        <input value={editableFolder.auth.awsv4?.service ?? ''} placeholder="execute-api" onchange={(e) => updateFolderAWSV4Auth({ service: e.currentTarget.value })} />
-                        <span class="field-label">Region</span>
-                        <input value={editableFolder.auth.awsv4?.region ?? ''} placeholder="us-east-1" onchange={(e) => updateFolderAWSV4Auth({ region: e.currentTarget.value })} />
-                      {:else if editableFolder.auth?.mode === 'oauth1'}
-                        <span class="field-label">Consumer key</span>
-                        <input value={editableFolder.auth.oauth1?.consumerKey ?? ''} onchange={(e) => updateFolderOAuth1Auth({ consumerKey: e.currentTarget.value })} />
-                        <span class="field-label">Consumer secret</span>
-                        <input type="password" value={editableFolder.auth.oauth1?.consumerSecret ?? ''} onchange={(e) => updateFolderOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
-                        <span class="field-label">Access token</span>
-                        <input value={editableFolder.auth.oauth1?.accessToken ?? ''} onchange={(e) => updateFolderOAuth1Auth({ accessToken: e.currentTarget.value })} />
-                        <span class="field-label">Token secret</span>
-                        <input type="password" value={editableFolder.auth.oauth1?.accessTokenSecret ?? ''} onchange={(e) => updateFolderOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
-                        <span class="field-label">Signature</span>
-                        <select value={editableFolder.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} onchange={(e) => updateFolderOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
-                          {#each oauth1SignatureMethods as method (method)}
-                            <option value={method}>{method}</option>
-                          {/each}
-                        </select>
-                      {:else if editableFolder.auth?.mode === 'oauth2'}
-                        <span class="field-label">Grant type</span>
-                        <select value={editableFolder.auth.oauth2?.grantType || 'client_credentials'} onchange={(e) => updateFolderOAuth2Auth({ grantType: e.currentTarget.value })}>
-                          {#each oauth2GrantTypes as grantType (grantType)}
-                            <option value={grantType}>{grantType}</option>
-                          {/each}
-                        </select>
-                        <span class="field-label">Access token URL</span>
-                        <input value={editableFolder.auth.oauth2?.accessTokenUrl ?? ''} onchange={(e) => updateFolderOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
-                        <span class="field-label">Client ID</span>
-                        <input value={editableFolder.auth.oauth2?.clientId ?? ''} onchange={(e) => updateFolderOAuth2Auth({ clientId: e.currentTarget.value })} />
-                        <span class="field-label">Client secret</span>
-                        <input type="password" value={editableFolder.auth.oauth2?.clientSecret ?? ''} onchange={(e) => updateFolderOAuth2Auth({ clientSecret: e.currentTarget.value })} />
-                        <span class="field-label">Scope</span>
-                        <input value={editableFolder.auth.oauth2?.scope ?? ''} onchange={(e) => updateFolderOAuth2Auth({ scope: e.currentTarget.value })} />
-                        <span class="field-label">Token</span>
-                        <input type="password" value={editableFolder.auth.token ?? ''} onchange={(e) => updateFolderAuth({ token: e.currentTarget.value })} />
-                      {/if}
-                    </div>
+                    <!--
+                      The copy the audit measured the drift against. It was
+                      missing fourteen OAuth2 fields, nine OAuth1 fields and two
+                      AWSv4 fields that the request-level form had, and it wrote
+                      `queryparams` where every other level wrote `query` for
+                      the same API key placement — see folderAuthWithDefaults
+                      for why that one was a wire-level bug and not a typo.
+
+                      `allowUnset` is the only thing this level genuinely does
+                      differently: a folder that has never had auth set is not a
+                      folder set to `none`, because unset means "ask my parent"
+                      during resolution, and collapsing the two would silently
+                      switch auth off for everything underneath.
+                    -->
+                    <AuthForm
+                      auth={editableFolder.auth}
+                      modeLabel="Folder auth"
+                      allowUnset
+                      onAuth={updateFolderAuth}
+                      onOAuth2={updateFolderOAuth2Auth}
+                      onOAuth1={updateFolderOAuth1Auth}
+                      onAWSV4={updateFolderAWSV4Auth}
+                      onParamAdd={(bucket, sendIn) => addFolderOAuth2AdditionalParam(bucket, sendIn)}
+                      onParamChange={(bucket, index, field, value) => updateFolderOAuth2AdditionalParam(bucket, 'body', index, field, value)}
+                      onParamRemove={(bucket, index) => removeFolderOAuth2AdditionalParam(bucket, index)}
+                      busy={busy !== ''}
+                    />
                   {:else if folderSettingsTab === 'script'}
                     <span class="field-label">Pre-request</span>
                     <textarea class="short" spellcheck="false" value={editableFolder.preScript ?? ''} onchange={(e) => updateFolderScript('preScript', e.currentTarget.value)}></textarea>
@@ -10556,14 +10550,14 @@
             {:else if collectionTab === 'vars'}
               <table>
                 <thead>
-                  <tr><th></th><th>Name</th><th>Value</th><th>Type</th><th>Secret</th></tr>
+                  <tr><th>On</th><th>Name</th><th>Value</th><th>Type</th><th>Secret</th><th></th></tr>
                 </thead>
                 <tbody>
                   {#each activeCollection.variables ?? [] as variable, index (variable.id)}
                     <tr>
                       <td><input type="checkbox" checked={variable.enabled} onchange={(e) => updateCollectionVariable(index, 'enabled', e.currentTarget.checked)} /></td>
                       <td><input value={variable.name} onchange={(e) => updateCollectionVariable(index, 'name', e.currentTarget.value)} /></td>
-                      <td><input value={String(variable.value ?? '')} onchange={(e) => updateCollectionVariable(index, 'value', e.currentTarget.value)} /></td>
+                      <td><input aria-label="Collection variable value" type={variable.secret ? 'password' : 'text'} value={String(variable.value ?? '')} onchange={(e) => updateCollectionVariable(index, 'value', e.currentTarget.value)} /></td>
                       <td>
                         <select value={variable.dataType || 'string'} onchange={(e) => updateCollectionVariable(index, 'dataType', e.currentTarget.value)}>
                           <option value="string">string</option>
@@ -10573,185 +10567,33 @@
                         </select>
                       </td>
                       <td><input type="checkbox" checked={variable.secret} onchange={(e) => updateCollectionVariable(index, 'secret', e.currentTarget.checked)} /></td>
+                      <td><IconButton icon="trash" label="Remove collection variable" size="small" onclick={() => removeCollectionVariable(index)} /></td>
                     </tr>
                   {/each}
                 </tbody>
               </table>
               <button onclick={addCollectionVariable}>Add variable</button>
             {:else if collectionTab === 'auth'}
-              <div class="field-grid auth-grid">
-                <span class="field-label">Mode</span>
-                <select value={activeCollection.auth?.mode ?? 'none'} onchange={(e) => updateCollectionAuth({ mode: e.currentTarget.value })}>
-                  {#each authModes as mode (mode)}
-                    <option value={mode}>{mode}</option>
-                  {/each}
-                </select>
-	                {#if activeCollection.auth?.mode === 'basic' || activeCollection.auth?.mode === 'digest' || activeCollection.auth?.mode === 'wsse' || activeCollection.auth?.mode === 'ntlm'}
-                  <span class="field-label">Username</span>
-                  <input value={activeCollection.auth.username} onchange={(e) => updateCollectionAuth({ username: e.currentTarget.value })} />
-                  <span class="field-label">Password</span>
-                  <input type="password" value={activeCollection.auth.password} onchange={(e) => updateCollectionAuth({ password: e.currentTarget.value })} />
-                  {#if activeCollection.auth?.mode === 'ntlm'}
-                    <span class="field-label">Domain</span>
-                    <input value={activeCollection.auth.domain} onchange={(e) => updateCollectionAuth({ domain: e.currentTarget.value })} />
-                  {/if}
-                {:else if activeCollection.auth?.mode === 'bearer'}
-                  <span class="field-label">Token</span>
-                  <input type="password" value={activeCollection.auth.token} onchange={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
-                {:else if activeCollection.auth?.mode === 'oauth2'}
-                  <span class="field-label">Grant</span>
-                  <select value={activeCollection.auth.oauth2?.grantType || 'client_credentials'} onchange={(e) => updateCollectionOAuth2Auth({ grantType: e.currentTarget.value })}>
-                    {#each oauth2GrantTypes as grant (grant)}
-                      <option value={grant}>{grant}</option>
-                    {/each}
-                  </select>
-                  {#if activeCollection.auth.oauth2?.grantType === 'authorization_code' || activeCollection.auth.oauth2?.grantType === 'implicit'}
-                    <span class="field-label">Callback URL</span>
-                    <input value={activeCollection.auth.oauth2?.callbackUrl ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ callbackUrl: e.currentTarget.value })} />
-                    <span class="field-label">Authorization URL</span>
-                    <input value={activeCollection.auth.oauth2?.authorizationUrl ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ authorizationUrl: e.currentTarget.value })} />
-                  {/if}
-                  <span class="field-label">Access token URL</span>
-                  <input value={activeCollection.auth.oauth2?.accessTokenUrl ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
-                  <span class="field-label">Client ID</span>
-                  <input value={activeCollection.auth.oauth2?.clientId ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ clientId: e.currentTarget.value })} />
-                  <span class="field-label">Client secret</span>
-                  <input type="password" value={activeCollection.auth.oauth2?.clientSecret ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ clientSecret: e.currentTarget.value })} />
-                  {#if activeCollection.auth.oauth2?.grantType === 'password'}
-                    <span class="field-label">Username</span>
-                    <input value={activeCollection.auth.oauth2?.username ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ username: e.currentTarget.value })} />
-                    <span class="field-label">Password</span>
-                    <input type="password" value={activeCollection.auth.oauth2?.password ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ password: e.currentTarget.value })} />
-                  {/if}
-                  <span class="field-label">Scope</span>
-                  <input value={activeCollection.auth.oauth2?.scope ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ scope: e.currentTarget.value })} />
-                  {#if activeCollection.auth.oauth2?.grantType === 'authorization_code' || activeCollection.auth.oauth2?.grantType === 'implicit'}
-                    <span class="field-label">State</span>
-                    <input value={activeCollection.auth.oauth2?.state ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ state: e.currentTarget.value })} />
-                  {/if}
-                  <span class="field-label">Credentials</span>
-                  <select value={activeCollection.auth.oauth2?.credentialsPlacement || 'basic_auth_header'} onchange={(e) => updateCollectionOAuth2Auth({ credentialsPlacement: e.currentTarget.value })}>
-                    {#each oauth2CredentialPlacements as placement (placement)}
-                      <option value={placement}>{placement}</option>
-                    {/each}
-                  </select>
-                  {#if activeCollection.auth.oauth2?.grantType === 'authorization_code'}
-                    <span class="field-label">PKCE</span>
-                    <input type="checkbox" checked={activeCollection.auth.oauth2?.pkce ?? false} onchange={(e) => updateCollectionOAuth2Auth({ pkce: e.currentTarget.checked })} />
-                  {/if}
-                  <span class="field-label">Token source</span>
-                  <select value={activeCollection.auth.oauth2?.tokenSource || 'access_token'} onchange={(e) => updateCollectionOAuth2Auth({ tokenSource: e.currentTarget.value })}>
-                    {#each oauth2TokenSources as source (source)}
-                      <option value={source}>{source}</option>
-                    {/each}
-                  </select>
-                  <span class="field-label">Token placement</span>
-                  <select value={activeCollection.auth.oauth2?.tokenPlacement || 'header'} onchange={(e) => updateCollectionOAuth2Auth({ tokenPlacement: e.currentTarget.value })}>
-                    {#each oauth2TokenPlacements as placement (placement)}
-                      <option value={placement}>{placement}</option>
-                    {/each}
-                  </select>
-                  {#if (activeCollection.auth.oauth2?.tokenPlacement || 'header') === 'header'}
-                    <span class="field-label">Header prefix</span>
-                    <input value={activeCollection.auth.oauth2?.tokenHeaderPrefix || 'Bearer'} onchange={(e) => updateCollectionOAuth2Auth({ tokenHeaderPrefix: e.currentTarget.value })} />
-                  {:else}
-                    <span class="field-label">Query key</span>
-                    <input value={activeCollection.auth.oauth2?.tokenQueryKey || 'access_token'} onchange={(e) => updateCollectionOAuth2Auth({ tokenQueryKey: e.currentTarget.value })} />
-                  {/if}
-                  <span class="field-label">Static token</span>
-                  <input type="password" value={activeCollection.auth.token} onchange={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
-                  <div class="oauth2-extra-stack">
-                    <OAuth2AdditionalParams
-                      title="Authorization request params"
-                      params={activeCollection.auth.oauth2?.authorizationAdditionalParams ?? []}
-                      onAdd={(sendIn) => addCollectionOAuth2AdditionalParam('authorizationAdditionalParams', sendIn)}
-                      onChange={(index, field, value) => updateCollectionOAuth2AdditionalParam('authorizationAdditionalParams', 'body', index, field, value)}
-                      onRemove={(index) => removeCollectionOAuth2AdditionalParam('authorizationAdditionalParams', index)}
-                    />
-                    <OAuth2AdditionalParams
-                      title="Access token request params"
-                      params={activeCollection.auth.oauth2?.tokenAdditionalParams ?? []}
-                      onAdd={(sendIn) => addCollectionOAuth2AdditionalParam('tokenAdditionalParams', sendIn)}
-                      onChange={(index, field, value) => updateCollectionOAuth2AdditionalParam('tokenAdditionalParams', 'body', index, field, value)}
-                      onRemove={(index) => removeCollectionOAuth2AdditionalParam('tokenAdditionalParams', index)}
-                    />
-                    <OAuth2AdditionalParams
-                      title="Refresh token request params"
-                      params={activeCollection.auth.oauth2?.refreshAdditionalParams ?? []}
-                      onAdd={(sendIn) => addCollectionOAuth2AdditionalParam('refreshAdditionalParams', sendIn)}
-                      onChange={(index, field, value) => updateCollectionOAuth2AdditionalParam('refreshAdditionalParams', 'body', index, field, value)}
-                      onRemove={(index) => removeCollectionOAuth2AdditionalParam('refreshAdditionalParams', index)}
-                    />
-                  </div>
-                {:else if activeCollection.auth?.mode === 'apikey'}
-                  <span class="field-label">Key</span>
-                  <input value={activeCollection.auth.apiKey} onchange={(e) => updateCollectionAuth({ apiKey: e.currentTarget.value })} />
-                  <span class="field-label">Value</span>
-                  <input type="password" value={activeCollection.auth.apiValue} onchange={(e) => updateCollectionAuth({ apiValue: e.currentTarget.value })} />
-                  <span class="field-label">Send in</span>
-	                  <select value={activeCollection.auth.apiLocation || 'header'} onchange={(e) => updateCollectionAuth({ apiLocation: e.currentTarget.value })}>
-	                    <option value="header">Header</option>
-	                    <option value="query">Query</option>
-	                  </select>
-	                {:else if activeCollection.auth?.mode === 'awsv4'}
-	                  <span class="field-label">Access key ID</span>
-	                  <input value={activeCollection.auth.awsv4?.accessKeyId ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
-	                  <span class="field-label">Secret access key</span>
-	                  <input type="password" value={activeCollection.auth.awsv4?.secretAccessKey ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
-	                  <span class="field-label">Session token</span>
-	                  <input type="password" value={activeCollection.auth.awsv4?.sessionToken ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ sessionToken: e.currentTarget.value })} />
-	                  <span class="field-label">Service</span>
-	                  <input value={activeCollection.auth.awsv4?.service ?? ''} placeholder="execute-api" onchange={(e) => updateCollectionAWSV4Auth({ service: e.currentTarget.value })} />
-	                  <span class="field-label">Region</span>
-	                  <input value={activeCollection.auth.awsv4?.region ?? ''} placeholder="us-east-1" onchange={(e) => updateCollectionAWSV4Auth({ region: e.currentTarget.value })} />
-		                  <span class="field-label">Profile</span>
-		                  <input value={activeCollection.auth.awsv4?.profileName ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ profileName: e.currentTarget.value })} />
-		                {:else if activeCollection.auth?.mode === 'oauth1'}
-		                  <span class="field-label">Consumer key</span>
-		                  <input value={activeCollection.auth.oauth1?.consumerKey ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ consumerKey: e.currentTarget.value })} />
-		                  <span class="field-label">Consumer secret</span>
-		                  <input type="password" value={activeCollection.auth.oauth1?.consumerSecret ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
-		                  <span class="field-label">Token</span>
-		                  <input value={activeCollection.auth.oauth1?.accessToken ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ accessToken: e.currentTarget.value })} />
-		                  <span class="field-label">Token secret</span>
-		                  <input type="password" value={activeCollection.auth.oauth1?.accessTokenSecret ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
-		                  <span class="field-label">Signature</span>
-		                  <select value={activeCollection.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} onchange={(e) => updateCollectionOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
-		                    {#each oauth1SignatureMethods as method (method)}
-		                      <option value={method}>{method}</option>
-		                    {/each}
-		                  </select>
-		                  <span class="field-label">Add params to</span>
-		                  <select value={activeCollection.auth.oauth1?.placement || 'header'} onchange={(e) => updateCollectionOAuth1Auth({ placement: e.currentTarget.value })}>
-		                    {#each oauth1Placements as placement (placement)}
-		                      <option value={placement}>{placement}</option>
-		                    {/each}
-		                  </select>
-		                  <span class="field-label">Callback URL</span>
-		                  <input value={activeCollection.auth.oauth1?.callbackUrl ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ callbackUrl: e.currentTarget.value })} />
-		                  <span class="field-label">Verifier</span>
-		                  <input value={activeCollection.auth.oauth1?.verifier ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ verifier: e.currentTarget.value })} />
-		                  <span class="field-label">Timestamp</span>
-		                  <input value={activeCollection.auth.oauth1?.timestamp ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ timestamp: e.currentTarget.value })} />
-		                  <span class="field-label">Nonce</span>
-		                  <input value={activeCollection.auth.oauth1?.nonce ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ nonce: e.currentTarget.value })} />
-		                  <span class="field-label">Version</span>
-		                  <input value={activeCollection.auth.oauth1?.version ?? ''} placeholder="1.0" onchange={(e) => updateCollectionOAuth1Auth({ version: e.currentTarget.value })} />
-		                  <span class="field-label">Realm</span>
-		                  <input value={activeCollection.auth.oauth1?.realm ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ realm: e.currentTarget.value })} />
-		                  <span class="field-label">Private key</span>
-		                  <textarea class="short" spellcheck="false" value={activeCollection.auth.oauth1?.privateKey ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ privateKey: e.currentTarget.value })}></textarea>
-		                  <span class="field-label">Private key type</span>
-		                  <select value={activeCollection.auth.oauth1?.privateKeyType || 'text'} onchange={(e) => updateCollectionOAuth1Auth({ privateKeyType: e.currentTarget.value })}>
-		                    <option value="text">text</option>
-		                    <option value="file">file</option>
-		                  </select>
-		                  <span class="field-label">Body hash</span>
-		                  <input type="checkbox" checked={activeCollection.auth.oauth1?.includeBodyHash ?? false} onchange={(e) => updateCollectionOAuth1Auth({ includeBodyHash: e.currentTarget.checked })} />
-		                {:else if activeCollection.auth?.mode !== 'none'}
-		                  <div class="empty-appState wide">This collection auth mode is marked partial until its backend signer is implemented.</div>
-		                {/if}
-              </div>
+              <!--
+                Collection auth, third copy. Near-identical to the request form
+                and to the collection-settings copy a thousand lines below it,
+                which is the tell: two screens configuring the SAME stored
+                object through two separately maintained forms. Both now render
+                the schema, so they cannot disagree about what a collection's
+                auth contains.
+              -->
+              <AuthForm
+                auth={activeCollection.auth}
+                modeLabel="Collection auth"
+                onAuth={updateCollectionAuth}
+                onOAuth2={updateCollectionOAuth2Auth}
+                onOAuth1={updateCollectionOAuth1Auth}
+                onAWSV4={updateCollectionAWSV4Auth}
+                onParamAdd={(bucket, sendIn) => addCollectionOAuth2AdditionalParam(bucket, sendIn)}
+                onParamChange={(bucket, index, field, value) => updateCollectionOAuth2AdditionalParam(bucket, 'body', index, field, value)}
+                onParamRemove={(bucket, index) => removeCollectionOAuth2AdditionalParam(bucket, index)}
+                busy={busy !== ''}
+              />
             {:else if collectionTab === 'docs'}
               {#if activeCollection}
                 <section class="panel-section">
@@ -10942,7 +10784,7 @@
                   </table>
                 </div>
                 {#if (activeCollection.protobuf?.protoFiles?.length ?? 0) === 0}
-                  <div class="empty-appState">No proto files</div>
+                  <div class="empty-state">No proto files</div>
                 {/if}
 
                 <div class="settings-section-header">
@@ -10972,7 +10814,7 @@
                   </table>
                 </div>
                 {#if (activeCollection.protobuf?.importPaths?.length ?? 0) === 0}
-                  <div class="empty-appState">No import paths</div>
+                  <div class="empty-state">No import paths</div>
                 {/if}
               </div>
             {:else if collectionTab === 'script'}
@@ -10987,13 +10829,19 @@
         </section>
       {:else if activeView === 'git'}
         <section class="panel git-workbench-panel" aria-labelledby="git-workbench-title" data-testid="git-workbench">
-          <header class="panel-header">
-            <div>
-              <h2 id="git-workbench-title" tabindex="-1" bind:this={gitWorkbenchHeading}>Git Workbench</h2>
-              <p class="panel-subtitle">Safe, collection-scoped Git actions for {activeCollection?.name ?? 'the active collection'}.</p>
-            </div>
-            <button type="button" onclick={() => refreshGitWorkbench()} disabled={gitWorkbenchLoading || gitWorkbenchBusy !== ''}>Refresh</button>
-          </header>
+          <!-- D7. The subtitle said "Safe, collection-scoped Git actions for
+               X." — a promise about the view plus one fact, the collection.
+               The fact stays; every action on the page is already scoped to it. -->
+          <PageHeader
+            title="Git Workbench"
+            subtitle={activeCollection?.name ?? 'No collection selected'}
+            titleId="git-workbench-title"
+            bind:titleRef={gitWorkbenchHeading}
+          >
+            {#snippet actions()}
+              <button type="button" onclick={() => refreshGitWorkbench()} disabled={gitWorkbenchLoading || gitWorkbenchBusy !== ''}>Refresh</button>
+            {/snippet}
+          </PageHeader>
 
           <div class="git-workbench-feedback" aria-live="polite" aria-atomic="true">
             {#if gitWorkbenchStatus}<p class="git-status-message">{gitWorkbenchStatus}</p>{/if}
@@ -11001,11 +10849,11 @@
           </div>
 
           {#if !activeCollection}
-            <div class="empty-appState wide">Select a local collection before opening the Git workbench.</div>
+            <div class="empty-state wide">Select a local collection before opening the Git workbench.</div>
           {:else if gitWorkbenchLoading && !gitWorkbenchSnapshot}
-            <div class="empty-appState wide">Loading Git status…</div>
+            <div class="empty-state wide">Loading Git status…</div>
           {:else if gitWorkbenchSnapshot && !gitWorkbenchSnapshot.available}
-            <div class="empty-appState wide">Git is required for this workbench. Install Git, then refresh.</div>
+            <div class="empty-state wide">Git is required for this workbench. Install Git, then refresh.</div>
           {:else if gitWorkbenchSnapshot && !gitWorkbenchSnapshot.initialized}
             <div class="git-workbench-empty">
               <h3>Initialize this collection</h3>
@@ -11049,7 +10897,7 @@
                   {/each}
                 </div>
               {:else}
-                <div class="empty-appState compact">No scoped changes.</div>
+                <div class="empty-state compact">No scoped changes.</div>
               {/if}
               {#if gitWorkbenchDiff}
                 <article class="git-diff-viewer" aria-label={`Git diff ${gitWorkbenchDiff.path}`}>
@@ -11115,7 +10963,7 @@
               <FlowTabComponent
                 collection={activeFlowCollection}
                 flow={activeFlow}
-                busy={busy !== ''}
+                {busy}
                 saveError={flowSaveError}
                 running={flowRunning}
                 result={flowRunFlowId === activeFlowTab.flowId ? flowRunResult : undefined}
@@ -11131,7 +10979,7 @@
           <!-- The flow was deleted, or its collection was removed, while its
                tab was open. Says so rather than rendering an empty editor. -->
           <section class="panel">
-            <header class="panel-header"><h2>Flow</h2></header>
+            <PageHeader title="Flow" />
             <div class="empty-state">This flow is no longer in the collection.</div>
           </section>
         {/if}
@@ -11164,20 +11012,19 @@
         {/await}
       {:else if activeView === 'environments'}
         <section class="panel">
-          <header class="panel-header">
-            <h2>Environments</h2>
-            <div class="split">
-              <input aria-label="Global environment name" bind:value={globalEnvironmentName} />
-              <button onclick={createGlobalEnvironment}>Create global</button>
-            </div>
-            <div class="split">
-              <input aria-label="Collection environment name" bind:value={environmentName} />
-              <button onclick={createEnvironment}>Create</button>
-            </div>
-          </header>
+          <!-- D7. The two create forms used to live in the header, side by
+               side, both labelled with a bare "Create" — so the header asked
+               which of two things you wanted before the page had told you the
+               two things existed. Each form now sits at the top of the card it
+               creates into, where the heading above it says what it makes. -->
+          <PageHeader title="Environments" />
           <div class="env-grid">
             <article>
               <h3>Global Environment</h3>
+              <div class="split">
+                <input aria-label="Global environment name" placeholder="New global environment" bind:value={globalEnvironmentName} />
+                <button onclick={createGlobalEnvironment}>Create global</button>
+              </div>
               {#if selectedGlobalEnvironment && activeWorkspace}
                 <div class="field-grid">
                   <span class="field-label">Active</span>
@@ -11227,7 +11074,7 @@
                         <tr>
                           <td><input type="checkbox" checked={row.variable.enabled} onchange={(e) => updateGlobalEnvironmentVariable(row.index, 'enabled', e.currentTarget.checked)} /></td>
                           <td><input aria-label="Global environment variable name" value={row.variable.name} oninput={(e) => updateGlobalEnvironmentVariable(row.index, 'name', e.currentTarget.value)} /></td>
-                          <td><input aria-label="Global environment variable value" value={String(row.variable.value ?? '')} oninput={(e) => updateGlobalEnvironmentVariable(row.index, 'value', e.currentTarget.value)} /></td>
+                          <td><input aria-label="Global environment variable value" type={row.variable.secret ? 'password' : 'text'} value={String(row.variable.value ?? '')} oninput={(e) => updateGlobalEnvironmentVariable(row.index, 'value', e.currentTarget.value)} /></td>
                           <td>
                             <select aria-label="Global environment variable type" value={row.variable.dataType || row.variable.type || 'string'} onchange={(e) => updateGlobalEnvironmentVariable(row.index, 'dataType', e.currentTarget.value)}>
                               <option value="string">string</option>
@@ -11243,7 +11090,7 @@
                     </tbody>
                   </table>
                 {:else}
-                  <div class="empty-appState">{globalEnvironmentVariableQuery ? 'No results found' : `No ${globalEnvironmentVariableTab}`}</div>
+                  <div class="empty-state">{globalEnvironmentVariableQuery ? 'No results found' : `No ${globalEnvironmentVariableTab}`}</div>
                 {/if}
                 <div class="toolbar">
                   <button onclick={addGlobalEnvironmentVariable}>{environmentVariableAddLabel(globalEnvironmentVariableTab)}</button>
@@ -11263,11 +11110,15 @@
                   bind:value={globalEnvironmentPayload}
                 ></textarea>
               {:else}
-                <div class="empty-appState">Create a global environment</div>
+                <div class="empty-state">Create a global environment</div>
               {/if}
             </article>
             <article>
               <h3>{selectedEnvironment?.name ?? 'No environment'} Variables</h3>
+              <div class="split">
+                <input aria-label="Collection environment name" placeholder="New collection environment" bind:value={environmentName} />
+                <button onclick={createEnvironment}>Create</button>
+              </div>
               {#if selectedEnvironment}
                 <nav class="subtabs compact" aria-label="Environment variable tabs">
                   {#each environmentVariableTabs as tab (tab.id)}
@@ -11288,7 +11139,7 @@
                         <tr>
                           <td><input type="checkbox" checked={row.variable.enabled} onchange={(e) => updateEnvironmentVariable(row.index, 'enabled', e.currentTarget.checked)} /></td>
                           <td><input aria-label="Environment variable name" value={row.variable.name} oninput={(e) => updateEnvironmentVariable(row.index, 'name', e.currentTarget.value)} /></td>
-                          <td><input aria-label="Environment variable value" value={String(row.variable.value ?? '')} oninput={(e) => updateEnvironmentVariable(row.index, 'value', e.currentTarget.value)} /></td>
+                          <td><input aria-label="Environment variable value" type={row.variable.secret ? 'password' : 'text'} value={String(row.variable.value ?? '')} oninput={(e) => updateEnvironmentVariable(row.index, 'value', e.currentTarget.value)} /></td>
                           <td>
                             <select aria-label="Environment variable type" value={row.variable.dataType || row.variable.type || 'string'} onchange={(e) => updateEnvironmentVariable(row.index, 'dataType', e.currentTarget.value)}>
                               <option value="string">string</option>
@@ -11304,11 +11155,11 @@
                     </tbody>
                   </table>
                 {:else}
-                  <div class="empty-appState">{environmentVariableQuery ? 'No results found' : `No ${environmentVariableTab}`}</div>
+                  <div class="empty-state">{environmentVariableQuery ? 'No results found' : `No ${environmentVariableTab}`}</div>
                 {/if}
                 <button onclick={addEnvironmentVariable}>{environmentVariableAddLabel(environmentVariableTab)}</button>
               {:else}
-                <div class="empty-appState">Create or select an environment</div>
+                <div class="empty-state">Create or select an environment</div>
               {/if}
             </article>
             <article>
@@ -11328,9 +11179,35 @@
                 <button onclick={() => loadDotEnvFiles(true)}>Reload</button>
                 <button onclick={deleteDotEnvFile} disabled={!selectedDotEnvFile}>Delete</button>
               </div>
-              <div class="tabs compact">
-                <button class:active={dotEnvEditorMode === 'table'} onclick={() => (dotEnvEditorMode = 'table')}>Table</button>
-                <button class:active={dotEnvEditorMode === 'raw'} onclick={() => (dotEnvEditorMode = 'raw')}>Raw</button>
+              <!--
+                A5-05. Table/Raw is one-of-two — the same gesture the body-mode
+                picker and the response view make — and it was the third widget
+                the app used to ask it: a `.tabs compact` pair of buttons here, a
+                `<select>` there, a `.segmented` group elsewhere. Two buttons
+                that look like tabs but are not in a tablist also cost two tab
+                stops and announce as nothing in particular; SegmentedControl is
+                a radio group, so it is one stop and arrow keys.
+
+                The mask switch is beside it rather than in the table header
+                because it is a property of this view, not of a column: see
+                dotEnvMaskValues. It is shown only in Table mode, since a raw
+                `.env` file is one textarea and there is nothing to mask
+                selectively there — a switch that silently did nothing would be
+                worse than its absence.
+              -->
+              <div class="toolbar">
+                <SegmentedControl
+                  options={[{ value: 'table', label: 'Table' }, { value: 'raw', label: 'Raw' }]}
+                  value={dotEnvEditorMode}
+                  ariaLabel=".env editor mode"
+                  onChange={(next) => (dotEnvEditorMode = next as DotEnvEditorMode)}
+                />
+                {#if dotEnvEditorMode === 'table'}
+                  <label class="checkbox-label">
+                    <input aria-label="Mask .env values" type="checkbox" bind:checked={dotEnvMaskValues} />
+                    Mask values
+                  </label>
+                {/if}
               </div>
               {#if dotEnvFiles.length > 0}
                 <table>
@@ -11346,7 +11223,7 @@
                   </tbody>
                 </table>
               {:else}
-                <div class="empty-appState">No .env files</div>
+                <div class="empty-state">No .env files</div>
               {/if}
               {#if dotEnvEditorMode === 'table'}
                 {#if dotEnvRows.length > 0}
@@ -11356,14 +11233,25 @@
                       {#each dotEnvRows as row, index (index)}
                         <tr>
                           <td><input aria-label=".env variable name" value={row.name} oninput={(e) => updateDotEnvRow(row, 'name', e.currentTarget.value)} /></td>
-                          <td><input aria-label=".env variable value" value={row.value} oninput={(e) => updateDotEnvRow(row, 'value', e.currentTarget.value)} /></td>
+                          <td>
+                            {#if dotEnvMaskValues}
+                              <SecretInput
+                                ariaLabel=".env variable value"
+                                value={row.value}
+                                live
+                                onChange={(value) => updateDotEnvRow(row, 'value', value)}
+                              />
+                            {:else}
+                              <input aria-label=".env variable value" value={row.value} oninput={(e) => updateDotEnvRow(row, 'value', e.currentTarget.value)} />
+                            {/if}
+                          </td>
                           <td><button onclick={() => removeDotEnvRow(row)}>Remove</button></td>
                         </tr>
                       {/each}
                     </tbody>
                   </table>
                 {:else}
-                  <div class="empty-appState">No .env variables</div>
+                  <div class="empty-state">No .env variables</div>
                 {/if}
                 <button onclick={addDotEnvRow}>Add variable</button>
               {:else}
@@ -11373,13 +11261,21 @@
             <article>
               <h3>Collection Variables</h3>
               <table>
+                <!--
+                  This table had no header row while the identical table on the
+                  Collection settings screen has one, so the same columns were
+                  labelled in one place and bare in the other. Nothing said
+                  which checkbox was "enabled" and which was "secret".
+                -->
+                <thead><tr><th>On</th><th>Name</th><th>Value</th><th>Secret</th><th></th></tr></thead>
                 <tbody>
                   {#each activeCollection?.variables ?? [] as variable, index (variable.id)}
                     <tr>
                       <td><input type="checkbox" checked={variable.enabled} onchange={(e) => updateCollectionVariable(index, 'enabled', e.currentTarget.checked)} /></td>
                       <td><input value={variable.name} onchange={(e) => updateCollectionVariable(index, 'name', e.currentTarget.value)} /></td>
-                      <td><input value={String(variable.value ?? '')} onchange={(e) => updateCollectionVariable(index, 'value', e.currentTarget.value)} /></td>
+                      <td><input aria-label="Collection variable value" type={variable.secret ? 'password' : 'text'} value={String(variable.value ?? '')} onchange={(e) => updateCollectionVariable(index, 'value', e.currentTarget.value)} /></td>
                       <td><input type="checkbox" checked={variable.secret} onchange={(e) => updateCollectionVariable(index, 'secret', e.currentTarget.checked)} /></td>
+                      <td><IconButton icon="trash" label="Remove collection variable" size="small" onclick={() => removeCollectionVariable(index)} /></td>
                     </tr>
                   {/each}
                 </tbody>
@@ -11397,172 +11293,25 @@
             </article>
             <article>
               <h3>Collection Auth</h3>
-              <div class="field-grid">
-                <span class="field-label">Mode</span>
-                <select value={activeCollection?.auth?.mode ?? 'none'} onchange={(e) => updateCollectionAuth({ mode: e.currentTarget.value })}>
-                  {#each authModes as mode (mode)}
-                    <option value={mode}>{mode}</option>
-                  {/each}
-                </select>
-	                {#if activeCollection?.auth?.mode === 'basic' || activeCollection?.auth?.mode === 'digest' || activeCollection?.auth?.mode === 'wsse' || activeCollection?.auth?.mode === 'ntlm'}
-                  <span class="field-label">Username</span>
-                  <input value={activeCollection.auth.username} onchange={(e) => updateCollectionAuth({ username: e.currentTarget.value })} />
-                  <span class="field-label">Password</span>
-                  <input type="password" value={activeCollection.auth.password} onchange={(e) => updateCollectionAuth({ password: e.currentTarget.value })} />
-                  {#if activeCollection?.auth?.mode === 'ntlm'}
-                    <span class="field-label">Domain</span>
-                    <input value={activeCollection.auth.domain} onchange={(e) => updateCollectionAuth({ domain: e.currentTarget.value })} />
-                  {/if}
-                {:else if activeCollection?.auth?.mode === 'bearer'}
-                  <span class="field-label">Token</span>
-                  <input type="password" value={activeCollection.auth.token} onchange={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
-                {:else if activeCollection?.auth?.mode === 'oauth2'}
-                  <span class="field-label">Grant</span>
-                  <select value={activeCollection.auth.oauth2?.grantType || 'client_credentials'} onchange={(e) => updateCollectionOAuth2Auth({ grantType: e.currentTarget.value })}>
-                    {#each oauth2GrantTypes as grant (grant)}
-                      <option value={grant}>{grant}</option>
-                    {/each}
-                  </select>
-                  {#if activeCollection.auth.oauth2?.grantType === 'authorization_code' || activeCollection.auth.oauth2?.grantType === 'implicit'}
-                    <span class="field-label">Callback URL</span>
-                    <input value={activeCollection.auth.oauth2?.callbackUrl ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ callbackUrl: e.currentTarget.value })} />
-                    <span class="field-label">Authorization URL</span>
-                    <input value={activeCollection.auth.oauth2?.authorizationUrl ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ authorizationUrl: e.currentTarget.value })} />
-                  {/if}
-                  <span class="field-label">Access token URL</span>
-                  <input value={activeCollection.auth.oauth2?.accessTokenUrl ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ accessTokenUrl: e.currentTarget.value })} />
-                  <span class="field-label">Client ID</span>
-                  <input value={activeCollection.auth.oauth2?.clientId ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ clientId: e.currentTarget.value })} />
-                  <span class="field-label">Client secret</span>
-                  <input type="password" value={activeCollection.auth.oauth2?.clientSecret ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ clientSecret: e.currentTarget.value })} />
-                  {#if activeCollection.auth.oauth2?.grantType === 'password'}
-                    <span class="field-label">Username</span>
-                    <input value={activeCollection.auth.oauth2?.username ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ username: e.currentTarget.value })} />
-                    <span class="field-label">Password</span>
-                    <input type="password" value={activeCollection.auth.oauth2?.password ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ password: e.currentTarget.value })} />
-                  {/if}
-                  <span class="field-label">Scope</span>
-                  <input value={activeCollection.auth.oauth2?.scope ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ scope: e.currentTarget.value })} />
-                  {#if activeCollection.auth.oauth2?.grantType === 'authorization_code' || activeCollection.auth.oauth2?.grantType === 'implicit'}
-                    <span class="field-label">State</span>
-                    <input value={activeCollection.auth.oauth2?.state ?? ''} onchange={(e) => updateCollectionOAuth2Auth({ state: e.currentTarget.value })} />
-                  {/if}
-                  <span class="field-label">Credentials</span>
-                  <select value={activeCollection.auth.oauth2?.credentialsPlacement || 'basic_auth_header'} onchange={(e) => updateCollectionOAuth2Auth({ credentialsPlacement: e.currentTarget.value })}>
-                    {#each oauth2CredentialPlacements as placement (placement)}
-                      <option value={placement}>{placement}</option>
-                    {/each}
-                  </select>
-                  {#if activeCollection.auth.oauth2?.grantType === 'authorization_code'}
-                    <span class="field-label">PKCE</span>
-                    <input type="checkbox" checked={activeCollection.auth.oauth2?.pkce ?? false} onchange={(e) => updateCollectionOAuth2Auth({ pkce: e.currentTarget.checked })} />
-                  {/if}
-                  <span class="field-label">Token source</span>
-                  <select value={activeCollection.auth.oauth2?.tokenSource || 'access_token'} onchange={(e) => updateCollectionOAuth2Auth({ tokenSource: e.currentTarget.value })}>
-                    {#each oauth2TokenSources as source (source)}
-                      <option value={source}>{source}</option>
-                    {/each}
-                  </select>
-                  <span class="field-label">Token placement</span>
-                  <select value={activeCollection.auth.oauth2?.tokenPlacement || 'header'} onchange={(e) => updateCollectionOAuth2Auth({ tokenPlacement: e.currentTarget.value })}>
-                    {#each oauth2TokenPlacements as placement (placement)}
-                      <option value={placement}>{placement}</option>
-                    {/each}
-                  </select>
-                  {#if (activeCollection.auth.oauth2?.tokenPlacement || 'header') === 'header'}
-                    <span class="field-label">Header prefix</span>
-                    <input value={activeCollection.auth.oauth2?.tokenHeaderPrefix || 'Bearer'} onchange={(e) => updateCollectionOAuth2Auth({ tokenHeaderPrefix: e.currentTarget.value })} />
-                  {:else}
-                    <span class="field-label">Query key</span>
-                    <input value={activeCollection.auth.oauth2?.tokenQueryKey || 'access_token'} onchange={(e) => updateCollectionOAuth2Auth({ tokenQueryKey: e.currentTarget.value })} />
-                  {/if}
-                  <span class="field-label">Static token</span>
-                  <input type="password" value={activeCollection.auth.token} onchange={(e) => updateCollectionAuth({ token: e.currentTarget.value })} />
-                  <div class="oauth2-extra-stack">
-                    <OAuth2AdditionalParams
-                      title="Authorization request params"
-                      params={activeCollection.auth.oauth2?.authorizationAdditionalParams ?? []}
-                      onAdd={(sendIn) => addCollectionOAuth2AdditionalParam('authorizationAdditionalParams', sendIn)}
-                      onChange={(index, field, value) => updateCollectionOAuth2AdditionalParam('authorizationAdditionalParams', 'body', index, field, value)}
-                      onRemove={(index) => removeCollectionOAuth2AdditionalParam('authorizationAdditionalParams', index)}
-                    />
-                    <OAuth2AdditionalParams
-                      title="Access token request params"
-                      params={activeCollection.auth.oauth2?.tokenAdditionalParams ?? []}
-                      onAdd={(sendIn) => addCollectionOAuth2AdditionalParam('tokenAdditionalParams', sendIn)}
-                      onChange={(index, field, value) => updateCollectionOAuth2AdditionalParam('tokenAdditionalParams', 'body', index, field, value)}
-                      onRemove={(index) => removeCollectionOAuth2AdditionalParam('tokenAdditionalParams', index)}
-                    />
-                    <OAuth2AdditionalParams
-                      title="Refresh token request params"
-                      params={activeCollection.auth.oauth2?.refreshAdditionalParams ?? []}
-                      onAdd={(sendIn) => addCollectionOAuth2AdditionalParam('refreshAdditionalParams', sendIn)}
-                      onChange={(index, field, value) => updateCollectionOAuth2AdditionalParam('refreshAdditionalParams', 'body', index, field, value)}
-                      onRemove={(index) => removeCollectionOAuth2AdditionalParam('refreshAdditionalParams', index)}
-                    />
-                  </div>
-	                {:else if activeCollection?.auth?.mode === 'apikey'}
-	                  <span class="field-label">Key</span>
-	                  <input value={activeCollection.auth.apiKey} onchange={(e) => updateCollectionAuth({ apiKey: e.currentTarget.value })} />
-	                  <span class="field-label">Value</span>
-	                  <input type="password" value={activeCollection.auth.apiValue} onchange={(e) => updateCollectionAuth({ apiValue: e.currentTarget.value })} />
-	                {:else if activeCollection?.auth?.mode === 'awsv4'}
-	                  <span class="field-label">Access key ID</span>
-	                  <input value={activeCollection.auth.awsv4?.accessKeyId ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ accessKeyId: e.currentTarget.value })} />
-	                  <span class="field-label">Secret access key</span>
-	                  <input type="password" value={activeCollection.auth.awsv4?.secretAccessKey ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ secretAccessKey: e.currentTarget.value })} />
-	                  <span class="field-label">Session token</span>
-	                  <input type="password" value={activeCollection.auth.awsv4?.sessionToken ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ sessionToken: e.currentTarget.value })} />
-	                  <span class="field-label">Service</span>
-	                  <input value={activeCollection.auth.awsv4?.service ?? ''} placeholder="execute-api" onchange={(e) => updateCollectionAWSV4Auth({ service: e.currentTarget.value })} />
-	                  <span class="field-label">Region</span>
-	                  <input value={activeCollection.auth.awsv4?.region ?? ''} placeholder="us-east-1" onchange={(e) => updateCollectionAWSV4Auth({ region: e.currentTarget.value })} />
-		                  <span class="field-label">Profile</span>
-		                  <input value={activeCollection.auth.awsv4?.profileName ?? ''} onchange={(e) => updateCollectionAWSV4Auth({ profileName: e.currentTarget.value })} />
-		                {:else if activeCollection?.auth?.mode === 'oauth1'}
-		                  <span class="field-label">Consumer key</span>
-		                  <input value={activeCollection.auth.oauth1?.consumerKey ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ consumerKey: e.currentTarget.value })} />
-		                  <span class="field-label">Consumer secret</span>
-		                  <input type="password" value={activeCollection.auth.oauth1?.consumerSecret ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ consumerSecret: e.currentTarget.value })} />
-		                  <span class="field-label">Token</span>
-		                  <input value={activeCollection.auth.oauth1?.accessToken ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ accessToken: e.currentTarget.value })} />
-		                  <span class="field-label">Token secret</span>
-		                  <input type="password" value={activeCollection.auth.oauth1?.accessTokenSecret ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ accessTokenSecret: e.currentTarget.value })} />
-		                  <span class="field-label">Signature</span>
-		                  <select value={activeCollection.auth.oauth1?.signatureMethod || 'HMAC-SHA1'} onchange={(e) => updateCollectionOAuth1Auth({ signatureMethod: e.currentTarget.value })}>
-		                    {#each oauth1SignatureMethods as method (method)}
-		                      <option value={method}>{method}</option>
-		                    {/each}
-		                  </select>
-		                  <span class="field-label">Add params to</span>
-		                  <select value={activeCollection.auth.oauth1?.placement || 'header'} onchange={(e) => updateCollectionOAuth1Auth({ placement: e.currentTarget.value })}>
-		                    {#each oauth1Placements as placement (placement)}
-		                      <option value={placement}>{placement}</option>
-		                    {/each}
-		                  </select>
-		                  <span class="field-label">Callback URL</span>
-		                  <input value={activeCollection.auth.oauth1?.callbackUrl ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ callbackUrl: e.currentTarget.value })} />
-		                  <span class="field-label">Verifier</span>
-		                  <input value={activeCollection.auth.oauth1?.verifier ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ verifier: e.currentTarget.value })} />
-		                  <span class="field-label">Timestamp</span>
-		                  <input value={activeCollection.auth.oauth1?.timestamp ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ timestamp: e.currentTarget.value })} />
-		                  <span class="field-label">Nonce</span>
-		                  <input value={activeCollection.auth.oauth1?.nonce ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ nonce: e.currentTarget.value })} />
-		                  <span class="field-label">Version</span>
-		                  <input value={activeCollection.auth.oauth1?.version ?? ''} placeholder="1.0" onchange={(e) => updateCollectionOAuth1Auth({ version: e.currentTarget.value })} />
-		                  <span class="field-label">Realm</span>
-		                  <input value={activeCollection.auth.oauth1?.realm ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ realm: e.currentTarget.value })} />
-		                  <span class="field-label">Private key</span>
-		                  <textarea class="short" spellcheck="false" value={activeCollection.auth.oauth1?.privateKey ?? ''} onchange={(e) => updateCollectionOAuth1Auth({ privateKey: e.currentTarget.value })}></textarea>
-		                  <span class="field-label">Private key type</span>
-		                  <select value={activeCollection.auth.oauth1?.privateKeyType || 'text'} onchange={(e) => updateCollectionOAuth1Auth({ privateKeyType: e.currentTarget.value })}>
-		                    <option value="text">text</option>
-		                    <option value="file">file</option>
-		                  </select>
-		                  <span class="field-label">Body hash</span>
-		                  <input type="checkbox" checked={activeCollection.auth.oauth1?.includeBodyHash ?? false} onchange={(e) => updateCollectionOAuth1Auth({ includeBodyHash: e.currentTarget.checked })} />
-		                {/if}
-              </div>
+              <!--
+                The fourth copy, and the one that shows what the drift cost:
+                it edits the same `activeCollection.auth` as the collection tab
+                but was written out separately, and it was one of the two that
+                forgot `auth-grid` — so the identical form was 620px wide here
+                and 680px there. AuthForm owns the measure now (A5-11).
+              -->
+              <AuthForm
+                auth={activeCollection?.auth}
+                modeLabel="Collection settings auth"
+                onAuth={updateCollectionAuth}
+                onOAuth2={updateCollectionOAuth2Auth}
+                onOAuth1={updateCollectionOAuth1Auth}
+                onAWSV4={updateCollectionAWSV4Auth}
+                onParamAdd={(bucket, sendIn) => addCollectionOAuth2AdditionalParam(bucket, sendIn)}
+                onParamChange={(bucket, index, field, value) => updateCollectionOAuth2AdditionalParam(bucket, 'body', index, field, value)}
+                onParamRemove={(bucket, index) => removeCollectionOAuth2AdditionalParam(bucket, index)}
+                busy={busy !== ''}
+              />
             </article>
           </div>
         </section>
@@ -11604,7 +11353,6 @@
             {updateImportDecision}
             {updateImportOverride}
             {toggleImportChild}
-            {exportCollection}
             {scanGitCollections}
             {cloneGitRepository}
             {checkGitVersion}
@@ -11613,16 +11361,30 @@
       {:else if activeView === 'devtools'}
         {@render devToolsPanel()}
       {:else if activeView === 'network'}
+        <!--
+          This view and the DevTools Network tab read the SAME
+          `appState.networkLog` and were two unrelated tables: that one
+          virtualised, sortable, filterable, with a detail pane; this one five
+          bare columns with no sorting and no detail. A user who found this
+          route saw a strictly worse version of a screen the app already had.
+
+          Both mount the one component now. Sort order and column widths are a
+          stored preference and are shared; filter ticks, selection and scroll
+          are transient and stay per-mount.
+        -->
         <section class="panel">
-          <header class="panel-header"><h2>Network Log</h2></header>
-          <table>
-            <thead><tr><th>Method</th><th>URL</th><th>Status</th><th>Time</th><th>Error</th></tr></thead>
-            <tbody>
-              {#each appState.networkLog ?? [] as row (row.id)}
-                <tr><td>{row.method}</td><td>{row.url}</td><td>{row.status}</td><td>{row.durationMs} ms</td><td>{row.error}</td></tr>
-              {/each}
-            </tbody>
-          </table>
+          <PageHeader title="Network Log" />
+          {#await import('./lib/views/devtools/NetworkTable.svelte') then NetworkTable}
+            {@const NetworkTableComponent = NetworkTable.default}
+            <NetworkTableComponent
+              rows={appState.networkLog ?? []}
+              label="Network log"
+              preferences={appState?.preferences?.devTools?.network}
+              onPreferencesChange={(next) => void updateDevToolsNetworkPreferences(next)}
+              detailsPanelWidth={devToolsDetailsPanelWidth}
+              onStartDetailsResize={startDevToolsDetailsPanelResize}
+            />
+          {/await}
         </section>
       {:else if activeView === 'history'}
         {#await import('./lib/views/HistoryPanel.svelte') then HistoryPanel}
@@ -11644,16 +11406,17 @@
         {/await}
 	      {:else if activeView === 'cookies'}
 	        <section class="panel">
-	          <header class="panel-header">
-	            <div>
-              <h2>Cookies</h2>
-              <p class="panel-subtitle">{visibleCookieCount}/{appState.cookies?.length ?? 0} stored cookies</p>
-            </div>
-            <div class="runner-summary">
+          <!-- The count moves from subtitle to meta: it is the one thing here
+               that changes as you type in the search box beside it. -->
+          <PageHeader title="Cookies">
+            {#snippet meta()}
+              <span>{visibleCookieCount}/{appState.cookies?.length ?? 0} stored cookies</span>
+            {/snippet}
+            {#snippet actions()}
               <input aria-label="Search cookies" placeholder="Search cookies" bind:value={cookieSearch} />
               <button onclick={clearCookies} disabled={(appState.cookies?.length ?? 0) === 0 || busy !== ''}>Clear all</button>
-            </div>
-          </header>
+            {/snippet}
+          </PageHeader>
           <div class="cookie-manager">
             <div class="cookie-editor">
               <section>
@@ -11703,16 +11466,16 @@
 
             <div class="cookie-domains">
               {#if (appState.cookies?.length ?? 0) === 0}
-                <div class="empty-appState">No stored cookies</div>
+                <div class="empty-state">No stored cookies</div>
               {:else if visibleCookieGroups.length === 0}
-                <div class="empty-appState">No matching cookies</div>
+                <div class="empty-state">No matching cookies</div>
               {:else}
                 {#each visibleCookieGroups as group (group.domain)}
                   <article>
                     <header>
                       <div>
                         <h3>{group.domain}</h3>
-                        <p class="panel-subtitle">{group.cookies.length} cookie{group.cookies.length === 1 ? '' : 's'}</p>
+                        <p class="card-subtitle">{group.cookies.length} cookie{group.cookies.length === 1 ? '' : 's'}</p>
                       </div>
                       <button onclick={() => clearDomainCookies(group.domain)} disabled={busy !== ''}>Clear domain</button>
                     </header>
@@ -11744,135 +11507,107 @@
 	          </div>
 	        </section>
 	      {:else if activeView === 'preferences'}
-	        <section class="panel preferences-panel">
-	          <header class="panel-header">
-	            <div>
-	              <h2>Preferences</h2>
-	              <p class="panel-subtitle">Theme {selectedThemeMode} · Proxy {proxyModeLabel(preferencesProxyMode(appState.preferences))}</p>
-	            </div>
-	          </header>
-	          <div class="settings-stack">
-          {#await import('./lib/views/preferences/AppearanceSection.svelte') then AppearanceSection}
-            {@const AppearanceSectionComponent = AppearanceSection.default}
-            <AppearanceSectionComponent
-              state={appState}
-              {selectedThemeMode}
-              {themeModes}
-              {lightThemeVariants}
-              {darkThemeVariants}
-              {updateThemeMode}
-              {updateThemeVariant}
-            />
-          {/await}
+        <!--
+          The whole preferences stack, moved into one component.
 
-          {#await import('./lib/views/preferences/DisplaySection.svelte') then DisplaySection}
-            {@const DisplaySectionComponent = DisplaySection.default}
-            <DisplaySectionComponent
-              {appZoomPercentage}
-              {zoomPercentages}
-              {zoomDefaultPercentage}
-              {codeFont}
-              {codeFontSize}
-              {resetZoomPercentage}
-              {setZoomPercentage}
-              {updateCodeFont}
-              {updateCodeFontSize}
-            />
-          {/await}
+          What stood here was a header, a subtitle summarising two arbitrary
+          settings, and eight consecutive `{#await import(...)}` blocks — eight
+          await blocks, eight paint passes, and no way to navigate between the
+          sections once they arrived. PreferencesPanel owns all of it and loads
+          the eight in one pass, caching the settled result so a second open
+          renders in the frame it mounts.
 
-          {#await import('./lib/views/preferences/GeneralSection.svelte') then GeneralSection}
-            {@const GeneralSectionComponent = GeneralSection.default}
-            <GeneralSectionComponent
-              state={appState}
-              {customCaFileName}
-              {browseDefaultLocation}
-              {clearDefaultLocation}
-              {browseCustomCaCertificate}
-              {clearCustomCaCertificate}
-              {updateAutoSavePreferences}
-              {updateRequestPreferences}
-            />
-          {/await}
-	
-          {#await import('./lib/views/preferences/OAuth2Section.svelte') then OAuth2Section}
-            {@const OAuth2SectionComponent = OAuth2Section.default}
-            <OAuth2SectionComponent
-              state={appState}
-              {updateAppearancePreferences}
-            />
-          {/await}
-	
-          {#await import('./lib/views/preferences/KeybindingsSection.svelte') then KeybindingsSection}
-            {@const KeybindingsSectionComponent = KeybindingsSection.default}
-            <KeybindingsSectionComponent
-              state={appState}
-              {keyBindingSections}
-              keyBindingPreset={activeKeyBindingPreset}
-              {updateKeyBindingPreset}
-              {visibleKeyBindingEntries}
-              {keyBindingDisplayValue}
-              {keyBindingCanEdit}
-              {keyBindingIsCustomized}
-              {keybindingDraft}
-              {keybindingsAreEnabled}
-              {keybindingError}
-              {recordingKeybindingAction}
-              {formatKeyBinding}
-              {beginRecordKeyBinding}
-              {recordKeyBinding}
-              {stopRecordKeyBinding}
-              {resetKeyBinding}
-              {resetAllKeyBindings}
-              {updateKeybindingsEnabled}
-            />
-          {/await}
-
-          {#await import('./lib/views/preferences/ProxySection.svelte') then ProxySection}
-            {@const ProxySectionComponent = ProxySection.default}
-            <ProxySectionComponent
-              state={appState}
-              {preferencesProxyMode}
-              {updatePreferencesProxy}
-              {updatePreferencesProxyAuth}
-              {updatePreferencesProxyConfig}
-              {updatePreferencesProxyMode}
-            />
-          {/await}
-
-          {#await import('./lib/views/preferences/CacheSection.svelte') then CacheSection}
-            {@const CacheSectionComponent = CacheSection.default}
-            <CacheSectionComponent
-              state={appState}
-              {fileCacheSize}
-              {formatRuntimeBytes}
-              {updateFileCache}
-              {updateSSLSessionCache}
-              {clearFileCache}
-              {clearSSLSessionCache}
-            />
-          {/await}
-
-          {#await import('./lib/views/preferences/McpSection.svelte') then McpSection}
-            {@const McpSectionComponent = McpSection.default}
-            <McpSectionComponent
-              state={appState}
-              onUpdateMcp={updateMcpPreferences}
-              onCopyCommand={copyText}
-            />
-          {/await}
-
-	          </div>
-	        </section>
+          The import is STATIC on purpose and is not a regression of US-036:
+          what that kept off the cold path is the eight sections' markup, and
+          all eight are still dynamic. This shell is a header, a nav and a
+          loader.
+        -->
+        <PreferencesPanel
+          mcpEnabled={appState.preferences.mcp?.enabled ?? false}
+          themeModeLabel={selectedThemeMode}
+          proxyLabel={proxyModeLabel(preferencesProxyMode(appState.preferences))}
+          appearance={{
+            state: appState,
+            selectedThemeMode,
+            themeModes,
+            lightThemeVariants,
+            darkThemeVariants,
+            updateThemeMode,
+            updateThemeVariant
+          }}
+          display={{
+            appZoomPercentage,
+            zoomPercentages,
+            zoomDefaultPercentage,
+            codeFont,
+            codeFontSize,
+            resetZoomPercentage,
+            setZoomPercentage,
+            updateCodeFont,
+            updateCodeFontSize
+          }}
+          general={{
+            state: appState,
+            customCaFileName,
+            browseDefaultLocation,
+            clearDefaultLocation,
+            browseCustomCaCertificate,
+            clearCustomCaCertificate,
+            updateAutoSavePreferences,
+            updateRequestPreferences
+          }}
+          oauth2={{ state: appState, updateAppearancePreferences }}
+          keybindings={{
+            state: appState,
+            keyBindingSections,
+            keyBindingPreset: activeKeyBindingPreset,
+            updateKeyBindingPreset,
+            visibleKeyBindingEntries,
+            keyBindingDisplayValue,
+            keyBindingCanEdit,
+            keyBindingIsCustomized,
+            keybindingDraft,
+            keybindingsAreEnabled,
+            keybindingError,
+            recordingKeybindingAction,
+            formatKeyBinding,
+            beginRecordKeyBinding,
+            recordKeyBinding,
+            stopRecordKeyBinding,
+            resetKeyBinding,
+            resetAllKeyBindings,
+            updateKeybindingsEnabled
+          }}
+          proxy={{
+            state: appState,
+            preferencesProxyMode,
+            updatePreferencesProxy,
+            updatePreferencesProxyAuth,
+            updatePreferencesProxyConfig,
+            updatePreferencesProxyMode
+          }}
+          cache={{
+            state: appState,
+            fileCacheSize,
+            formatRuntimeBytes,
+            updateFileCache,
+            updateSSLSessionCache,
+            clearFileCache,
+            clearSSLSessionCache
+          }}
+          mcp={{ state: appState, onUpdateMcp: updateMcpPreferences, onCopyCommand: copyText }}
+        />
 	      {:else if activeView === 'features'}
 	        <section class="panel">
-	          <header class="panel-header">
-            <h2>Local Capabilities</h2>
-            <div class="runner-summary">
+          <PageHeader title="Local Capabilities">
+            {#snippet meta()}
               <span>{doneFeatures}/{totalFeatures} done</span>
               <span>{partialFeatures} partial</span>
+            {/snippet}
+            {#snippet actions()}
               <button onclick={resetDemoData}>Reset demo data</button>
-            </div>
-          </header>
+            {/snippet}
+          </PageHeader>
           <div class="feature-grid">
             {#each appState.featureLedger ?? [] as feature (feature.id)}
               <article>

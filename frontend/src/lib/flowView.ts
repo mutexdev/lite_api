@@ -26,6 +26,8 @@
 // copy in the UI would either disagree with it or duplicate it; the tab's job
 // is to send the flow and show what came back.
 
+import { formatDurationMs } from './formatting.ts'
+import { runResultSearchText } from './runResults.ts'
 import type { types } from '../../wailsjs/go/models'
 
 /**
@@ -115,6 +117,24 @@ export function flowStepStateLabel(state: FlowStepState): string {
   return { pending: 'Pending', running: 'Running', passed: 'Passed', failed: 'Failed' }[state]
 }
 
+/**
+ * The chip's colour, in the vocabulary RunResultRow's shared badge speaks.
+ *
+ * A8-03 — the chip used to be Flow's alone, with four hand-written classes in
+ * FlowRunPanel's own stylesheet, which is why the Runner's four verdict words
+ * (passed/failed/skipped/cancelled — the same idea, from the same kind of run)
+ * had no chip at all. The pill moved into RunResultRow; this is the mapping
+ * from Flow's step states onto it.
+ *
+ * 'running' becomes 'active' rather than a StatusTone because it is not a
+ * grade — a step that is still going has not been judged yet — and 'pending'
+ * becomes 'idle', which paints the quiet default.
+ */
+export function flowStepBadgeTone(state: FlowStepState): 'idle' | 'active' | 'success' | 'danger' {
+  return { pending: 'idle', running: 'active', passed: 'success', failed: 'danger' }[state] as
+    'idle' | 'active' | 'success' | 'danger'
+}
+
 // ---------------------------------------------------------------------------
 // The run report
 // ---------------------------------------------------------------------------
@@ -132,9 +152,21 @@ export type FlowRunRow = {
   requestLabel: string
   method: string
   state: FlowStepState
+  /**
+   * The raw HTTP status, 0 for a step that has not run.
+   *
+   * A8-01 — Flow used to render the code as plain text and colour only the
+   * chip, so a step that redirected looked exactly like one that returned 200
+   * as long as its assertions held. The chip stays driven by pass/fail (that is
+   * the right signal for a STEP), and this is what the shared statusTone()
+   * grades so the code itself stops reading as inert.
+   */
+  status: number
   /** '' for a step that has not produced a result yet. */
   statusLabel: string
   durationLabel: string
+  /** Everything the run panel's find bar matches against, lowercased. */
+  searchText: string
   extracted: FlowExtractedRow[]
   assertions: readonly types.FlowAssertResult[]
   error: string
@@ -149,11 +181,17 @@ export function flowExtractedRows(extracted: Record<string, string> | undefined)
     .sort((left, right) => left.name.localeCompare(right.name))
 }
 
-/** "412 ms". Sub-millisecond steps still say a number rather than nothing. */
+/**
+ * "412 ms". Sub-millisecond steps still say a number rather than nothing.
+ *
+ * This was the app's ONLY factored-out duration formatter and the seven other
+ * surfaces each wrote their own `${ms} ms` inline. It is now a thin alias over
+ * the shared one in lib/formatting.ts, kept under its old name so Flow's
+ * callers and its tests are unchanged while there is only one implementation
+ * left in the app.
+ */
 export function flowDurationLabel(durationMs: number | undefined): string {
-  const value = Number(durationMs ?? 0)
-  if (!Number.isFinite(value) || value < 0) return ''
-  return `${Math.round(value)} ms`
+  return formatDurationMs(durationMs)
 }
 
 /**
@@ -212,18 +250,26 @@ export function flowRunRows(
         ? 'failed'
         : 'passed'
       : flowStepState(progress, step.id)
+    // The id is the fallback rather than "Unknown": a step whose request was
+    // deleted is a flow that will not run, and the id is what the backend's
+    // own refusal will name.
+    const requestLabel = request?.name || step.requestId
+    const method = (request?.method ?? '').toUpperCase()
+    const status = stepResult && stepResult.status > 0 ? stepResult.status : 0
     return {
       stepId: step.id,
       position: index + 1,
       requestId: step.requestId,
-      // The id is the fallback rather than "Unknown": a step whose request was
-      // deleted is a flow that will not run, and the id is what the backend's
-      // own refusal will name.
-      requestLabel: request?.name || step.requestId,
-      method: (request?.method ?? '').toUpperCase(),
+      requestLabel,
+      method,
       state,
-      statusLabel: stepResult && stepResult.status > 0 ? String(stepResult.status) : '',
+      status,
+      statusLabel: status > 0 ? String(status) : '',
       durationLabel: stepResult ? flowDurationLabel(stepResult.durationMs) : '',
+      // The assertion detail is deliberately NOT in here. It is behind the
+      // row's expander, and a find bar that matched hidden text would report a
+      // hit on a row showing nothing that contains the query.
+      searchText: runResultSearchText([step.id, requestLabel, method, status || undefined, stepResult?.error]),
       extracted: flowExtractedRows(stepResult?.extracted),
       assertions: stepResult?.assertions ?? [],
       error: stepResult?.error ?? '',

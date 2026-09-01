@@ -1,19 +1,14 @@
 <script lang="ts">
   import { variableTooltips } from './stores/variableTooltipStore.svelte'
-	  type VariableTooltipSource = 'global' | 'collection' | 'environment' | 'folder' | 'request' | 'runtime' | 'process' | 'path' | 'missing' | 'invalid'
-  type VariableTooltipInfo = {
-    name: string
-    scope: string
-    rawValue: string
-    resolvedValue: string
-    secret: boolean
-    readOnly: boolean
-    found: boolean
-    editable: boolean
-    validName: boolean
-    source: VariableTooltipSource
-    index: number
-  }
+  import VariableChip from './VariableChip.svelte'
+  import VariableTooltip from './VariableTooltip.svelte'
+  import type { VariableTooltipInfo } from './variableResolution'
+
+  // The local structural copy of VariableTooltipInfo that used to live here was
+  // a fourth definition of the same shape, kept in step by hand and already one
+  // field behind (it had no environmentId). It is now the real type — this
+  // component and App.svelte pass the SAME objects, so describing them twice
+  // could only ever be a way to disagree about them.
 
 	  type VariableTextSegment =
 	    | {
@@ -70,17 +65,6 @@
   }: Props = $props()
 
   const invalidVariableWarning = 'Invalid variable name! Variables must only contain alpha-numeric characters, "-", "_", "."'
-
-  function isValidVariableSegment(segment: VariableTextSegment) {
-    return segment.variable && segment.info.found && segment.info.validName
-  }
-
-  function handleTokenKey(event: KeyboardEvent, name: string) {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      variableTooltips.toggleActive(name)
-    }
-  }
 </script>
 
 <div class="variable-textarea-overlay">
@@ -90,62 +74,35 @@
   >
 	    {#each segments as segment (segment.key)}
 	      {#if segment.prompt}
-	        <span class="cm-variable-prompt">{segment.text}</span>
+	        <VariableChip
+	          text={segment.text}
+	          name={segment.name}
+	          prompt
+	        />
 	      {:else if segment.variable}
 	        <span class="inline-variable-token-wrapper" class:open={variableTooltips.active === segment.name}>
-          <span
-            role="button"
-            tabindex="0"
-            class:cm-variable-valid={isValidVariableSegment(segment)}
-            class:cm-variable-invalid={!isValidVariableSegment(segment)}
-            onclick={() => variableTooltips.toggleActive(segment.name)}
-            onkeydown={(event) => handleTokenKey(event, segment.name)}
-          >{segment.text}</span>
-          <div class="CodeMirror-brunoVarInfo inline-var-tooltip" role="tooltip">
-            <div class="variable-tooltip-title">
-              <strong class="var-name">{segment.info.name}</strong>
-              <span class="var-scope-badge">{segment.info.scope}</span>
-            </div>
-            {#if !segment.info.validName}
-              <small class="var-warning-note">{invalidVariableWarning}</small>
-            {:else if variableTooltips.editing === segment.info.name}
-              <textarea
-                class="var-value-editor"
-                aria-label={'Edit variable ' + segment.info.name}
-                bind:value={variableTooltips.draft}
-                onkeydown={(event) => onEditorKey(event, segment.info)}
-                onblur={(event) => onEditorBlur(event, segment.info)}
-              ></textarea>
-              <div class="button-row compact">
-                <button class="var-save-button" onclick={(event) => { event.stopPropagation(); onSave(segment.info) }} disabled={busy !== ''}>Save</button>
-                <button onclick={(event) => { event.stopPropagation(); variableTooltips.cancelEdit() }}>Cancel</button>
-              </div>
-            {:else if segment.info.editable}
-              <button type="button" class="var-value-editable-display" onclick={(event) => { event.stopPropagation(); variableTooltips.beginEdit(segment.info.name, segment.info.rawValue, segment.info.found, segment.info.editable) }}>
-                {displayTooltipValue(segment.info, variableTooltips.isRevealed(segment.info.name))}
-              </button>
-            {:else}
-              <div class="var-value-editable-display">{displayTooltipValue(segment.info, variableTooltips.isRevealed(segment.info.name))}</div>
-            {/if}
-            {#if segment.info.readOnly}
-              <small class="var-readonly-note">read-only</small>
-            {/if}
-            <div class="button-row compact">
-              <button
-                class="copy-button"
-                class:copy-success={variableTooltips.isCopied(segment.info.name)}
-                onclick={(event) => { event.stopPropagation(); onCopy(segment.info) }}
-                disabled={!segment.info.found || !segment.info.validName || variableTooltips.isCopied(segment.info.name)}
-              >
-                {variableTooltips.isCopied(segment.info.name) ? 'Copied' : 'Copy'}
-              </button>
-              {#if segment.info.secret}
-                <button class="secret-toggle-button" onclick={(event) => { event.stopPropagation(); variableTooltips.toggleRevealed(segment.info.name) }}>
-                  {variableTooltips.isRevealed(segment.info.name) ? 'Hide' : 'Show'}
-                </button>
-              {/if}
-            </div>
-          </div>
+          <VariableChip
+            text={segment.text}
+            name={segment.name}
+            info={segment.info}
+            scope={segment.info.scope}
+            onActivate={() => variableTooltips.toggleActive(segment.name)}
+            onDismiss={() => variableTooltips.close()}
+          />
+          <VariableTooltip
+            panelClass="CodeMirror-brunoVarInfo inline-var-tooltip"
+            info={segment.info}
+            {busy}
+            displayValue={displayTooltipValue}
+            invalidWarning={invalidVariableWarning}
+            onEditorKey={onEditorKey}
+            onEditorBlur={onEditorBlur}
+            onSave={onSave}
+            onBeginEdit={(info) => variableTooltips.beginEdit(info.name, info.rawValue, info.found, info.editable)}
+            onCancelEdit={() => variableTooltips.cancelEdit()}
+            onCopy={onCopy}
+            onToggleReveal={(name) => variableTooltips.toggleRevealed(name)}
+          />
         </span>
       {:else}
         <span>{segment.text}</span>

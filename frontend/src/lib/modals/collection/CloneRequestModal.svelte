@@ -7,6 +7,7 @@
   // filesystem-name toggle, filename draft, editing toggle, two validators.
   import type { types } from '../../../../wailsjs/go/models'
   import Modal from '../Modal.svelte'
+  import IconButton from '../../ui/IconButton.svelte'
 
   // Bindable: the filename field and both toggles write back to App.svelte.
   export let cloneRequestFilenameDraft: string
@@ -25,11 +26,11 @@
   export let cancelCloneRequestModal: () => void
 </script>
 
-<Modal labelledBy="clone-request-title" onClose={cancelCloneRequestModal}>
+<Modal labelledBy="clone-request-title" onClose={cancelCloneRequestModal} size="medium" busy={busy !== ''}>
       <form on:submit|preventDefault={confirmCloneRequest}>
         <header>
           <h2 id="clone-request-title">Clone Request</h2>
-          <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={cancelCloneRequestModal}>x</button>
+          <IconButton icon="close" label="Close" onclick={cancelCloneRequestModal} testId="modal-close-button" />
         </header>
         <div class="prompt-fields">
           <label>
@@ -97,7 +98,7 @@
             type="submit"
             data-testid="clone-item-button"
             disabled={busy !== '' || cloneRequestNameDraft.trim() === '' || !cloneRequestFilenameIsValid()}
-          >{busy === 'clone request' ? 'Cloning...' : 'Clone'}</button>
+          >{busy === 'clone request' ? 'Cloning…' : 'Clone'}</button>
         </div>
       </form>
 </Modal>

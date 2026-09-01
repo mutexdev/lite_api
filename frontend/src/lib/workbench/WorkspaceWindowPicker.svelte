@@ -8,7 +8,30 @@
 </script>
 
 <script lang="ts">
-  import { onMount, tick } from 'svelte'
+  // The "open a workspace in a new window" picker.
+  //
+  // WHAT THIS FILE USED TO BE. It was the 29th hand-rolled dialog — written
+  // AFTER US-025 consolidated the other 28 onto Modal.svelte, and re-deriving
+  // every guarantee that consolidation exists to hold in one place: its own
+  // backdrop, its own Tab trap, its own Escape handler, its own focus-restore
+  // in onMount. It also invented a second visual language for "dialog": z-index
+  // 65 against everyone else's 50, a 12px radius against .prompt-dialog's
+  // --radius-8, a backdrop-filter used nowhere else in the app, an "eyebrow"
+  // label used nowhere else in the app, and a private @keyframes duplicating
+  // the app's own `spin`.
+  //
+  // None of that was wrong on its own terms. It was wrong because none of it
+  // was shared: a fix to the focus trap in Modal.svelte reached 28 dialogs and
+  // not this one, and the trap here was subtly different (no preventScroll on
+  // restore, so returning focus could jerk the page).
+  //
+  // WHAT IS LEFT LOCAL, and why. Only the things Modal.svelte has no opinion
+  // about: the listbox roving-tabindex and its arrow/Home/End/Enter keys, the
+  // create-workspace form, and the option row's own layout. Escape, Tab, inert,
+  // aria-modal and focus return are the shell's now.
+  import Modal from '../modals/Modal.svelte'
+  import IconButton from '../ui/IconButton.svelte'
+  import { tick } from 'svelte'
 
   // US-028 — runes.
   type Props = {
@@ -33,8 +56,7 @@
     onCancel
   }: Props = $props()
 
-  let dialogElement = $state<HTMLElement | undefined>(undefined)
-  let cancelButton = $state<HTMLButtonElement | undefined>(undefined)
+  let listElement = $state<HTMLElement | undefined>(undefined)
   // All four drive the template. As plain lets the selection would never move,
   // the typed name would never appear and the submit button would never
   // re-enable, while the component kept rendering as though nothing was wrong.
@@ -69,16 +91,6 @@
     Boolean(normalizedWorkspaceName && !duplicateWorkspaceName && !busy && !createSubmitting)
   )
 
-  onMount(() => {
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const focusFrame = requestAnimationFrame(() => cancelButton?.focus())
-
-    return () => {
-      cancelAnimationFrame(focusFrame)
-      if (previouslyFocused?.isConnected) previouslyFocused.focus()
-    }
-  })
-
   function selectTarget(target: WorkspaceWindowTarget, focus = false) {
     if (busy || target.id === currentWorkspaceId) return
     selectedId = target.id
@@ -86,35 +98,7 @@
   }
 
   function optionFor(id: string) {
-    return dialogElement?.querySelector<HTMLButtonElement>(`[data-workspace-id="${CSS.escape(id)}"]`)
-  }
-
-  function focusableElements() {
-    return Array.from(
-      dialogElement?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      ) ?? []
-    ).filter((element) => !element.hasAttribute('hidden') && element.getAttribute('aria-hidden') !== 'true')
-  }
-
-  function trapTab(event: KeyboardEvent) {
-    const focusable = focusableElements()
-    if (focusable.length === 0) {
-      event.preventDefault()
-      dialogElement?.focus()
-      return
-    }
-
-    const first = focusable[0]
-    const last = focusable[focusable.length - 1]
-    const active = document.activeElement
-    if (event.shiftKey && (active === first || !dialogElement?.contains(active))) {
-      event.preventDefault()
-      last.focus()
-    } else if (!event.shiftKey && (active === last || !dialogElement?.contains(active))) {
-      event.preventDefault()
-      first.focus()
-    }
+    return listElement?.querySelector<HTMLButtonElement>(`[data-workspace-id="${CSS.escape(id)}"]`)
   }
 
   function moveOptionFocus(key: 'ArrowUp' | 'ArrowDown' | 'Home' | 'End') {
@@ -128,24 +112,15 @@
     selectTarget(eligibleTargets[nextIndex], true)
   }
 
-  function handleDialogKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      event.stopPropagation()
-      onCancel()
-      return
-    }
-    if (event.key === 'Tab') {
-      trapTab(event)
-      return
-    }
-    if (!(event.target instanceof Element)) return
-    const option = event.target.closest<HTMLElement>('[data-workspace-option]')
-    if (!option) return
-    const focusedTarget = eligibleTargets.find((target) => target.id === option.dataset.workspaceId)
+  // Bound to each option rather than to the dialog box. The old handler lived on
+  // the dialog element, matched event.target.closest('[data-workspace-option]')
+  // and also carried Escape and Tab — the two keys the shell now owns, so all
+  // that is left is the listbox's own vocabulary, and an option is where that
+  // belongs.
+  function handleOptionKeydown(event: KeyboardEvent, target: WorkspaceWindowTarget) {
     if (event.key === 'Enter') {
       event.preventDefault()
-      openTarget(focusedTarget)
+      openTarget(target)
       return
     }
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'Home' || event.key === 'End') {
@@ -194,259 +169,177 @@
   }
 </script>
 
-<div class="workspace-picker-backdrop">
-  <div
-    class="workspace-picker"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="workspace-picker-title"
-    aria-describedby="workspace-picker-description"
-    aria-busy={busy}
-    tabindex="-1"
-    bind:this={dialogElement}
-    onkeydown={handleDialogKeydown}
-  >
-    <header>
-      <div class="heading-copy">
-        <span class="eyebrow">New window</span>
-        <h2 id="workspace-picker-title">Open a workspace</h2>
-        <p id="workspace-picker-description">Choose a workspace to open in a separate LiteAPI window.</p>
-      </div>
-      <button
-        class="close-button"
-        type="button"
-        aria-label="Cancel opening workspace"
-        title="Cancel"
-        onclick={onCancel}
-      >×</button>
-    </header>
-
-    <div class="picker-content">
-      {#if error}
-        <div class="picker-error" role="alert">
-          <strong>Workspace action failed</strong>
-          <span>{error}</span>
-        </div>
-      {/if}
-
-      {#if busy && targets.length === 0}
-        <div class="empty-workspaces" role="status" aria-live="polite">
-          <span class="loading-mark" aria-hidden="true"></span>
-          <strong>Loading workspaces…</strong>
-          <p>Checking the workspace registry.</p>
-        </div>
-      {:else if targets.length === 0}
-        <div class="empty-workspaces" role="status">
-          <span aria-hidden="true">⌂</span>
-          <strong>No workspaces found</strong>
-          <p>Create a workspace below, then open it in a new window.</p>
-        </div>
-      {:else}
-        {#if eligibleTargets.length === 0}
-          <div class="empty-eligible-workspaces" role="status">
-            <strong>No other workspaces yet</strong>
-            <span>Create a second workspace below to open another window.</span>
-          </div>
-        {/if}
-        <ul class="workspace-list" role="listbox" aria-label="Available workspaces">
-          {#each targets as target (target.id)}
-            <li role="presentation">
-              <button
-                class="workspace-option"
-                class:selected={target.id === selectedId}
-                class:current={target.id === currentWorkspaceId}
-                type="button"
-                role="option"
-                aria-selected={target.id !== currentWorkspaceId && target.id === selectedId}
-                aria-disabled={target.id === currentWorkspaceId || busy}
-                disabled={target.id === currentWorkspaceId}
-                tabindex={target.id !== currentWorkspaceId && target.id === selectedId ? 0 : -1}
-                data-workspace-option
-                data-workspace-id={target.id}
-                onclick={() => selectTarget(target)}
-                ondblclick={() => openTarget(target)}
-              >
-                <span class="workspace-mark" aria-hidden="true">{target.name.trim().charAt(0).toUpperCase() || 'W'}</span>
-                <span class="workspace-copy">
-                  <span class="workspace-name" title={target.name}>{target.name}</span>
-                  <span class="workspace-path" title={target.path}>{target.path}</span>
-                </span>
-                {#if target.id === currentWorkspaceId}
-                  <span class="current-badge"><span aria-hidden="true"></span>Current · already open</span>
-                {:else if target.id === selectedId}
-                  <span class="selected-mark" aria-hidden="true">✓</span>
-                {/if}
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-
-      <form class="create-workspace" onsubmit={(event) => { event.preventDefault(); createWorkspace() }}>
-        <label for="new-workspace-name">Create another workspace</label>
-        <div class="create-workspace-row">
-          <input
-            id="new-workspace-name"
-            type="text"
-            value={workspaceName}
-            placeholder="Workspace name"
-            autocomplete="off"
-            aria-invalid={Boolean(workspaceNameError)}
-            aria-describedby={workspaceNameError ? 'new-workspace-name-error' : 'new-workspace-name-hint'}
-            disabled={busy}
-            oninput={(event) => updateWorkspaceName(event.currentTarget.value)}
-          />
-          <button type="submit" disabled={!canCreate} aria-label="Create workspace">
-            {#if createSubmitting || busyAction === 'creating'}<span class="spinner" aria-hidden="true"></span>Creating…{:else}Create{/if}
-          </button>
-        </div>
-        {#if workspaceNameError}
-          <small id="new-workspace-name-error" class="create-workspace-error" role="alert">{workspaceNameError}</small>
-        {:else}
-          <small id="new-workspace-name-hint">The new workspace remains separate from this window.</small>
-        {/if}
-      </form>
+<Modal
+  labelledBy="workspace-picker-title"
+  describedBy="workspace-picker-description"
+  onClose={onCancel}
+  dialogClass="prompt-dialog workspace-picker-dialog"
+  testId="workspace-window-picker"
+  {busy}
+>
+  <header>
+    <div>
+      <h2 id="workspace-picker-title">Open a Workspace</h2>
+      <p id="workspace-picker-description">Choose a workspace to open in a separate LiteAPI window.</p>
     </div>
+    <IconButton icon="close" label="Close" onclick={onCancel} />
+  </header>
 
-    <footer>
-      <span class="keyboard-hint"><kbd>↑</kbd><kbd>↓</kbd> navigate <span aria-hidden="true">·</span> <kbd>esc</kbd> cancel</span>
-      <div class="actions">
-        <button
-          type="button"
-          aria-label="Cancel opening workspace"
-          bind:this={cancelButton}
-          onclick={onCancel}
-        >Cancel</button>
-        <button
-          class="open-button"
-          type="button"
-          aria-label={selectedTarget ? `Open ${selectedTarget.name} in a new window` : 'Open workspace in a new window'}
-          disabled={!canOpen}
-          onclick={() => openTarget(selectedTarget)}
-        >
-          {#if busyAction === 'opening'}<span class="spinner" aria-hidden="true"></span>Opening…{:else}Open in New Window{/if}
-        </button>
+  {#if error}
+    <div class="picker-error" role="alert">
+      <strong>Workspace action failed</strong>
+      <span>{error}</span>
+    </div>
+  {/if}
+
+  {#if busy && targets.length === 0}
+    <div class="empty-workspaces" role="status" aria-live="polite">
+      <span class="loading-mark" aria-hidden="true"></span>
+      <strong>Loading workspaces…</strong>
+      <p>Checking the workspace registry.</p>
+    </div>
+  {:else if targets.length === 0}
+    <div class="empty-workspaces" role="status">
+      <span aria-hidden="true">⌂</span>
+      <strong>No workspaces found</strong>
+      <p>Create a workspace below, then open it in a new window.</p>
+    </div>
+  {:else}
+    {#if eligibleTargets.length === 0}
+      <div class="empty-eligible-workspaces" role="status">
+        <strong>No other workspaces yet</strong>
+        <span>Create a second workspace below to open another window.</span>
       </div>
-    </footer>
+    {/if}
+    <ul class="workspace-list" role="listbox" aria-label="Available workspaces" bind:this={listElement}>
+      {#each targets as target (target.id)}
+        <li role="presentation">
+          <button
+            class="workspace-option"
+            class:selected={target.id === selectedId}
+            class:current={target.id === currentWorkspaceId}
+            type="button"
+            role="option"
+            aria-selected={target.id !== currentWorkspaceId && target.id === selectedId}
+            aria-disabled={target.id === currentWorkspaceId || busy}
+            disabled={target.id === currentWorkspaceId}
+            tabindex={target.id !== currentWorkspaceId && target.id === selectedId ? 0 : -1}
+            data-workspace-option
+            data-workspace-id={target.id}
+            onclick={() => selectTarget(target)}
+            ondblclick={() => openTarget(target)}
+            onkeydown={(event) => handleOptionKeydown(event, target)}
+          >
+            <span class="workspace-mark" aria-hidden="true">{target.name.trim().charAt(0).toUpperCase() || 'W'}</span>
+            <span class="workspace-copy">
+              <span class="workspace-name" title={target.name}>{target.name}</span>
+              <span class="workspace-path" title={target.path}>{target.path}</span>
+            </span>
+            {#if target.id === currentWorkspaceId}
+              <span class="current-badge"><span aria-hidden="true"></span>Current · already open</span>
+            {:else if target.id === selectedId}
+              <span class="selected-mark" aria-hidden="true">✓</span>
+            {/if}
+          </button>
+        </li>
+      {/each}
+    </ul>
+  {/if}
+
+  <form class="create-workspace" onsubmit={(event) => { event.preventDefault(); createWorkspace() }}>
+    <label for="new-workspace-name">Create another workspace</label>
+    <div class="create-workspace-row">
+      <input
+        id="new-workspace-name"
+        type="text"
+        value={workspaceName}
+        placeholder="Workspace name"
+        autocomplete="off"
+        aria-invalid={Boolean(workspaceNameError)}
+        aria-describedby={workspaceNameError ? 'new-workspace-name-error' : 'new-workspace-name-hint'}
+        disabled={busy}
+        oninput={(event) => updateWorkspaceName(event.currentTarget.value)}
+      />
+      <button class="primary" type="submit" disabled={!canCreate} aria-label="Create workspace">
+        {#if createSubmitting || busyAction === 'creating'}<span class="spinner" aria-hidden="true"></span>Creating…{:else}Create{/if}
+      </button>
+    </div>
+    {#if workspaceNameError}
+      <small id="new-workspace-name-error" class="create-workspace-error" role="alert">{workspaceNameError}</small>
+    {:else}
+      <small id="new-workspace-name-hint">The new workspace remains separate from this window.</small>
+    {/if}
+  </form>
+
+  <!--
+    Footer order matches every other dialog: neutral first, primary last. Cancel
+    also names itself the initial focus, which is what the old onMount's
+    requestAnimationFrame(() => cancelButton.focus()) was doing by hand — same
+    landing spot, now through the one mechanism the shell already implements.
+  -->
+  <div class="button-row workspace-picker-actions">
+    <span class="keyboard-hint"><kbd>↑</kbd><kbd>↓</kbd> navigate <span aria-hidden="true">·</span> <kbd>esc</kbd> cancel</span>
+    <button type="button" data-modal-autofocus aria-label="Cancel opening workspace" onclick={onCancel}>Cancel</button>
+    <button
+      class="primary"
+      type="button"
+      aria-label={selectedTarget ? `Open ${selectedTarget.name} in a new window` : 'Open workspace in a new window'}
+      disabled={!canOpen}
+      onclick={() => openTarget(selectedTarget)}
+    >
+      {#if busyAction === 'opening'}<span class="spinner" aria-hidden="true"></span>Opening…{:else}Open in New Window{/if}
+    </button>
   </div>
-</div>
+</Modal>
 
 <style>
-  .workspace-picker-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 65;
-    display: grid;
-    place-items: center;
-    padding: clamp(12px, 3vw, 28px);
-    background: var(--overlay);
-    backdrop-filter: blur(7px) saturate(0.88);
-  }
-
-  .workspace-picker {
-    width: min(580px, 100%);
-    max-height: min(680px, calc(100dvh - 2 * clamp(12px, 3vw, 28px)));
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto;
-    overflow: hidden;
-    border: 1px solid var(--border-strong);
-    border-radius: 12px;
-    background: var(--surface);
-    color: var(--text);
-    box-shadow: 0 24px 72px var(--shadow-strong), 0 2px 8px var(--shadow-soft);
-    outline: none;
-  }
-
-  header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 18px;
-    padding: 18px 18px 14px;
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
-  .heading-copy { min-width: 0; }
-  .eyebrow {
-    display: block;
-    margin-bottom: 4px;
-    color: var(--accent-strong);
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-  }
-  h2 { margin: 0; font-size: 18px; line-height: 1.25; letter-spacing: -0.015em; }
-  p { margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
-
-  button {
-    font: inherit;
-  }
-  button:focus-visible {
-    outline: 2px solid var(--focus);
-    outline-offset: 2px;
-  }
-  button:disabled { cursor: not-allowed; opacity: 0.58; }
-
-  .close-button {
-    flex: 0 0 auto;
-    width: 30px;
-    height: 30px;
-    display: grid;
-    place-items: center;
-    padding: 0;
-    border: 1px solid transparent;
-    border-radius: 7px;
-    background: transparent;
+  /* Nothing here styles the dialog box, the backdrop or the buttons.
+     .prompt-dialog owns the first two and they belong to Modal.svelte, so a
+     scoped rule for them could never match anyway; the global `button` and
+     `button.primary` rules own the third. What is left is this dialog's own
+     content — the option rows, the create form, the two status boxes — written
+     against the app's spacing, radius and type scales rather than the raw pixel
+     literals this file was authored with. */
+  header p {
+    margin: var(--space-5) 0 0;
     color: var(--muted);
-    font-size: 21px;
-    line-height: 1;
-    cursor: pointer;
-  }
-  .close-button:hover { border-color: var(--border); background: var(--surface-soft); color: var(--text); }
-
-  .picker-content {
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
+    font-size: var(--font-size-12);
+    line-height: 1.45;
   }
 
   .picker-error {
     display: grid;
-    gap: 2px;
-    margin: 12px 14px 0;
-    padding: 9px 11px;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-12);
+    padding: var(--space-8) var(--space-11);
     border: 1px solid var(--danger-border);
-    border-radius: 8px;
+    border-radius: var(--radius-8);
     background: var(--danger-bg-soft);
     color: var(--danger);
-    font-size: 12px;
+    font-size: var(--font-size-12);
   }
   .picker-error span { color: var(--text); overflow-wrap: anywhere; }
 
   .empty-eligible-workspaces {
     display: grid;
-    gap: 2px;
-    margin: 12px 14px 0;
-    padding: 9px 11px;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-12);
+    padding: var(--space-8) var(--space-11);
     border: 1px dashed var(--border-strong);
-    border-radius: 8px;
+    border-radius: var(--radius-8);
     background: var(--surface-soft);
     color: var(--text);
-    font-size: 11px;
+    font-size: var(--font-size-11);
   }
   .empty-eligible-workspaces span { color: var(--muted); }
 
   .workspace-list {
-    flex: 1 1 auto;
-    min-height: 0;
-    max-height: min(52dvh, 420px);
+    max-height: min(48dvh, 360px);
     display: grid;
     align-content: start;
-    gap: 6px;
-    margin: 0;
-    padding: 12px 14px;
+    gap: var(--space-6);
+    margin: 0 0 var(--space-14);
+    padding: 0;
     overflow: auto;
     list-style: none;
     scrollbar-gutter: stable;
@@ -458,21 +351,20 @@
     display: grid;
     grid-template-columns: 34px minmax(0, 1fr) auto;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-10);
     min-height: 56px;
-    padding: 8px 10px;
-    border: 1px solid var(--border-subtle);
-    border-radius: 9px;
-    background: var(--surface-raised, var(--surface-soft));
+    padding: var(--space-8) var(--space-10);
+    /* --surface-raised and --surface-hover were never declared anywhere: this
+       file was the only place in the app that named them, always behind a
+       fallback, so both had silently meant their fallback since the day it was
+       written. Naming the real token says what the colour actually is. */
+    background: var(--surface-soft);
     color: var(--text);
     text-align: left;
-    cursor: pointer;
-    transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease, transform 120ms ease;
   }
   .workspace-option:hover:not([aria-disabled="true"]) {
     border-color: var(--border-strong);
-    background: var(--surface-hover, var(--surface-alt));
-    transform: translateY(-1px);
+    background: var(--surface-alt);
   }
   .workspace-option.selected {
     border-color: var(--selected-border);
@@ -487,45 +379,46 @@
     display: grid;
     place-items: center;
     border: 1px solid var(--accent-border);
-    border-radius: 8px;
+    border-radius: var(--radius-8);
     background: var(--accent-soft);
     color: var(--accent-strong);
-    font-size: 13px;
+    font-size: var(--font-size-13);
     font-weight: 800;
   }
-  .workspace-copy { min-width: 0; display: grid; gap: 3px; }
+  .workspace-copy { min-width: 0; display: grid; gap: var(--space-3); }
   .workspace-name, .workspace-path {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .workspace-name { font-size: 13px; font-weight: 750; }
-  .workspace-path { color: var(--muted); font-family: var(--code-font-family); font-size: 10.5px; }
+  .workspace-name { font-size: var(--font-size-13); font-weight: 700; }
+  .workspace-path { color: var(--muted); font-family: var(--code-font-family); font-size: var(--font-size-10); }
 
   .current-badge {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: var(--space-5);
     max-width: 150px;
-    padding: 4px 7px;
+    padding: var(--space-4) var(--space-7);
     border: 1px solid var(--border);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: var(--surface);
     color: var(--muted);
-    font-size: 9.5px;
-    font-weight: 750;
+    font-size: var(--font-size-9);
+    font-weight: 700;
     white-space: nowrap;
   }
   .current-badge > span { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-  .selected-mark { color: var(--accent-strong); font-size: 15px; font-weight: 900; }
+  .selected-mark { color: var(--accent-strong); font-weight: 900; }
 
   .empty-workspaces {
-    min-height: 180px;
+    min-height: 160px;
     display: grid;
     place-content: center;
     justify-items: center;
-    padding: 28px;
+    margin-bottom: var(--space-14);
+    padding: var(--space-28);
     text-align: center;
   }
   .empty-workspaces > span {
@@ -533,163 +426,102 @@
     height: 38px;
     display: grid;
     place-items: center;
-    margin-bottom: 9px;
+    margin-bottom: var(--space-8);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius-10);
     background: var(--surface-soft);
     color: var(--muted);
-    font-size: 19px;
+    font-size: var(--font-size-18);
   }
-  .empty-workspaces strong { font-size: 13px; }
-  .empty-workspaces p { max-width: 300px; }
+  .empty-workspaces strong { font-size: var(--font-size-13); }
+  .empty-workspaces p { max-width: 300px; margin: var(--space-5) 0 0; color: var(--muted); font-size: var(--font-size-12); }
   .empty-workspaces .loading-mark {
     border: 2px solid var(--border-strong);
     border-right-color: var(--accent);
     border-radius: 50%;
     background: transparent;
-    animation: workspace-picker-spin 700ms linear infinite;
+    animation: spin 700ms linear infinite;
   }
 
   .create-workspace {
-    flex: 0 0 auto;
     display: grid;
-    gap: 6px;
-    padding: 11px 14px 12px;
-    border-top: 1px solid var(--border-subtle);
+    gap: var(--space-6);
+    margin-bottom: var(--space-14);
+    padding: var(--space-11) var(--space-12) var(--space-12);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-8);
     background: var(--surface-alt);
   }
   .create-workspace > label {
     color: var(--text-soft);
-    font-size: 11px;
-    font-weight: 750;
+    font-size: var(--font-size-11);
+    font-weight: 700;
   }
   .create-workspace-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 7px;
-  }
-  .create-workspace input {
-    min-width: 0;
-    min-height: 32px;
-    padding: 6px 8px;
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    background: var(--surface);
-    color: var(--text);
-    font: inherit;
-    font-size: 12px;
-    outline: none;
-  }
-  .create-workspace input:focus {
-    border-color: var(--focus);
-    box-shadow: 0 0 0 2px var(--focus-ring);
+    gap: var(--space-7);
   }
   .create-workspace input[aria-invalid="true"] { border-color: var(--danger-border); }
   .create-workspace button {
-    min-width: 78px;
-    min-height: 32px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    padding: 6px 10px;
-    border: 1px solid var(--accent);
-    border-radius: 7px;
-    background: var(--accent);
-    color: var(--on-accent);
-    font-size: 11.5px;
-    font-weight: 750;
-    cursor: pointer;
+    gap: var(--space-6);
   }
-  .create-workspace button:hover:not(:disabled) { border-color: var(--accent-strong); background: var(--accent-strong); }
-  .create-workspace small { color: var(--muted); font-size: 10px; line-height: 1.35; }
+  .create-workspace small { color: var(--muted); font-size: var(--font-size-10); line-height: 1.35; }
   .create-workspace .create-workspace-error { color: var(--danger); }
 
-  footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-    padding: 12px 14px;
-    border-top: 1px solid var(--border-subtle);
-    background: var(--surface-alt);
-  }
-  .keyboard-hint { color: var(--muted); font-size: 10px; white-space: nowrap; }
+  .workspace-picker-actions { justify-content: flex-end; }
+  .keyboard-hint { margin-right: auto; color: var(--muted); font-size: var(--font-size-10); white-space: nowrap; }
   kbd {
     display: inline-grid;
     place-items: center;
     min-width: 18px;
     height: 18px;
-    margin-right: 2px;
-    padding: 0 4px;
+    margin-right: var(--space-2);
+    padding: 0 var(--space-4);
     border: 1px solid var(--border);
     border-bottom-color: var(--border-strong);
-    border-radius: 4px;
+    border-radius: var(--radius-4);
     background: var(--surface);
     color: var(--text-soft);
     font-family: inherit;
-    font-size: 9px;
+    font-size: var(--font-size-9);
     line-height: 1;
   }
-  .actions { display: flex; justify-content: flex-end; gap: 8px; }
-  .actions button {
-    min-height: 32px;
-    padding: 6px 11px;
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    background: var(--surface);
-    color: var(--text);
-    font-size: 11.5px;
-    font-weight: 700;
-    cursor: pointer;
-  }
-  .actions button:hover:not(:disabled) { border-color: var(--border-strong); background: var(--surface-soft); }
-  .actions .open-button {
-    min-width: 142px;
+  .workspace-picker-actions button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 7px;
-    border-color: var(--accent);
-    background: var(--accent);
-    color: var(--on-accent);
+    gap: var(--space-7);
   }
-  .actions .open-button:hover:not(:disabled) { border-color: var(--accent-strong); background: var(--accent-strong); color: var(--on-accent); }
 
+  /* @keyframes spin already exists in style.css, driving .loader. This file used
+     to carry a private @keyframes workspace-picker-spin that did the identical
+     rotation — the shared one is reused, but the size is not: .loader is a 36px
+     page-level spinner and this is a 12px mark that sits inside a button label. */
   .spinner {
     width: 12px;
     height: 12px;
     border: 2px solid currentColor;
     border-right-color: transparent;
     border-radius: 50%;
-    animation: workspace-picker-spin 700ms linear infinite;
+    animation: spin 700ms linear infinite;
   }
 
-  @keyframes workspace-picker-spin { to { transform: rotate(360deg); } }
-
   @media (max-width: 520px) {
-    .workspace-picker-backdrop { place-items: end center; padding: 8px; }
-    .workspace-picker { max-height: calc(100dvh - 16px); border-radius: 12px 12px 8px 8px; }
-    header { padding: 15px 14px 12px; }
-    .workspace-list { padding: 10px; }
-    .create-workspace { padding: 10px; }
     .workspace-option { grid-template-columns: 32px minmax(0, 1fr); }
     .current-badge, .selected-mark { grid-column: 2; justify-self: start; }
-    footer { align-items: stretch; flex-direction: column; padding: 10px; }
     .keyboard-hint { display: none; }
-    .actions { display: grid; grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr); }
-    .actions button { width: 100%; }
   }
 
   @media (prefers-contrast: more) {
-    .workspace-picker { border-width: 2px; }
     .workspace-option { border-color: var(--border-strong); }
     .workspace-option.selected { outline: 2px solid var(--focus); outline-offset: -3px; }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .workspace-option { transition: none; }
-    .workspace-option:hover:not([aria-disabled="true"]) { transform: none; }
     .spinner, .loading-mark { animation-duration: 1.4s; }
   }
 </style>

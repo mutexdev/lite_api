@@ -7,6 +7,7 @@
   // filesystem-name toggle, filename draft, editing toggle, two validators.
   import type { types } from '../../../../wailsjs/go/models'
   import Modal from '../Modal.svelte'
+  import IconButton from '../../ui/IconButton.svelte'
 
   // Bindable: the filename field and both toggles write back to App.svelte.
   export let renameRequestFilenameDraft: string
@@ -25,11 +26,11 @@
   export let cancelRenameRequestModal: () => void
 </script>
 
-<Modal labelledBy="rename-request-title" onClose={cancelRenameRequestModal}>
+<Modal labelledBy="rename-request-title" onClose={cancelRenameRequestModal} size="medium" busy={busy !== ''}>
       <form on:submit|preventDefault={confirmRenameRequest}>
         <header>
           <h2 id="rename-request-title">Rename Request</h2>
-          <button type="button" class="icon-button" title="Cancel" data-testid="modal-close-button" on:click={cancelRenameRequestModal}>x</button>
+          <IconButton icon="close" label="Close" onclick={cancelRenameRequestModal} testId="modal-close-button" />
         </header>
         <div class="prompt-fields">
           <label>
@@ -97,7 +98,7 @@
             type="submit"
             data-testid="rename-item-button"
             disabled={busy !== '' || renameRequestNameDraft.trim() === '' || !renameRequestFilenameIsValid()}
-          >{busy === 'rename request' ? 'Renaming...' : 'Rename'}</button>
+          >{busy === 'rename request' ? 'Renaming…' : 'Rename'}</button>
         </div>
       </form>
 </Modal>

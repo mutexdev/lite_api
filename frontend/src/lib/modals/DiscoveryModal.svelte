@@ -11,6 +11,7 @@
   // to be told that before they go looking for a switch.
 
   import Modal from './Modal.svelte'
+  import IconButton from '../ui/IconButton.svelte'
   import type { core } from '../../../wailsjs/go/models'
 
   // Runes, not `export let`. In legacy mode the compiler tracks the variables
@@ -70,13 +71,13 @@
   labelledBy="discovery-title"
   describedBy="discovery-description"
   onClose={onClose}
-  dialogClass="prompt-dialog discovery-dialog"
   testId="discovery-modal"
   busy={busy}
+  size="medium"
 >
   <header>
-    <h2 id="discovery-title">Bring your setup across</h2>
-    <button type="button" class="icon-button" title="Close" onclick={onClose}>x</button>
+    <h2 id="discovery-title">Bring Your Setup Across</h2>
+    <IconButton icon="close" label="Close" onclick={onClose} />
   </header>
 
   <p id="discovery-description">
@@ -87,14 +88,14 @@
 
   {#if report.installations.length > 0}
     <section class="discovery-section">
-      <h3>API clients</h3>
+      <h3>API Clients</h3>
       {#each report.installations as installation (installation.client)}
         <article class="discovery-client">
           <header>
             <strong>{installation.displayName}</strong>
             {#if installation.readable}
               <button type="button" data-testid={`discovery-expand-${installation.client}`} onclick={() => toggleClient(installation.client)}>
-                {expanded[installation.client] ? 'Hide collections' : 'Show collections'}
+                {expanded[installation.client] ? 'Hide Collections' : 'Show Collections'}
               </button>
             {/if}
           </header>
@@ -134,7 +135,7 @@
                 disabled={busy || chosenFor(installation.client).length === 0}
                 onclick={() => void onImport(installation.client, chosenFor(installation.client))}
               >
-                Import selected
+                Import Selected
               </button>
             {/if}
           {/if}
@@ -145,7 +146,7 @@
 
   {#if report.caCertificates.length > 0}
     <section class="discovery-section">
-      <h3>Certificate authority</h3>
+      <h3>Certificate Authority</h3>
       <p class="discovery-guidance">
         Check the fingerprint against what your administrator gave you before trusting one. Your system's
         existing certificates are kept either way.
@@ -161,7 +162,7 @@
             <p class="discovery-guidance">Expired on {formatExpiry(candidate.notAfter)}; trusting it would not help.</p>
           {:else}
             <button type="button" data-testid="discovery-adopt-ca" disabled={busy} onclick={() => void onAdoptCA(candidate.path)}>
-              Trust this authority
+              Trust This Authority
             </button>
           {/if}
         </article>
@@ -184,56 +185,76 @@
   {/if}
 
   <div class="button-row">
-    <button type="button" data-testid="discovery-dismiss" onclick={onClose}>Not now</button>
+    <button type="button" data-testid="discovery-dismiss" onclick={onClose}>Not Now</button>
   </div>
 </Modal>
 
 <style>
+  /* TOKENS, NOT NEW NUMBERS. This block was the last local <style> in the modals
+     tree still inventing its own values: 0.9rem, 0.8rem and 0.75rem for type,
+     bare px for spacing, and `var(--border, rgba(0, 0, 0, 0.12))` for the rule
+     above each section.
+
+     None of the three type sizes was on the scale. 0.9rem is 14.4px and 0.8rem
+     is 12.8px, so section headings and guidance text sat a fraction off every
+     other heading and every other caption in the app — the kind of difference
+     nobody can name and everybody can see, and precisely the "different app in
+     each section" complaint this campaign started from. They are 14px and 13px
+     now, the nearest steps on the closed scale in style.css.
+
+     The border fallback is gone as well: --border is defined in :root and in
+     all 12 theme blocks, so the rgba() was dead weight that would have painted
+     a light-mode grey if it ever fired inside a dark theme.
+
+     The two opacity rules became colours for the same reason. Faded text is a
+     value nothing else in the app derives its greys from; --muted is what
+     McpApprovalModal and every other dialog reach for, and it is redefined per
+     theme where an opacity is not. */
   .discovery-section {
-    margin-top: 12px;
-    border-top: 1px solid var(--border, rgba(0, 0, 0, 0.12));
-    padding-top: 12px;
+    margin-top: var(--space-12);
+    border-top: 1px solid var(--border);
+    padding-top: var(--space-12);
   }
 
   .discovery-section h3 {
-    margin: 0 0 8px;
-    font-size: 0.9rem;
+    margin: 0 0 var(--space-8);
+    font-size: var(--font-size-14);
   }
 
   .discovery-client,
   .discovery-ca {
-    margin-bottom: 10px;
+    margin-bottom: var(--space-10);
   }
 
   .discovery-client header {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-8);
   }
 
   .discovery-path,
   .discovery-fingerprint {
-    margin: 2px 0;
-    font-size: 0.75rem;
-    opacity: 0.7;
+    margin: var(--space-2) 0;
+    color: var(--muted);
+    font-size: var(--font-size-12);
     word-break: break-all;
   }
 
   .discovery-guidance {
-    margin: 4px 0;
-    font-size: 0.8rem;
+    margin: var(--space-4) 0;
+    font-size: var(--font-size-13);
     max-width: 68ch;
   }
 
   .discovery-collections {
     list-style: none;
-    margin: 6px 0;
+    margin: var(--space-6) 0;
     padding: 0;
   }
 
   .discovery-count {
-    opacity: 0.65;
-    font-size: 0.75rem;
-    margin-left: 6px;
+    margin-left: var(--space-6);
+    color: var(--muted);
+    font-size: var(--font-size-12);
   }
 </style>
